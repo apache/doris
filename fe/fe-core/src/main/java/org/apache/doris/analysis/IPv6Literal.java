@@ -65,7 +65,7 @@ public class IPv6Literal extends LiteralExpr {
 
     private void checkValueValid(String ipv6) throws AnalysisException {
         if (!IPV6_PATTERN.matcher(ipv6).matches()) {
-            throw new AnalysisException("Invalid IPv6 format: " + value + ". type: " + Type.IPV6);
+            throw new AnalysisException("Invalid IPv6 format: " + ipv6 + ". type: " + Type.IPV6);
         }
     }
 

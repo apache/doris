@@ -435,6 +435,52 @@ PROPERTIES (
 
 这种数据模型适用于既没有聚合需求，又没有主键唯一性约束的原始数据的存储。更多使用场景，可参阅**聚合模型的局限性**小节。
 
+<version since="2.0">
+
+### 无排序列 Duplicate 模型
+
+当创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个Duplicate模型的表，并自动指定排序列。
+
+当用户并没有排序需求的时候，可以通过在fe.conf中配置如下参数：
+
+```
+experimental_enable_duplicate_without_keys_by_default = true
+```
+
+然后再创建默认模型的时候，就会不再指定排序列，也不会给该表创建前缀索引，以此减少在导入和存储上额外的开销。
+
+建表语句如下：
+
+```sql
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
+(
+    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
+    `type` INT NOT NULL COMMENT "日志类型",
+    `error_code` INT COMMENT "错误码",
+    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
+    `op_id` BIGINT COMMENT "负责人id",
+    `op_time` DATETIME COMMENT "处理时间"
+)
+DISTRIBUTED BY HASH(`type`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+
+MySQL > desc example_tbl;
++------------+---------------+------+-------+---------+-------+
+| Field      | Type          | Null | Key   | Default | Extra |
++------------+---------------+------+-------+---------+-------+
+| timestamp  | DATETIME      | No   | false | NULL    | NONE  |
+| type       | INT           | No   | false | NULL    | NONE  |
+| error_code | INT           | Yes  | false | NULL    | NONE  |
+| error_msg  | VARCHAR(1024) | Yes  | false | NULL    | NONE  |
+| op_id      | BIGINT        | Yes  | false | NULL    | NONE  |
+| op_time    | DATETIME      | Yes  | false | NULL    | NONE  |
++------------+---------------+------+-------+---------+-------+
+6 rows in set (0.01 sec)
+```
+</version>
+
 ## 聚合模型的局限性
 
 这里我们针对 Aggregate 模型，来介绍下聚合模型的局限性。

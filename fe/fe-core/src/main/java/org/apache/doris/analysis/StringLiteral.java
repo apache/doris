@@ -307,17 +307,9 @@ public class StringLiteral extends LiteralExpr {
                 // pass;
             }
         } else if (targetType.isIPv4()) {
-            try {
-                return convertToIPv4();
-            } catch (AnalysisException e) {
-                // pass;
-            }
+            return convertToIPv4();
         } else if (targetType.isIPv6()) {
-            try {
-                return convertToIPv6();
-            } catch (AnalysisException e) {
-                // pass;
-            }
+            return convertToIPv6();
         } else if (targetType.equals(type)) {
             return this;
         } else if (targetType.isStringType()) {

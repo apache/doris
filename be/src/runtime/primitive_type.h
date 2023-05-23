@@ -214,14 +214,14 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
-    using CppType = uint32_t;
-    using ColumnType = vectorized::ColumnUInt32;
+    using CppType = vectorized::IPv4;
+    using ColumnType = vectorized::ColumnIPv4;
 };
 
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
-    using CppType = vectorized::UInt128;
-    using ColumnType = vectorized::ColumnUInt128;
+    using CppType = vectorized::IPv6;
+    using ColumnType = vectorized::ColumnIPv6;
 };
 
 template <>

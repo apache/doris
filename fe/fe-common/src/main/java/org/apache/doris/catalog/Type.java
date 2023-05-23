@@ -822,6 +822,10 @@ public abstract class Type {
                 return Type.FLOAT;
             case DOUBLE:
                 return Type.DOUBLE;
+            case IPV4:
+                return Type.IPV4;
+            case IPV6:
+                return Type.IPV6;
             case DATE:
                 return Type.DATE;
             case DATETIME:
@@ -1726,6 +1730,8 @@ public abstract class Type {
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
+            case IPV4:
+            case IPV6:
                 return VARCHAR;
             case DECIMALV2:
                 return DECIMALV2;

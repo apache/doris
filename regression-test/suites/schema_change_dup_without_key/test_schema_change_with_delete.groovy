@@ -30,13 +30,13 @@ suite("test_schema_change_with_delete") {
            CREATE TABLE IF NOT EXISTS ${tbName}
            (
                event_day int,
-               siteid INT ,
+               siteid int,
                citycode int,
                username VARCHAR(32) DEFAULT ''
            )
            COMMENT 'duplicate_no_keys'
            DISTRIBUTED BY HASH(event_day) BUCKETS 1
-           PROPERTIES("replication_num" = "1", "light_schema_change" = "true", "disable_auto_compaction" = "true");
+           PROPERTIES("replication_num" = "1", "light_schema_change" = "false", "disable_auto_compaction" = "true");
         """
     sql """ insert into ${tbName} values(1, 1, 1, 'aaa');"""
     sql """ insert into ${tbName} values(2, 2, 2, 'bbb');"""
@@ -46,7 +46,7 @@ suite("test_schema_change_with_delete") {
    qt_sql """select * from ${tbName} order by event_day;"""
 
    // Change column type to string
-   sql """ alter  table ${tbName} modify column citycode string """
+   sql """ alter  table test_schema_change_with_delete modify column citycode string """
 
    int max_try_time = 1000
    while(max_try_time--){

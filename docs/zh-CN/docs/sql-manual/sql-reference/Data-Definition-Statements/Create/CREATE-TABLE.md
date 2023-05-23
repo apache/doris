@@ -187,6 +187,10 @@ distribution_desc
     * AGGREGATE KEY：其后指定的列为维度列。
     * UNIQUE KEY：其后指定的列为主键列。
 
+    <version since="2.0">
+    注：当`experimental_enable_duplicate_without_keys_by_default = true`, 默认创建没有排序列的DUPLICATE表。
+    </version>
+
     示例：
     
     ```
@@ -659,6 +663,35 @@ distribution_desc
 ```
 
 注：批量创建分区可以和常规手动创建分区混用，使用时需要限制分区列只能有一个，批量创建分区实际创建默认最大数量为4096，这个参数可以在fe配置项 `max_multi_partition_num` 调整
+
+</version>
+
+<version since="2.0">
+
+14. 批量无排序列Duplicate表
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+```
+
+注：需要在fe.conf中添加`experimental_enable_duplicate_without_keys_by_default = true`
 
 </version>
 

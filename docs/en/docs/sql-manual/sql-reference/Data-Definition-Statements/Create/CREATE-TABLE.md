@@ -186,6 +186,10 @@ distribution_desc
     * AGGREGATE KEY: The specified column is the dimension column.
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
+    <version since="2.0">
+    NOTE: when `experimental_enable_duplicate_without_keys_by_default = true`, will create a duplicate model without sorting columns and prefix indexes by default.
+    </version>
+
     Example:
 
     ```
@@ -662,6 +666,37 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
 ```
 
 NOTE: Multi Partition can be mixed with conventional manual creation of partitions. When using, you need to limit the partition column to only one, The default maximum number of partitions created in multi partition is 4096, This parameter can be adjusted in fe configuration `max_multi_partition_num`.
+
+</version>
+
+</version>
+
+<version since="2.0">
+
+14. Add a duplicate without sorting column table
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+```
+
+NOTE: need add `experimental_enable_duplicate_without_keys_by_default = true` in fe.conf
 
 </version>
 

@@ -34,7 +34,7 @@ public class IPv4Literal extends LiteralExpr {
     public static final long IPV4_MIN = 0L;             // 0.0.0.0
     public static final long IPV4_MAX = (2L << 31) - 1; // 255.255.255.255
     private static final String IPV4_REGEX =
-            "^((([1-9]|1\\d|2[0-4])\\d|25[0-5])\\.){3}(([1-9]|1\\d|2[0-4])\\d|25[0-5])$";
+            "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
     private static final Pattern IPV4_PATTERN = Pattern.compile(IPV4_REGEX);
 
     private long value;

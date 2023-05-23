@@ -27,9 +27,9 @@ suite("test_schema_change_datev2_with_delete") {
     sql """
            CREATE TABLE IF NOT EXISTS ${tbName}
            (
-               `datek1` date DEFAULT '2022-01-01',
+               `datek1` datev2 DEFAULT '2022-01-01',
                `datek2` datetime DEFAULT '2022-01-01 11:11:11',
-               `datev1` date DEFAULT '2022-01-01',
+               `datev1` datev2 DEFAULT '2022-01-01',
                `datev2` datetime DEFAULT '2022-01-01 11:11:11'
            )
            COMMENT 'duplicate_no_keys'
