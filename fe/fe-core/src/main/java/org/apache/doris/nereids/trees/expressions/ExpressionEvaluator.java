@@ -34,7 +34,6 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -48,19 +47,11 @@ import java.util.List;
 public enum ExpressionEvaluator {
     INSTANCE;
 
-    private final ImmutableSet<String> noEvalDateTimeFunction = ImmutableSet.<String>builder()
-            .add("now")
-            .add("current_timestamp")
-            .build();
     private ImmutableMultimap<String, FunctionInvoker> functions;
     // the not eval non-empty arguments datetime function
 
     ExpressionEvaluator() {
         registerFunctions();
-    }
-
-    public boolean isNoEvalDateTimeFunction(String funcName) {
-        return noEvalDateTimeFunction.contains(funcName);
     }
 
     /**

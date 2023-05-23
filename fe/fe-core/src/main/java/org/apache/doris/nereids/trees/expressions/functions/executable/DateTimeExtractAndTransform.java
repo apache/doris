@@ -509,10 +509,9 @@ public class DateTimeExtractAndTransform {
         }
         return ((int) Duration.between(
                 specialLowerBound,
-                dateTime
-                .atZone(getTimeZone())
-                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                .toLocalDateTime()).getSeconds());
+                dateTime.atZone(getTimeZone())
+                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                        .toLocalDateTime()).getSeconds());
     }
 
     /**
