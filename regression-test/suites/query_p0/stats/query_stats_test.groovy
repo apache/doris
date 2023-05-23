@@ -17,20 +17,24 @@
 
 suite("query_stats_test") {
     sql "use test_query_db"
+    sql "create table baseall_stat like baseall"
+    sql "insert into baseall_stat select * from baseall"
+
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
     sql "clean all query stats"
 
     explain {
-        sql("select k1 from baseall where k1 = 1")
+        sql("select k1 from baseall_stat where k1 = 1")
     }
 
-    qt_sql "show query stats from baseall"
+    qt_sql "show query stats from baseall_stat"
 
-    sql "select k1 from baseall where k0 = 1"
-    sql "select k4 from baseall where k2 = 1991"
+    sql "select k1 from baseall_stat where k0 = 1"
+    sql "select k4 from baseall_stat where k2 = 1991"
 
-    qt_sql "show query stats from baseall"
-    qt_sql "show query stats from baseall all"
-    qt_sql "show query stats from baseall all verbose"
+    qt_sql "show query stats from baseall_stat"
+    qt_sql "show query stats from baseall_stat all"
+    qt_sql "show query stats from baseall_stat all verbose"
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
+    sql "drop table baseall_stat"
 }
