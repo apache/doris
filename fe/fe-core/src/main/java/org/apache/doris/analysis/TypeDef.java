@@ -123,14 +123,14 @@ public class TypeDef implements ParseNode {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {
                     analyzeNestedType(type, (ScalarType) itemType);
-                } else if (Config.disable_nesting_complex_type && !(itemType instanceof ArrayType)) {
+                } else if (Config.disable_nested_complex_type && !(itemType instanceof ArrayType)) {
                     // now we can array nesting array
                     throw new AnalysisException("Unsupported data type: ARRAY<" + itemType.toSql() + ">");
                 }
             }
             if (type.isMapType()) {
                 MapType mt = (MapType) type;
-                if (Config.disable_nesting_complex_type && (!(mt.getKeyType() instanceof ScalarType)
+                if (Config.disable_nested_complex_type && (!(mt.getKeyType() instanceof ScalarType)
                         || !(mt.getValueType() instanceof ScalarType))) {
                     throw new AnalysisException("Unsupported data type: MAP<" + mt.getKeyType().toSql() + ","
                         + mt.getValueType().toSql() + ">");
@@ -153,7 +153,7 @@ public class TypeDef implements ParseNode {
                             throw new AnalysisException("Duplicate field name "
                                     + field.getName() + " in struct " + type.toSql());
                         }
-                    } else if (Config.disable_nesting_complex_type) {
+                    } else if (Config.disable_nested_complex_type) {
                         throw new AnalysisException("Unsupported field type: " + fieldType.toSql() + " for STRUCT");
                     }
                 }
