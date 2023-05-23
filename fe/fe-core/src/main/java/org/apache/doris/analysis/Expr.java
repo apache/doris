@@ -1066,6 +1066,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected void resetAnalysisState() {
         isAnalyzed = false;
+        isCasted = false;
     }
 
     /**
