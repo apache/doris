@@ -323,19 +323,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.getPlanRoot().setNumInstances(1);
         rootFragment.setDestination(exchangeNode);
         context.addPlanFragment(currentFragment);
+        rootFragment.setDataPartition(currentFragment.getDataPartition());
         rootFragment = currentFragment;
         rootFragment.setSink(sink);
-
-        DistributionInfo distributionInfo = olapTableSink.getTargetTable().getDefaultDistributionInfo();
-        Preconditions.checkArgument(distributionInfo instanceof HashDistributionInfo,
-                "HashDistributionInfo is expected");
-        HashDistributionInfo hashDistributionInfo = ((HashDistributionInfo) distributionInfo);
-        List<Expr> hashCols = hashDistributionInfo.getDistributionColumns().stream()
-                .map(column -> new SlotRef(null, column.getName()))
-                .collect(Collectors.toList());
-
-        DataPartition dataPartition = DataPartition.hashPartitioned(hashCols);
-        rootFragment.setDataPartition(dataPartition);
 
         Map<Column, Slot> columnToSlots = Maps.newHashMap();
         Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
