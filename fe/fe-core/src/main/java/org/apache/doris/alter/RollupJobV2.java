@@ -271,7 +271,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 Partition.PARTITION_INIT_VERSION,
                                 rollupKeysType, TStorageType.COLUMN, storageMedium,
                                 rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch,
-                                tbl.getCopiedIndexes(),
+                                null, // do not copy indexes of base tablet to ROLLUP tablet
                                 tbl.isInMemory(),
                                 tabletType,
                                 null,
@@ -354,7 +354,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer);
+                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null);
         tbl.rebuildFullSchema();
     }
 

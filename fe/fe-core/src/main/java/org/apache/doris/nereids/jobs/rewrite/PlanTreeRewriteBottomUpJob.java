@@ -26,31 +26,50 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** PlanTreeRewriteBottomUpJob */
+/**
+ * PlanTreeRewriteBottomUpJob
+ * The job is used for bottom-up rewrite. If some rewrite rules can take effect,
+ * we will process all the rules from the leaf node again. So there are some rules that can take effect interactively,
+ * we should use the 'Bottom-Up' job to handle it.
+ */
 public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
+    // REWRITE_STATE_KEY represents the key to store the 'RewriteState'. Each plan node has their own 'RewriteState'.
+    // Different 'RewriteState' has different actions,
+    // so we will do specified action for each node based on their 'RewriteState'.
     private static final String REWRITE_STATE_KEY = "rewrite_state";
     private RewriteJobContext rewriteJobContext;
     private List<Rule> rules;
 
     enum RewriteState {
-        ENSURE_CHILDREN_REWRITTEN, REWRITE_THIS, REWRITTEN
+        // 'REWRITE_THIS' means the current plan node can be handled immediately. If the plan state is 'REWRITE_THIS',
+        // it means all of its children's state are 'REWRITTEN'. Because we handle the plan tree bottom up.
+        REWRITE_THIS,
+        // 'REWRITTEN' means the current plan have been handled already, we don't need to do anything else.
+        REWRITTEN,
+        // 'ENSURE_CHILDREN_REWRITTEN' means we need to check the children for the current plan node first.
+        // It means some plans have changed after rewrite, so we need traverse the plan tree and reset their state.
+        // All the plan nodes need to be handled again.
+        ENSURE_CHILDREN_REWRITTEN
     }
 
     public PlanTreeRewriteBottomUpJob(RewriteJobContext rewriteJobContext, JobContext context, List<Rule> rules) {
-        super(JobType.TOP_DOWN_REWRITE, context);
+        super(JobType.BOTTOM_UP_REWRITE, context);
         this.rewriteJobContext = Objects.requireNonNull(rewriteJobContext, "rewriteContext cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
     }
 
     @Override
     public void execute() {
-        // use childrenVisited to judge whether clear the state in the previous batch
+        // For the bottom-up rewrite job, we need to reset the state of its children
+        // if the plan has changed after the rewrite. So we use the 'childrenVisited' to check this situation.
         boolean clearStatePhase = !rewriteJobContext.childrenVisited;
         if (clearStatePhase) {
             traverseClearState();
             return;
         }
 
+        // We'll do different actions based on their different states.
+        // You can check the comment in 'RewriteState' structure for more details.
         Plan plan = rewriteJobContext.plan;
         RewriteState state = getState(plan);
         switch (state) {
@@ -69,10 +88,13 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
     }
 
     private void traverseClearState() {
+        // Reset the state for current node.
         RewriteJobContext clearedStateContext = rewriteJobContext.withChildrenVisited(true);
         setState(clearedStateContext.plan, RewriteState.REWRITE_THIS);
         pushJob(new PlanTreeRewriteBottomUpJob(clearedStateContext, context, rules));
 
+        // Generate the new rewrite job for its children. Because the character of stack is 'first in, last out',
+        // so we can traverse reset the state for the plan node until the leaf node.
         List<Plan> children = clearedStateContext.plan.children();
         for (int i = children.size() - 1; i >= 0; i--) {
             Plan child = children.get(i);
@@ -83,25 +105,30 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
     }
 
     private void rewriteThis() {
+        // Link the current node with the sub-plan to get the current plan which is used in the rewrite phase later.
         Plan plan = linkChildren(rewriteJobContext.plan, rewriteJobContext.childrenContext);
         RewriteResult rewriteResult = rewrite(plan, rules, rewriteJobContext);
         if (rewriteResult.hasNewPlan) {
             RewriteJobContext newJobContext = rewriteJobContext.withPlan(rewriteResult.plan);
             RewriteState state = getState(rewriteResult.plan);
-            // some eliminate rule will return a rewritten plan
+            // Some eliminate rule will return a rewritten plan, for example the current node is eliminated
+            // and return the child plan. So we don't need to handle it again.
             if (state == RewriteState.REWRITTEN) {
                 newJobContext.setResult(rewriteResult.plan);
                 return;
             }
+            // After the rewrite take effect, we should handle the children part again.
             pushJob(new PlanTreeRewriteBottomUpJob(newJobContext, context, rules));
             setState(rewriteResult.plan, RewriteState.ENSURE_CHILDREN_REWRITTEN);
         } else {
+            // No new plan is generated, so just set the state of the current plan to 'REWRITTEN'.
             setState(rewriteResult.plan, RewriteState.REWRITTEN);
             rewriteJobContext.setResult(rewriteResult.plan);
         }
     }
 
     private void ensureChildrenRewritten() {
+        // Similar to the function 'traverseClearState'.
         Plan plan = rewriteJobContext.plan;
         setState(plan, RewriteState.REWRITE_THIS);
         pushJob(new PlanTreeRewriteBottomUpJob(rewriteJobContext, context, rules));

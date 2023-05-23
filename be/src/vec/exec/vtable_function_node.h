@@ -55,7 +55,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
         RETURN_IF_ERROR(alloc_resource(state));
         return _children[0]->open(state);
     }

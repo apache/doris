@@ -108,7 +108,7 @@ public class ColocateTableCheckerAndBalancerTest {
 
     @Test
     public void testBalance(@Mocked SystemInfoService infoService,
-                            @Mocked ClusterLoadStatistic statistic) {
+            @Mocked LoadStatisticForTag statistic) {
         new Expectations() {
             {
                 infoService.getBackend(1L);
@@ -183,7 +183,7 @@ public class ColocateTableCheckerAndBalancerTest {
 
     @Test
     public void testFixBalanceEndlessLoop(@Mocked SystemInfoService infoService,
-                                          @Mocked ClusterLoadStatistic statistic) {
+            @Mocked LoadStatisticForTag statistic) {
         new Expectations() {
             {
                 infoService.getBackend(1L);
@@ -252,13 +252,13 @@ public class ColocateTableCheckerAndBalancerTest {
 
     @Test
     public void testFixBalanceEndlessLoop2(@Mocked SystemInfoService infoService,
-                                           @Mocked ClusterLoadStatistic statistic) {
+            @Mocked LoadStatisticForTag statistic) {
         new Expectations() {
             {
                 statistic.getBackendLoadStatistic(anyLong);
                 result = new Delegate<BackendLoadStatistic>() {
                     BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null, null);
+                        return new FakeBackendLoadStatistic(beId, null, null);
                     }
                 };
                 minTimes = 0;
@@ -282,13 +282,13 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     @Test
-    public void testGetSortedBackendReplicaNumPairs(@Mocked ClusterLoadStatistic statistic) {
+    public void testGetSortedBackendReplicaNumPairs(@Mocked LoadStatisticForTag statistic) {
         new Expectations() {
             {
                 statistic.getBackendLoadStatistic(anyLong);
                 result = new Delegate<BackendLoadStatistic>() {
                     BackendLoadStatistic delegate(Long beId) {
-                        return new FakeBackendLoadStatistic(beId, null, null, null);
+                        return new FakeBackendLoadStatistic(beId, null, null);
                     }
                 };
                 minTimes = 0;
@@ -313,9 +313,9 @@ public class ColocateTableCheckerAndBalancerTest {
     }
 
     public final class FakeBackendLoadStatistic extends BackendLoadStatistic {
-        public FakeBackendLoadStatistic(long beId, String clusterName, SystemInfoService infoService,
-                                        TabletInvertedIndex invertedIndex) {
-            super(beId, clusterName, Tag.DEFAULT_BACKEND_TAG, infoService, invertedIndex);
+        public FakeBackendLoadStatistic(long beId, SystemInfoService infoService,
+                TabletInvertedIndex invertedIndex) {
+            super(beId, Tag.DEFAULT_BACKEND_TAG, infoService, invertedIndex);
         }
 
         @Override
@@ -447,7 +447,7 @@ public class ColocateTableCheckerAndBalancerTest {
         List<Long> clusterBackendIds = Lists.newArrayList(1L, 2L, 3L, 4L, 5L);
         new Expectations() {
             {
-                infoService.getClusterBackendIds("cluster1", false);
+                infoService.getAllBackendIds(false);
                 result = clusterBackendIds;
                 minTimes = 0;
 

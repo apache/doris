@@ -40,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -108,7 +107,7 @@ public class ResourceTagQueryTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();

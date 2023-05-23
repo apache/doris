@@ -127,7 +127,6 @@ public class ColocateMetaService extends RestBaseController {
         }
 
         executeWithoutPassword(request, response);
-        final String clusterName = ConnectContext.get().getClusterName();
         GroupId groupId = checkAndGetGroupId(request);
 
         Type type = new TypeToken<List<List<Long>>>() {
@@ -141,7 +140,7 @@ public class ColocateMetaService extends RestBaseController {
                     + groupSchema.getBucketsNum() + ", actual: " + backendsPerBucketSeq.size());
         }
 
-        List<Long> clusterBackendIds = Env.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
+        List<Long> clusterBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         //check the Backend id
         for (List<Long> backendIds : backendsPerBucketSeq) {
             if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {

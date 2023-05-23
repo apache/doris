@@ -64,7 +64,7 @@ public class OptimizeGroupExpressionJob extends Job {
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
-            return getRuleSet().getOtherReorderRules();
+            return getRuleSet().getDPHypReorderRules();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= 5) {

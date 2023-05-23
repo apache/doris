@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
  */
 public class BeSelectionPolicy {
     private static final Logger LOG = LogManager.getLogger(BeSelectionPolicy.class);
-    public String cluster = SystemInfoService.DEFAULT_CLUSTER;
     public boolean needScheduleAvailable = false;
     public boolean needQueryAvailable = false;
     public boolean needLoadAvailable = false;
@@ -63,11 +62,6 @@ public class BeSelectionPolicy {
 
         public Builder() {
             policy = new BeSelectionPolicy();
-        }
-
-        public Builder setCluster(String cluster) {
-            policy.cluster = cluster;
-            return this;
         }
 
         public Builder needScheduleAvailable() {
@@ -203,8 +197,8 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("computeNode=%s | cluster=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
-                preferComputeNode, cluster, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
+        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
+                preferComputeNode, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
                 resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")), storageMedium);
     }
 }

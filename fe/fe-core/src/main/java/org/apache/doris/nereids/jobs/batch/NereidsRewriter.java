@@ -61,19 +61,20 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.logical.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTranspose;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinAggTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTranspose;
-import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.logical.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinAgg;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinAggProject;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinLogicalJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.TransposeSemiJoinLogicalJoinProject;
 
 import com.google.common.collect.ImmutableList;
 
@@ -183,10 +184,10 @@ public class NereidsRewriter extends BatchRewriteJob {
                 // pushdown SEMI Join
                 bottomUp(
                     new SemiJoinCommute(),
-                    new SemiJoinLogicalJoinTranspose(),
-                    new SemiJoinLogicalJoinTransposeProject(),
-                    new SemiJoinAggTranspose(),
-                    new SemiJoinAggTransposeProject()
+                    new TransposeSemiJoinLogicalJoin(),
+                    new TransposeSemiJoinLogicalJoinProject(),
+                    new TransposeSemiJoinAgg(),
+                    new TransposeSemiJoinAggProject()
                 ),
 
                 topDown(
@@ -244,7 +245,8 @@ public class NereidsRewriter extends BatchRewriteJob {
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     new SplitLimit(),
-                    new PruneOlapScanPartition()
+                    new PruneOlapScanPartition(),
+                    new PruneFileScanPartition()
                 )
             ),
 
@@ -260,10 +262,11 @@ public class NereidsRewriter extends BatchRewriteJob {
             ),
 
             // this rule batch must keep at the end of rewrite to do some plan check
-            topic("Final rewrite and check", bottomUp(
-                new AdjustNullable(),
-                new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
-                new CheckAfterRewrite()
+            topic("Final rewrite and check",
+                custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                bottomUp(
+                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
+                    new CheckAfterRewrite()
             ))
     );
 

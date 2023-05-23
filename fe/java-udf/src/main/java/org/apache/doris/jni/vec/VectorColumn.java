@@ -447,7 +447,7 @@ public class VectorColumn {
 
     private void putDateTime(int rowId, LocalDateTime v) {
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                v.getMinute(), v.getSecond());
+                v.getMinute(), v.getSecond(), v.getNano() / 1000);
         OffHeap.putLong(null, data + rowId * 8L, time);
     }
 

@@ -1219,7 +1219,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: bool
 * Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
-* Default value: true
+* Default value: false
 
 #### `streaming_load_rpc_max_alive_time_sec`
 
@@ -1411,3 +1411,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Default value: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true

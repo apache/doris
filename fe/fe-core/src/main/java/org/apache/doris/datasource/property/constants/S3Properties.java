@@ -131,7 +131,10 @@ public class S3Properties extends BaseProperties {
             if (entry.getKey().startsWith(OssProperties.OSS_PREFIX)) {
                 String s3Key = entry.getKey().replace(OssProperties.OSS_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
-            } else if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
+            } else if (entry.getKey().startsWith(GCSProperties.GCS_PREFIX)) {
+                String s3Key = entry.getKey().replace(GCSProperties.GCS_PREFIX, S3Properties.S3_PREFIX);
+                s3Properties.put(s3Key, entry.getValue());
+            }  else if (entry.getKey().startsWith(CosProperties.COS_PREFIX)) {
                 String s3Key = entry.getKey().replace(CosProperties.COS_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
             } else if (entry.getKey().startsWith(ObsProperties.OBS_PREFIX)) {

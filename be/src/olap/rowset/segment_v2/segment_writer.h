@@ -70,11 +70,12 @@ extern const uint32_t k_segment_magic_length;
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
+    bool is_direct_write = false;
+    CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
     // If it is directly write from load procedure, else
     // it could be compaction or schema change etc..
-    bool is_direct_write = false;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -117,8 +118,8 @@ public:
     Status finalize_footer(uint64_t* segment_file_size);
     Status finalize_footer();
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                                 TabletSchemaSPtr tablet_schema);
+    void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                          TabletSchemaSPtr tablet_schema);
     Slice min_encoded_key();
     Slice max_encoded_key();
 

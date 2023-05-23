@@ -274,7 +274,6 @@ public:
     ~DataSinkOperator() override = default;
 
     Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(_sink->prepare(state));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
         return Status::OK();
     }

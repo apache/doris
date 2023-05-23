@@ -78,7 +78,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
-        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d, %d)");
@@ -88,6 +88,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
         TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE, "quantile_state");
+        TYPE_STRING_MAP.put(PrimitiveType.AGG_STATE, "agg_state");
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.VARIANT, "variant");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
@@ -552,8 +553,13 @@ public class Util {
         }
     }
 
+    /**
+     * Infer {@link TFileCompressType} from file name.
+     *
+     * @param path of file to be inferred.
+     */
     @NotNull
-    public static TFileCompressType getFileCompressType(String path) {
+    public static TFileCompressType inferFileCompressTypeByPath(String path) {
         String lowerCasePath = path.toLowerCase();
         if (lowerCasePath.endsWith(".gz")) {
             return TFileCompressType.GZ;
@@ -570,6 +576,20 @@ public class Util {
         } else {
             return TFileCompressType.PLAIN;
         }
+    }
+
+    public static TFileCompressType getFileCompressType(String compressType) {
+        final String upperCaseType = compressType.toUpperCase();
+        return TFileCompressType.valueOf(upperCaseType);
+    }
+
+    /**
+     * Pass through the compressType if it is not {@link TFileCompressType#UNKNOWN}. Otherwise, return the
+     * inferred type from path.
+     */
+    public static TFileCompressType getOrInferCompressType(TFileCompressType compressType, String path) {
+        return compressType == TFileCompressType.UNKNOWN
+                ? inferFileCompressTypeByPath(path.toLowerCase()) : compressType;
     }
 
     public static boolean isCsvFormat(TFileFormatType fileFormatType) {

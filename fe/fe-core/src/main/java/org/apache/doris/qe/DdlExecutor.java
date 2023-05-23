@@ -120,10 +120,15 @@ import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * Use for execute ddl.
  **/
 public class DdlExecutor {
+    private static final Logger LOG = LogManager.getLogger(DdlExecutor.class);
+
     /**
      * Execute ddl.
      **/
@@ -348,6 +353,7 @@ public class DdlExecutor {
             }
             env.cleanQueryStats(cleanQueryStatsInfo);
         } else {
+            LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
         }
     }

@@ -1235,7 +1235,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：bool
 * 描述：导入时大部分partition可能都不需要写入，可以使用延迟打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
-* 默认值：true
+* 默认值：false
 
 #### `streaming_load_rpc_max_alive_time_sec`
 
@@ -1428,3 +1428,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 默认值: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
+* 默认值: true

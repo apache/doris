@@ -312,6 +312,7 @@
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
+                                "sql-manual/sql-functions/array-functions/array_count",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
                             ]
@@ -494,6 +495,14 @@
                         },
                         {
                             "type": "category",
+                            "label": "Struct Functions",
+                            "items": [
+                                "sql-manual/sql-functions/struct-functions/struct",
+                                "sql-manual/sql-functions/struct-functions/named_struct"
+                            ]
+                        },
+                        {
+                            "type": "category",
                             "label": "Aggregate Functions",
                             "items": [
                                 "sql-manual/sql-functions/aggregate-functions/collect_set",
@@ -598,19 +607,18 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
-                                "sql-manual/sql-functions/json-functions/jsonb_parse",
-                                "sql-manual/sql-functions/json-functions/jsonb_extract",
-                                "sql-manual/sql-functions/json-functions/jsonb_exists_path",
-                                "sql-manual/sql-functions/json-functions/jsonb_type",
-                                "sql-manual/sql-functions/json-functions/get_json_double",
-                                "sql-manual/sql-functions/json-functions/get_json_int",
-                                "sql-manual/sql-functions/json-functions/get_json_string",
+                                "sql-manual/sql-functions/json-functions/json_parse",
+                                "sql-manual/sql-functions/json-functions/json_extract",
+                                "sql-manual/sql-functions/json-functions/json_exists_path",
+                                "sql-manual/sql-functions/json-functions/json_type",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
                                 "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
-                                "sql-manual/sql-functions/json-functions/json_extract"
+                                "sql-manual/sql-functions/json-functions/get_json_double",
+                                "sql-manual/sql-functions/json-functions/get_json_int",
+                                "sql-manual/sql-functions/json-functions/get_json_string"
                             ]
                         },
                         {
@@ -1013,7 +1021,9 @@
                                 "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/JSONB"
+                                "sql-manual/sql-reference/Data-Types/MAP",
+                                "sql-manual/sql-reference/Data-Types/STRUCT",
+                                "sql-manual/sql-reference/Data-Types/JSON"
                             ]
                         },
                         {

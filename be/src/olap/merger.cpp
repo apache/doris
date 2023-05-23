@@ -169,7 +169,10 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
-    column_groups->emplace_back(std::move(key_columns));
+    // for duplicate no keys
+    if (!key_columns.empty()) {
+        column_groups->emplace_back(std::move(key_columns));
+    }
     std::vector<uint32_t> value_columns;
     for (auto i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx) {

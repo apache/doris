@@ -1,4 +1,5 @@
 // Licensed to the Apache Software Foundation (ASF) under one
+
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -567,6 +568,15 @@ message PResetRPCChannelResponse {
 message PEmptyRequest {};
 
 message PTabletWriteSlaveRequest {
+    message IndexSize {
+        required int64 indexId = 1;
+        required int64 size = 2;
+    };
+
+    message IndexSizeMap{
+        repeated IndexSize index_sizes = 1;
+    };
+
     optional RowsetMetaPB rowset_meta = 1;
     optional string rowset_path = 2;
     map<int64, int64> segments_size = 3;
@@ -575,6 +585,7 @@ message PTabletWriteSlaveRequest {
     optional int32 brpc_port = 6;
     optional string token = 7;
     optional int32 node_id = 8;
+    map<int64, IndexSizeMap> inverted_indices_size = 9;
 };
 
 message PTabletWriteSlaveResult {
@@ -603,23 +614,35 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
+message PRowLocation {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional uint64 segment_id = 3;
+    optional uint64 ordinal_id = 4;
+}
+
 message PMultiGetRequest {
-    message RowId {
-        optional int64 tablet_id = 1;
-        optional string rowset_id = 2;
-        optional uint64 segment_id = 3;
-        optional uint64 ordinal_id = 4;
-    };
-    repeated RowId rowids = 1;
+    repeated PRowLocation row_locs = 1;
     optional PTupleDescriptor desc = 2;
     repeated PSlotDescriptor slots = 3;
     // for compability
     optional int32 be_exec_version = 4;
+    optional bool fetch_row_store = 5;
+    optional PUniqueId query_id = 6;
 };
 
 message PMultiGetResponse {
     optional PBlock block = 1;
     optional PStatus status = 2;
+ 
+    // more effecient serialization fields for row store
+    enum RowFormat {
+        JSONB = 0;
+    };
+    optional RowFormat format = 3;
+    repeated bytes binary_row_data = 4;
+    // for sorting rows
+    repeated PRowLocation row_locs = 5;
 };
 
 message PFetchColIdsRequest {

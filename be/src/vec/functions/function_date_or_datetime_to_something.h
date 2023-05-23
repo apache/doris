@@ -88,7 +88,6 @@ public:
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
     bool use_default_implementation_for_nulls() const override { return false; }
 

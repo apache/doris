@@ -38,10 +38,10 @@
 #include <math.h>
 #include <string.h>
 
-#include <CLucene/util/croaring/roaring.hh>
 #include <algorithm>
 #include <filesystem>
 #include <ostream>
+#include <roaring/roaring.hh>
 #include <set>
 
 #include "common/config.h"
@@ -110,7 +110,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         }
 
         // ownership of null_bitmap and its deletion will be transfered to cache
-        roaring::Roaring* null_bitmap = new roaring::Roaring();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (dir->fileExists(null_bitmap_file_name.c_str())) {
             null_bitmap_in = dir->openInput(null_bitmap_file_name.c_str());
@@ -226,7 +226,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
         bool first = true;
         bool null_bitmap_already_read = false;
         for (auto token_ws : analyse_result) {
-            roaring::Roaring* term_match_bitmap = nullptr;
+            std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
 
             // try to get term bitmap match result from cache to avoid query index on cache hit
             auto cache = InvertedIndexQueryCache::instance();
@@ -247,7 +247,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
                 }
 
-                term_match_bitmap = new roaring::Roaring();
+                term_match_bitmap = std::make_shared<roaring::Roaring>();
                 // unique_ptr with custom deleter
                 std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
                         _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str()),
@@ -437,7 +437,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     // add to cache
-    roaring::Roaring* term_match_bitmap = new roaring::Roaring(result);
+    std::shared_ptr<roaring::Roaring> term_match_bitmap =
+            std::make_shared<roaring::Roaring>(result);
     term_match_bitmap->runOptimize();
     cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
@@ -478,12 +479,7 @@ Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string&
                                  const void* query_value, InvertedIndexQueryType query_type,
                                  std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
                                  InvertedIndexVisitor* visitor) {
-    auto status = get_bkd_reader(r);
-    if (!status.ok()) {
-        LOG(WARNING) << "get bkd reader for column " << column_name
-                     << " failed: " << status.code_as_string();
-        return status;
-    }
+    RETURN_IF_ERROR(get_bkd_reader(r));
     char tmp[r->bytes_per_dim_];
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY: {
@@ -520,7 +516,15 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
+        auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
+        if (!st.ok()) {
+            if (st.code() == ErrorCode::END_OF_FILE) {
+                return Status::OK();
+            }
+            LOG(WARNING) << "bkd_query for column " << column_name
+                         << " failed: " << st.code_as_string();
+            return st;
+        }
         *count = r->estimate_point_count(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
@@ -562,7 +566,15 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-        RETURN_IF_ERROR(bkd_query(stats, column_name, query_value, query_type, r, visitor.get()));
+        auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
+        if (!st.ok()) {
+            if (st.code() == ErrorCode::END_OF_FILE) {
+                return Status::OK();
+            }
+            LOG(WARNING) << "bkd_query for column " << column_name
+                         << " failed: " << st.code_as_string();
+            return st;
+        }
         r->intersect(visitor.get());
     } catch (const CLuceneError& e) {
         LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
@@ -606,6 +618,7 @@ Status BkdIndexReader::get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_rea
 
     bkdReader = std::make_shared<lucene::util::bkd::bkd_reader>(data_in.release());
     if (0 == bkdReader->read_meta(meta_in.get())) {
+        VLOG_NOTICE << "bkd index file is empty:" << _compoundReader->toString();
         return Status::EndOfFile("bkd index file is empty");
     }
 
@@ -674,7 +687,7 @@ void InvertedIndexVisitor::visit(std::vector<char>& doc_id, std::vector<uint8_t>
     visit(roaring::Roaring::read(doc_id.data(), false));
 }
 
-void InvertedIndexVisitor::visit(Roaring* doc_id, std::vector<uint8_t>& packed_value) {
+void InvertedIndexVisitor::visit(roaring::Roaring* doc_id, std::vector<uint8_t>& packed_value) {
     if (!matches(packed_value.data())) {
         return;
     }

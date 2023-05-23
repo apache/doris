@@ -463,8 +463,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     size_t get_number_of_arguments() const override { return 1; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -775,8 +773,6 @@ public:
     String get_name() const override { return name; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
@@ -1180,7 +1176,6 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     //TODO: add function below when we fixed be-ut.
     //ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
