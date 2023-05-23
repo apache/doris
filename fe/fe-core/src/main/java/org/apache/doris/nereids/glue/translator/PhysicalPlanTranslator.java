@@ -352,11 +352,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         rootFragment.setPlanRoot(exchangeNode.getChild(0));
+        rootFragment.getPlanRoot().setNumInstances(1);
         rootFragment.setDestination(exchangeNode);
         context.addPlanFragment(currentFragment);
         rootFragment = currentFragment;
+        rootFragment.getPlanRoot().setNumInstances(1);
         rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
-        rootFragment.setParallelExecNum(1);
         rootFragment.setSink(sink);
 
         rootFragment.finalize(null);
