@@ -47,5 +47,12 @@ suite("test_duplicate_table") {
     qt_desc_dup_table "desc ${tbName2}"
     qt_show_dup_table "show create table ${tbName2}"
 
+    def tbName3 = "test_default_data_model_no_keys_like"
+    sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql """create table ${tbName3} like ${tbName2}"""
+    qt_desc_dup_table "desc ${tbName3}"
+    qt_show_dup_table "show create table ${tbName3}"    
+
     sql "DROP TABLE ${tbName2}"
+    sql "DROP TABLE ${tbName3}"
 }
