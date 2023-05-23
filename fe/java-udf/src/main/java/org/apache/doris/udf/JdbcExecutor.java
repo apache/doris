@@ -219,6 +219,7 @@ public class JdbcExecutor {
             case DOUBLE:
                 preparedStatement.setDouble(parameterIndex, column.getDouble(rowIdx));
                 break;
+            case LARGEINT:
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
@@ -430,12 +431,8 @@ public class JdbcExecutor {
                     }
                     batchSizeNum = batchSize;
                 } else {
-                    if (tableType == TOdbcTableType.ORACLE) {
-                        LOG.info("insert sql: " + sql);
-                        preparedStatement = conn.prepareStatement(sql);
-                    } else {
-                        stmt = conn.createStatement();
-                    }
+                    LOG.info("insert sql: " + sql);
+                    preparedStatement = conn.prepareStatement(sql);
                 }
             }
         } catch (MalformedURLException e) {
