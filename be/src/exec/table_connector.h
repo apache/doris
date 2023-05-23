@@ -93,19 +93,6 @@ protected:
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
-
-private:
-    // Because Oracle and SAP Hana database do not support
-    // insert into tables values (...),(...);
-    // Here we do something special for Oracle and SAP Hana.
-    Status oracle_type_append(const std::string& table_name, vectorized::Block* block,
-                              const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-                              uint32_t start_send_row, uint32_t* num_rows_sent,
-                              TOdbcTableType::type table_type);
-    Status sap_hana_type_append(const std::string& table_name, vectorized::Block* block,
-                                const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-                                uint32_t start_send_row, uint32_t* num_rows_sent,
-                                TOdbcTableType::type table_type);
 };
 
 } // namespace doris
