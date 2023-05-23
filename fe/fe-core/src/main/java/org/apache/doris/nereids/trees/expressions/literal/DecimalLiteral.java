@@ -38,7 +38,8 @@ public class DecimalLiteral extends Literal {
 
     public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
         super(dataType);
-        this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
+        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(dataType.getScale(), RoundingMode.DOWN);
+        this.value = Objects.requireNonNull(adjustedValue);
     }
 
     @Override
