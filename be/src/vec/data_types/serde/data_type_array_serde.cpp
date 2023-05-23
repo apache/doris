@@ -92,6 +92,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
     auto& data = column_array.get_data();
+    bool is_nested_string = data.is_column_string();
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
@@ -103,8 +104,19 @@ Status DataTypeArraySerDe::_write_column_to_mysql(
             if (j != offsets[col_index - 1]) {
                 buf_ret = result[row_idx].push_string(", ", 2);
             }
-            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j, j + 1,
-                                                                scale, col_const));
+            if (data.is_null_at(j)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
+            } else {
+                if (is_nested_string) {
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                    RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j,
+                                                                        j + 1, scale, col_const));
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                } else {
+                    RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j,
+                                                                        j + 1, scale, col_const));
+                }
+            }
         }
         buf_ret = result[row_idx].push_string("]", 1);
         result[row_idx].close_dynamic_mode();

@@ -135,7 +135,6 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
         }
         const auto col_index = index_check_const(i, col_const);
         const auto string_val = col.get_data_at(col_index);
-        LOG(WARNING) << "amory: " << col_index << " : " << string_val;
         if (string_val.data == nullptr) {
             if (string_val.size == 0) {
                 // 0x01 is a magic num, not useful actually, just for present ""

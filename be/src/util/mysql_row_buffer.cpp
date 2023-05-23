@@ -529,11 +529,6 @@ template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_null() {
     if (_dynamic_mode) {
         // for nested type
-        int ret = push_string("NULL", strlen("NULL"));
-        if (0 != ret) {
-            LOG(ERROR) << "mysql row buffer reserve failed.";
-            return ret;
-        }
         return 0;
     }
 

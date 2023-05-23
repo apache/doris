@@ -74,9 +74,22 @@ Status DataTypeStructSerDe::_write_column_to_mysql(
             if (!begin) {
                 buf_ret = result[row_idx].push_string(", ", 2);
             }
-            RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(
-                    col.get_column(j), result, row_idx, col_index, col_index + 1, scale,
-                    col_const));
+
+            if (col.get_column_ptr(j)->is_null_at(col_index)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
+            } else {
+                if (remove_nullable(col.get_column_ptr(j))->is_column_string()) {
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                    RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(
+                            col.get_column(j), result, row_idx, col_index, col_index + 1, scale,
+                            col_const));
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                } else {
+                    RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(
+                            col.get_column(j), result, row_idx, col_index, col_index + 1, scale,
+                            col_const));
+                }
+            }
             begin = false;
         }
         buf_ret = result[row_idx].push_string("}", 1);
