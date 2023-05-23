@@ -73,8 +73,10 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor> *name_to_type,
                        std::unordered_set<std::string> *missing_cols) override;
 
-    Status init_reader(
+    Status init_fetch_table_reader(
             std::unordered_map<std::string, ColumnValueRangeType> *colname_to_value_range);
+
+    Status init_fetch_table_schema_reader();
 
     Status get_parsed_schema(std::vector<std::string>* col_names, std::vector<TypeDescriptor>* col_types) override;
 
@@ -82,6 +84,8 @@ private:
     const std::vector<SlotDescriptor *> &_file_slot_descs;
     RuntimeState *_state;
     RuntimeProfile *_profile;
+    const TFileScanRangeParams _params;
+    const TFileRangeDesc _range;
     std::unordered_map<std::string, ColumnValueRangeType> *_colname_to_value_range;
     std::unique_ptr<JniConnector> _jni_connector;
 };

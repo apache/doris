@@ -587,6 +587,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroReader::create_unique(params, range,file_slots);
+            ((vectorized::AvroReader *) (reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:

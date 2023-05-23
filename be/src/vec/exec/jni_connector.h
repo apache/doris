@@ -166,8 +166,7 @@ public:
               _column_names(std::move(column_names)) {}
 
     /**
-    * Use configuration map to provide scan information. The java side should determine how the parameters
-    * are parsed. For example, using "required_fields=col0,col1,...,colN" to provide the scan fields.
+    * Use configuration map to provide scan information. The java side should determine how the parameters are parsed.
     * @param connector_class Java scanner class
     * @param scanner_params Provided configuration map
     */
@@ -180,6 +179,12 @@ public:
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
 
+    /**
+     * Open java scanner, and get the following scanner methods by jni:
+     * 1. getTableSchema: read table scheme information
+     * 2. releaseTableSchema: release current table schema address
+     * 3. close: close java scanner, and release jni resources
+     */
     Status open();
 
     /**
