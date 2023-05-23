@@ -930,49 +930,211 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     const static std::string empty_string;
-    auto* data = down_cast<orc::StringVectorBatch*>(cvb);
-    if (data == nullptr) {
-        return Status::InternalError("Wrong data type for colum '{}'", col_name);
-    }
-    std::vector<StringRef> string_values;
-    string_values.reserve(num_values);
-    if (type_kind == orc::TypeKind::CHAR) {
-        // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
+    if (type_kind == orc::TypeKind::BYTE || type_kind == orc::TypeKind::SHORT ||
+        type_kind == orc::TypeKind::INT || type_kind == orc::TypeKind::LONG) {
+        auto* data = down_cast<orc::LongVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
+                    std::string str_val = std::to_string(data->data[i]);
+                    string_values.emplace_back(str_val.data(), str_val.size());
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                std::string str_val = std::to_string(data->data[i]);
+                string_values.emplace_back(str_val.data(), str_val.size());
+            }
+        }
+
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
+    } else if (type_kind == orc::TypeKind::FLOAT || type_kind == orc::TypeKind::DOUBLE) {
+        auto* data = down_cast<orc::DoubleVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    std::string str_val = std::to_string(data->data[i]);
+                    string_values.emplace_back(str_val.data(), str_val.size());
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                std::string str_val = std::to_string(data->data[i]);
+                string_values.emplace_back(str_val.data(), str_val.size());
+            }
+        }
+
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
+    } else if (type_kind == orc::TypeKind::TIMESTAMP) {
+        auto* data = down_cast<orc::TimestampVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+        std::vector<std::string> str_val_holder;
+        str_val_holder.reserve(num_values);
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    char buffer[64];
+                    std::time_t rawtime = static_cast<std::time_t>(data->data[i]);
+                    std::tm* ptm = std::localtime(&rawtime);
+                    int microseconds = static_cast<int>(1e6 * (data->data[i] - rawtime));
+                    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                                  ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour,
+                                  ptm->tm_min, ptm->tm_sec, microseconds);
+                    str_val_holder.emplace_back(std::string(buffer));
+                    string_values.emplace_back(str_val_holder.back().data(),
+                                               str_val_holder.back().size());
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                char buffer[64];
+                std::time_t rawtime = static_cast<std::time_t>(data->data[i]);
+                std::tm* ptm = std::localtime(&rawtime);
+                int microseconds = static_cast<int>(1e6 * (data->data[i] - rawtime));
+                std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d.%06d",
+                              ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour,
+                              ptm->tm_min, ptm->tm_sec, microseconds);
+                str_val_holder.emplace_back(std::string(buffer));
+                string_values.emplace_back(str_val_holder.back().data(),
+                                           str_val_holder.back().size());
+            }
+        }
+
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
+    } else if (type_kind == orc::TypeKind::DATE) {
+        auto* data = down_cast<orc::LongVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    std::time_t rawtime = data->data[i] * 24 * 60 * 60;
+                    std::tm* ptm = std::localtime(&rawtime);
+                    char buffer[32];
+                    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", ptm->tm_year + 1900,
+                                  ptm->tm_mon + 1, ptm->tm_mday);
+                    std::string str_val = std::string(buffer);
+                    string_values.emplace_back(str_val.data(), str_val.size());
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                std::time_t rawtime = data->data[i] * 24 * 60 * 60;
+                std::tm* ptm = std::localtime(&rawtime);
+                char buffer[32];
+                std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", ptm->tm_year + 1900,
+                              ptm->tm_mon + 1, ptm->tm_mday);
+                std::string str_val = std::string(buffer);
+                string_values.emplace_back(str_val.data(), str_val.size());
+            }
+        }
+
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
+    } else if (type_kind == orc::TypeKind::DECIMAL) {
+        auto* data = dynamic_cast<orc::Decimal128VectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+
+        if (cvb->hasNulls) {
+            for (int i = 0; i < num_values; ++i) {
+                if (cvb->notNull[i]) {
+                    std::string str_val = data->values[i].toString();
+                    string_values.emplace_back(str_val.data(), str_val.size());
+                } else {
+                    string_values.emplace_back(empty_string.data(), 0);
+                }
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                std::string str_val = data->values[i].toString();
+                string_values.emplace_back(str_val.data(), str_val.size());
+            }
+        }
+
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
+    }
+
+    else {
+        auto* data = down_cast<orc::StringVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        }
+        std::vector<StringRef> string_values;
+        string_values.reserve(num_values);
+        if (type_kind == orc::TypeKind::CHAR) {
+            // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
+            if (cvb->hasNulls) {
+                for (int i = 0; i < num_values; ++i) {
+                    if (cvb->notNull[i]) {
+                        string_values.emplace_back(data->data[i],
+                                                   trim_right(data->data[i], data->length[i]));
+                    } else {
+                        // Orc doesn't fill null values in new batch, but the former batch has been release.
+                        // Other types like int/long/timestamp... are flat types without pointer in them,
+                        // so other types do not need to be handled separately like string.
+                        string_values.emplace_back(empty_string.data(), 0);
+                    }
+                }
+            } else {
+                for (int i = 0; i < num_values; ++i) {
                     string_values.emplace_back(data->data[i],
                                                trim_right(data->data[i], data->length[i]));
-                } else {
-                    // Orc doesn't fill null values in new batch, but the former batch has been release.
-                    // Other types like int/long/timestamp... are flat types without pointer in them,
-                    // so other types do not need to be handled separately like string.
-                    string_values.emplace_back(empty_string.data(), 0);
                 }
             }
         } else {
-            for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(data->data[i],
-                                           trim_right(data->data[i], data->length[i]));
-            }
-        }
-    } else {
-        if (cvb->hasNulls) {
-            for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
+            if (cvb->hasNulls) {
+                for (int i = 0; i < num_values; ++i) {
+                    if (cvb->notNull[i]) {
+                        string_values.emplace_back(data->data[i], data->length[i]);
+                    } else {
+                        string_values.emplace_back(empty_string.data(), 0);
+                    }
+                }
+            } else {
+                for (int i = 0; i < num_values; ++i) {
                     string_values.emplace_back(data->data[i], data->length[i]);
-                } else {
-                    string_values.emplace_back(empty_string.data(), 0);
                 }
             }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                string_values.emplace_back(data->data[i], data->length[i]);
-            }
         }
+        data_column->insert_many_strings(&string_values[0], num_values);
+        return Status::OK();
     }
-    data_column->insert_many_strings(&string_values[0], num_values);
-    return Status::OK();
 }
 
 Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
