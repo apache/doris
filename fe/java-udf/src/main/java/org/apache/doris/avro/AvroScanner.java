@@ -20,37 +20,64 @@ package org.apache.doris.avro;
 import org.apache.doris.jni.JniScanner;
 import org.apache.doris.jni.vec.ColumnType;
 import org.apache.doris.jni.vec.ScanPredicate;
+import org.apache.doris.jni.vec.VectorTableSchema;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPrimitiveType;
 
+import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 public class AvroScanner extends JniScanner {
 
     private static final Logger LOG = LogManager.getLogger(AvroScanner.class);
-    private final Integer fetchSize;
-    private final Map<String, String> requiredParam;
-    private final String[] columnTypes;
-    private final String[] requiredFields;
-    private final ColumnType[] requiredTypes;
     private final TFileType fileType;
     private final String uri;
+    private Integer fetchSize;
+    private Map<String, String> requiredParams;
+    private String[] columnTypes;
+    private String[] requiredFields;
+    private ColumnType[] requiredTypes;
     private AvroReader avroReader;
+    private boolean isGetTableSchema = false;
 
-    public AvroScanner(int fetchSize, Map<String, String> requiredParam) {
+    /**
+     * Call by JNI for get table data
+     *
+     * @param fetchSize The size of data fetched each time
+     * @param requiredParams required params
+     */
+    public AvroScanner(int fetchSize, Map<String, String> requiredParams) {
         this.fetchSize = fetchSize;
-        this.requiredParam = requiredParam;
-        this.columnTypes = requiredParam.get(AvroProperties.COLUMNS_TYPES).split(AvroProperties.COLUMNS_TYPE_DELIMITER);
-        this.requiredFields = requiredParam.get(AvroProperties.REQUIRED_FIELDS).split(AvroProperties.FIELDS_DELIMITER);
-        this.fileType = TFileType.findByValue(Integer.parseInt(requiredParam.get(AvroProperties.FILE_TYPE)));
-        this.uri = requiredParam.get(AvroProperties.URI);
+        this.requiredParams = requiredParams;
+        this.columnTypes = requiredParams.get(AvroProperties.COLUMNS_TYPES)
+                .split(AvroProperties.COLUMNS_TYPE_DELIMITER);
+        this.requiredFields = requiredParams.get(AvroProperties.REQUIRED_FIELDS).split(AvroProperties.FIELDS_DELIMITER);
+        this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(AvroProperties.FILE_TYPE)));
+        this.uri = requiredParams.get(AvroProperties.URI);
         this.requiredTypes = new ColumnType[requiredFields.length];
         buildParams();
+    }
+
+    /**
+     * Call by JNI for get table Schema
+     *
+     * @param requiredParams required params
+     */
+    public AvroScanner(Map<String, String> requiredParams) {
+        this.requiredParams = requiredParams;
+        this.uri = requiredParams.get(AvroProperties.URI);
+        this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(AvroProperties.FILE_TYPE)));
+        isGetTableSchema = true;
+        // todo
+        LOG.info("init AvroScanner");
     }
 
     private void buildParams() {
@@ -67,12 +94,12 @@ public class AvroScanner extends JniScanner {
                 this.avroReader = new HDFSFileReader(uri);
                 break;
             case FILE_S3:
-                String bucketName = requiredParam.get(AvroProperties.S3_BUCKET);
-                String key = requiredParam.get(AvroProperties.S3_KEY);
-                String accessKey = requiredParam.get(AvroProperties.S3_ACCESS_KEY);
-                String secretKey = requiredParam.get(AvroProperties.S3_SECRET_KEY);
-                String endpoint = requiredParam.get(AvroProperties.S3_ENDPOINT);
-                String region = requiredParam.get(AvroProperties.S3_REGION);
+                String bucketName = requiredParams.get(AvroProperties.S3_BUCKET);
+                String key = requiredParams.get(AvroProperties.S3_KEY);
+                String accessKey = requiredParams.get(AvroProperties.S3_ACCESS_KEY);
+                String secretKey = requiredParams.get(AvroProperties.S3_SECRET_KEY);
+                String endpoint = requiredParams.get(AvroProperties.S3_ENDPOINT);
+                String region = requiredParams.get(AvroProperties.S3_REGION);
                 this.avroReader = new S3FileReader(accessKey, secretKey, endpoint, region, bucketName, key);
                 break;
             default:
@@ -80,7 +107,9 @@ public class AvroScanner extends JniScanner {
                 throw new RuntimeException("Unsupported" + fileType.name() + "file type.");
         }
         this.avroReader.open(new Configuration());
-        initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
+        if (!isGetTableSchema) {
+            initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
+        }
     }
 
     @Override
@@ -107,6 +136,43 @@ public class AvroScanner extends JniScanner {
             }
         }
         return numRows;
+    }
+
+    public VectorTableSchema parseTableSchema() throws IOException {
+        Schema schema = avroReader.getSchema();
+        List<Field> schemaFields = schema.getFields();
+        TPrimitiveType[] schemaTypes = new TPrimitiveType[schemaFields.size()];
+        String[] fields = new String[schemaFields.size()];
+        for (int i = 0; i < schemaFields.size(); i++) {
+            fields[i] = schemaFields.get(i).name();
+            Schema.Type type = schemaFields.get(i).schema().getType();
+            switch (type) {
+                case STRING:
+                    schemaTypes[i] = TPrimitiveType.STRING;
+                    break;
+                case INT:
+                    schemaTypes[i] = TPrimitiveType.INT;
+                    break;
+                case LONG:
+                    schemaTypes[i] = TPrimitiveType.BIGINT;
+                    break;
+                case BOOLEAN:
+                    schemaTypes[i] = TPrimitiveType.BOOLEAN;
+                    break;
+                case FLOAT:
+                    schemaTypes[i] = TPrimitiveType.FLOAT;
+                    break;
+                case DOUBLE:
+                    schemaTypes[i] = TPrimitiveType.DOUBLE;
+                    break;
+                case ARRAY:
+                case MAP:
+                default:
+                    throw new IOException("avro format:" + type.getName() + " is not supported.");
+
+            }
+        }
+        return new VectorTableSchema(fields, schemaTypes);
     }
 
 }

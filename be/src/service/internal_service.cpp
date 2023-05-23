@@ -583,6 +583,12 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                                               file_slots, &io_ctx);
             break;
         }
+        case TFileFormatType::FORMAT_AVRO: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader = vectorized::AvroReader::create_unique(params, range,file_slots);
+            break;
+        }
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);

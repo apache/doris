@@ -50,7 +50,7 @@ AvroReader::AvroReader(RuntimeState *state, RuntimeProfile *profile,
     TFileType::type type = params.file_type;
     std::map<String, String> required_param = {{"required_fields", required_fields.str()},
                                                {"columns_types",   columns_types.str()},
-                                               {"file_type",       std::to_string(type)}};;
+                                               {"file_type",       std::to_string(type)}};
     switch (type) {
         case TFileType::FILE_HDFS:
             required_param.insert(std::make_pair("uri", params.hdfs_params.hdfs_conf.data()->value));
@@ -58,15 +58,23 @@ AvroReader::AvroReader(RuntimeState *state, RuntimeProfile *profile,
         case TFileType::FILE_S3:
             required_param.insert(params.properties.begin(), params.properties.end());
             break;
-        case TFileType::FILE_LOCAL:
-        case TFileType::FILE_BROKER:
-        case TFileType::FILE_STREAM:
         default:
             Status::InternalError("unsupported file reader type: {}", std::to_string(type));
     }
+    required_param.insert(params.properties.begin(), params.properties.end());
 
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroScanner",
                                                     required_param, column_names);
+}
+
+AvroReader::AvroReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                       const std::vector<SlotDescriptor *> &file_slot_descs)
+                      : _file_slot_descs(file_slot_descs) {
+    std::map<String, String> required_param = {{"uri", range.path},
+                                               {"file_type",       std::to_string(params.file_type)}};
+    required_param.insert(params.properties.begin(), params.properties.end());
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroScanner", required_param);
+    _jni_connector->open();
 }
 
 AvroReader::~AvroReader() = default;
@@ -92,6 +100,27 @@ Status AvroReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
+}
+
+Status AvroReader::get_parsed_schema(std::vector<std::string> *col_names, std::vector<TypeDescriptor> *col_types) {
+    std::string table_schema_str;
+    RETURN_IF_ERROR(_jni_connector->get_table_schema(table_schema_str));
+
+    int hash_pod = table_schema_str.find('#');
+    int len = table_schema_str.length();
+    std::string schema_name_str = table_schema_str.substr(0,hash_pod);
+    std::string schema_type_str = table_schema_str.substr(hash_pod + 1, len);
+    std::vector<std::string>  schema_name = split(schema_name_str,",");
+    std::vector<std::string>  schema_type = split(schema_type_str,",");
+
+    for(int i = 0; i < schema_name.size(); ++i) {
+        col_names->emplace_back(schema_name[i]);
+        int schema_type_number = std::stoi(schema_type[i]);
+        ::doris::TPrimitiveType::type type = static_cast< ::doris::TPrimitiveType::type>(schema_type_number);
+        PrimitiveType ptype = thrift_to_type(type);
+        col_types->emplace_back(ptype);
+    }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

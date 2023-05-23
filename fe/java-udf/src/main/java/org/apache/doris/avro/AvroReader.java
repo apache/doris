@@ -17,6 +17,7 @@
 
 package org.apache.doris.avro;
 
+import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 
 import java.io.IOException;
@@ -24,6 +25,8 @@ import java.io.IOException;
 public interface AvroReader {
 
     void open(Configuration conf);
+
+    Schema getSchema();
 
     boolean hasNext();
 

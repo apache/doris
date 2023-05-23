@@ -17,6 +17,7 @@
 
 package org.apache.doris.avro;
 
+import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
@@ -52,6 +53,11 @@ public class HDFSFileReader implements AvroReader {
             LOG.warn("Open HDFSFileReader meet some error" + e);
             throw new RuntimeException("Failed to initialize HDFSFileReader", e);
         }
+    }
+
+    @Override
+    public Schema getSchema() {
+        return reader.getSchema();
     }
 
     @Override
