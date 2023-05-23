@@ -87,19 +87,21 @@ Status VPartitionSortNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VPartitionSortNode::_split_block_by_partition(vectorized::Block* input_block) {
+Status VPartitionSortNode::_split_block_by_partition(vectorized::Block* input_block,
+                                                     int batch_size) {
     for (int i = 0; i < _partition_exprs_num; ++i) {
         int result_column_id = -1;
         RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, &result_column_id));
         DCHECK(result_column_id != -1);
         _partition_columns[i] = input_block->get_by_position(result_column_id).column.get();
     }
-    _emplace_into_hash_table(_partition_columns, input_block);
+    _emplace_into_hash_table(_partition_columns, input_block, batch_size);
     return Status::OK();
 }
 
 void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                                  const vectorized::Block* input_block) {
+                                                  const vectorized::Block* input_block,
+                                                  int batch_size) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_build_timer);
@@ -162,7 +164,8 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 for (auto place : _value_places) {
                     SCOPED_TIMER(_selector_block_timer);
                     place->append_block_by_selector(input_block, child(0)->row_desc(),
-                                                    _has_global_limit, _partition_inner_limit);
+                                                    _has_global_limit, _partition_inner_limit,
+                                                    batch_size);
                 }
             },
             _partitioned_data->_partition_method_variant);
@@ -181,7 +184,7 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             if (_num_partition > 512 && child_input_rows < 10000 * _num_partition) {
                 _blocks_buffer.push(std::move(*input_block));
             } else {
-                RETURN_IF_ERROR(_split_block_by_partition(input_block));
+                RETURN_IF_ERROR(_split_block_by_partition(input_block, state->batch_size()));
                 RETURN_IF_CANCELLED(state);
                 RETURN_IF_ERROR(
                         state->check_query_state("VPartitionSortNode, while split input block."));
@@ -427,25 +430,25 @@ void VPartitionSortNode::_init_hash_method() {
 }
 
 void VPartitionSortNode::debug_profile() {
-    std::stringstream partition_rows_read;
-    std::stringstream partition_blocks_read;
-    partition_rows_read << "[";
-    partition_blocks_read << "[";
+    fmt::memory_buffer partition_rows_read, partition_blocks_read;
+    fmt::format_to(partition_rows_read, "[");
+    fmt::format_to(partition_blocks_read, "[");
     for (auto place : _value_places) {
-        partition_rows_read << std::to_string(place->get_total_rows()) << ", ";
-        partition_blocks_read << std::to_string(place->blocks.size()) << ", ";
+        fmt::format_to(partition_rows_read, "{}, ", place->get_total_rows());
+        fmt::format_to(partition_rows_read, "{}, ", place->blocks.size());
     }
-    partition_rows_read << "]";
-    partition_blocks_read << "]";
-    runtime_profile()->add_info_string("PerPartitionBlocksRead", partition_blocks_read.str());
-    runtime_profile()->add_info_string("PerPartitionRowsRead", partition_rows_read.str());
-    std::stringstream partition_output_rows;
-    partition_output_rows << "[";
+    fmt::format_to(partition_rows_read, "]");
+    fmt::format_to(partition_blocks_read, "]");
+
+    runtime_profile()->add_info_string("PerPartitionBlocksRead", partition_blocks_read.data());
+    runtime_profile()->add_info_string("PerPartitionRowsRead", partition_rows_read.data());
+    fmt::memory_buffer partition_output_rows;
+    fmt::format_to(partition_output_rows, "[");
     for (auto row : partition_profile_output_rows) {
-        partition_output_rows << std::to_string(row) << ", ";
+        fmt::format_to(partition_output_rows, "{}, ", row);
     }
-    partition_output_rows << "]";
-    runtime_profile()->add_info_string("PerPartitionOutputRows", partition_output_rows.str());
+    fmt::format_to(partition_output_rows, "]");
+    runtime_profile()->add_info_string("PerPartitionOutputRows", partition_output_rows.data());
 }
 
 } // namespace doris::vectorized

@@ -38,16 +38,16 @@ static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
 
 struct PartitionBlocks {
 public:
-    PartitionBlocks() { selector.clear(); }
-    ~PartitionBlocks() { blocks.clear(); };
+    PartitionBlocks() = default;
+    ~PartitionBlocks() = default;
 
     void add_row_idx(size_t row) { selector.push_back(row); }
 
     void append_block_by_selector(const vectorized::Block* input_block,
                                   const RowDescriptor& row_desc, bool is_limit,
-                                  int64_t partition_inner_limit) {
+                                  int64_t partition_inner_limit, int batch_size) {
         if (blocks.empty() || reach_limit()) {
-            init_rows = 4096;
+            init_rows = batch_size;
             blocks.push_back(Block::create_unique(VectorizedUtils::create_empty_block(row_desc)));
         }
         auto columns = input_block->get_columns();
@@ -341,9 +341,9 @@ private:
     }
 
     void _init_hash_method();
-    Status _split_block_by_partition(vectorized::Block* input_block);
+    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size);
     void _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block);
+                                  const vectorized::Block* input_block, int batch_size);
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
