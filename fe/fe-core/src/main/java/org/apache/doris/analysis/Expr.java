@@ -2359,5 +2359,4 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return false;
     }
-
 }
