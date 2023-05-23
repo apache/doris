@@ -231,7 +231,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
         auto col_ptr = mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                 new_row->_row_pos, nullptr);
+                                 new_row->_row_pos, _arena.get());
     }
 }
 void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
@@ -293,7 +293,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
             } else {
                 function->reset(agg_place);
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                              row_pos, nullptr);
+                              row_pos, _arena.get());
             }
         }
         if constexpr (is_final) {
@@ -336,7 +336,7 @@ void MemTable::_aggregate() {
                     _agg_functions[cid]->create(data);
                     _agg_functions[cid]->add(
                             data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                            prev_row->_row_pos, nullptr);
+                            prev_row->_row_pos, _arena.get());
                 }
             }
             _merged_rows++;
