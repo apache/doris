@@ -1326,7 +1326,7 @@ public class StmtRewriter {
                     .getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicyCopy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }

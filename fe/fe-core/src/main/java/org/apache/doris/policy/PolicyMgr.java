@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.beans.BeanUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -298,10 +299,20 @@ public class PolicyMgr implements Writable {
         updateMergeTablePolicyMap();
     }
 
+    public RowPolicy getMatchTablePolicyCopy(long dbId, long tableId, String user) {
+        RowPolicy matchTablePolicy = getMatchTablePolicy(dbId, tableId, user);
+        if (matchTablePolicy == null) {
+            return null;
+        }
+        RowPolicy copyPolicy = new RowPolicy();
+        BeanUtils.copyProperties(matchTablePolicy, copyPolicy);
+        return copyPolicy;
+    }
+
     /**
      * Match row policy and return it.
      **/
-    public RowPolicy getMatchTablePolicy(long dbId, long tableId, String user) {
+    private RowPolicy getMatchTablePolicy(long dbId, long tableId, String user) {
         readLock();
         try {
             if (!dbIdToMergeTablePolicyMap.containsKey(dbId)) {
