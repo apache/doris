@@ -318,11 +318,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 rootFragment.getDataPartition());
 
         rootFragment.setPlanRoot(exchangeNode.getChild(0));
-        rootFragment.getPlanRoot().setNumInstances(1);
         rootFragment.setDestination(exchangeNode);
         context.addPlanFragment(currentFragment);
         rootFragment.setDataPartition(currentFragment.getDataPartition());
         rootFragment = currentFragment;
+        rootFragment.setParallelExecNum(1);
         rootFragment.setSink(sink);
 
         Map<Column, Slot> columnToSlots = Maps.newHashMap();
