@@ -60,8 +60,11 @@ public class S3LoadStmt extends NativeInsertStmt {
         final FromClause fromClause = new FromClause(
                 Collections.singletonList(buildTvfRef(dataDescription, brokerDesc))
         );
-        final OrderByElement orderByElement = new OrderByElement(new StringLiteral(dataDescription.getSequenceCol()),
-                true, null);
+        final TableName tableName = new TableName(null, null, dataDescription.getTableName());
+        final OrderByElement orderByElement = new OrderByElement(
+                new SlotRef(tableName, dataDescription.getSequenceCol()),
+                true, null
+        );
 
         final SelectStmt selectStmt = new SelectStmt(
                 selectList, fromClause, /*TODO(tsy): think about PRECEDING FILTER*/dataDescription.getWhereExpr(),
