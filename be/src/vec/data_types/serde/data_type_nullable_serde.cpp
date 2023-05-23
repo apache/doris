@@ -140,10 +140,12 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
     for (ssize_t i = start; i < end; ++i) {
+        LOG(WARNING) << "amory: " << start << " : " << end;
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
         }
         const auto col_index = index_check_const(i, col_const);
+        LOG(WARNING) << "amory: " << col_index << " is null: " << col.is_null_at(col_index);
         if (col.is_null_at(col_index)) {
             buf_ret = result[row_idx].push_null();
         } else {
