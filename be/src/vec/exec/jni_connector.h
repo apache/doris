@@ -165,8 +165,22 @@ public:
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)) {}
 
+    /**
+    * Use configuration map to provide scan information. The java side should determine how the parameters
+    * are parsed. For example, using "required_fields=col0,col1,...,colN" to provide the scan fields.
+    * @param connector_class Java scanner class
+    * @param scanner_params Provided configuration map
+    */
+    JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params)
+            : _connector_class(std::move(connector_class)),
+              _scanner_params(std::move(scanner_params)) {
+        _is_table_schema = true;
+    }
+
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
+
+    Status open();
 
     /**
      * Open java scanner, and get the following scanner methods by jni:
@@ -198,6 +212,17 @@ public:
     Status get_nex_block(Block* block, size_t* read_rows, bool* eof);
 
     /**
+     * Call java side function JniScanner.getTableSchema.
+     *
+     * The schema information are stored as a string.
+     * Use # between column names and column types.
+     *
+     * like: col_name1,col_name2,col_name3#col_type1,col_type2.col_type3
+     *
+     */
+    Status get_table_schema(std::string& table_schema_str);
+
+    /**
      * Close scanner and release jni resources.
      */
     Status close();
@@ -213,6 +238,7 @@ private:
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+    bool _is_table_schema = false;
 
     size_t _has_read = 0;
 
@@ -221,7 +247,9 @@ private:
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
     jmethodID _jni_scanner_get_next_batch;
+    jmethodID _jni_scanner_get_table_schema;
     jmethodID _jni_scanner_close;
+    jmethodID _jni_scanner_release_table_schema;
     jmethodID _jni_scanner_release_column;
     jmethodID _jni_scanner_release_table;
 
@@ -231,6 +259,9 @@ private:
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates = nullptr;
+
+    jmethodID _scanner_constructor;
+    jobject _hashmap_object;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.jni.JniScanner#getNextBatchMeta
@@ -251,6 +282,10 @@ private:
     void* _next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
 
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
+
+    Status _init_scanner_params(JNIEnv* env);
+
+    Status _init_jni_scanner(JNIEnv* env);
 
     Status _fill_block(Block* block, size_t num_rows);
 

@@ -57,4 +57,15 @@ public class JniScannerTest {
         scanner.releaseTable();
         scanner.close();
     }
+
+    @Test
+    public void testMockTableSchema() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(new HashMap<>());
+
+        String tableSchema = scanner.getTableSchema();
+        System.out.println(tableSchema);
+        scanner.releaseTableSchema();
+        scanner.close();
+    }
 }

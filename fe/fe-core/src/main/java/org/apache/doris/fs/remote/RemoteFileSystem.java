@@ -22,14 +22,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.RemoteFiles;
 
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,11 +39,6 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
 
     protected org.apache.hadoop.fs.FileSystem nativeFileSystem(String remotePath) throws UserException {
         throw new UserException("Not support to getFileSystem.");
-    }
-
-    public InputStream getInputStream(String filePath) throws IOException, UserException {
-        FileSystem fileSystem = nativeFileSystem(filePath);
-        return new BufferedInputStream(fileSystem.open(new Path(filePath)));
     }
 
     @Override

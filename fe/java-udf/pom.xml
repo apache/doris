@@ -45,6 +45,8 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!-- These dependencies belong to avro reader  -->
         <dependency>
             <groupId>org.apache.avro</groupId>
             <artifactId>avro</artifactId>
@@ -65,6 +67,7 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hive-catalog-shade</artifactId>

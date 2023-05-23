@@ -25,6 +25,7 @@ import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
+import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
@@ -70,6 +71,11 @@ public class S3FileReader implements AvroReader {
             LOG.warn("open s3FileReader meet some error" + e);
             throw new RuntimeException("Failed initialize s3FileReader", e);
         }
+    }
+
+    @Override
+    public Schema getSchema() {
+        return reader.getSchema();
     }
 
     @Override
