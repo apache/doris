@@ -42,7 +42,7 @@ suite("test_duplicate_table_without_keys") {
     qt_desc_dup_table "desc ${tbName2}"
     qt_show_dup_table "show create table ${tbName2}"
 
-    sql "ALTER TABLE ${tbName2} ADD COLUMN new_col1 INT DEFAULT "0" AFTER k3"
+    sql "ALTER TABLE ${tbName2} ADD COLUMN new_col1 INT DEFAULT \"0\" AFTER k3"
     order_qt_select_dup_table "select * from ${tbName2}"
     qt_desc_dup_table "desc ${tbName2}"
     qt_show_dup_table "show create table ${tbName2}"
