@@ -392,7 +392,8 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 // shrink mutable_block to save memory when rows > _topn_limit * 2
                 if (mutable_block.rows() > _topn_limit * 2) {
-                    VLOG_DEBUG << "topn debug start  shrink mutable_block from " << mutable_block.rows() << " rows";
+                    VLOG_DEBUG << "topn debug start  shrink mutable_block from "
+                               << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
                     clone_block = tmp_block.clone_empty();
                     mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
@@ -404,7 +405,8 @@ Status VCollectIterator::_topn_next(Block* block) {
                     for (size_t i = 0; i < _topn_limit; i++) {
                         sorted_row_pos.insert(i);
                     }
-                    VLOG_DEBUG << "topn debug finish shrink mutable_block to " << mutable_block.rows() << " rows";
+                    VLOG_DEBUG << "topn debug finish shrink mutable_block to "
+                               << mutable_block.rows() << " rows";
                 }
             }
 
@@ -424,12 +426,14 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
         } // end of while (read_rows < _topn_limit && !eof)
         VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
-                   << " _topn_limit=" << _topn_limit << " sorted_row_pos.size()=" << sorted_row_pos.size()
+                   << " _topn_limit=" << _topn_limit
+                   << " sorted_row_pos.size()=" << sorted_row_pos.size()
                    << " mutable_block.rows()=" << mutable_block.rows();
-    }     // end of for (auto rs_reader : _rs_readers)
+    } // end of for (auto rs_reader : _rs_readers)
 
     // copy result_block to block
-    VLOG_DEBUG << "topn debug result _topn_limit=" << _topn_limit << " sorted_row_pos.size()=" << sorted_row_pos.size()
+    VLOG_DEBUG << "topn debug result _topn_limit=" << _topn_limit
+               << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
 
