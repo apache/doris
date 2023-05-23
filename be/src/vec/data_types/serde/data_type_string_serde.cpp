@@ -135,7 +135,6 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
         }
         const auto col_index = index_check_const(i, col_const);
         const auto string_val = col.get_data_at(col_index);
-        LOG(WARNING) << "amory: " << col_index << " : " << string_val;
         if (string_val.data == nullptr) {
             if (string_val.size == 0) {
                 // 0x01 is a magic num, not useful actually, just for present ""
@@ -145,9 +144,11 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
                 buf_ret = result[row_idx].push_null();
             }
         } else {
+            result[row_idx].open_dynamic_mode();
             buf_ret = result[row_idx].push_string("\"", 1);
             buf_ret = result[row_idx].push_string(string_val.data, string_val.size);
             buf_ret = result[row_idx].push_string("\"", 1);
+            result[row_idx].close_dynamic_mode();
         }
         ++row_idx;
     }
