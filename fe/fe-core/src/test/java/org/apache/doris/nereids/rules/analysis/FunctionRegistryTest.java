@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -114,7 +115,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
-                name2builders.put("foo", FunctionBuilder.resolve(ExtendFunction.class));
+                name2builders.put("foo", BuiltinFunctionBuilder.resolve(ExtendFunction.class));
             }
         };
 
@@ -130,7 +131,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {
-                name2builders.put("abc", FunctionBuilder.resolve(AmbiguousFunction.class));
+                name2builders.put("abc", BuiltinFunctionBuilder.resolve(AmbiguousFunction.class));
             }
         };
 

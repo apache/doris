@@ -42,6 +42,10 @@ public class AggStateType extends PrimitiveType {
         this.subTypeNullables = subTypeNullables;
     }
 
+    public List<DataType> getSubTypes() {
+        return subTypes;
+    }
+
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(t -> t.toCatalogDataType()).collect(Collectors.toList());

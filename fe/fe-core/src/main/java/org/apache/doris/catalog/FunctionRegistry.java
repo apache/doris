@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -61,6 +62,20 @@ public class FunctionRegistry {
     public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
+        if ((functionBuilders == null || functionBuilders.isEmpty())
+                && AggStateFunctionBuilder.isAggStateCombinator(name)) {
+            String nestedName = AggStateFunctionBuilder.getNestedName(name);
+            String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+
+            functionBuilders = name2Builders.get(nestedName.toLowerCase());
+
+            if (functionBuilders != null) {
+                functionBuilders = functionBuilders.stream()
+                        .filter(functionBuilder -> functionBuilder.canApply(arguments)).map(builder -> {
+                            return new AggStateFunctionBuilder(combinatorSuffix, builder);
+                        }).collect(Collectors.toList());
+            }
+        }
         if (functionBuilders == null || functionBuilders.isEmpty()) {
             throw new AnalysisException("Can not found function '" + name + "'");
         }

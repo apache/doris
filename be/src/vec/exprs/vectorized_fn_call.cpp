@@ -89,6 +89,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
+            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                return Status::InternalError(
+                        "State function's return type must be agg_state but get {}",
+                        _data_type->get_family_name());
+            }
             _function = FunctionAggState::create(
                     argument_types, _data_type,
                     AggregateFunctionSimpleFactory::instance().get(

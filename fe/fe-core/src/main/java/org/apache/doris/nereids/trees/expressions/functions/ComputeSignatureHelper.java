@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionSignature.TripleFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -41,6 +42,13 @@ public class ComputeSignatureHelper {
     /** implementAbstractReturnType */
     public static FunctionSignature implementAbstractReturnType(
             FunctionSignature signature, List<Expression> arguments) {
+        if (signature.returnType instanceof AggStateType) {
+            return signature.withReturnType(new AggStateType(arguments.stream().map(arg -> {
+                return arg.getDataType();
+            }).collect(Collectors.toList()), arguments.stream().map(arg -> {
+                return arg.nullable();
+            }).collect(Collectors.toList())));
+        }
         if (!(signature.returnType instanceof DataType)) {
             if (signature.returnType instanceof FollowToArgumentType) {
                 int argumentIndex = ((FollowToArgumentType) signature.returnType).argumentIndex;

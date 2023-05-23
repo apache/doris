@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -42,6 +44,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Base class for all functions.
@@ -827,5 +830,19 @@ public class Function implements Writable {
                 vectorized, checksum);
         result = 31 * result + Arrays.hashCode(argTypes);
         return result;
+    }
+
+    public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        List<Type> arguments = Arrays.asList(aggFunction.getArgs());
+        ScalarFunction fn = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX),
+                arguments,
+                new ScalarType(arguments, fnCall.getChildren().stream().map(expr -> {
+                    return expr.isNullable();
+                }).collect(Collectors.toList())), aggFunction.hasVarArgs(), aggFunction.isUserVisible());
+        fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return new FunctionCallExpr(fn, fnCall.getParams());
     }
 }

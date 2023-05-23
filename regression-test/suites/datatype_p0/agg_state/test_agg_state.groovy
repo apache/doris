@@ -68,5 +68,6 @@ suite("test_agg_state") {
     // nereids case
     sql "set enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
+    qt_state1 """select sum_state(1);"""
     qt_length1 """select k1,length(k2) from a_table;"""
 }
