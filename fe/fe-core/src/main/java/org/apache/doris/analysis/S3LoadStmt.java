@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -43,6 +44,8 @@ public class S3LoadStmt extends NativeInsertStmt {
         super(buildInsertTarget(dataDescList.get(0)),
                 label.getLabelName(), /*TODO(tsy): think about columns*/null,
                 buildInsertSource(dataDescList.get(0), brokerDesc), null);
+        this.properties = properties;
+        this.comments = comments;
     }
 
     private static InsertTarget buildInsertTarget(DataDescription dataDescription) {
@@ -57,17 +60,24 @@ public class S3LoadStmt extends NativeInsertStmt {
         final SelectListItem item = new SelectListItem(SelectListItem.createStarItem(null));
         selectList.addItem(item);
 
+        // build from
         final FromClause fromClause = new FromClause(
                 Collections.singletonList(buildTvfRef(dataDescription, brokerDesc))
         );
+        // build order by
         final TableName tableName = new TableName(null, null, dataDescription.getTableName());
         final OrderByElement orderByElement = new OrderByElement(
                 new SlotRef(tableName, dataDescription.getSequenceCol()),
                 true, null
         );
 
+        // merge preceding filter and where expr
+        final Expr whereExpr = dataDescription.getWhereExpr();
+        final Expr precdingFilterExpr = dataDescription.getPrecdingFilterExpr();
+        final Expr compoundPredicate = new CompoundPredicate(Operator.AND, precdingFilterExpr, whereExpr);
+
         final SelectStmt selectStmt = new SelectStmt(
-                selectList, fromClause, /*TODO(tsy): think about PRECEDING FILTER*/dataDescription.getWhereExpr(),
+                selectList, fromClause, /*TODO(tsy): think about PRECEDING FILTER*/compoundPredicate,
                 null, null,
                 Lists.newArrayList(orderByElement), LimitElement.NO_LIMIT
         );
