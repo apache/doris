@@ -203,7 +203,7 @@ public class AlterJobV2Test {
     @Test
     public void testDupTableWithoutKeysSchemaChange() throws Exception {
 
-        createTable("CREATE TABLE test.dup_table (\n"
+        createTable("CREATE TABLE test.dup_table_without_keys (\n"
                 + "  k1 bigint(20) NULL ,\n"
                 + "  k2 bigint(20) NULL ,\n"
                 + "  k3 bigint(20) NULL,\n"
@@ -220,17 +220,17 @@ public class AlterJobV2Test {
                 + ");");
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Duplicate table without keys do not support alter rollup!",
-                                () -> alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);"));
-        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
-        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table add column v4 varchar(2);"));
+                                () -> alterTable("alter table test.dup_table_without_keys add rollup r1(v1,v2,k2,k1);"));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table_without_keys modify column v2 varchar(2);"));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table_without_keys add column v4 varchar(2);"));
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Duplicate table without keys do not support add key column!",
-                                () -> alterTable("alter table test.dup_table add column new_col INT KEY DEFAULT \"0\" AFTER k3;"));
+                                () -> alterTable("alter table test.dup_table_without_keys add column new_col INT KEY DEFAULT \"0\" AFTER k3;"));
 
-        createMaterializedView("create materialized view k1_k33 as select k2, k1 from test.dup_table;");
+        createMaterializedView("create materialized view k1_k33 as select k2, k1 from test.dup_table_without_keys;");
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
 
-        createMaterializedView("create materialized view k1_k24 as select k2, k1 from test.dup_table order by k2,k1;");
+        createMaterializedView("create materialized view k1_k24 as select k2, k1 from test.dup_table_without_keys order by k2,k1;");
         alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }
