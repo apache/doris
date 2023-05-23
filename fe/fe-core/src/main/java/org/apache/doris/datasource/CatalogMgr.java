@@ -551,10 +551,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
                     ((ExternalCatalog) catalog).checkProperties();
-                } catch (DdlException e) {
+                } catch (DdlException ddlException) {
                     //把数据回退回去
                     ((ExternalCatalog) catalog).rollBackCatalogProps(oldProps);
-                    throw new DdlException("");
+                    throw new DdlException(ddlException.getMessage());
                 }
 
 
