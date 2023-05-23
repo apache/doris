@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.http.client.methods.HttpPut;
@@ -34,9 +35,9 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
 
     private final HttpPut requset;
 
-    public StreamTableValuedFunction(Map<String, String> params){
+    public StreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
         requset = getHttpRequest(params);
-
+        parseFile();
     }
 
     private HttpPut getHttpRequest(Map<String, String> params){
