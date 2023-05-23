@@ -65,12 +65,12 @@ public class ExplainCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LogicalPlan plan = logicalPlan;
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
         logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
+        executor.setParsedStmt(logicalPlanAdapter);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.handleExplainStmt(getExplainString(planner));
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
     }
 
     @Override
@@ -84,9 +84,5 @@ public class ExplainCommand extends Command implements NoForward {
 
     public LogicalPlan getLogicalPlan() {
         return logicalPlan;
-    }
-
-    public String getExplainString(NereidsPlanner planner) {
-        return planner.getExplainString(new ExplainOptions(level));
     }
 }

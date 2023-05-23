@@ -48,6 +48,7 @@ import org.apache.logging.log4j.Logger;
  *  ExplainCommand(Query())
  */
 public class InsertIntoTableCommand extends Command implements ForwardWithSync {
+
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
@@ -60,7 +61,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, String labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
-        Preconditions.checkArgument(logicalQuery != null, "logicalQuery cannot be null in InsertIntoTableCommand");
+        Preconditions.checkNotNull(logicalQuery, "logicalQuery cannot be null in InsertIntoTableCommand");
         this.logicalQuery = logicalQuery;
         this.labelName = labelName;
     }
