@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * PushdownTopNThroughWindow push down the TopN through the Window and generate the PartitionTopN.
@@ -54,11 +55,11 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
-                Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window, partitionLimit, true);
-                if (newWindow == null) {
+                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
+                if (!newWindow.isPresent()) {
                     return topn;
                 }
-                return topn.withChildren(newWindow);
+                return topn.withChildren(newWindow.get());
             }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_WINDOW),
 
             // topn -> projection -> window
@@ -74,11 +75,11 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
-                Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window, partitionLimit, true);
-                if (newWindow == null) {
+                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
+                if (!newWindow.isPresent()) {
                     return topn;
                 }
-                return topn.withChildren(newWindow);
+                return topn.withChildren(project.withChildren(newWindow.get()));
             }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_PROJECTION_WINDOW)
         );
     }

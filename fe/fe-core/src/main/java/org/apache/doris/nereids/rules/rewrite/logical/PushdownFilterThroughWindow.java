@@ -39,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -131,11 +132,11 @@ public class PushdownFilterThroughWindow extends OneRewriteRuleFactory {
                 return filter;
             }
 
-            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window, partitionLimit, false);
-            if (newWindow == null) {
+            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, false);
+            if (!newWindow.isPresent()) {
                 return filter;
             }
-            return filter.withChildren(newWindow);
+            return filter.withChildren(newWindow.get());
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
     }
 

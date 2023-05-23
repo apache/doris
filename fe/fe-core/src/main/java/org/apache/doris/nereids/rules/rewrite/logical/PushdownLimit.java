@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Rules to push {@link org.apache.doris.nereids.trees.plans.logical.LogicalLimit} down.
@@ -76,12 +77,11 @@ public class PushdownLimit implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalWindow<Plan> window = limit.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
-                            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window,
-                                    partitionLimit, true);
-                            if (newWindow == null) {
+                            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
+                            if (!newWindow.isPresent()) {
                                 return limit;
                             }
-                            return limit.withChildren(newWindow);
+                            return limit.withChildren(newWindow.get());
                         }).toRule(RuleType.PUSH_LIMIT_THROUGH_WINDOW),
 
                 // limit -> project -> window
@@ -90,12 +90,11 @@ public class PushdownLimit implements RewriteRuleFactory {
                             LogicalProject<LogicalWindow<Plan>> project = limit.child();
                             LogicalWindow<Plan> window = project.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
-                            Plan newWindow = LogicalWindow.pushPartitionLimitThroughWindow(window,
-                                    partitionLimit, true);
-                            if (newWindow == null) {
+                            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
+                            if (!newWindow.isPresent()) {
                                 return limit;
                             }
-                            return limit.withChildren(project.withChildren(newWindow));
+                            return limit.withChildren(project.withChildren(newWindow.get()));
                         }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW),
 
                 // limit -> union

@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.statistics.StatisticalType;
@@ -35,6 +34,7 @@ import org.apache.doris.thrift.TopNAlgorithm;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,8 +65,9 @@ public class PartitionSortNode extends PlanNode {
      * Constructor.
      */
     public PartitionSortNode(PlanNodeId id, PlanNode input, WindowFuncType function, List<Expr> partitionExprs,
-                             SortInfo info, boolean hasGlobalLimit, long partitionLimit) {
-        super(id, "PartitionTopN", StatisticalType.PARTITION_TOPN_MODE);
+                             SortInfo info, boolean hasGlobalLimit, long partitionLimit,
+                             List<Expr> outputList, List<Expr> orderingExpr) {
+        super(id, "PartitionTopN", StatisticalType.PARTITION_TOPN_NODE);
         this.function = function;
         this.partitionExprs = partitionExprs;
         this.info = info;
@@ -76,6 +77,25 @@ public class PartitionSortNode extends PlanNode {
         this.tblRefIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
+
+        List<Expr> resolvedTupleExprs = new ArrayList<>();
+        for (Expr order : orderingExpr) {
+            if (!resolvedTupleExprs.contains(order)) {
+                resolvedTupleExprs.add(order);
+            }
+        }
+        for (Expr output : outputList) {
+            if (!resolvedTupleExprs.contains(output)) {
+                resolvedTupleExprs.add(output);
+            }
+        }
+        this.resolvedTupleExprs = ImmutableList.copyOf(resolvedTupleExprs);
+        info.setSortTupleSlotExprs(resolvedTupleExprs);
+
+        nullabilityChangedFlags.clear();
+        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
+            nullabilityChangedFlags.add(false);
+        }
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
     }
 
@@ -198,31 +218,5 @@ public class PartitionSortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
-    }
-
-    /**
-     * Supplement the information needed by be for the partition sort node.
-     */
-    public void finalizeForNereids(TupleDescriptor tupleDescriptor,
-                                   List<Expr> outputList, List<Expr> orderingExpr) {
-        resolvedTupleExprs = Lists.newArrayList();
-        // TODO: should fix the duplicate order by exprs in nereids code later
-        for (Expr order : orderingExpr) {
-            if (!resolvedTupleExprs.contains(order)) {
-                resolvedTupleExprs.add(order);
-            }
-        }
-        for (Expr output : outputList) {
-            if (!resolvedTupleExprs.contains(output)) {
-                resolvedTupleExprs.add(output);
-            }
-        }
-        info.setSortTupleDesc(tupleDescriptor);
-        info.setSortTupleSlotExprs(resolvedTupleExprs);
-
-        nullabilityChangedFlags.clear();
-        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
-            nullabilityChangedFlags.add(false);
-        }
     }
 }

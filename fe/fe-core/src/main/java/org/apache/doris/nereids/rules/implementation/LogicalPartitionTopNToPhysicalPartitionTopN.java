@@ -23,10 +23,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Implementation rule that convert logical partition-top-n to physical partition-top-n.
@@ -35,13 +34,11 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
     @Override
     public Rule build() {
         return logicalPartitionTopN().then(partitionTopN -> {
-            List<OrderKey> orderKeys = Lists.newArrayList();
-            if (!partitionTopN.getOrderKeys().isEmpty()) {
-                orderKeys.addAll(partitionTopN.getOrderKeys().stream()
+            List<OrderKey> orderKeys = !partitionTopN.getOrderKeys().isEmpty()
+                    ? partitionTopN.getOrderKeys().stream()
                         .map(OrderExpression::getOrderKey)
-                        .collect(Collectors.toList())
-                );
-            }
+                        .collect(ImmutableList.toImmutableList()) :
+                    ImmutableList.of();
 
             return new PhysicalPartitionTopN<>(
                     partitionTopN.getFunction(),

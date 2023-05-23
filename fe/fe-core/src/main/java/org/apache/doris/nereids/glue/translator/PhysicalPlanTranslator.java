@@ -959,9 +959,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PartitionSortNode partitionSortNode = new PartitionSortNode(context.nextPlanNodeId(), childNode,
                 partitionTopN.getFunction(), partitionExprs, sortInfo, partitionTopN.hasGlobalLimit(),
-                partitionTopN.getPartitionLimit());
+                partitionTopN.getPartitionLimit(), sortTupleOutputList, oldOrderingExprList);
 
-        partitionSortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         if (partitionTopN.getStats() != null) {
             partitionSortNode.setCardinality((long) partitionTopN.getStats().getRowCount());
         }
