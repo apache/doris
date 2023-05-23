@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nesting_complex_switch", "query") {
+suite("test_nested_complex_switch", "query") {
     // define a sql table
     def testTable_m = "test_nesting_complex_switch_map"
     def testTable_a = "test_nesting_complex_switch_array"
