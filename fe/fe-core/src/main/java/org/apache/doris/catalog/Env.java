@@ -3097,7 +3097,7 @@ public class Env {
                 sb.append(",\n\"")
                         .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
                         .append("\" = \"");
-                sb.append(olapTable.disableAutoCompaction()).append("\"");
+                sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
             }
 
             sb.append("\n)");
