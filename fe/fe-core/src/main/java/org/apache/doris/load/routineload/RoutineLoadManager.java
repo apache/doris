@@ -449,7 +449,7 @@ public class RoutineLoadManager implements Writable {
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
-            // 3. The previos BE is not in cluster && is not load available, find a new BE with min tasks
+            // 3. The previous BE is not in cluster && is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
