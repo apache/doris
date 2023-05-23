@@ -912,7 +912,7 @@ nonterminal ExplainOptions opt_explain_options;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
-nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
+nonterminal Map<String, String> opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -1345,15 +1345,14 @@ alter_stmt ::=
 opt_datasource_properties ::=
     // empty
     {:
-        RESULT = new RoutineLoadDataSourceProperties();
+        RESULT = new HashMap<String, String>();
     :}
     | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        // the 3rd parameter "true" means this is for AlterRoutineLoad operation.
-        RESULT = new RoutineLoadDataSourceProperties(type, customProperties, true);
+        Map<String, String> properties = new HashMap<String, String>(customProperties);
+        RESULT = properties;
     :}
     ;
-
 quantity ::=
     INTEGER_LITERAL:number
     {:
