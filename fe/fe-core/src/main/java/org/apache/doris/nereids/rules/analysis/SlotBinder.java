@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -29,11 +30,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -151,6 +155,33 @@ class SlotBinder extends SubExprAnalyzer {
                 throw new AnalysisException("Not supported qualifier: "
                         + StringUtils.join(qualifier, "."));
         }
+    }
+
+    @Override
+    public Expression visitWindow(WindowExpression windowExpression, CascadesContext context) {
+        if (windowExpression.getFunction() instanceof UnboundFunction) {
+            UnboundFunction windowFunc = (UnboundFunction) windowExpression.getFunction();
+            if ((Objects.equals(windowFunc.getName(), "lag")) || (Objects.equals(windowFunc.getName(), "lead"))) {
+                if (windowFunc.children().size() != 3) {
+                    throw new AnalysisException("Lag/offset must have three parameters");
+                }
+            }
+        }
+
+        List<Expression> newChildren = new ArrayList<>();
+        boolean hasNewChildren = false;
+        for (Expression child : windowExpression.children()) {
+            Expression newChild = child.accept(this, context);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChildren) {
+            windowExpression = windowExpression.withChildren(newChildren);
+        }
+
+        return windowExpression;
     }
 
     private BoundStar bindQualifiedStar(List<String> qualifierStar, List<Slot> boundSlots) {
