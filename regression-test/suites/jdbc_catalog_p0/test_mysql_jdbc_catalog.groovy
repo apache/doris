@@ -216,6 +216,11 @@ suite("test_mysql_jdbc_catalog", "p0") {
         sql """ switch ${catalog_name} """
         sql """ use ${ex_db_name} """
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
+
+        // test all types supported by MySQL
+        sql """use doris_test;"""
+        qt_mysql_all_types """select * from all_types order by tinyint_u;"""
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }
