@@ -5,6 +5,20 @@
 0	1	2	5
 
 -- !desc_dup_table --
+k1	INT	Yes	true	\N	
+k2	INT	Yes	true	\N	
+k3	INT	Yes	true	\N	
+int_value	INT	Yes	false	\N	NONE
+
+-- !show_dup_table --
+test_default_data_model	CREATE TABLE `test_default_data_model` (\n  `k1` int(11) NULL,\n  `k2` int(11) NULL,\n  `k3` int(11) NULL,\n  `int_value` int(11) NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`k1`, `k2`, `k3`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`k1`) BUCKETS 5\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false"\n);
+
+-- !select_dup_table --
+0	1	2	3
+0	1	2	4
+0	1	2	5
+
+-- !desc_dup_table --
 k1	INT	Yes	false	\N	NONE
 k2	INT	Yes	false	\N	NONE
 k3	INT	Yes	false	\N	NONE
