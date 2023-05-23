@@ -91,7 +91,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
     }
 
     sql "CREATE materialized VIEW test_lazy_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;"
-    int max_try_secs = 60
+    max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
         if (res == "FINISHED") {
