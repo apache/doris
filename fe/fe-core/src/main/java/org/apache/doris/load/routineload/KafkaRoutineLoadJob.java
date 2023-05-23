@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -216,7 +218,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
-                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
+                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress,isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -285,7 +287,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaTaskInfo oldKafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
-                ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()));
+                ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()),isMultiTable());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task

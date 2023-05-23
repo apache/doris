@@ -27,6 +27,7 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -69,22 +70,26 @@ public abstract class RoutineLoadTaskInfo {
     protected long lastScheduledTime = -1;
 
     protected long timeoutMs = -1;
+    
+    protected boolean isMultiLoad = false;
 
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs,boolean isMultiTable) {
         this.id = id;
         this.jobId = jobId;
         this.clusterName = clusterName;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
+        this.isMultiLoad = isMultiTable;
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, long previousBeId) {
-        this(id, jobId, clusterName, timeoutMs);
+    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, long previousBeId,boolean isMultiTable) {
+        this(id, jobId, clusterName, timeoutMs,isMultiTable);
         this.previousBeId = previousBeId;
+        this.isMultiLoad = isMultiTable;
     }
 
     public UUID getId() {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import lombok.Setter;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -112,6 +113,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
+
+    @Getter
+    @Setter
+    private boolean isMultiTable = false;
 
     /*
                      +-----------------+
@@ -800,6 +805,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // call before first scheduling
     // derived class can override this.
     public void prepare() throws UserException {
+        // for multi table load job, the table name is dynamic,we will init planner when task scheduling.
+        if(isMultiTable){
+            return;
+        }
         initPlanner();
     }
 

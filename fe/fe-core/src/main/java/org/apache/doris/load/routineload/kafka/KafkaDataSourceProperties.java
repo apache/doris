@@ -73,6 +73,23 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
     @SerializedName(value = "topic")
     private String topic;
 
+    /**
+     * The table name properties of kafka data source
+     * <p>
+     * table_name_location: table name location
+     * 1. table name location is in the key of kafka message
+     * 2. table name location is in the value of kafka message
+     * <p>
+     * table_name_format: table name format
+     * 1.json format
+     * 2.txt format
+     * <p>
+     * table_name_regex: table name regex
+     */
+    @Getter
+    @SerializedName(value = "tableNameProperties")
+    private Map<String, String> tableNameProperties;
+
     private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET =
             new ImmutableSet.Builder<String>().add(KafkaConfiguration.KAFKA_BROKER_LIST.getName())
                     .add(KafkaConfiguration.KAFKA_TOPIC.getName())
@@ -80,8 +97,12 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                     .add(KafkaConfiguration.KAFKA_OFFSETS.getName())
                     .add(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()).build();
 
-    public KafkaDataSourceProperties(Map<String, String> dataSourceProperties) {
-        super(dataSourceProperties);
+    public KafkaDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
+        super(dataSourceProperties,multiLoad);
+    }
+
+    public KafkaDataSourceProperties(Map<String, String> originalDataSourceProperties) {
+        super(originalDataSourceProperties);
     }
 
     @Override
@@ -142,6 +163,9 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             throw new AnalysisException("Only one of " + KafkaConfiguration.KAFKA_OFFSETS.getName() + " and "
                     + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName() + " can be set.");
         }
+        if (multiLoad) {
+            checkAndSetMultiLoadProperties();
+        }
         if (isAlter() && CollectionUtils.isNotEmpty(partitions) && CollectionUtils.isEmpty(offsets)
                 && StringUtils.isBlank(defaultOffsetString)) {
             // if this is an alter operation, the partition and (default)offset must be set together.
@@ -157,6 +181,20 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             setDefaultOffsetForPartition(this.kafkaPartitionOffsets, defaultOffsetString, this.isOffsetsForTimes);
         }
 
+    }
+
+    private void checkAndSetMultiLoadProperties() {
+        String tableNameFormat = KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getParameterValue(
+                originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName()));
+        String tableNameDelimiter = KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getParameterValue(
+                originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName()));
+
+        String tableNameIndex = KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getParameterValue(
+                originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName()));
+        tableNameProperties = new HashMap<>();
+        tableNameProperties.put(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName(), tableNameFormat);
+        tableNameProperties.put(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName(), tableNameDelimiter);
+        tableNameProperties.put(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName(), tableNameIndex);
     }
 
     private static void setDefaultOffsetForPartition(List<Pair<Integer, Long>> kafkaPartitionOffsets,

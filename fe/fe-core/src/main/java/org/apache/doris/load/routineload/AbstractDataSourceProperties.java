@@ -57,13 +57,24 @@ public abstract class AbstractDataSourceProperties {
     protected String timezone;
 
 
-    public AbstractDataSourceProperties(Map<String, String> dataSourceProperties) {
+    public AbstractDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
         this.originalDataSourceProperties = dataSourceProperties;
+        this.multiLoad = multiLoad;
+    }
+
+    public AbstractDataSourceProperties(Map<String, String> originalDataSourceProperties) {
+        this.originalDataSourceProperties = originalDataSourceProperties;
     }
 
     protected abstract String getDataSourceType();
 
     protected abstract List<String> getRequiredProperties() throws UserException;
+
+    /**
+     * Whether the data source is multi load
+     * default is false
+     */
+    protected boolean multiLoad = false;
 
     /**
      * Check required properties

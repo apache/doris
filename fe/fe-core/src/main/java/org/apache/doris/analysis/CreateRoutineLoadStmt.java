@@ -181,14 +181,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
-                                 String comment) {
+                                 String comment,boolean multiLoad) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(typeName, dataSourceProperties);
+                .createDataSource(typeName, dataSourceProperties,multiLoad);
         this.mergeType = mergeType;
         if (comment != null) {
             this.comment = comment;
