@@ -44,33 +44,31 @@ PhysicalTopN
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+----------------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_returns]
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)
-----------------------------------PhysicalProject
-------------------------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
+----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
+--------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_date <= 1998-09-27)(date_dim.d_date >= 1998-08-28))
+----------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((item.i_current_price > 50.00))
+--------------------------------------------PhysicalOlapScan[item]
+------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_returns]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
-------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_date <= 1998-09-27)(date_dim.d_date >= 1998-08-28))
---------------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------------PhysicalDistribute
---------------------------------------------PhysicalProject
-----------------------------------------------filter((item.i_current_price > 50.00))
-------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
+------------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_page]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((cast(p_channel_tv as VARCHAR(*)) = 'N'))
-------------------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
