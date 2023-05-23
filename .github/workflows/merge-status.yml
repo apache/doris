@@ -17,8 +17,7 @@
 #
 ---
 on:
-  pull_request_review:
-    types: [submitted]
+  pull_request:
 
 env:
   PULL_REQUEST_NUM: $(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
@@ -27,13 +26,12 @@ env:
 
 jobs:
    run_teamcity_pipeline:
-    if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ISSUE_COMMENT: ${{ github.event.comment.body }}
     steps:
-      - name: Run pipeline by teamcity restful
+      - name: PR merge statuscheck 
         run: |
             echo "-----------------------------------------------------------------"
             running_builds_command="curl -s -X GET ${teamcity_url}/app/rest/builds\?locator\=buildType\:Doris_DorisRegression_Approval\,branch:pull/${pull_request_num}\,running:true"
