@@ -116,5 +116,5 @@ if (NOT USE_MEM_TRACKER)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
 endif()
 
-# include_pch(Olap thirdparty_pch)
-include_pch(Olap olap_pch)
+include_pch(Olap thirdparty_pch)
+# include_pch(Olap olap_pch)

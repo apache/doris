@@ -72,5 +72,5 @@ add_library(Pipeline STATIC
         ${PIPELINE_FILES}
 )
 
-include_pch(Pipeline pipeline_pch)
-# include_pch(Pipeline thirdparty_pch)
+# include_pch(Pipeline pipeline_pch)
+include_pch(Pipeline thirdparty_pch)

@@ -65,5 +65,5 @@ add_library(Exec STATIC
     ${EXEC_FILES}
 )
 
-include_pch(Exec exec_pch)
-# include_pch(Exec thirdparty_pch)
+# include_pch(Exec exec_pch)
+include_pch(Exec thirdparty_pch)

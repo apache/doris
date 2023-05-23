@@ -90,5 +90,5 @@ add_library(Runtime STATIC
     ${RUNTIME_FILES}
 )
 
-include_pch(Runtime runtime_pch)
-# include_pch(Runtime thirdparty_pch)
+# include_pch(Runtime runtime_pch)
+include_pch(Runtime thirdparty_pch)

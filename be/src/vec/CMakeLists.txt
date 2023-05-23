@@ -360,5 +360,5 @@ add_library(Vec STATIC
         ${VEC_FILES}
 )
 
-# include_pch(Vec thirdparty_pch)
-include_pch(Vec vec_pch)
+include_pch(Vec thirdparty_pch)
+# include_pch(Vec vec_pch)

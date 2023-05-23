@@ -30,8 +30,8 @@ add_library(Service
     internal_service.cpp
 )
 
-# include_pch(Service thirdparty_pch)
-include_pch(Service service_pch)
+include_pch(Service thirdparty_pch)
+# include_pch(Service service_pch)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     add_executable(doris_be

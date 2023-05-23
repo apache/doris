@@ -58,5 +58,5 @@ add_library(Webserver STATIC
   action/jeprofile_actions.cpp
   action/file_cache_action.cpp)
 
-include_pch(Webserver http_pch)
-# include_pch(Webserver thirdparty_pch)
+# include_pch(Webserver http_pch)
+include_pch(Webserver thirdparty_pch)
