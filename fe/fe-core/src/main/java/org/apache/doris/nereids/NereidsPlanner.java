@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -234,12 +236,11 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
+            setRequiredPhysicalProperties(cascadesContext.getRewritePlan());
             initMemo();
 
             deriveStats();
             serializeStatUsed(statementContext.getConnectContext());
-
-            cascadesContext.setJobContext(PhysicalProperties.GATHER);
 
             optimize();
             NereidsTracer.logImportantTime("EndOptimizePlan");
@@ -346,6 +347,16 @@ public class NereidsPlanner extends Planner {
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
         return new PlanPostProcessors(cascadesContext).process(physicalPlan);
+    }
+
+    private void setRequiredPhysicalProperties(Plan plan) {
+        PhysicalProperties properties;
+        if (plan instanceof LogicalOlapTableSink) {
+            properties = ((LogicalOlapTableSink<?>) plan).getOutputPhysicalProperties();
+        } else {
+            properties = PhysicalProperties.GATHER;
+        }
+        cascadesContext.setJobContext(properties);
     }
 
     private JSONObject serializeInputsToDumpFile(Plan parsedPlan, String dumpName) throws IOException {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -149,13 +151,23 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     /**
-     * calculate PhysicalProperties.
+     * get output physical properties
      */
-    public PhysicalProperties calculatePhysicalProperties() {
-        // it will be used at set physical properties.
-
-        List<ExprId> exprIds = getOutput().subList(0, targetTable.getKeysNum()).stream()
-                .map(NamedExpression::getExprId).collect(Collectors.toList());
-        return PhysicalProperties.createHash(new DistributionSpecHash(exprIds, ShuffleType.NATURAL));
+    public PhysicalProperties getOutputPhysicalProperties() {
+        HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
+        List<Column> distributedColumns = distributionInfo.getDistributionColumns();
+        List<Integer> columnIndexes = Lists.newArrayList();
+        int idx = 0;
+        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+            if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
+                columnIndexes.add(i);
+                idx++;
+                if (idx == distributedColumns.size()) {
+                    break;
+                }
+            }
+        }
+        return PhysicalProperties.createHash(columnIndexes.stream()
+                .map(colIdx -> getOutput().get(colIdx).getExprId()).collect(Collectors.toList()), ShuffleType.NATURAL);
     }
 }
