@@ -156,8 +156,9 @@ bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
             block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
     auto& result_info = block.get_by_position(result);
     if (result_info.type->is_nullable()) {
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(result_column), ColumnUInt8::create(input_rows_count, 0)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(result_column),
+                                                         ColumnUInt8::create(input_rows_count, 0)));
     } else {
         block.replace_by_position(result, std::move(result_column));
     }
