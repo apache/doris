@@ -20,14 +20,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
-#include "olap/skiplist.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
@@ -49,15 +50,21 @@ struct RowInBlock {
     size_t _row_pos;
     char* _agg_mem;
     size_t* _agg_state_offset;
+    bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row) {}
+    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
 
     void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+        _has_init_agg = true;
         _agg_mem = agg_mem;
         _agg_state_offset = agg_state_offset;
     }
 
     char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
+
+    inline bool has_init_agg() const { return _has_init_agg; }
+
+    inline void remove_init_agg() { _has_init_agg = false; }
 };
 
 class RowInBlockComparator {
@@ -105,16 +112,15 @@ public:
     int64_t flush_size() const { return _flush_size; }
     int64_t merged_rows() const { return _merged_rows; }
 
+    void set_callback(std::function<void(int64_t)> callback) { _delta_writer_callback = callback; }
+
 private:
     Status _do_flush(int64_t& duration_ns);
 
 private:
-    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
-
-private:
     // for vectorized
-    void _insert_one_row_from_block(RowInBlock* row_in_block);
-    void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
+                                     RowInBlock* row_in_skiplist);
 
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                    int64_t atomic_num_segments_after_flush);
@@ -159,8 +165,6 @@ private:
 
     size_t _schema_size;
 
-    std::unique_ptr<VecTable> _vec_skip_list;
-    VecTable::Hint _vec_hint;
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
@@ -178,12 +182,18 @@ private:
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
+    size_t _last_sorted_pos = 0;
 
+    //return number of same keys
+    int _sort();
     template <bool is_final>
-    void _collect_vskiplist_results();
-    void _collect_dup_table_with_keys();
-    void _collect_dup_table_without_keys();
+    void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
+                           int row_pos);
+    template <bool is_final>
+    void _aggregate();
+    void _prepare_block_for_flush(vectorized::Block& in_block);
     bool _is_first_insertion;
+    std::function<void(int64_t)> _delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
