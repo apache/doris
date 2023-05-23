@@ -18,7 +18,10 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.thrift.TFileType;
+
+import org.apache.http.client.methods.HttpPut;
 
 import java.util.Map;
 
@@ -29,22 +32,30 @@ import java.util.Map;
 public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
     public static final String NAME = "stream";
 
-    public StreamTableValuedFunction(Map<String, String> params){
+    private final HttpPut requset;
 
+    public StreamTableValuedFunction(Map<String, String> params){
+        requset = getHttpRequest(params);
+
+    }
+
+    private HttpPut getHttpRequest(Map<String, String> params){
+        // todo:
+       return new HttpPut();
     }
     @Override
     public TFileType getTFileType() {
-        return null;
+        return TFileType.FILE_STREAM;
     }
 
     @Override
     public String getFilePath() {
-        return null;
+        return requset.toString();
     }
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return null;
+        return new BrokerDesc("StreamTvfBroker", StorageType.STREAM,locationProperties);
     }
 
     @Override
