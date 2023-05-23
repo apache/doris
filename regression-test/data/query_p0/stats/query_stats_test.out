@@ -32,10 +32,10 @@ k12	0	0
 k13	0	0
 
 -- !sql --
-baseall	2
+baseall_stat	2
 
 -- !sql --
-baseall	k0	1	1
+baseall_stat	k0	1	1
 	k1	1	0
 	k2	1	1
 	k3	0	0
