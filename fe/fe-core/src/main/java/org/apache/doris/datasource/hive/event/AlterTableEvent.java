@@ -121,7 +121,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                     .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

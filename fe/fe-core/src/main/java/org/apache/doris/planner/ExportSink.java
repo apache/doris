@@ -79,7 +79,7 @@ public class ExportSink extends DataSink {
         if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
             FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyBroker(brokerDesc.getName());
             if (broker != null) {
-                tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
