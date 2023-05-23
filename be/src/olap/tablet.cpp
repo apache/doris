@@ -2099,13 +2099,16 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                                                         &loc);
                     if (st.ok()) {
                         delete_bitmap->add({rowset_id, loc.segment_id, 0}, loc.row_id);
-                        ++row_id;
-                        continue;
                     } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                        ++row_id;
-                        continue;
+                    } else if (!st.is_not_found()) {
+                        // some unexpected error
+                        LOG(WARNING) << "some unexpected error happen while looking up keys "
+                                     << "in pre segments: " << st;
+                        return st;
                     }
+                    ++row_id;
+                    continue;
                 }
 
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
