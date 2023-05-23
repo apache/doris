@@ -60,6 +60,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 }
                 if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
                             doris::thread_context()->task_id())) {
+                    wait_milliseconds = 0;
                     break;
                 }
                 wait_milliseconds -= 100;
