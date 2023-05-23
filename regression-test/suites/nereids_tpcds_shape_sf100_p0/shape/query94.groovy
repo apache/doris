@@ -27,7 +27,8 @@ suite("query94") {
     sql 'set parallel_fragment_exec_instance_num=8'
     sql 'set forbid_unknown_col_stats=true'
     sql 'set broadcast_row_count_limit = 30000000'
-    
+    sql 'set enable_nereids_timeout = false'
+
     qt_ds_shape_94 '''
     explain shape plan
 
