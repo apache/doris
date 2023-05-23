@@ -1128,6 +1128,8 @@ public class ScalarType extends Type {
         if (t1.isDecimalV3() || t2.isDecimalV3()) {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
                 return t1.isFloatingPointType() ? t1 : t2;
+            } else if (t1.isBoolean() || t2.isBoolean()) {
+                return t1.isDecimalV3() ? t1 : t2;
             }
         }
 
