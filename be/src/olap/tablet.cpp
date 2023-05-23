@@ -2545,6 +2545,7 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     return Status::OK();
 }
 
+// ATTN: caller should hold the meta lock.
 Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                               const RowsetIdUnorderedSet* rowset_ids, RowLocation* row_location,
                               uint32_t version, RowsetSharedPtr* rowset) {
