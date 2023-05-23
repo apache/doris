@@ -708,7 +708,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
 
@@ -806,7 +806,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
 
@@ -881,7 +881,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: range predicate"
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
     }
