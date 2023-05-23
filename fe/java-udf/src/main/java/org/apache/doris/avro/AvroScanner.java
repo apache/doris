@@ -40,8 +40,8 @@ public class AvroScanner extends JniScanner {
     private static final Logger LOG = LogManager.getLogger(AvroScanner.class);
     private final TFileType fileType;
     private final String uri;
+    private final Map<String, String> requiredParams;
     private Integer fetchSize;
-    private Map<String, String> requiredParams;
     private String[] columnTypes;
     private String[] requiredFields;
     private ColumnType[] requiredTypes;
@@ -76,8 +76,6 @@ public class AvroScanner extends JniScanner {
         this.uri = requiredParams.get(AvroProperties.URI);
         this.fileType = TFileType.findByValue(Integer.parseInt(requiredParams.get(AvroProperties.FILE_TYPE)));
         isGetTableSchema = true;
-        // todo
-        LOG.info("init AvroScanner");
     }
 
     private void buildParams() {
@@ -103,8 +101,8 @@ public class AvroScanner extends JniScanner {
                 this.avroReader = new S3FileReader(accessKey, secretKey, endpoint, region, bucketName, key);
                 break;
             default:
-                LOG.warn("Unsupported" + fileType.name() + "file type.");
-                throw new RuntimeException("Unsupported" + fileType.name() + "file type.");
+                LOG.warn("Unsupported " + fileType.name() + " file type.");
+                throw new RuntimeException("Unsupported " + fileType.name() + " file type.");
         }
         this.avroReader.open(new Configuration());
         if (!isGetTableSchema) {
@@ -168,7 +166,7 @@ public class AvroScanner extends JniScanner {
                 case ARRAY:
                 case MAP:
                 default:
-                    throw new IOException("avro format:" + type.getName() + " is not supported.");
+                    throw new IOException("avro format: " + type.getName() + " is not supported.");
 
             }
         }
