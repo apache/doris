@@ -37,6 +37,14 @@ suite("test_not_supported_agg_fn") {
             """
             exception "errCode = 2, detailMessage = No matching function with signature: last_value(bitmap)"            
         }
+
+        sql "set enable_nereids_planner=true;"
+        test {
+            sql """
+                select sum(1);
+            """
+            exception "OneRowRelation can not contains any aggregate function"            
+        }
     } finally {
     }
 
