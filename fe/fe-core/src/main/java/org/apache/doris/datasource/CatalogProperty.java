@@ -35,6 +35,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 /**
  * CatalogProperty to store the properties for catalog.
@@ -94,6 +96,12 @@ public class CatalogProperty implements Writable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        properties.clear();
+        properties = props.entrySet().stream()
+                .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
     }
 
     public Map<String, String> getHadoopProperties() {

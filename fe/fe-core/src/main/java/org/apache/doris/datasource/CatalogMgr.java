@@ -541,12 +541,30 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
-            Map<String, String> newProps = log.getNewProps();
-
             if (catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkAlterProperties(newProps);
-            }
+                Map<String, String> newProps = log.getNewProps();
+                //要求检查全量而不是增量
+                //先把数据拿过来放进去
+                Map<String, String> oldProps = log.getProps();
 
+                //直接把老的放进去
+                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
+                try {
+                    ((ExternalCatalog) catalog).checkProperties();
+                }catch (DdlException e){
+                    //把数据回退回去
+                    ((ExternalCatalog) catalog).rollBackCatalogProps(oldProps);
+                    throw new DdlException("");
+                }
+
+
+                if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                    long catalogId = catalog.getId();
+                    Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
+                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                    Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+                }
+            }
             catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();
