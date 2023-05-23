@@ -25,10 +25,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.qe.ConnectContext;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.TimeZone;
 
 /**
  * executable functions:
