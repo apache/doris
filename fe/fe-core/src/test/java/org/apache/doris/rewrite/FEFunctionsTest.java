@@ -255,86 +255,92 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void dateFormatUtilTest() {
-        try {
-            Locale.setDefault(Locale.ENGLISH);
-            DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIME);
-            Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
-            Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
-            Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%c")).getStringValue());
-            Assert.assertEquals("09", FEFunctions.dateFormat(testDate, new StringLiteral("%d")).getStringValue());
-            Assert.assertEquals("9", FEFunctions.dateFormat(testDate, new StringLiteral("%e")).getStringValue());
-            Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%H")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%h")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%I")).getStringValue());
-            Assert.assertEquals("04", FEFunctions.dateFormat(testDate, new StringLiteral("%i")).getStringValue());
-            Assert.assertEquals("009", FEFunctions.dateFormat(testDate, new StringLiteral("%j")).getStringValue());
-            Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%k")).getStringValue());
-            Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%l")).getStringValue());
-            Assert.assertEquals("January", FEFunctions.dateFormat(testDate, new StringLiteral("%M")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
-            Assert.assertEquals("PM", FEFunctions.dateFormat(testDate, new StringLiteral("%p")).getStringValue());
-            Assert.assertEquals("01:04:05 PM", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%r")).getStringValue());
-            Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%S")).getStringValue());
-            Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%s")).getStringValue());
-            Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%T")).getStringValue());
-            Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
-            Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
-            Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
-            Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
-            Assert.assertEquals("foo", FEFunctions.dateFormat(testDate, new StringLiteral("foo")).getStringValue());
-            Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
-            Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
-            Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%x %v")).getStringValue());
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-        }
+    public void dateFormatUtilTest() throws AnalysisException {
+        Locale.setDefault(Locale.ENGLISH);
+        DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIME);
+        Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
+        Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
+        Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%c")).getStringValue());
+        Assert.assertEquals("09", FEFunctions.dateFormat(testDate, new StringLiteral("%d")).getStringValue());
+        Assert.assertEquals("9", FEFunctions.dateFormat(testDate, new StringLiteral("%e")).getStringValue());
+        Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%H")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%h")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%I")).getStringValue());
+        Assert.assertEquals("04", FEFunctions.dateFormat(testDate, new StringLiteral("%i")).getStringValue());
+        Assert.assertEquals("009", FEFunctions.dateFormat(testDate, new StringLiteral("%j")).getStringValue());
+        Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%k")).getStringValue());
+        Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%l")).getStringValue());
+        Assert.assertEquals("January", FEFunctions.dateFormat(testDate, new StringLiteral("%M")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
+        Assert.assertEquals("PM", FEFunctions.dateFormat(testDate, new StringLiteral("%p")).getStringValue());
+        Assert.assertEquals("01:04:05 PM", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%r")).getStringValue());
+        Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%S")).getStringValue());
+        Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%s")).getStringValue());
+        Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%T")).getStringValue());
+        Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
+        Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
+        Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
+        Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
+        Assert.assertEquals("foo", FEFunctions.dateFormat(testDate, new StringLiteral("foo")).getStringValue());
+        Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
+        Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
+        Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%x %v")).getStringValue());
+        Assert.assertEquals("Tue-Jan-1-9th-09-9-01-13-04-009-13-1-L-01-January-PM-01:04:05 PM-05-05-13:04:05-05-01-02-Tuesday-2-2001-2001-2001-01",
+                FEFunctions.dateFormat(testDate, new StringLiteral("%a-%b-%c-%D-%d-%e-%h-%H-%i-%j-%k-%l-%L-%m-%M-%p-%r-%S-%s-%T-%s-%U-%u-%V-%v-%W-%w-%X-%x-%Y-%y"))
+                        .getStringValue());
+        Assert.assertEquals("Sun-Jan-1-2nd-02-2-12-00-00-002-0-12-L-01-January-AM-12:00:00 AM-00-00-00:00:00-00-01-00-01-52-Sunday-0-2022-2021-2022-22",
+                FEFunctions.dateFormat(new DateLiteral("2022-01-02 13:04:06", Type.DATETIME),
+                                new StringLiteral("%a-%b-%c-%D-%d-%e-%h-%H-%i-%j-%k-%l-%L-%m-%M-%p-%r-%S-%s-%T-%s-%U-%u-%V-%v-%W-%w-%X-%x-%Y-%y"))
+                        .getStringValue());
     }
 
     @Test
-    public void dateV2FormatUtilTest() {
-        try {
-            Locale.setDefault(Locale.ENGLISH);
-            DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIMEV2);
-            Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
-            Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
-            Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%c")).getStringValue());
-            Assert.assertEquals("09", FEFunctions.dateFormat(testDate, new StringLiteral("%d")).getStringValue());
-            Assert.assertEquals("9", FEFunctions.dateFormat(testDate, new StringLiteral("%e")).getStringValue());
-            Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%H")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%h")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%I")).getStringValue());
-            Assert.assertEquals("04", FEFunctions.dateFormat(testDate, new StringLiteral("%i")).getStringValue());
-            Assert.assertEquals("009", FEFunctions.dateFormat(testDate, new StringLiteral("%j")).getStringValue());
-            Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%k")).getStringValue());
-            Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%l")).getStringValue());
-            Assert.assertEquals("January", FEFunctions.dateFormat(testDate, new StringLiteral("%M")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
-            Assert.assertEquals("PM", FEFunctions.dateFormat(testDate, new StringLiteral("%p")).getStringValue());
-            Assert.assertEquals("01:04:05 PM", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%r")).getStringValue());
-            Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%S")).getStringValue());
-            Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%s")).getStringValue());
-            Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%T")).getStringValue());
-            Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
-            Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
-            Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
-            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
-            Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
-            Assert.assertEquals("foo", FEFunctions.dateFormat(testDate, new StringLiteral("foo")).getStringValue());
-            Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
-            Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
-            Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
-            Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate,
-                    new StringLiteral("%x %v")).getStringValue());
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-        }
+    public void dateV2FormatUtilTest() throws AnalysisException {
+        Locale.setDefault(Locale.ENGLISH);
+        DateLiteral testDate = new DateLiteral("2001-01-09 13:04:05", Type.DATETIMEV2);
+        Assert.assertEquals("Tue", FEFunctions.dateFormat(testDate, new StringLiteral("%a")).getStringValue());
+        Assert.assertEquals("Jan", FEFunctions.dateFormat(testDate, new StringLiteral("%b")).getStringValue());
+        Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%c")).getStringValue());
+        Assert.assertEquals("09", FEFunctions.dateFormat(testDate, new StringLiteral("%d")).getStringValue());
+        Assert.assertEquals("9", FEFunctions.dateFormat(testDate, new StringLiteral("%e")).getStringValue());
+        Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%H")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%h")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%I")).getStringValue());
+        Assert.assertEquals("04", FEFunctions.dateFormat(testDate, new StringLiteral("%i")).getStringValue());
+        Assert.assertEquals("009", FEFunctions.dateFormat(testDate, new StringLiteral("%j")).getStringValue());
+        Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%k")).getStringValue());
+        Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%l")).getStringValue());
+        Assert.assertEquals("January", FEFunctions.dateFormat(testDate, new StringLiteral("%M")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
+        Assert.assertEquals("PM", FEFunctions.dateFormat(testDate, new StringLiteral("%p")).getStringValue());
+        Assert.assertEquals("01:04:05 PM", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%r")).getStringValue());
+        Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%S")).getStringValue());
+        Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%s")).getStringValue());
+        Assert.assertEquals("13:04:05", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%T")).getStringValue());
+        Assert.assertEquals("02", FEFunctions.dateFormat(testDate, new StringLiteral("%v")).getStringValue());
+        Assert.assertEquals("Tuesday", FEFunctions.dateFormat(testDate, new StringLiteral("%W")).getStringValue());
+        Assert.assertEquals("2001", FEFunctions.dateFormat(testDate, new StringLiteral("%Y")).getStringValue());
+        Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%y")).getStringValue());
+        Assert.assertEquals("%", FEFunctions.dateFormat(testDate, new StringLiteral("%%")).getStringValue());
+        Assert.assertEquals("foo", FEFunctions.dateFormat(testDate, new StringLiteral("foo")).getStringValue());
+        Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
+        Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
+        Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
+        Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate,
+                new StringLiteral("%x %v")).getStringValue());
+        Assert.assertEquals("Tue-Jan-1-9th-09-9-01-13-04-009-13-1-L-01-January-PM-01:04:05 PM-05-05-13:04:05-05-01-02-Tuesday-2-2001-2001-2001-01",
+                FEFunctions.dateFormat(testDate, new StringLiteral("%a-%b-%c-%D-%d-%e-%h-%H-%i-%j-%k-%l-%L-%m-%M-%p-%r-%S-%s-%T-%s-%U-%u-%V-%v-%W-%w-%X-%x-%Y-%y"))
+                        .getStringValue());
+        Assert.assertEquals("Sun-Jan-1-2nd-02-2-12-00-00-002-0-12-L-01-January-AM-12:00:00 AM-00-00-00:00:00-00-01-00-01-52-Sunday-0-2022-2021-2022-22",
+                FEFunctions.dateFormat(new DateLiteral("2022-01-02 13:04:06", Type.DATETIME),
+                                new StringLiteral("%a-%b-%c-%D-%d-%e-%h-%H-%i-%j-%k-%l-%L-%m-%M-%p-%r-%S-%s-%T-%s-%U-%u-%V-%v-%W-%w-%X-%x-%Y-%y"))
+                        .getStringValue());
     }
 
     @Test
