@@ -1,0 +1,42 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+---
+on:
+  pull_request_review:
+    types: [submitted]
+
+env:
+  PULL_REQUEST_NUM: $(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+  LATEST_COMMIT: $(curl -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')" > pr_details.json && jq -r '.head.sha' pr_details.json)
+  TEAMCITY_URL: '-H \"Content-Type:text/plain\" -H \"Accept: application/json\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111'
+
+jobs:
+   run_teamcity_pipeline:
+    if: github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ISSUE_COMMENT: ${{ github.event.comment.body }}
+    steps:
+      - name: Run pipeline by teamcity restful
+        run: |
+            echo "-----------------------------------------------------------------"
+            running_builds_command="curl -s -X GET ${teamcity_url}/app/rest/builds\?locator\=buildType\:Doris_DorisRegression_Approval\,branch:pull/${pull_request_num}\,running:true"
+            echo "${running_builds_command}" 
+            running_builds_list=$(eval "${running_builds_command}" > running_builds.json && jq -r '.build[].id' running_builds.json)
+            echo "running_builds_list : ${running_builds_list}"
