@@ -53,6 +53,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h" // Block
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -120,7 +121,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             return Status::InternalError(cntl.ErrorText());
         }
     }
-
+    vectorized::DataTypeSerDeSPtrs serdes;
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     auto merge_function = [&](const PMultiGetResponse& resp) {
         Status st(resp.status());
         if (!st.ok()) {
@@ -136,10 +138,16 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             if (output_block->is_empty_column()) {
                 *output_block = vectorized::Block(_fetch_option.desc->slots(), 1);
             }
+            if (serdes.empty() && col_uid_to_idx.empty()) {
+                serdes = vectorized::create_data_type_serdes(_fetch_option.desc->slots());
+                for (int i = 0; i < _fetch_option.desc->slots().size(); ++i) {
+                    col_uid_to_idx[_fetch_option.desc->slots()[i]->col_unique_id()] = i;
+                }
+            }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
-                        *_fetch_option.desc, resp.binary_row_data(i).data(),
-                        resp.binary_row_data(i).size(), *output_block);
+                        serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
+                        col_uid_to_idx, *output_block);
             }
             return Status::OK();
         }

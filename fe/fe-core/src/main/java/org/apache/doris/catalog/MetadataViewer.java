@@ -194,7 +194,7 @@ public class MetadataViewer {
             // backend id -> replica size
             Map<Long, Long> sizeMap = Maps.newHashMap();
             // init map
-            List<Long> beIds = infoService.getBackendIds(false);
+            List<Long> beIds = infoService.getAllBackendIds(false);
             for (long beId : beIds) {
                 countMap.put(beId, 0);
                 sizeMap.put(beId, 0L);

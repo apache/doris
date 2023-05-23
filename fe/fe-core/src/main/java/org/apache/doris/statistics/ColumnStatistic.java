@@ -145,17 +145,17 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            if (!StatisticsUtil.isNullOrEmpty(min)) {
+            if (min != null) {
                 columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                 columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (!StatisticsUtil.isNullOrEmpty(max)) {
+            if (max != null) {
                 columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                 columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);

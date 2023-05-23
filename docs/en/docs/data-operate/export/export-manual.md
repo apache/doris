@@ -57,7 +57,7 @@ The overall mode of dispatch is as follows:
 | +-------------------+  |
 |                        | 2. Generate Tasks
 | +--------------------+ |
-| | ExportExporingTask | |
+| | ExportExportingTask | |
 | +--------------------+ |
 |                        |
 | +-----------+          |     +----+   +------+   +---------+

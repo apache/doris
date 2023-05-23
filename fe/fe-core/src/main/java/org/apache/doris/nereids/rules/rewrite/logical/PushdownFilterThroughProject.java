@@ -65,10 +65,9 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
     }
 
     /** pushdown Filter through project */
-    public static Plan pushdownFilterThroughProject(LogicalFilter filter) {
-        LogicalProject<Plan> project = (LogicalProject) filter.child();
-        return project.withProjectsAndChild(
-                project.getProjects(),
+    public static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
+        LogicalProject<Plan> project = filter.child();
+        return project.withChildren(
                 new LogicalFilter<>(
                         ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
                         project.child()

@@ -827,6 +827,35 @@ public class DynamicPartitionTableTest {
             Assert.assertEquals(7, partitionName.length());
         }
 
+        createOlapTblStmt = "CREATE TABLE test.`year_dynamic_partition` (\n"
+            + "  `k1` datetime NULL COMMENT \"\",\n"
+            + "  `k2` int NULL COMMENT \"\"\n"
+            + ") ENGINE=OLAP\n"
+            + "PARTITION BY RANGE(`k1`)\n"
+            + "()\n"
+            + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+            + "PROPERTIES (\n"
+            + "\"replication_num\" = \"1\",\n"
+            + "\"dynamic_partition.enable\" = \"true\",\n"
+            + "\"dynamic_partition.start\" = \"-3\",\n"
+            + "\"dynamic_partition.end\" = \"3\",\n"
+            + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+            + "\"dynamic_partition.time_unit\" = \"year\",\n"
+            + "\"dynamic_partition.prefix\" = \"p\",\n"
+            + "\"dynamic_partition.buckets\" = \"1\"\n"
+            + ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Env.getCurrentInternalCatalog()
+            .getDbOrAnalysisException("default_cluster:test")
+            .getTableOrAnalysisException("year_dynamic_partition");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(5, partitionName.length());
+        }
+
         createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_day` (\n"
                 + "  `k1` int NULL COMMENT \"\",\n"
                 + "  `k2` int NULL COMMENT \"\"\n"

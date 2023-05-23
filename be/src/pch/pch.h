@@ -1,3 +1,26 @@
+#ifndef __APPLE__
+#include <byteswap.h>
+#include <endian.h>
+#include <features.h>
+#include <immintrin.h>
+#include <linux/perf_event.h>
+#include <malloc.h>
+#include <mmintrin.h>
+#include <sched.h>
+#include <sys/prctl.h>
+#include <sys/sysinfo.h>
+#include <ucontext.h>
+#include <unistd.h>
+#else
+#define _DARWIN_C_SOURCE
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#include <sys/sysctl.h>
+#ifndef _POSIX_C_SOURCE
+#include <mach/vm_page_size.h>
+#endif
+#endif
+
 // CLucene headers
 #include <CLucene.h>
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
@@ -523,23 +546,6 @@
 // zstd headers
 #include <zstd.h>
 #include <zstd_errors.h>
-
-#ifndef __APPLE__
-#include <byteswap.h>
-#include <endian.h>
-#include <features.h>
-#include <immintrin.h>
-#include <linux/perf_event.h>
-#include <malloc.h>
-#include <mmintrin.h>
-#include <sched.h>
-#include <sys/prctl.h>
-#include <sys/sysinfo.h>
-#include <ucontext.h>
-#include <unistd.h>
-#else
-#include <sys/sysctl.h>
-#endif
 
 #ifndef USE_LIBCPP
 #include <ext/pb_ds/priority_queue.hpp>

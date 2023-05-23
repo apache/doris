@@ -82,7 +82,8 @@ private:
     bool has_const_default_value = false;
 
 public:
-    static constexpr auto name = "jsonb_parse";
+    static constexpr auto name = "json_parse";
+    static constexpr auto alias = "jsonb_parse";
     static FunctionPtr create() { return std::make_shared<FunctionJsonbParseBase>(); }
 
     String get_name() const override {
@@ -149,8 +150,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
@@ -328,14 +327,13 @@ template <typename Impl>
 class FunctionJsonbExtract : public IFunction {
 public:
     static constexpr auto name = Impl::name;
+    static constexpr auto alias = Impl::alias;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtract>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -760,39 +758,48 @@ struct JsonbTypeType {
 };
 
 struct JsonbExists : public JsonbExtractImpl<JsonbTypeExists> {
-    static constexpr auto name = "jsonb_exists_path";
+    static constexpr auto name = "json_exists_path";
+    static constexpr auto alias = "jsonb_exists_path";
 };
 
 struct JsonbExtractIsnull : public JsonbExtractImpl<JsonbTypeNull> {
-    static constexpr auto name = "jsonb_extract_isnull";
+    static constexpr auto name = "json_extract_isnull";
+    static constexpr auto alias = "jsonb_extract_isnull";
 };
 
 struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
-    static constexpr auto name = "jsonb_extract_bool";
+    static constexpr auto name = "json_extract_bool";
+    static constexpr auto alias = "jsonb_extract_bool";
 };
 
 struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
-    static constexpr auto name = "jsonb_extract_int";
+    static constexpr auto name = "json_extract_int";
+    static constexpr auto alias = "jsonb_extract_int";
 };
 
 struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
-    static constexpr auto name = "jsonb_extract_bigint";
+    static constexpr auto name = "json_extract_bigint";
+    static constexpr auto alias = "jsonb_extract_bigint";
 };
 
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
-    static constexpr auto name = "jsonb_extract_double";
+    static constexpr auto name = "json_extract_double";
+    static constexpr auto alias = "jsonb_extract_double";
 };
 
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
-    static constexpr auto name = "jsonb_extract_string";
+    static constexpr auto name = "json_extract_string";
+    static constexpr auto alias = "jsonb_extract_string";
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
     static constexpr auto name = "jsonb_extract";
+    static constexpr auto alias = "jsonb_extract";
 };
 
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
-    static constexpr auto name = "jsonb_type";
+    static constexpr auto name = "json_type";
+    static constexpr auto alias = "jsonb_type";
 };
 
 using FunctionJsonbExists = FunctionJsonbExtract<JsonbExists>;
@@ -807,35 +814,59 @@ using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
 
 void register_function_jsonb(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionJsonbParse>("jsonb_parse");
-    factory.register_function<FunctionJsonbParseErrorNull>("jsonb_parse_error_to_null");
-    factory.register_function<FunctionJsonbParseErrorValue>("jsonb_parse_error_to_value");
-    factory.register_function<FunctionJsonbParseErrorInvalid>("jsonb_parse_error_to_invalid");
+    factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
+    factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
+    factory.register_function<FunctionJsonbParseErrorNull>("json_parse_error_to_null");
+    factory.register_alias("json_parse_error_to_null", "jsonb_parse_error_to_null");
+    factory.register_function<FunctionJsonbParseErrorValue>("json_parse_error_to_value");
+    factory.register_alias("json_parse_error_to_value", "jsonb_parse_error_to_value");
+    factory.register_function<FunctionJsonbParseErrorInvalid>("json_parse_error_to_invalid");
+    factory.register_alias("json_parse_error_to_invalid", "jsonb_parse_error_to_invalid");
 
-    factory.register_function<FunctionJsonbParseNullable>("jsonb_parse_nullable");
+    factory.register_function<FunctionJsonbParseNullable>("json_parse_nullable");
+    factory.register_alias("json_parse_nullable", "jsonb_parse_nullable");
     factory.register_function<FunctionJsonbParseNullableErrorNull>(
-            "jsonb_parse_nullable_error_to_null");
+            "json_parse_nullable_error_to_null");
+    factory.register_alias("json_parse_nullable_error_to_null",
+                           "jsonb_parse_nullable_error_to_null");
     factory.register_function<FunctionJsonbParseNullableErrorValue>(
-            "jsonb_parse_nullable_error_to_value");
+            "json_parse_nullable_error_to_value");
+    factory.register_alias("json_parse_nullable_error_to_value",
+                           "jsonb_parse_nullable_error_to_value");
     factory.register_function<FunctionJsonbParseNullableErrorInvalid>(
-            "jsonb_parse_nullable_error_to_invalid");
+            "json_parse_nullable_error_to_invalid");
+    factory.register_alias("json_parse_nullable_error_to_invalid",
+                           "json_parse_nullable_error_to_invalid");
 
-    factory.register_function<FunctionJsonbParseNotnull>("jsonb_parse_notnull");
+    factory.register_function<FunctionJsonbParseNotnull>("json_parse_notnull");
+    factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorValue>(
-            "jsonb_parse_notnull_error_to_value");
+            "json_parse_notnull_error_to_value");
+    factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorInvalid>(
-            "jsonb_parse_notnull_error_to_invalid");
+            "json_parse_notnull_error_to_invalid");
+    factory.register_alias("json_parse_notnull_error_to_invalid",
+                           "jsonb_parse_notnull_error_to_invalid");
 
     factory.register_function<FunctionJsonbExists>();
+    factory.register_alias(FunctionJsonbExists::name, FunctionJsonbExists::alias);
     factory.register_function<FunctionJsonbType>();
+    factory.register_alias(FunctionJsonbType::name, FunctionJsonbType::alias);
 
     factory.register_function<FunctionJsonbExtractIsnull>();
+    factory.register_alias(FunctionJsonbExtractIsnull::name, FunctionJsonbExtractIsnull::alias);
     factory.register_function<FunctionJsonbExtractBool>();
+    factory.register_alias(FunctionJsonbExtractBool::name, FunctionJsonbExtractBool::alias);
     factory.register_function<FunctionJsonbExtractInt>();
+    factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
     factory.register_function<FunctionJsonbExtractBigInt>();
+    factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
+    factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
     factory.register_function<FunctionJsonbExtractString>();
+    factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractJsonb>();
+    // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 }
 
 } // namespace doris::vectorized

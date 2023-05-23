@@ -30,6 +30,8 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -122,8 +124,28 @@ public class ScalarType extends Type {
     @SerializedName(value = "lenStr")
     private String lenStr;
 
+    @SerializedName(value = "subTypes")
+    private List<Type> subTypes;
+
+    @SerializedName(value = "subTypeNullables")
+    private List<Boolean> subTypeNullables;
+
+    public List<Type> getSubTypes() {
+        return subTypes;
+    }
+
+    public List<Boolean> getSubTypeNullables() {
+        return subTypeNullables;
+    }
+
     public ScalarType(PrimitiveType type) {
         this.type = type;
+    }
+
+    public ScalarType(List<Type> subTypes, List<Boolean> subTypeNullables) {
+        this.type = PrimitiveType.AGG_STATE;
+        this.subTypes = subTypes;
+        this.subTypeNullables = subTypeNullables;
     }
 
     public static ScalarType createType(PrimitiveType type, int len, int precision, int scale) {
@@ -183,6 +205,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case AGG_STATE:
+                return AGG_STATE;
             case LAMBDA_FUNCTION:
                 return LAMBDA_FUNCTION;
             case DATE:
@@ -240,7 +264,7 @@ public class ScalarType extends Type {
                 return CHAR;
             case "VARCHAR":
                 return createVarcharType();
-            case "JSONB":
+            case "JSON":
                 return createJsonbType();
             case "STRING":
             case "TEXT":
@@ -251,6 +275,8 @@ public class ScalarType extends Type {
                 return BITMAP;
             case "QUANTILE_STATE":
                 return QUANTILE_STATE;
+            case "AGG_STATE":
+                return AGG_STATE;
             case "LAMBDA_FUNCTION":
                 return LAMBDA_FUNCTION;
             case "DATE":
@@ -548,7 +574,7 @@ public class ScalarType extends Type {
         } else if (type == PrimitiveType.STRING) {
             return "TEXT";
         } else if (type == PrimitiveType.JSONB) {
-            return "JSONB";
+            return "JSON";
         }
         return type.toString();
     }
@@ -565,7 +591,9 @@ public class ScalarType extends Type {
                 }
                 break;
             case VARCHAR:
-                if (Strings.isNullOrEmpty(lenStr)) {
+                if (isWildcardVarchar()) {
+                    stringBuilder.append("varchar(*)");
+                } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
                     stringBuilder.append("varchar").append("(`").append(lenStr).append("`)");
@@ -627,19 +655,28 @@ public class ScalarType extends Type {
             case VARIANT:
             case QUANTILE_STATE:
             case LAMBDA_FUNCTION:
+            case ARRAY:
+            case NULL_TYPE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
                 stringBuilder.append("text");
                 break;
             case JSONB:
-                stringBuilder.append("jsonb");
+                stringBuilder.append("json");
                 break;
-            case ARRAY:
-                stringBuilder.append(type.toString().toLowerCase());
-                break;
-            case NULL_TYPE:
-                stringBuilder.append(type.toString().toLowerCase());
+            case AGG_STATE:
+                stringBuilder.append("agg_state(");
+                for (int i = 0; i < subTypes.size(); i++) {
+                    if (i > 0) {
+                        stringBuilder.append(", ");
+                    }
+                    stringBuilder.append(subTypes.get(i).toSql());
+                    if (subTypeNullables.get(i)) {
+                        stringBuilder.append(" NULL");
+                    }
+                }
+                stringBuilder.append(")");
                 break;
             default:
                 stringBuilder.append("unknown type: " + type.toString());
@@ -685,6 +722,18 @@ public class ScalarType extends Type {
                 break;
         }
         node.setScalarType(scalarType);
+
+        if (subTypes != null) {
+            List<TTypeDesc> types = new ArrayList<TTypeDesc>();
+            for (int i = 0; i < subTypes.size(); i++) {
+                TTypeDesc desc = new TTypeDesc();
+                desc.setTypes(new ArrayList<TTypeNode>());
+                subTypes.get(i).toThrift(desc);
+                desc.setIsNullable(subTypeNullables.get(i));
+                types.add(desc);
+            }
+            container.setSubTypes(types);
+        }
     }
 
     public int decimalPrecision() {
@@ -829,10 +878,7 @@ public class ScalarType extends Type {
             Preconditions.checkState(!isWildcardChar());
             return true;
         }
-        if (type == PrimitiveType.CHAR && scalarType.isStringType()) {
-            return true;
-        }
-        if (type == PrimitiveType.VARCHAR && scalarType.isStringType()) {
+        if (type.isStringType() && scalarType.isStringType()) {
             return true;
         }
         if (isDecimalV2() && scalarType.isWildcardDecimal() && scalarType.isDecimalV2()) {
@@ -861,6 +907,22 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
+        if (this.isAggStateType() && other.isAggStateType()) {
+            int subTypeNumber = subTypeNullables.size();
+            if (subTypeNumber != other.subTypeNullables.size()) {
+                return false;
+            }
+            for (int i = 0; i < subTypeNumber; i++) {
+                if (!subTypeNullables.get(i).equals(other.subTypeNullables.get(i))) {
+                    return false;
+                }
+                if (!subTypes.get(i).equals(other.subTypes.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
             return this.decimalScale() == other.decimalScale();
         }

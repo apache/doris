@@ -78,7 +78,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
-        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "json");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d, %d)");
@@ -88,6 +88,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
         TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE, "quantile_state");
+        TYPE_STRING_MAP.put(PrimitiveType.AGG_STATE, "agg_state");
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.VARIANT, "variant");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");

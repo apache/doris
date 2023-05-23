@@ -523,7 +523,7 @@ public class Function implements Writable {
         }
         // For types with different precisions and scales, return type only indicates a type with default
         // precision and scale so we need to transform it to the correct type.
-        if (PrimitiveType.typeWithPrecision.contains(realReturnType.getPrimitiveType())) {
+        if (realReturnType.typeContainsPrecision()) {
             fn.setRetType(realReturnType.toThrift());
         } else {
             fn.setRetType(getReturnType().toThrift());
