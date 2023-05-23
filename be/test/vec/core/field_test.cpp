@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/uint128.h"
 #include "vec/core/field.h"
 
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+
 #include <climits>
 #include <cstdint>
 
 #include "gen_cpp/data.pb.h"
 #include "gtest/gtest_pred_impl.h"
+#include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -40,10 +41,10 @@ TEST(FieldTest, Test_Field_Null) {
 // UInt64
 TEST(FieldTest, Test_Field_UInt64) {
     constexpr UInt64 a = -114514;
-    
+
     Field field_UInt64(a);
     UInt64 b = get<UInt64>(field_UInt64);
-    
+
     EXPECT_EQ("UInt64", field_UInt64.get_type_name());
     EXPECT_EQ(a, b);
 }
@@ -56,10 +57,11 @@ TEST(FieldTest, Test_Field_UInt128) {
 
     Field field_UInt128(val);
     UInt128 b = get<UInt128>(field_UInt128);
-    
-    auto U128_to_string=[](unsigned __int128 rhs) -> String {
+
+    auto U128_to_string = [](unsigned __int128 rhs) -> String {
         std::stringstream ss;
-        ss << std::setw(16) << std::setfill('0') << std::hex << (uint64_t)(rhs >> 64) << (uint64_t)rhs;
+        ss << std::setw(16) << std::setfill('0') << std::hex << (uint64_t)(rhs >> 64)
+           << (uint64_t)rhs;
         return String(ss.str());
     };
 
@@ -71,10 +73,10 @@ TEST(FieldTest, Test_Field_UInt128) {
 // Int64
 TEST(FieldTest, Test_Field_Int64) {
     constexpr Int64 a = LLONG_MAX - 114514;
-    
+
     Field field_Int64(a);
     Int64 b = get<Int64>(field_Int64);
-    
+
     EXPECT_EQ("Int64", field_Int64.get_type_name());
     EXPECT_EQ(a, b);
 }
@@ -83,10 +85,10 @@ TEST(FieldTest, Test_Field_Int64) {
 TEST(FieldTest, Test_Field_Int128) {
     Int128 a = (1ULL << 63);
     a = a * a + 114514;
-    
+
     Field field_Int128(a);
     Int128 b = get<Int128>(field_Int128);
-    
+
     EXPECT_EQ("Int128", field_Int128.get_type_name());
     EXPECT_EQ(a, b);
 }
@@ -94,7 +96,7 @@ TEST(FieldTest, Test_Field_Int128) {
 // Float64
 TEST(FieldTest, Test_Field_Float64) {
     constexpr Float64 a = 1.2e154;
-    
+
     Field field_Float64(a);
     Float64 b = get<Float64>(field_Float64);
 
@@ -105,7 +107,7 @@ TEST(FieldTest, Test_Field_Float64) {
 // String
 TEST(FieldTest, Test_Field_String) {
     const String a(("114514"));
-    
+
     Field field_String(a);
     String b = get<String>(field_String);
 
@@ -119,7 +121,7 @@ TEST(FieldTest, Test_Field_Decimal32) {
     const String str_refer("114.514");
     DecimalField<Decimal32> a(val1, UInt32(3));
     DecimalField<Decimal32> aa(val2, UInt32(3));
-    
+
     Field field_Decimal32(a);
     DecimalField<Decimal32> b = get<DecimalField<Decimal32>>(field_Decimal32);
 
@@ -144,7 +146,7 @@ TEST(FieldTest, Test_Field_Decimal64) {
     const String str_refer("11451.4000000000000");
     DecimalField<Decimal64> a(val1, UInt32(13));
     DecimalField<Decimal64> aa(val2, UInt32(13));
-    
+
     Field field_Decimal64(a);
     DecimalField<Decimal64> b = get<DecimalField<Decimal64>>(field_Decimal64);
 
@@ -163,10 +165,10 @@ TEST(FieldTest, Test_Field_Decimal128) {
     const String str_refer("11451.40000000000000000000000000");
     DecimalField<Decimal128> a(val1, UInt32(26));
     DecimalField<Decimal128> aa(val2, UInt32(26));
-    
+
     Field field_Decimal128(a);
     DecimalField<Decimal128> b = get<DecimalField<Decimal128>>(field_Decimal128);
-    
+
     EXPECT_EQ("Decimal128", field_Decimal128.get_type_name());
     EXPECT_EQ(val1, a.get_value());
     EXPECT_EQ(UInt32(26), a.get_scale());
@@ -182,10 +184,10 @@ TEST(FieldTest, Test_Field_Decimal128I) {
     const String str_refer("11451.40000000000000000000000000");
     DecimalField<Decimal128I> a(val1, UInt32(26));
     DecimalField<Decimal128I> aa(val2, UInt32(26));
-    
+
     Field field_Decimal128I(a);
     DecimalField<Decimal128I> b = get<DecimalField<Decimal128I>>(field_Decimal128I);
-    
+
     EXPECT_EQ("Decimal128I", field_Decimal128I.get_type_name());
     EXPECT_EQ(val1, a.get_value());
     EXPECT_EQ(UInt32(26), a.get_scale());
@@ -220,7 +222,7 @@ TEST(FieldTest, Test_Field_DateV2) {
     a.set_time(2000, 10, 16, 3, 16, 33, 114514);
 
     Field field_DateV2(a.to_date_int_val());
-    
+
     DateV2Value<DateV2ValueType> b;
     if (!b.set_date_uint32(get<DateV2Value<DateV2ValueType>::underlying_value>(field_DateV2))) {
         EXPECT_EQ(1, 2);
@@ -256,7 +258,8 @@ TEST(FieldTest, Test_Field_DateTimeV2) {
     Field field_DateTimeV2(a.to_date_int_val());
 
     DateV2Value<DateTimeV2ValueType> b;
-    if (!b.set_datetime_uint64(get<DateV2Value<DateTimeV2ValueType>::underlying_value>(field_DateTimeV2))) {
+    if (!b.set_datetime_uint64(
+                get<DateV2Value<DateTimeV2ValueType>::underlying_value>(field_DateTimeV2))) {
         EXPECT_EQ(1, 2);
     }
 
@@ -264,4 +267,4 @@ TEST(FieldTest, Test_Field_DateTimeV2) {
     EXPECT_EQ(a.debug_string(), b.debug_string());
 }
 
-}
+} // namespace doris::vectorized
