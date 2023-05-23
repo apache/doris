@@ -444,10 +444,10 @@ PROPERTIES (
 
 当创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个Duplicate模型的表，并自动指定排序列。
 
-当用户并没有排序需求的时候，可以通过在fe.conf中配置如下参数：
+当用户并没有排序需求的时候，可以通过在表属性中配置如下参数：
 
 ```
-experimental_enable_duplicate_without_keys_by_default = true
+"enable_duplicate_without_keys_by_default" = "true"
 ```
 
 然后再创建默认模型的时候，就会不再指定排序列，也不会给该表创建前缀索引，以此减少在导入和存储上额外的开销。

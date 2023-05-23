@@ -190,7 +190,7 @@ distribution_desc
     * UNIQUE KEY：其后指定的列为主键列。
 
     <version since="2.0">
-    注：当`experimental_enable_duplicate_without_keys_by_default = true`, 默认创建没有排序列的DUPLICATE表。
+    注：当表属性`enable_duplicate_without_keys_by_default = true`时, 默认创建没有排序列的DUPLICATE表。
     </version>
 
     示例：
@@ -379,6 +379,12 @@ distribution_desc
         如果这个属性设置成 `true`, 这个表的 tablet 的所有副本只有一个 do compaction，其他的从该副本拉取 rowset
 
         `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        当配置为`true`时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
 
     * 动态分区相关
     
@@ -720,11 +726,10 @@ distribution_desc
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
     );
 ```
-
-注：需要在fe.conf中添加`experimental_enable_duplicate_without_keys_by_default = true`
 
 </version>
 

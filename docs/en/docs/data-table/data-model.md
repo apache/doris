@@ -441,10 +441,10 @@ The Duplicate Model is suitable for storing raw data without aggregation require
 
 When creating a table without specifying Unique, Aggregate, or Duplicate, a table with a Duplicate model will be created by default, and the SORTING COLUMN will be automatically specified.
 
-When users do not need SORTING COLUMN or Prefix Index, they can configure the following parameters in fe.conf:
+When users do not need SORTING COLUMN or Prefix Index, they can configure the following table property:
 
 ```
-experimental_enable_duplicate_without_keys_by_default = true
+"enable_duplicate_without_keys_by_default" = "true"
 ```
 
 Then, when creating the default model, the sorting column will no longer be specified, and no prefix index will be created for the table to reduce additional overhead in importing and storing.
@@ -463,7 +463,8 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
 )
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
+"enable_duplicate_without_keys_by_default" = "true"
 );
 
 MySQL > desc example_tbl;

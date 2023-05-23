@@ -189,7 +189,7 @@ distribution_desc
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
     <version since="2.0">
-    NOTE: when `experimental_enable_duplicate_without_keys_by_default = true`, will create a duplicate model without sorting columns and prefix indexes by default.
+    NOTE: when set table property `"enable_duplicate_without_keys_by_default" = "true"`, will create a duplicate model without sorting columns and prefix indexes by default.
     </version>
 
     Example:
@@ -382,6 +382,12 @@ distribution_desc
         If this property is set to 'true', all replicas of the tablet will only have one replica performing compaction, while the others fetch rowsets from that replica.
 
         `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
     
     * Dynamic partition related
     
@@ -702,8 +708,6 @@ NOTE: Multi Partition can be mixed with conventional manual creation of partitio
 
 </version>
 
-</version>
-
 <version since="2.0">
 
 14. Add a duplicate without sorting column table
@@ -725,11 +729,10 @@ NOTE: Multi Partition can be mixed with conventional manual creation of partitio
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
     );
 ```
-
-NOTE: need add `experimental_enable_duplicate_without_keys_by_default = true` in fe.conf
 
 </version>
 
