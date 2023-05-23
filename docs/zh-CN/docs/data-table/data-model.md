@@ -444,7 +444,7 @@ PROPERTIES (
 
 当创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个Duplicate模型的表，并自动指定排序列。
 
-当用户并没有排序需求的时候，可以通过在表属性中配置如下参数：
+当用户并没有排序需求的时候，可以通过在表属性中配置：
 
 ```
 "enable_duplicate_without_keys_by_default" = "true"
@@ -466,7 +466,8 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
 )
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
+"enable_duplicate_without_keys_by_default" = "true"
 );
 
 MySQL > desc example_tbl;
