@@ -52,14 +52,56 @@ public:
     }
 
     std::string to_string() const {
-        std::stringstream ss;
-        ss << std::hex << std::setfill('0');
+        uint16_t fields[8] = {
+                static_cast<uint16_t>((_value.high >> 48) & 0xFFFF),
+                static_cast<uint16_t>((_value.high >> 32) & 0xFFFF),
+                static_cast<uint16_t>((_value.high >> 16) & 0xFFFF),
+                static_cast<uint16_t>(_value.high & 0xFFFF),
+                static_cast<uint16_t>((_value.low >> 48) & 0xFFFF),
+                static_cast<uint16_t>((_value.low >> 32) & 0xFFFF),
+                static_cast<uint16_t>((_value.low >> 16) & 0xFFFF),
+                static_cast<uint16_t>(_value.low & 0xFFFF)
+        };
 
-        for (int i = 7; i >= 0; i--) {
-            UInt16 field = (i < 4) ? ((_value.high >> (16 * i)) & 0xFFFF) : ((_value.low >> (16 * (i - 4))) & 0xFFFF);
-            ss << std::setw(4) << field;
-            if (i != 0) {
+        uint8_t zero_start = 0, zero_end = 0;
+
+        while (zero_start < 8 && zero_end < 8) {
+            if (fields[zero_start] != 0) {
+                zero_start++;
+                zero_end = zero_start;
+                continue;
+            }
+
+            while (zero_end < 7 && fields[zero_end + 1] == 0) {
+                zero_end++;
+            }
+
+            if (zero_end > zero_start) {
+                break;
+            }
+
+            zero_start++;
+            zero_end = zero_start;
+        }
+
+        std::stringstream ss;
+
+        if (zero_start == zero_end) {
+            for (uint8_t i = 0; i < 7; ++i) {
+                ss << std::hex << fields[i] << ":";
+            }
+            ss << std::hex << fields[7];
+        } else {
+            for (uint8_t i = 0; i < zero_start; ++i) {
+                ss << std::hex << fields[i] << ":";
+            }
+
+            if (zero_end == 7) {
                 ss << ":";
+            } else {
+                for (uint8_t j = zero_end + 1; j < 8; ++j) {
+                    ss << std::hex << ":" << fields[j];
+                }
             }
         }
 

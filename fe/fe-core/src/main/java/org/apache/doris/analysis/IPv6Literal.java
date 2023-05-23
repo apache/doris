@@ -33,8 +33,10 @@ public class IPv6Literal extends LiteralExpr {
 
     public static final String IPV6_MIN = "0:0:0:0:0:0:0:0";
     public static final String IPV6_MAX = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff";
-    private static final String IPV6_REGEX = "^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$";
-    private static final Pattern IPV6_PATTERN = Pattern.compile(IPV6_REGEX);
+    private static final Pattern IPV6_STD_REGEX =
+            Pattern.compile("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
+    private static final Pattern IPV6_COMPRESS_REGEX =
+            Pattern.compile("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
 
     private String value;
 
@@ -64,7 +66,9 @@ public class IPv6Literal extends LiteralExpr {
     }
 
     private void checkValueValid(String ipv6) throws AnalysisException {
-        if (!IPV6_PATTERN.matcher(ipv6).matches()) {
+        if (ipv6.length() > 39) {
+            throw new AnalysisException("The length of IPv6 must not exceed 39. type: " + Type.IPV6);
+        } else if (!IPV6_STD_REGEX.matcher(ipv6).matches() && !IPV6_COMPRESS_REGEX.matcher(ipv6).matches()) {
             throw new AnalysisException("Invalid IPv6 format: " + ipv6 + ". type: " + Type.IPV6);
         }
     }

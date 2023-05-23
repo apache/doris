@@ -58,14 +58,56 @@ Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 std::string DataTypeIPv6::convert_ipv6_to_string(IPv6 ipv6) {
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0');
+    uint16_t fields[8] = {
+            static_cast<uint16_t>((ipv6.high >> 48) & 0xFFFF),
+            static_cast<uint16_t>((ipv6.high >> 32) & 0xFFFF),
+            static_cast<uint16_t>((ipv6.high >> 16) & 0xFFFF),
+            static_cast<uint16_t>(ipv6.high & 0xFFFF),
+            static_cast<uint16_t>((ipv6.low >> 48) & 0xFFFF),
+            static_cast<uint16_t>((ipv6.low >> 32) & 0xFFFF),
+            static_cast<uint16_t>((ipv6.low >> 16) & 0xFFFF),
+            static_cast<uint16_t>(ipv6.low & 0xFFFF)
+    };
 
-    for (int i = 7; i >= 0; i--) {
-        UInt16 field = (i < 4) ? ((ipv6.high >> (16 * i)) & 0xFFFF) : ((ipv6.low >> (16 * (i - 4))) & 0xFFFF);
-        ss << std::setw(4) << field;
-        if (i != 0) {
+    uint8_t zero_start = 0, zero_end = 0;
+
+    while (zero_start < 8 && zero_end < 8) {
+        if (fields[zero_start] != 0) {
+            zero_start++;
+            zero_end = zero_start;
+            continue;
+        }
+
+        while (zero_end < 7 && fields[zero_end + 1] == 0) {
+            zero_end++;
+        }
+
+        if (zero_end > zero_start) {
+            break;
+        }
+
+        zero_start++;
+        zero_end = zero_start;
+    }
+
+    std::stringstream ss;
+
+    if (zero_start == zero_end) {
+        for (uint8_t i = 0; i < 7; ++i) {
+            ss << std::hex << fields[i] << ":";
+        }
+        ss << std::hex << fields[7];
+    } else {
+        for (uint8_t i = 0; i < zero_start; ++i) {
+            ss << std::hex << fields[i] << ":";
+        }
+
+        if (zero_end == 7) {
             ss << ":";
+        } else {
+            for (uint8_t j = zero_end + 1; j < 8; ++j) {
+                ss << std::hex << ":" << fields[j];
+            }
         }
     }
 
@@ -73,27 +115,43 @@ std::string DataTypeIPv6::convert_ipv6_to_string(IPv6 ipv6) {
 }
 
 bool DataTypeIPv6::convert_string_to_ipv6(IPv6& x, std::string ipv6) {
-    std::stringstream ss(ipv6);
+    std::istringstream iss(ipv6);
+    std::string field;
+    uint16_t fields[8] = {0};
+    uint8_t zero_index = 0;
+    uint8_t num_field = 0;
+    uint8_t right_field_num = 0;
 
-    UInt16 fields[8];
-    char delimiter;
-    for (int i = 0; i < 8; i++) {
-        if (!(ss >> std::hex >> fields[i])) {
-            return false;
+    while (num_field < 8) {
+        if (!getline(iss, field, ':')) {
+            break;
         }
-        if (i < 7 && !(ss >> delimiter) && delimiter != ':') {
-            return false;
+
+        if (field.empty()) {
+            zero_index = num_field;
+            fields[num_field++] = 0;
+        } else {
+            try {
+                fields[num_field++] = std::stoi(field, nullptr, 16);
+            } catch (const std::exception& e) {
+                return false;
+            }
         }
     }
 
-    x.low = 0;
-    x.high = 0;
-    for (int i = 0; i < 4; i++) {
-        x.low |= static_cast<UInt64>(fields[i]) << (16 * (3 - i));
+    if (zero_index != 0) {
+        right_field_num = num_field - zero_index - 1;
+
+        for (uint8_t i = 7; i > 7 - right_field_num; --i) {
+            fields[i] = fields[zero_index + right_field_num + i - 7];
+            fields[zero_index + right_field_num + i - 7] = 0;
+        }
     }
-    for (int i = 4; i < 8; i++) {
-        x.high |= static_cast<UInt64>(fields[i]) << (16 * (7 - i));
-    }
+
+    x.high = (static_cast<uint64_t>(fields[0]) << 48) | (static_cast<uint64_t>(fields[1]) << 32) |
+             (static_cast<uint64_t>(fields[2]) << 16) | static_cast<uint64_t>(fields[3]);
+    x.low = (static_cast<uint64_t>(fields[4]) << 48) | (static_cast<uint64_t>(fields[5]) << 32) |
+            (static_cast<uint64_t>(fields[6]) << 16) | static_cast<uint64_t>(fields[7]);
 
     return true;
 }
