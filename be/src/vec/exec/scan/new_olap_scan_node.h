@@ -89,7 +89,7 @@ protected:
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
-    void updata_filter(int id, const PredicateFilterInfo& info);
+    void add_filter_info(int id, const PredicateFilterInfo& info);
 
 private:
     Status _build_key_ranges_and_filters();

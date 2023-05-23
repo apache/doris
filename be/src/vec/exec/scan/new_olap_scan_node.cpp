@@ -642,7 +642,7 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     return res != _olap_scan_node.key_column_name.end();
 }
 
-void NewOlapScanNode::updata_filter(int id, const PredicateFilterInfo& update_info) {
+void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_info) {
     static std::vector<std::string> PredicateTypeName(20, "Unknow");
     PredicateTypeName[static_cast<int>(PredicateType::BF)] = "BloomFilter";
     PredicateTypeName[static_cast<int>(PredicateType::BITMAP_FILTER)] = "BitmapFilter";

@@ -321,7 +321,7 @@ struct OlapReaderStatistics {
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
 
-    std::map<int, PredicateFilterInfo> bloom_filter_info;
+    std::map<int, PredicateFilterInfo> filter_info;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;

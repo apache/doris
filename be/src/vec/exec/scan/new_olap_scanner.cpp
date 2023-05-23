@@ -555,8 +555,8 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
 
-    for (auto& [id, info] : stats.bloom_filter_info) {
-        olap_parent->updata_filter(id, info);
+    for (auto& [id, info] : stats.filter_info) {
+        olap_parent->add_filter_info(id, info);
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
