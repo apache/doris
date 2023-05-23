@@ -40,6 +40,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -325,17 +326,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment = currentFragment;
         rootFragment.setSink(sink);
 
-        Preconditions.checkArgument(
-                olapTableSink.getTargetTable().getDefaultDistributionInfo() instanceof HashDistributionInfo,
-                "Unexpected distributionInfo, should be HashDistributionInfo");
+        DistributionInfo distributionInfo = olapTableSink.getTargetTable().getDefaultDistributionInfo();
+        Preconditions.checkArgument(distributionInfo instanceof HashDistributionInfo,
+                "HashDistributionInfo is expected");
+        HashDistributionInfo hashDistributionInfo = ((HashDistributionInfo) distributionInfo);
+        List<Expr> hashCols = hashDistributionInfo.getDistributionColumns().stream()
+                .map(column -> new SlotRef(null, column.getName()))
+                .collect(Collectors.toList());
 
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTableSink.getTargetTable()
-                .getDefaultDistributionInfo());
-
-        DataPartition dataPartition = DataPartition.hashPartitioned(distributionInfo.getDistributionColumns()
-                .stream().map(column -> new SlotRef(olapTuple.getRef().getName(), column.getName()))
-                .collect(Collectors.toList()));
-
+        DataPartition dataPartition = DataPartition.hashPartitioned(hashCols);
         rootFragment.setDataPartition(dataPartition);
 
         Map<Column, Slot> columnToSlots = Maps.newHashMap();
