@@ -42,6 +42,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -317,14 +318,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 exchangeNode,
                 rootFragment.getDataPartition());
 
-        rootFragment.setPlanRoot(exchangeNode.getChild(0));
-        rootFragment.setDestination(exchangeNode);
-        context.addPlanFragment(currentFragment);
-        rootFragment.setDataPartition(currentFragment.getDataPartition());
-        rootFragment = currentFragment;
-        rootFragment.setParallelExecNum(1);
-        rootFragment.setSink(sink);
-
         Map<Column, Slot> columnToSlots = Maps.newHashMap();
         Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
                 "this is a bug in insert into command");
@@ -351,6 +344,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+
+        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTableSink.getTargetTable()
+                .getDefaultDistributionInfo());
+        List<Expr> partitionExprs = distributionInfo.getDistributionColumns().stream()
+                .map(column -> context.findSlotRef(columnToSlots.get(column).getExprId()))
+                .collect(Collectors.toList());
+
+        rootFragment.setPlanRoot(exchangeNode.getChild(0));
+        rootFragment.setDestination(exchangeNode);
+        context.addPlanFragment(currentFragment);
+        rootFragment = currentFragment;
+        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
+        rootFragment.setParallelExecNum(1);
+        rootFragment.setSink(sink);
+
         rootFragment.finalize(null);
         rootFragment.setOutputExprs(outputExprs);
         return rootFragment;
