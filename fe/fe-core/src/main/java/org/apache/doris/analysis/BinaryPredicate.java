@@ -449,8 +449,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
                 || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType().getResultType(),
-                    getChild(1).getType().getResultType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
 
         return Type.DOUBLE;

@@ -1125,6 +1125,12 @@ public class ScalarType extends Type {
             return t1.isDecimalV2() ? t1 : t2;
         }
 
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return t1.isFloatingPointType() ? t1 : t2;
+            }
+        }
+
         if ((t1.isDecimalV3() && t2.isFixedPointType())
                 || (t2.isDecimalV3() && t1.isFixedPointType())) {
             int precision;
@@ -1148,7 +1154,11 @@ public class ScalarType extends Type {
             } else {
                 integerPart = ScalarType.MAX_DECIMAL128_PRECISION - scale;
             }
-            return ScalarType.createDecimalV3Type(scale + integerPart, scale);
+            if (scale + integerPart <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                return ScalarType.createDecimalV3Type(scale + integerPart, scale);
+            } else {
+                return Type.DOUBLE;
+            }
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {
