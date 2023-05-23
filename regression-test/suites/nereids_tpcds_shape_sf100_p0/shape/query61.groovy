@@ -25,6 +25,8 @@ suite("query61") {
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
     sql 'set parallel_fragment_exec_instance_num=8'
+    sql 'set forbid_unknown_col_stats=true'
+    sql 'set broadcast_row_count_limit = 30000000'
     
     qt_ds_shape_61 '''
     explain shape plan

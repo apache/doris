@@ -10,9 +10,9 @@ PhysicalQuickSort
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](hd2.hd_income_band_sk = ib2.ib_income_band_sk)
+--------------------hashJoin[INNER_JOIN](customer.c_first_shipto_date_sk = d3.d_date_sk)
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[income_band]
+------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](hd1.hd_income_band_sk = ib1.ib_income_band_sk)
@@ -20,14 +20,14 @@ PhysicalQuickSort
 ------------------------------PhysicalOlapScan[income_band]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = ad2.ca_address_sk)
+--------------------------------hashJoin[INNER_JOIN](hd2.hd_income_band_sk = ib2.ib_income_band_sk)
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------PhysicalOlapScan[income_band]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN](customer.c_first_shipto_date_sk = d3.d_date_sk)
+--------------------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = ad2.ca_address_sk)
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN](customer.c_first_sales_date_sk = d2.d_date_sk)
@@ -111,9 +111,9 @@ PhysicalQuickSort
 ----------------PhysicalDistribute
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](hd2.hd_income_band_sk = ib2.ib_income_band_sk)
+----------------------hashJoin[INNER_JOIN](customer.c_first_shipto_date_sk = d3.d_date_sk)
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[income_band]
+--------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](hd1.hd_income_band_sk = ib1.ib_income_band_sk)
@@ -121,14 +121,14 @@ PhysicalQuickSort
 --------------------------------PhysicalOlapScan[income_band]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = ad2.ca_address_sk)
+----------------------------------hashJoin[INNER_JOIN](hd2.hd_income_band_sk = ib2.ib_income_band_sk)
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------PhysicalOlapScan[income_band]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](customer.c_first_shipto_date_sk = d3.d_date_sk)
+----------------------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = ad2.ca_address_sk)
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN](customer.c_first_sales_date_sk = d2.d_date_sk)
