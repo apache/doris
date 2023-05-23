@@ -167,8 +167,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
-                if (metadataRefreshIntervalSec<0){
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
                 }
             } catch (NumberFormatException e) {
@@ -184,8 +185,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         // check refresh parameter of catalog
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
-                if (metadataRefreshIntervalSec<0){
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
                 }
             } catch (NumberFormatException e) {
@@ -358,11 +360,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         notifyPropertiesUpdated(props);
     }
 
-    public void tryModifyCatalogProps(Map<String, String> props){
+    public void tryModifyCatalogProps(Map<String, String> props) {
         catalogProperty.modifyCatalogProps(props);
     }
 
-    public void rollBackCatalogProps(Map<String, String> props){
+    public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
     }
 
