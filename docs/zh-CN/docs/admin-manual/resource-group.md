@@ -62,9 +62,9 @@ properties (
 set experimental_enable_pipeline_engine = true;
 ```
 
-4. 设置session变量 resource_group 指定使用的资源组，默认为默认资源组`normal`:
+4. 查询绑定资源组。目前主要通过指定session变量的方式绑定查询到资源组。如果用户不指定资源组，那么查询默认会提交到`normal`资源组:
 ```
-resource_group = g1;
+set resource_group = g1;
 ```
 
 5. 执行查询，查询将关联到 g1 资源组。

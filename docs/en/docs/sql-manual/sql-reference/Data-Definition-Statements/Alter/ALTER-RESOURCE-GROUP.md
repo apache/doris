@@ -47,7 +47,8 @@ PROPERTIES (
 
 NOTE:
 
-You must not modify the memory_limit property in such a way that the sum of all memory_limit values exceeds 100%.
+* Modify the memory_limit property in such a way that the sum of all memory_limit values does not exceed 100%;
+* Support modifying some properties, for example, if only cpu_share is modified, just fill in cpu_share in properties.
 
 ### Example
 

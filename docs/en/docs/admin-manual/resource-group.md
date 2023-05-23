@@ -63,9 +63,9 @@ For details on creating a resource group, see [CREATE-RESOURCE-GROUP](../sql-man
 set experimental_enable_pipeline_engine = true.
 ```
 
-4. set session variable resource_group Specify the resource group to use, default is the default resource group ``normal``.
+4. Queries bind to resource groups. Currently, queries are mainly bound to resource groups by specifying session variables. If the user does not specify a resource group, the query will be submitted to the `normal` resource group by default.
 ```
-resource_group = g1.
+set resource_group = g1.
 ```
 
 5. Execute the query, which will be associated with the g1 resource group.
