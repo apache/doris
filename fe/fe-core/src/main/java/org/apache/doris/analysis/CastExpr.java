@@ -293,10 +293,6 @@ public class CastExpr extends Expr {
         if (type == Type.ALL) {
             return;
         }
-
-        // set is casted
-        setIsCasted(true);
-
         // cast was asked for in the query, check for validity of cast
         Type childType = getChild(0).getType();
 
@@ -422,7 +418,6 @@ public class CastExpr extends Expr {
         Expr targetExpr;
         try {
             targetExpr = castTo((LiteralExpr) value);
-            targetExpr.setIsCasted(true);
             if (targetTypeDef != null) {
                 targetExpr.setType(targetTypeDef.getType());
             } else {
