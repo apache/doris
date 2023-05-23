@@ -100,7 +100,7 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
                               const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
                               uint32_t start_send_row, uint32_t* num_rows_sent,
                               TOdbcTableType::type table_type) {
-    RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs));
+    RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs,num_rows_sent));
     COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
     return Status::OK();
 }
