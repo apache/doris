@@ -136,7 +136,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
 
-    public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT = 
+    public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
                                                                         "enable_duplicate_without_keys_by_default";
 
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
@@ -530,7 +530,8 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties) throws AnalysisException {
+    public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
+                            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }

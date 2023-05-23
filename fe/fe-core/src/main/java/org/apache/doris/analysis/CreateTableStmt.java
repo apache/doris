@@ -316,7 +316,7 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             enableDuplicateWithoutKeysByDefault =
                                             PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
@@ -400,8 +400,8 @@ public class CreateTableStmt extends DdlStmt {
                 }
             } else {
                 if (enableDuplicateWithoutKeysByDefault) {
-                    throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can set 'true'"
-                                    + " when create olap table by default.");
+                    throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
+                                    + " set 'true' when create olap table by default.");
                 }
             }
 
