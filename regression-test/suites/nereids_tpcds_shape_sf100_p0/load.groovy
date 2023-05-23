@@ -808,3421 +808,1720 @@ suite("load") {
     '''
 
     
-    sql '''
-    alter table customer_demographics modify column cd_dep_college_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_education_status set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='2 yr Degree', 'max_value'='Unknown', 'avg_size'='18384800', 'max_size'='18384800' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_gender set stats ('row_count'='1920800', 'ndv'='2', 'min_value'='F', 'max_value'='M', 'avg_size'='1920800', 'max_size'='1920800' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_id set stats ('row_count'='55', 'ndv'='55', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPCAAAAAA', 'avg_size'='880', 'max_size'='880' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_quarter set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_week set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_year set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_last_dom set stats ('row_count'='73049', 'ndv'='2419', 'min_value'='2415020', 'max_value'='2488372', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_month_seq set stats ('row_count'='73049', 'ndv'='2398', 'min_value'='0', 'max_value'='2400', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_quarter_name set stats ('row_count'='73049', 'ndv'='799', 'min_value'='1900Q1', 'max_value'='2100Q1', 'avg_size'='438294', 'max_size'='438294' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_county set stats ('row_count'='15', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='207', 'max_size'='207' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Rooms cook ', 'avg_size'='230', 'max_size'='230' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_sk set stats ('row_count'='15', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_zip set stats ('row_count'='15', 'ndv'='15', 'min_value'='28721', 'max_value'='78721', 'avg_size'='75', 'max_size'='75' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_call_center_sk set stats ('row_count'='143997065', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_catalog_page_sk set stats ('row_count'='143997065', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_ship_cost set stats ('row_count'='143997065', 'ndv'='14266', 'min_value'='0.00', 'max_value'='14896.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_list_price set stats ('row_count'='143997065', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid set stats ('row_count'='143997065', 'ndv'='27448', 'min_value'='0.00', 'max_value'='29760.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_promo_sk set stats ('row_count'='143997065', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sold_time_sk set stats ('row_count'='143997065', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sold_time_sk set stats ('row_count'='143997065', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_warehouse_sk set stats ('row_count'='143997065', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_call_center_id set stats ('row_count'='30', 'ndv'='15', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='480', 'max_size'='480' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_company set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_country set stats ('row_count'='30', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='390', 'max_size'='390' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_county set stats ('row_count'='30', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='423', 'max_size'='423' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_division_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='123', 'max_size'='123' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_manager set stats ('row_count'='30', 'ndv'='22', 'min_value'='Alden Snyder', 'max_value'='Wayne Ray', 'avg_size'='368', 'max_size'='368' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_class set stats ('row_count'='30', 'ndv'='25', 'min_value'='A bit narrow forms matter animals. Consist', 'max_value'='Yesterday new men can make moreov', 'avg_size'='1033', 'max_size'='1033' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_id set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_state set stats ('row_count'='30', 'ndv'='8', 'min_value'='AL', 'max_value'='TN', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_number set stats ('row_count'='30', 'ndv'='15', 'min_value'='406', 'max_value'='984', 'avg_size'='88', 'max_size'='88' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_catalog_page_sk set stats ('row_count'='14404374', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_fee set stats ('row_count'='14404374', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_item_sk set stats ('row_count'='14404374', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1900770', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_amt_inc_tax set stats ('row_count'='14404374', 'ndv'='21566', 'min_value'='0.00', 'max_value'='29353.87', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returned_date_sk set stats ('row_count'='14404374', 'ndv'='2105', 'min_value'='2450821', 'max_value'='2452921', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returned_date_sk set stats ('row_count'='14404374', 'ndv'='2105', 'min_value'='2450821', 'max_value'='2452921', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returned_time_sk set stats ('row_count'='14404374', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_customer_sk set stats ('row_count'='14404374', 'ndv'='1991754', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_customer_sk set stats ('row_count'='14404374', 'ndv'='1991754', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_store_credit set stats ('row_count'='14404374', 'ndv'='12156', 'min_value'='0.00', 'max_value'='22167.49', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_income_band_sk set stats ('row_count'='7200', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='57600', 'max_size'='57600' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_income_band_sk set stats ('row_count'='7200', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='57600', 'max_size'='57600' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_gmt_offset set stats ('row_count'='1000000', 'ndv'='6', 'min_value'='-10.00', 'max_value'='-5.00', 'avg_size'='4000000', 'max_size'='4000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_zip set stats ('row_count'='1000000', 'ndv'='7733', 'min_value'='', 'max_value'='99981', 'avg_size'='4848150', 'max_size'='4848150' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_number set stats ('row_count'='20400', 'ndv'='189', 'min_value'='1', 'max_value'='188', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_sk set stats ('row_count'='20400', 'ndv'='20554', 'min_value'='1', 'max_value'='20400', 'avg_size'='163200', 'max_size'='163200' )
-    '''
-
-    sql '''
-    alter table item modify column i_brand set stats ('row_count'='204000', 'ndv'='714', 'min_value'='', 'max_value'='univunivamalg #9', 'avg_size'='3287671', 'max_size'='3287671' )
-    '''
-
-    sql '''
-    alter table item modify column i_category set stats ('row_count'='204000', 'ndv'='11', 'min_value'='', 'max_value'='Women', 'avg_size'='1201703', 'max_size'='1201703' )
-    '''
-
-    sql '''
-    alter table item modify column i_color set stats ('row_count'='204000', 'ndv'='93', 'min_value'='', 'max_value'='yellow', 'avg_size'='1094247', 'max_size'='1094247' )
-    '''
-
-    sql '''
-    alter table item modify column i_formulation set stats ('row_count'='204000', 'ndv'='152702', 'min_value'='', 'max_value'='yellow98911509228741', 'avg_size'='4069400', 'max_size'='4069400' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_id set stats ('row_count'='204000', 'ndv'='103230', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPBAAA', 'avg_size'='3264000', 'max_size'='3264000' )
-    '''
-
-    sql '''
-    alter table item modify column i_rec_start_date set stats ('row_count'='204000', 'ndv'='4', 'min_value'='1997-10-27', 'max_value'='2001-10-27', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_size set stats ('row_count'='204000', 'ndv'='8', 'min_value'='', 'max_value'='small', 'avg_size'='880961', 'max_size'='880961' )
-    '''
-
-    sql '''
-    alter table item modify column i_wholesale_cost set stats ('row_count'='204000', 'ndv'='89', 'min_value'='0.02', 'max_value'='88.91', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_item_sk set stats ('row_count'='7197670', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_amt_inc_tax set stats ('row_count'='7197670', 'ndv'='19975', 'min_value'='0.00', 'max_value'='29493.38', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returned_date_sk set stats ('row_count'='7197670', 'ndv'='2185', 'min_value'='2450820', 'max_value'='2453002', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_addr_sk set stats ('row_count'='7197670', 'ndv'='999584', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_customer_sk set stats ('row_count'='7197670', 'ndv'='1926139', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_reversed_charge set stats ('row_count'='7197670', 'ndv'='10979', 'min_value'='0.00', 'max_value'='22972.36', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_city set stats ('row_count'='24', 'ndv'='11', 'min_value'='Centerville', 'max_value'='Salem', 'avg_size'='232', 'max_size'='232' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_city set stats ('row_count'='24', 'ndv'='11', 'min_value'='Centerville', 'max_value'='Salem', 'avg_size'='232', 'max_size'='232' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_country set stats ('row_count'='24', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='312', 'max_size'='312' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_country set stats ('row_count'='24', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='312', 'max_size'='312' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_county set stats ('row_count'='24', 'ndv'='9', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='331', 'max_size'='331' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_manager set stats ('row_count'='24', 'ndv'='19', 'min_value'='Adam Stonge', 'max_value'='Tommy Jones', 'avg_size'='297', 'max_size'='297' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_class set stats ('row_count'='24', 'ndv'='18', 'min_value'='About rural reasons shall no', 'max_value'='Wide, final representat', 'avg_size'='758', 'max_size'='758' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_class set stats ('row_count'='24', 'ndv'='18', 'min_value'='About rural reasons shall no', 'max_value'='Wide, final representat', 'avg_size'='758', 'max_size'='758' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_desc set stats ('row_count'='24', 'ndv'='15', 'min_value'='Acres see else children. Mutual too', 'max_value'='Well similar decisions used to keep hardly democratic, personal priorities.', 'avg_size'='1561', 'max_size'='1561' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_rec_end_date set stats ('row_count'='24', 'ndv'='3', 'min_value'='1999-08-16', 'max_value'='2001-08-15', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_rec_start_date set stats ('row_count'='24', 'ndv'='4', 'min_value'='1997-08-16', 'max_value'='2001-08-16', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_type set stats ('row_count'='24', 'ndv'='15', 'min_value'='Avenue', 'max_value'='Wy', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_tax_percentage set stats ('row_count'='24', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_dmail set stats ('row_count'='1000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_dmail set stats ('row_count'='1000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_radio set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_item_sk set stats ('row_count'='1000', 'ndv'='970', 'min_value'='280', 'max_value'='203966', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_addr_sk set stats ('row_count'='72001237', 'ndv'='998891', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_discount_amt set stats ('row_count'='72001237', 'ndv'='27052', 'min_value'='0.00', 'max_value'='29982.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_ship_cost set stats ('row_count'='72001237', 'ndv'='13977', 'min_value'='0.00', 'max_value'='14927.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_tax set stats ('row_count'='72001237', 'ndv'='2466', 'min_value'='0.00', 'max_value'='2682.90', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_item_sk set stats ('row_count'='72001237', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_ship_tax set stats ('row_count'='72001237', 'ndv'='37541', 'min_value'='0.00', 'max_value'='44479.52', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_profit set stats ('row_count'='72001237', 'ndv'='27958', 'min_value'='-9997.00', 'max_value'='19840.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sold_date_sk set stats ('row_count'='72001237', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_warehouse_sk set stats ('row_count'='72001237', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_web_page_sk set stats ('row_count'='72001237', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_city set stats ('row_count'='402', 'ndv'='19', 'min_value'='', 'max_value'='Union', 'avg_size'='3669', 'max_size'='3669' )
-    '''
-
-    sql '''
-    alter table store modify column s_company_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
-    '''
-
-    sql '''
-    alter table store modify column s_county set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='5693', 'max_size'='5693' )
-    '''
-
-    sql '''
-    alter table store modify column s_division_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2779', 'max_size'='2779' )
-    '''
-
-    sql '''
-    alter table store modify column s_floor_space set stats ('row_count'='402', 'ndv'='300', 'min_value'='5004767', 'max_value'='9997773', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_desc set stats ('row_count'='402', 'ndv'='311', 'min_value'='', 'max_value'='Years get acute years. Right likely players mus', 'avg_size'='23261', 'max_size'='23261' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_id set stats ('row_count'='402', 'ndv'='201', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPNAAAAAA', 'avg_size'='6432', 'max_size'='6432' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_name set stats ('row_count'='402', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='1575', 'max_size'='1575' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_type set stats ('row_count'='402', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='1657', 'max_size'='1657' )
-    '''
-
-    sql '''
-    alter table store modify column s_zip set stats ('row_count'='402', 'ndv'='102', 'min_value'='', 'max_value'='79431', 'avg_size'='1980', 'max_size'='1980' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_am_pm set stats ('row_count'='86400', 'ndv'='2', 'min_value'='AM', 'max_value'='PM', 'avg_size'='172800', 'max_size'='172800' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_hour set stats ('row_count'='86400', 'ndv'='24', 'min_value'='0', 'max_value'='23', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time set stats ('row_count'='86400', 'ndv'='86684', 'min_value'='0', 'max_value'='86399', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_customer_sk set stats ('row_count'='2040', 'ndv'='475', 'min_value'='711', 'max_value'='1996257', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_image_count set stats ('row_count'='2040', 'ndv'='7', 'min_value'='1', 'max_value'='7', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_link_count set stats ('row_count'='2040', 'ndv'='24', 'min_value'='2', 'max_value'='25', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_rec_end_date set stats ('row_count'='2040', 'ndv'='3', 'min_value'='1999-09-03', 'max_value'='2001-09-02', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_web_page_sk set stats ('row_count'='2040', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_addr_sk set stats ('row_count'='28795080', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_addr_sk set stats ('row_count'='28795080', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_customer_sk set stats ('row_count'='28795080', 'ndv'='1994323', 'min_value'='1', 'max_value'='2000000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_customer_sk set stats ('row_count'='28795080', 'ndv'='1994323', 'min_value'='1', 'max_value'='2000000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_hdemo_sk set stats ('row_count'='28795080', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_amt set stats ('row_count'='28795080', 'ndv'='15493', 'min_value'='0.00', 'max_value'='18973.20', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_amt_inc_tax set stats ('row_count'='28795080', 'ndv'='16190', 'min_value'='0.00', 'max_value'='20002.89', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_tax set stats ('row_count'='28795080', 'ndv'='1427', 'min_value'='0.00', 'max_value'='1611.71', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_store_sk set stats ('row_count'='28795080', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_ticket_number set stats ('row_count'='28795080', 'ndv'='16790866', 'min_value'='1', 'max_value'='23999996', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_customer_sk set stats ('row_count'='287997024', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_discount_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_hdemo_sk set stats ('row_count'='287997024', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_list_price set stats ('row_count'='287997024', 'ndv'='201', 'min_value'='1.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_promo_sk set stats ('row_count'='287997024', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_quantity set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_ship_mode_id set stats ('row_count'='20', 'ndv'='20', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='320', 'max_size'='320' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_ship_mode_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_ship_mode_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_month set stats ('row_count'='2000000', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_year set stats ('row_count'='2000000', 'ndv'='69', 'min_value'='1924', 'max_value'='1992', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_email_address set stats ('row_count'='2000000', 'ndv'='1936613', 'min_value'='', 'max_value'='Zulma.Wright@AqokXsju9f2yj.org', 'avg_size'='53014147', 'max_size'='53014147' )
-    '''
-
-    sql '''
-    alter table customer modify column c_email_address set stats ('row_count'='2000000', 'ndv'='1936613', 'min_value'='', 'max_value'='Zulma.Wright@AqokXsju9f2yj.org', 'avg_size'='53014147', 'max_size'='53014147' )
-    '''
-
-    sql '''
-    alter table customer modify column c_last_review_date_sk set stats ('row_count'='2000000', 'ndv'='366', 'min_value'='2452283', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_login set stats ('row_count'='2000000', 'ndv'='1', 'min_value'='', 'max_value'='', 'avg_size'='0', 'max_size'='0' )
-    '''
-
-    sql '''
-    alter table customer modify column c_preferred_cust_flag set stats ('row_count'='2000000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='1930222', 'max_size'='1930222' )
-    '''
-
-    sql '''
-    alter table customer modify column c_preferred_cust_flag set stats ('row_count'='2000000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='1930222', 'max_size'='1930222' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_dep_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_dep_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_purchase_estimate set stats ('row_count'='1920800', 'ndv'='20', 'min_value'='500', 'max_value'='10000', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_sk set stats ('row_count'='55', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='440', 'max_size'='440' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date_id set stats ('row_count'='73049', 'ndv'='72907', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'avg_size'='1168784', 'max_size'='1168784' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date_sk set stats ('row_count'='73049', 'ndv'='73042', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='584392', 'max_size'='584392' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date_sk set stats ('row_count'='73049', 'ndv'='73042', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='584392', 'max_size'='584392' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_first_dom set stats ('row_count'='73049', 'ndv'='2410', 'min_value'='2415021', 'max_value'='2488070', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_city set stats ('row_count'='15', 'ndv'='11', 'min_value'='Bethel', 'max_value'='Union', 'avg_size'='111', 'max_size'='111' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_county set stats ('row_count'='15', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='207', 'max_size'='207' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_gmt_offset set stats ('row_count'='15', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Wilson Elm', 'avg_size'='128', 'max_size'='128' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_id set stats ('row_count'='15', 'ndv'='15', 'min_value'='AAAAAAAABAAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_customer_sk set stats ('row_count'='143997065', 'ndv'='1993691', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_coupon_amt set stats ('row_count'='143997065', 'ndv'='22020', 'min_value'='0.00', 'max_value'='28422.94', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_coupon_amt set stats ('row_count'='143997065', 'ndv'='22020', 'min_value'='0.00', 'max_value'='28422.94', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_discount_amt set stats ('row_count'='143997065', 'ndv'='27722', 'min_value'='0.00', 'max_value'='29765.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_sales_price set stats ('row_count'='143997065', 'ndv'='27598', 'min_value'='0.00', 'max_value'='29808.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_ship_cost set stats ('row_count'='143997065', 'ndv'='14266', 'min_value'='0.00', 'max_value'='14896.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_tax set stats ('row_count'='143997065', 'ndv'='2488', 'min_value'='0.00', 'max_value'='2619.36', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_item_sk set stats ('row_count'='143997065', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_quantity set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_quantity set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_call_center_sk set stats ('row_count'='30', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_company set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_country set stats ('row_count'='30', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='390', 'max_size'='390' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_division set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_rec_end_date set stats ('row_count'='30', 'ndv'='3', 'min_value'='2000-01-01', 'max_value'='2001-12-31', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_type set stats ('row_count'='30', 'ndv'='9', 'min_value'='Avenue', 'max_value'='Way', 'avg_size'='140', 'max_size'='140' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_quantity_on_hand set stats ('row_count'='399330000', 'ndv'='1006', 'min_value'='0', 'max_value'='1000', 'avg_size'='1597320000', 'max_size'='1597320000' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_net_loss set stats ('row_count'='14404374', 'ndv'='11753', 'min_value'='0.50', 'max_value'='15781.83', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_cash set stats ('row_count'='14404374', 'ndv'='16271', 'min_value'='0.00', 'max_value'='24544.84', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_reversed_charge set stats ('row_count'='14404374', 'ndv'='12359', 'min_value'='0.00', 'max_value'='23801.24', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_buy_potential set stats ('row_count'='7200', 'ndv'='6', 'min_value'='0-500', 'max_value'='Unknown', 'avg_size'='54000', 'max_size'='54000' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_demo_sk set stats ('row_count'='7200', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57600', 'max_size'='57600' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_address_sk set stats ('row_count'='1000000', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_city set stats ('row_count'='1000000', 'ndv'='977', 'min_value'='', 'max_value'='Zion', 'avg_size'='8681993', 'max_size'='8681993' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_income_band_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_lower_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='0', 'max_value'='190001', 'avg_size'='80', 'max_size'='80' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_type set stats ('row_count'='20400', 'ndv'='4', 'min_value'='', 'max_value'='quarterly', 'avg_size'='155039', 'max_size'='155039' )
-    '''
-
-    sql '''
-    alter table item modify column i_brand_id set stats ('row_count'='204000', 'ndv'='951', 'min_value'='1001001', 'max_value'='10016017', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_category_id set stats ('row_count'='204000', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_current_price set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0.09', 'max_value'='99.99', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_current_price set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0.09', 'max_value'='99.99', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_desc set stats ('row_count'='204000', 'ndv'='148398', 'min_value'='', 'max_value'='Youngsters used to save quite colour', 'avg_size'='20471814', 'max_size'='20471814' )
-    '''
-
-    sql '''
-    alter table item modify column i_manufact set stats ('row_count'='204000', 'ndv'='1004', 'min_value'='', 'max_value'='pripripri', 'avg_size'='2298787', 'max_size'='2298787' )
-    '''
-
-    sql '''
-    alter table item modify column i_manufact_id set stats ('row_count'='204000', 'ndv'='1005', 'min_value'='1', 'max_value'='1000', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_product_name set stats ('row_count'='204000', 'ndv'='200390', 'min_value'='', 'max_value'='pripripripripriought', 'avg_size'='4546148', 'max_size'='4546148' )
-    '''
-
-    sql '''
-    alter table item modify column i_rec_start_date set stats ('row_count'='204000', 'ndv'='4', 'min_value'='1997-10-27', 'max_value'='2001-10-27', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_cash set stats ('row_count'='7197670', 'ndv'='14621', 'min_value'='0.00', 'max_value'='26466.56', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_quantity set stats ('row_count'='7197670', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_ship_cost set stats ('row_count'='7197670', 'ndv'='10429', 'min_value'='0.00', 'max_value'='13602.60', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_web_page_sk set stats ('row_count'='7197670', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_class set stats ('row_count'='24', 'ndv'='1', 'min_value'='Unknown', 'max_value'='Unknown', 'avg_size'='168', 'max_size'='168' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_company_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_market_manager set stats ('row_count'='24', 'ndv'='21', 'min_value'='Albert Leung', 'max_value'='Zachery Oneil', 'avg_size'='294', 'max_size'='294' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_name set stats ('row_count'='24', 'ndv'='24', 'min_value'='11th ', 'max_value'='Wilson Ridge', 'avg_size'='219', 'max_size'='219' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_suite_number set stats ('row_count'='24', 'ndv'='20', 'min_value'='Suite 130', 'max_value'='Suite U', 'avg_size'='196', 'max_size'='196' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_suite_number set stats ('row_count'='24', 'ndv'='20', 'min_value'='Suite 130', 'max_value'='Suite U', 'avg_size'='196', 'max_size'='196' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_tax_percentage set stats ('row_count'='24', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_zip set stats ('row_count'='24', 'ndv'='14', 'min_value'='28828', 'max_value'='78828', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_demo set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='984', 'max_size'='984' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_email set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_end_date_sk set stats ('row_count'='1000', 'ndv'='571', 'min_value'='2450116', 'max_value'='2450967', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_customer_sk set stats ('row_count'='72001237', 'ndv'='1899439', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_coupon_amt set stats ('row_count'='72001237', 'ndv'='20659', 'min_value'='0.00', 'max_value'='27591.16', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_quantity set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sales_price set stats ('row_count'='72001237', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sales_price set stats ('row_count'='72001237', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sold_time_sk set stats ('row_count'='72001237', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_city set stats ('row_count'='402', 'ndv'='19', 'min_value'='', 'max_value'='Union', 'avg_size'='3669', 'max_size'='3669' )
-    '''
-
-    sql '''
-    alter table store modify column s_closed_date_sk set stats ('row_count'='402', 'ndv'='69', 'min_value'='2450823', 'max_value'='2451313', 'avg_size'='3216', 'max_size'='3216' )
-    '''
-
-    sql '''
-    alter table store modify column s_gmt_offset set stats ('row_count'='402', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_gmt_offset set stats ('row_count'='402', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_desc set stats ('row_count'='402', 'ndv'='311', 'min_value'='', 'max_value'='Years get acute years. Right likely players mus', 'avg_size'='23261', 'max_size'='23261' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_manager set stats ('row_count'='402', 'ndv'='286', 'min_value'='', 'max_value'='Zane Perez', 'avg_size'='5129', 'max_size'='5129' )
-    '''
-
-    sql '''
-    alter table store modify column s_rec_end_date set stats ('row_count'='402', 'ndv'='3', 'min_value'='1999-03-13', 'max_value'='2001-03-12', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_rec_end_date set stats ('row_count'='402', 'ndv'='3', 'min_value'='1999-03-13', 'max_value'='2001-03-12', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_state set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='TN', 'avg_size'='800', 'max_size'='800' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_minute set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_shift set stats ('row_count'='86400', 'ndv'='3', 'min_value'='first', 'max_value'='third', 'avg_size'='460800', 'max_size'='460800' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_customer_sk set stats ('row_count'='2040', 'ndv'='475', 'min_value'='711', 'max_value'='1996257', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_type set stats ('row_count'='2040', 'ndv'='8', 'min_value'='', 'max_value'='welcome', 'avg_size'='12856', 'max_size'='12856' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_url set stats ('row_count'='2040', 'ndv'='2', 'min_value'='', 'max_value'='http://www.foo.com', 'avg_size'='36270', 'max_size'='36270' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_amt_inc_tax set stats ('row_count'='28795080', 'ndv'='16190', 'min_value'='0.00', 'max_value'='20002.89', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_quantity set stats ('row_count'='28795080', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_tax set stats ('row_count'='28795080', 'ndv'='1427', 'min_value'='0.00', 'max_value'='1611.71', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_time_sk set stats ('row_count'='28795080', 'ndv'='32660', 'min_value'='28799', 'max_value'='61199', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_returned_date_sk set stats ('row_count'='28795080', 'ndv'='2010', 'min_value'='2450820', 'max_value'='2452822', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_reversed_charge set stats ('row_count'='28795080', 'ndv'='9872', 'min_value'='0.00', 'max_value'='16099.52', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_addr_sk set stats ('row_count'='287997024', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_list_price set stats ('row_count'='287997024', 'ndv'='19770', 'min_value'='1.00', 'max_value'='20000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_sales_price set stats ('row_count'='287997024', 'ndv'='19105', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_wholesale_cost set stats ('row_count'='287997024', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_item_sk set stats ('row_count'='287997024', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_paid set stats ('row_count'='287997024', 'ndv'='19028', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_profit set stats ('row_count'='287997024', 'ndv'='19581', 'min_value'='-10000.00', 'max_value'='9889.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_store_sk set stats ('row_count'='287997024', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_ship_mode_id set stats ('row_count'='20', 'ndv'='20', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='320', 'max_size'='320' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_hdemo_sk set stats ('row_count'='2000000', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_name set stats ('row_count'='2000000', 'ndv'='5140', 'min_value'='', 'max_value'='Zulma', 'avg_size'='11267996', 'max_size'='11267996' )
-    '''
-
-    sql '''
-    alter table dbgen_version modify column dv_create_date set stats ('row_count'='1', 'ndv'='1', 'min_value'='2023-03-16', 'max_value'='2023-03-16', 'avg_size'='4', 'max_size'='4' )
-    '''
-
-    sql '''
-    alter table dbgen_version modify column dv_version set stats ('row_count'='1', 'ndv'='1', 'min_value'='3.2.0', 'max_value'='3.2.0', 'avg_size'='5', 'max_size'='5' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_credit_rating set stats ('row_count'='1920800', 'ndv'='4', 'min_value'='Good', 'max_value'='Unknown', 'avg_size'='13445600', 'max_size'='13445600' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_demo_sk set stats ('row_count'='1920800', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='15366400', 'max_size'='15366400' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_sk set stats ('row_count'='55', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='440', 'max_size'='440' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_day set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'min_value'='Friday', 'max_value'='Wednesday', 'avg_size'='521779', 'max_size'='521779' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_same_day_lq set stats ('row_count'='73049', 'ndv'='72231', 'min_value'='2414930', 'max_value'='2487978', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_state set stats ('row_count'='15', 'ndv'='8', 'min_value'='AL', 'max_value'='SD', 'avg_size'='30', 'max_size'='30' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_number set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='957', 'avg_size'='40', 'max_size'='40' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_suite_number set stats ('row_count'='15', 'ndv'='14', 'min_value'='', 'max_value'='Suite X', 'avg_size'='111', 'max_size'='111' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_suite_number set stats ('row_count'='15', 'ndv'='14', 'min_value'='', 'max_value'='Suite X', 'avg_size'='111', 'max_size'='111' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_id set stats ('row_count'='15', 'ndv'='15', 'min_value'='AAAAAAAABAAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_sq_ft set stats ('row_count'='15', 'ndv'='14', 'min_value'='73065', 'max_value'='977787', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_customer_sk set stats ('row_count'='143997065', 'ndv'='1993691', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_call_center_sk set stats ('row_count'='143997065', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_list_price set stats ('row_count'='143997065', 'ndv'='29336', 'min_value'='1.00', 'max_value'='29997.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_wholesale_cost set stats ('row_count'='143997065', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_item_sk set stats ('row_count'='143997065', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_ship set stats ('row_count'='143997065', 'ndv'='37890', 'min_value'='0.00', 'max_value'='43725.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_tax set stats ('row_count'='143997065', 'ndv'='28777', 'min_value'='0.00', 'max_value'='31745.52', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_profit set stats ('row_count'='143997065', 'ndv'='28450', 'min_value'='-10000.00', 'max_value'='19840.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_order_number set stats ('row_count'='143997065', 'ndv'='16050730', 'min_value'='1', 'max_value'='16000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_promo_sk set stats ('row_count'='143997065', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1916125', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sold_date_sk set stats ('row_count'='143997065', 'ndv'='1835', 'min_value'='2450815', 'max_value'='2452654', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_call_center_id set stats ('row_count'='30', 'ndv'='15', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='480', 'max_size'='480' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_city set stats ('row_count'='30', 'ndv'='12', 'min_value'='Bethel', 'max_value'='Shady Grove', 'avg_size'='282', 'max_size'='282' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='0', 'max_value'='0', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_company_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='110', 'max_size'='110' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_county set stats ('row_count'='30', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='423', 'max_size'='423' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_division_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='123', 'max_size'='123' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_market_manager set stats ('row_count'='30', 'ndv'='24', 'min_value'='Charles Corbett', 'max_value'='Tom Root', 'avg_size'='373', 'max_size'='373' )
-    '''
-
-
-    sql '''
-    alter table call_center modify column cc_open_date_sk set stats ('row_count'='30', 'ndv'='15', 'min_value'='2450794', 'max_value'='2451146', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_sq_ft set stats ('row_count'='30', 'ndv'='22', 'min_value'='1670015', 'max_value'='31896816', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_state set stats ('row_count'='30', 'ndv'='8', 'min_value'='AL', 'max_value'='TN', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_number set stats ('row_count'='30', 'ndv'='15', 'min_value'='406', 'max_value'='984', 'avg_size'='88', 'max_size'='88' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_type set stats ('row_count'='30', 'ndv'='9', 'min_value'='Avenue', 'max_value'='Way', 'avg_size'='140', 'max_size'='140' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_suite_number set stats ('row_count'='30', 'ndv'='14', 'min_value'='Suite 0', 'max_value'='Suite W', 'avg_size'='234', 'max_size'='234' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_zip set stats ('row_count'='30', 'ndv'='14', 'min_value'='20059', 'max_value'='75281', 'avg_size'='150', 'max_size'='150' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_item_sk set stats ('row_count'='399330000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_warehouse_sk set stats ('row_count'='399330000', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_item_sk set stats ('row_count'='14404374', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_order_number set stats ('row_count'='14404374', 'ndv'='9425725', 'min_value'='2', 'max_value'='16000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_reason_sk set stats ('row_count'='14404374', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_reason_sk set stats ('row_count'='14404374', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_tax set stats ('row_count'='14404374', 'ndv'='1926', 'min_value'='0.00', 'max_value'='2390.75', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1913762', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_ship_mode_sk set stats ('row_count'='14404374', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_gmt_offset set stats ('row_count'='1000000', 'ndv'='6', 'min_value'='-10.00', 'max_value'='-5.00', 'avg_size'='4000000', 'max_size'='4000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_location_type set stats ('row_count'='1000000', 'ndv'='4', 'min_value'='', 'max_value'='single family', 'avg_size'='8728128', 'max_size'='8728128' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_state set stats ('row_count'='1000000', 'ndv'='52', 'min_value'='', 'max_value'='WY', 'avg_size'='1939752', 'max_size'='1939752' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_number set stats ('row_count'='1000000', 'ndv'='1002', 'min_value'='', 'max_value'='999', 'avg_size'='2805540', 'max_size'='2805540' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_suite_number set stats ('row_count'='1000000', 'ndv'='76', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='7652799', 'max_size'='7652799' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_upper_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='10000', 'max_value'='200000', 'avg_size'='80', 'max_size'='80' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_number set stats ('row_count'='20400', 'ndv'='109', 'min_value'='1', 'max_value'='109', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_id set stats ('row_count'='20400', 'ndv'='20341', 'min_value'='AAAAAAAAAAABAAAA', 'max_value'='AAAAAAAAPPPDAAAA', 'avg_size'='326400', 'max_size'='326400' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_end_date_sk set stats ('row_count'='20400', 'ndv'='97', 'min_value'='2450844', 'max_value'='2453186', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table item modify column i_brand set stats ('row_count'='204000', 'ndv'='714', 'min_value'='', 'max_value'='univunivamalg #9', 'avg_size'='3287671', 'max_size'='3287671' )
-    '''
-
-    sql '''
-    alter table item modify column i_category set stats ('row_count'='204000', 'ndv'='11', 'min_value'='', 'max_value'='Women', 'avg_size'='1201703', 'max_size'='1201703' )
-    '''
-
-    sql '''
-    alter table item modify column i_class_id set stats ('row_count'='204000', 'ndv'='16', 'min_value'='1', 'max_value'='16', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_class_id set stats ('row_count'='204000', 'ndv'='16', 'min_value'='1', 'max_value'='16', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_container set stats ('row_count'='204000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='1424430', 'max_size'='1424430' )
-    '''
-
-    sql '''
-    alter table item modify column i_manager_id set stats ('row_count'='204000', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_customer_sk set stats ('row_count'='7197670', 'ndv'='1923644', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_amt_inc_tax set stats ('row_count'='7197670', 'ndv'='19975', 'min_value'='0.00', 'max_value'='29493.38', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_quantity set stats ('row_count'='7197670', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returned_time_sk set stats ('row_count'='7197670', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_reversed_charge set stats ('row_count'='7197670', 'ndv'='10979', 'min_value'='0.00', 'max_value'='22972.36', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_class set stats ('row_count'='24', 'ndv'='1', 'min_value'='Unknown', 'max_value'='Unknown', 'avg_size'='168', 'max_size'='168' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_close_date_sk set stats ('row_count'='24', 'ndv'='8', 'min_value'='2443328', 'max_value'='2447131', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_close_date_sk set stats ('row_count'='24', 'ndv'='8', 'min_value'='2443328', 'max_value'='2447131', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_state set stats ('row_count'='24', 'ndv'='9', 'min_value'='AL', 'max_value'='TN', 'avg_size'='48', 'max_size'='48' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_number set stats ('row_count'='24', 'ndv'='14', 'min_value'='184', 'max_value'='973', 'avg_size'='70', 'max_size'='70' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_catalog set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_details set stats ('row_count'='1000', 'ndv'='992', 'min_value'='', 'max_value'='Young, valuable companies watch walls. Payments can flour', 'avg_size'='39304', 'max_size'='39304' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_event set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_event set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_radio set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_response_targe set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='4000', 'max_size'='4000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1835731', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_list_price set stats ('row_count'='72001237', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_ship set stats ('row_count'='72001237', 'ndv'='36553', 'min_value'='0.00', 'max_value'='43468.92', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_ship_tax set stats ('row_count'='72001237', 'ndv'='37541', 'min_value'='0.00', 'max_value'='44479.52', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_order_number set stats ('row_count'='72001237', 'ndv'='6015811', 'min_value'='1', 'max_value'='6000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_company_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_country set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='5174', 'max_size'='5174' )
-    '''
-
-    sql '''
-    alter table store modify column s_county set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='5693', 'max_size'='5693' )
-    '''
-
-    sql '''
-    alter table store modify column s_division_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_manager set stats ('row_count'='402', 'ndv'='301', 'min_value'='', 'max_value'='Zachary Price', 'avg_size'='5075', 'max_size'='5075' )
-    '''
-
-    sql '''
-    alter table store modify column s_manager set stats ('row_count'='402', 'ndv'='301', 'min_value'='', 'max_value'='Zachary Price', 'avg_size'='5075', 'max_size'='5075' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_id set stats ('row_count'='402', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_sk set stats ('row_count'='402', 'ndv'='398', 'min_value'='1', 'max_value'='402', 'avg_size'='3216', 'max_size'='3216' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_am_pm set stats ('row_count'='86400', 'ndv'='2', 'min_value'='AM', 'max_value'='PM', 'avg_size'='172800', 'max_size'='172800' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_minute set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time_id set stats ('row_count'='86400', 'ndv'='85663', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPAAAA', 'avg_size'='1382400', 'max_size'='1382400' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_image_count set stats ('row_count'='2040', 'ndv'='7', 'min_value'='1', 'max_value'='7', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040', 'ndv'='5', 'min_value'='0', 'max_value'='4', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_type set stats ('row_count'='2040', 'ndv'='8', 'min_value'='', 'max_value'='welcome', 'avg_size'='12856', 'max_size'='12856' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_url set stats ('row_count'='2040', 'ndv'='2', 'min_value'='', 'max_value'='http://www.foo.com', 'avg_size'='36270', 'max_size'='36270' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_web_page_id set stats ('row_count'='2040', 'ndv'='1019', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPEAAAAA', 'avg_size'='32640', 'max_size'='32640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_reason_sk set stats ('row_count'='28795080', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_ship_cost set stats ('row_count'='28795080', 'ndv'='8186', 'min_value'='0.00', 'max_value'='9578.25', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_store_sk set stats ('row_count'='28795080', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_addr_sk set stats ('row_count'='287997024', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_coupon_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_discount_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_tax set stats ('row_count'='287997024', 'ndv'='1722', 'min_value'='0.00', 'max_value'='1762.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_hdemo_sk set stats ('row_count'='287997024', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_list_price set stats ('row_count'='287997024', 'ndv'='201', 'min_value'='1.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_paid_inc_tax set stats ('row_count'='287997024', 'ndv'='20203', 'min_value'='0.00', 'max_value'='21344.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sold_time_sk set stats ('row_count'='287997024', 'ndv'='47252', 'min_value'='28800', 'max_value'='75599', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_code set stats ('row_count'='20', 'ndv'='4', 'min_value'='AIR', 'max_value'='SURFACE', 'avg_size'='87', 'max_size'='87' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_contract set stats ('row_count'='20', 'ndv'='20', 'min_value'='2mM8l', 'max_value'='yVfotg7Tio3MVhBg6Bkn', 'avg_size'='252', 'max_size'='252' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_type set stats ('row_count'='20', 'ndv'='6', 'min_value'='EXPRESS', 'max_value'='TWO DAY', 'avg_size'='150', 'max_size'='150' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_day set stats ('row_count'='2000000', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_sales_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2448998', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_last_name set stats ('row_count'='2000000', 'ndv'='4990', 'min_value'='', 'max_value'='Zuniga', 'avg_size'='11833714', 'max_size'='11833714' )
-    '''
-
-    sql '''
-    alter table dbgen_version modify column dv_version set stats ('row_count'='1', 'ndv'='1', 'min_value'='3.2.0', 'max_value'='3.2.0', 'avg_size'='5', 'max_size'='5' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_dep_employed_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_education_status set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='2 yr Degree', 'max_value'='Unknown', 'avg_size'='18384800', 'max_size'='18384800' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_purchase_estimate set stats ('row_count'='1920800', 'ndv'='20', 'min_value'='500', 'max_value'='10000', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_dow set stats ('row_count'='73049', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_following_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_moy set stats ('row_count'='73049', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_number set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='957', 'avg_size'='40', 'max_size'='40' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_type set stats ('row_count'='15', 'ndv'='11', 'min_value'='', 'max_value'='Wy', 'avg_size'='58', 'max_size'='58' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_sk set stats ('row_count'='15', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_catalog_page_sk set stats ('row_count'='143997065', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_profit set stats ('row_count'='143997065', 'ndv'='28450', 'min_value'='-10000.00', 'max_value'='19840.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1916125', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_customer_sk set stats ('row_count'='143997065', 'ndv'='1993190', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_mode_sk set stats ('row_count'='143997065', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_mode_sk set stats ('row_count'='143997065', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_employees set stats ('row_count'='30', 'ndv'='22', 'min_value'='2935', 'max_value'='69020', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_gmt_offset set stats ('row_count'='30', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_manager set stats ('row_count'='30', 'ndv'='22', 'min_value'='Alden Snyder', 'max_value'='Wayne Ray', 'avg_size'='368', 'max_size'='368' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_market_manager set stats ('row_count'='30', 'ndv'='24', 'min_value'='Charles Corbett', 'max_value'='Tom Root', 'avg_size'='373', 'max_size'='373' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_id set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_rec_end_date set stats ('row_count'='30', 'ndv'='3', 'min_value'='2000-01-01', 'max_value'='2001-12-31', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_rec_start_date set stats ('row_count'='30', 'ndv'='4', 'min_value'='1998-01-01', 'max_value'='2002-01-01', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_date_sk set stats ('row_count'='399330000', 'ndv'='261', 'min_value'='2450815', 'max_value'='2452635', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_call_center_sk set stats ('row_count'='14404374', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_fee set stats ('row_count'='14404374', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_customer_sk set stats ('row_count'='14404374', 'ndv'='1977657', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_amt_inc_tax set stats ('row_count'='14404374', 'ndv'='21566', 'min_value'='0.00', 'max_value'='29353.87', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_quantity set stats ('row_count'='14404374', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_ship_cost set stats ('row_count'='14404374', 'ndv'='11144', 'min_value'='0.00', 'max_value'='14130.96', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_reversed_charge set stats ('row_count'='14404374', 'ndv'='12359', 'min_value'='0.00', 'max_value'='23801.24', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_ship_mode_sk set stats ('row_count'='14404374', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_warehouse_sk set stats ('row_count'='14404374', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_buy_potential set stats ('row_count'='7200', 'ndv'='6', 'min_value'='0-500', 'max_value'='Unknown', 'avg_size'='54000', 'max_size'='54000' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_demo_sk set stats ('row_count'='7200', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57600', 'max_size'='57600' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_dep_count set stats ('row_count'='7200', 'ndv'='10', 'min_value'='0', 'max_value'='9', 'avg_size'='28800', 'max_size'='28800' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_address_id set stats ('row_count'='1000000', 'ndv'='999950', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPOAAA', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_address_sk set stats ('row_count'='1000000', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_country set stats ('row_count'='1000000', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='12608739', 'max_size'='12608739' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_country set stats ('row_count'='1000000', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='12608739', 'max_size'='12608739' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_county set stats ('row_count'='1000000', 'ndv'='1825', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='13540273', 'max_size'='13540273' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_zip set stats ('row_count'='1000000', 'ndv'='7733', 'min_value'='', 'max_value'='99981', 'avg_size'='4848150', 'max_size'='4848150' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_number set stats ('row_count'='20400', 'ndv'='189', 'min_value'='1', 'max_value'='188', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_description set stats ('row_count'='20400', 'ndv'='20501', 'min_value'='', 'max_value'='Youngsters should get very. Bad, necessary years must pick telecommunications. Co', 'avg_size'='1507423', 'max_size'='1507423' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_start_date_sk set stats ('row_count'='20400', 'ndv'='91', 'min_value'='2450815', 'max_value'='2453005', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_type set stats ('row_count'='20400', 'ndv'='4', 'min_value'='', 'max_value'='quarterly', 'avg_size'='155039', 'max_size'='155039' )
-    '''
-
-    sql '''
-    alter table item modify column i_category_id set stats ('row_count'='204000', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_color set stats ('row_count'='204000', 'ndv'='93', 'min_value'='', 'max_value'='yellow', 'avg_size'='1094247', 'max_size'='1094247' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_id set stats ('row_count'='204000', 'ndv'='103230', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPBAAA', 'avg_size'='3264000', 'max_size'='3264000' )
-    '''
-
-    sql '''
-    alter table item modify column i_product_name set stats ('row_count'='204000', 'ndv'='200390', 'min_value'='', 'max_value'='pripripripripriought', 'avg_size'='4546148', 'max_size'='4546148' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_fee set stats ('row_count'='7197670', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_fee set stats ('row_count'='7197670', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_order_number set stats ('row_count'='7197670', 'ndv'='4249346', 'min_value'='1', 'max_value'='5999999', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_addr_sk set stats ('row_count'='7197670', 'ndv'='999503', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1868495', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_customer_sk set stats ('row_count'='7197670', 'ndv'='1923644', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_amt set stats ('row_count'='7197670', 'ndv'='19263', 'min_value'='0.00', 'max_value'='28346.31', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_addr_sk set stats ('row_count'='7197670', 'ndv'='999584', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1865149', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_web_page_sk set stats ('row_count'='7197670', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_company_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_manager set stats ('row_count'='24', 'ndv'='19', 'min_value'='Adam Stonge', 'max_value'='Tommy Jones', 'avg_size'='297', 'max_size'='297' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_site_id set stats ('row_count'='24', 'ndv'='12', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='384', 'max_size'='384' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_site_sk set stats ('row_count'='24', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_number set stats ('row_count'='24', 'ndv'='14', 'min_value'='184', 'max_value'='973', 'avg_size'='70', 'max_size'='70' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_catalog set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_press set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='985', 'max_size'='985' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_discount_active set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='981', 'max_size'='981' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_item_sk set stats ('row_count'='1000', 'ndv'='970', 'min_value'='280', 'max_value'='203966', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_sk set stats ('row_count'='1000', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_start_date_sk set stats ('row_count'='1000', 'ndv'='574', 'min_value'='2450100', 'max_value'='2450915', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_start_date_sk set stats ('row_count'='1000', 'ndv'='574', 'min_value'='2450100', 'max_value'='2450915', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_ship set stats ('row_count'='72001237', 'ndv'='36553', 'min_value'='0.00', 'max_value'='43468.92', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_addr_sk set stats ('row_count'='72001237', 'ndv'='997336', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_mode_sk set stats ('row_count'='72001237', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sold_time_sk set stats ('row_count'='72001237', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_number_employees set stats ('row_count'='402', 'ndv'='97', 'min_value'='200', 'max_value'='300', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_number_employees set stats ('row_count'='402', 'ndv'='97', 'min_value'='200', 'max_value'='300', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_state set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='TN', 'avg_size'='800', 'max_size'='800' )
-    '''
-
-    sql '''
-    alter table store modify column s_suite_number set stats ('row_count'='402', 'ndv'='75', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='3140', 'max_size'='3140' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_meal_time set stats ('row_count'='86400', 'ndv'='4', 'min_value'='', 'max_value'='lunch', 'avg_size'='248400', 'max_size'='248400' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_second set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_second set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_autogen_flag set stats ('row_count'='2040', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='2015', 'max_size'='2015' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_creation_date_sk set stats ('row_count'='2040', 'ndv'='134', 'min_value'='2450672', 'max_value'='2450815', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_link_count set stats ('row_count'='2040', 'ndv'='24', 'min_value'='2', 'max_value'='25', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_item_sk set stats ('row_count'='28795080', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_net_loss set stats ('row_count'='28795080', 'ndv'='8663', 'min_value'='0.50', 'max_value'='10447.72', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_net_loss set stats ('row_count'='28795080', 'ndv'='8663', 'min_value'='0.50', 'max_value'='10447.72', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_refunded_cash set stats ('row_count'='28795080', 'ndv'='12626', 'min_value'='0.00', 'max_value'='17556.95', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_time_sk set stats ('row_count'='28795080', 'ndv'='32660', 'min_value'='28799', 'max_value'='61199', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_item_sk set stats ('row_count'='287997024', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sold_date_sk set stats ('row_count'='287997024', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sold_time_sk set stats ('row_count'='287997024', 'ndv'='47252', 'min_value'='28800', 'max_value'='75599', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ticket_number set stats ('row_count'='287997024', 'ndv'='23905324', 'min_value'='1', 'max_value'='24000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_wholesale_cost set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_wholesale_cost set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_carrier set stats ('row_count'='20', 'ndv'='20', 'min_value'='AIRBORNE', 'max_value'='ZOUROS', 'avg_size'='133', 'max_size'='133' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_code set stats ('row_count'='20', 'ndv'='4', 'min_value'='AIR', 'max_value'='SURFACE', 'avg_size'='87', 'max_size'='87' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_country set stats ('row_count'='2000000', 'ndv'='211', 'min_value'='', 'max_value'='ZIMBABWE', 'avg_size'='16787900', 'max_size'='16787900' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_month set stats ('row_count'='2000000', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_cdemo_sk set stats ('row_count'='2000000', 'ndv'='1221921', 'min_value'='1', 'max_value'='1920798', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_customer_sk set stats ('row_count'='2000000', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_customer_sk set stats ('row_count'='2000000', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_name set stats ('row_count'='2000000', 'ndv'='5140', 'min_value'='', 'max_value'='Zulma', 'avg_size'='11267996', 'max_size'='11267996' )
-    '''
-
-    sql '''
-    alter table customer modify column c_salutation set stats ('row_count'='2000000', 'ndv'='7', 'min_value'='', 'max_value'='Sir', 'avg_size'='6257882', 'max_size'='6257882' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_gender set stats ('row_count'='1920800', 'ndv'='2', 'min_value'='F', 'max_value'='M', 'avg_size'='1920800', 'max_size'='1920800' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_id set stats ('row_count'='55', 'ndv'='55', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPCAAAAAA', 'avg_size'='880', 'max_size'='880' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_day set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_month set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_quarter set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date_id set stats ('row_count'='73049', 'ndv'='72907', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'avg_size'='1168784', 'max_size'='1168784' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_dow set stats ('row_count'='73049', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_following_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_last_dom set stats ('row_count'='73049', 'ndv'='2419', 'min_value'='2415020', 'max_value'='2488372', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_month_seq set stats ('row_count'='73049', 'ndv'='2398', 'min_value'='0', 'max_value'='2400', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_quarter_name set stats ('row_count'='73049', 'ndv'='799', 'min_value'='1900Q1', 'max_value'='2100Q1', 'avg_size'='438294', 'max_size'='438294' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_same_day_lq set stats ('row_count'='73049', 'ndv'='72231', 'min_value'='2414930', 'max_value'='2487978', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_same_day_ly set stats ('row_count'='73049', 'ndv'='72450', 'min_value'='2414657', 'max_value'='2487705', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_weekend set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_city set stats ('row_count'='15', 'ndv'='11', 'min_value'='Bethel', 'max_value'='Union', 'avg_size'='111', 'max_size'='111' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_country set stats ('row_count'='15', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='195', 'max_size'='195' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_gmt_offset set stats ('row_count'='15', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Wilson Elm', 'avg_size'='128', 'max_size'='128' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1915709', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_sales_price set stats ('row_count'='143997065', 'ndv'='27598', 'min_value'='0.00', 'max_value'='29808.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_ship_tax set stats ('row_count'='143997065', 'ndv'='38890', 'min_value'='0.00', 'max_value'='45460.80', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_order_number set stats ('row_count'='143997065', 'ndv'='16050730', 'min_value'='1', 'max_value'='16000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_customer_sk set stats ('row_count'='143997065', 'ndv'='1993190', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sold_date_sk set stats ('row_count'='143997065', 'ndv'='1835', 'min_value'='2450815', 'max_value'='2452654', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_city set stats ('row_count'='30', 'ndv'='12', 'min_value'='Bethel', 'max_value'='Shady Grove', 'avg_size'='282', 'max_size'='282' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_employees set stats ('row_count'='30', 'ndv'='22', 'min_value'='2935', 'max_value'='69020', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_gmt_offset set stats ('row_count'='30', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_hours set stats ('row_count'='30', 'ndv'='3', 'min_value'='8AM-12AM', 'max_value'='8AM-8AM', 'avg_size'='214', 'max_size'='214' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_hours set stats ('row_count'='30', 'ndv'='3', 'min_value'='8AM-12AM', 'max_value'='8AM-8AM', 'avg_size'='214', 'max_size'='214' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_desc set stats ('row_count'='30', 'ndv'='22', 'min_value'='As existing eyebrows miss as the matters. Realistic stories may not face almost by a ', 'max_value'='Young tests could buy comfortable, local users; o', 'avg_size'='1766', 'max_size'='1766' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='California', 'max_value'='Pacific Northwest_1', 'avg_size'='401', 'max_size'='401' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='California', 'max_value'='Pacific Northwest_1', 'avg_size'='401', 'max_size'='401' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_sq_ft set stats ('row_count'='30', 'ndv'='22', 'min_value'='1670015', 'max_value'='31896816', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_item_sk set stats ('row_count'='399330000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_call_center_sk set stats ('row_count'='14404374', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_customer_sk set stats ('row_count'='14404374', 'ndv'='1977657', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_ship_cost set stats ('row_count'='14404374', 'ndv'='11144', 'min_value'='0.00', 'max_value'='14130.96', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returned_time_sk set stats ('row_count'='14404374', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1913762', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_vehicle_count set stats ('row_count'='7200', 'ndv'='6', 'min_value'='-1', 'max_value'='4', 'avg_size'='28800', 'max_size'='28800' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_location_type set stats ('row_count'='1000000', 'ndv'='4', 'min_value'='', 'max_value'='single family', 'avg_size'='8728128', 'max_size'='8728128' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_state set stats ('row_count'='1000000', 'ndv'='52', 'min_value'='', 'max_value'='WY', 'avg_size'='1939752', 'max_size'='1939752' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_number set stats ('row_count'='1000000', 'ndv'='1002', 'min_value'='', 'max_value'='999', 'avg_size'='2805540', 'max_size'='2805540' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_department set stats ('row_count'='20400', 'ndv'='2', 'min_value'='', 'max_value'='DEPARTMENT', 'avg_size'='201950', 'max_size'='201950' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_description set stats ('row_count'='20400', 'ndv'='20501', 'min_value'='', 'max_value'='Youngsters should get very. Bad, necessary years must pick telecommunications. Co', 'avg_size'='1507423', 'max_size'='1507423' )
-    '''
-
-    sql '''
-    alter table item modify column i_brand_id set stats ('row_count'='204000', 'ndv'='951', 'min_value'='1001001', 'max_value'='10016017', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_class set stats ('row_count'='204000', 'ndv'='100', 'min_value'='', 'max_value'='womens watch', 'avg_size'='1585937', 'max_size'='1585937' )
-    '''
-
-    sql '''
-    alter table item modify column i_units set stats ('row_count'='204000', 'ndv'='22', 'min_value'='', 'max_value'='Unknown', 'avg_size'='852562', 'max_size'='852562' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_account_credit set stats ('row_count'='7197670', 'ndv'='10868', 'min_value'='0.00', 'max_value'='23028.27', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_reason_sk set stats ('row_count'='7197670', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returned_date_sk set stats ('row_count'='7197670', 'ndv'='2185', 'min_value'='2450820', 'max_value'='2453002', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returned_time_sk set stats ('row_count'='7197670', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_company_name set stats ('row_count'='24', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='97', 'max_size'='97' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_gmt_offset set stats ('row_count'='24', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_market_manager set stats ('row_count'='24', 'ndv'='21', 'min_value'='Albert Leung', 'max_value'='Zachery Oneil', 'avg_size'='294', 'max_size'='294' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_mkt_desc set stats ('row_count'='24', 'ndv'='15', 'min_value'='Acres see else children. Mutual too', 'max_value'='Well similar decisions used to keep hardly democratic, personal priorities.', 'avg_size'='1561', 'max_size'='1561' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_rec_end_date set stats ('row_count'='24', 'ndv'='3', 'min_value'='1999-08-16', 'max_value'='2001-08-15', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_site_id set stats ('row_count'='24', 'ndv'='12', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='384', 'max_size'='384' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_site_sk set stats ('row_count'='24', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_state set stats ('row_count'='24', 'ndv'='9', 'min_value'='AL', 'max_value'='TN', 'avg_size'='48', 'max_size'='48' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_tv set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_name set stats ('row_count'='1000', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='3924', 'max_size'='3924' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_sk set stats ('row_count'='1000', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_list_price set stats ('row_count'='72001237', 'ndv'='29104', 'min_value'='1.02', 'max_value'='29997.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_order_number set stats ('row_count'='72001237', 'ndv'='6015811', 'min_value'='1', 'max_value'='6000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_addr_sk set stats ('row_count'='72001237', 'ndv'='997336', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1822804', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_customer_sk set stats ('row_count'='72001237', 'ndv'='1898561', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_date_sk set stats ('row_count'='72001237', 'ndv'='1952', 'min_value'='2450817', 'max_value'='2452762', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_warehouse_sk set stats ('row_count'='72001237', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_company_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_country set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='5174', 'max_size'='5174' )
-    '''
-
-    sql '''
-    alter table store modify column s_division_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_division_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2779', 'max_size'='2779' )
-    '''
-
-    sql '''
-    alter table store modify column s_floor_space set stats ('row_count'='402', 'ndv'='300', 'min_value'='5004767', 'max_value'='9997773', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_geography_class set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
-    '''
-
-    sql '''
-    alter table store modify column s_geography_class set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
-    '''
-
-    sql '''
-    alter table store modify column s_hours set stats ('row_count'='402', 'ndv'='4', 'min_value'='', 'max_value'='8AM-8AM', 'avg_size'='2848', 'max_size'='2848' )
-    '''
-
-    sql '''
-    alter table store modify column s_hours set stats ('row_count'='402', 'ndv'='4', 'min_value'='', 'max_value'='8AM-8AM', 'avg_size'='2848', 'max_size'='2848' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_name set stats ('row_count'='402', 'ndv'='256', 'min_value'='', 'max_value'='Woodland ', 'avg_size'='3384', 'max_size'='3384' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_number set stats ('row_count'='402', 'ndv'='267', 'min_value'='', 'max_value'='986', 'avg_size'='1150', 'max_size'='1150' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_type set stats ('row_count'='402', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='1657', 'max_size'='1657' )
-    '''
-
-    sql '''
-    alter table store modify column s_tax_precentage set stats ('row_count'='402', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.11', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_meal_time set stats ('row_count'='86400', 'ndv'='4', 'min_value'='', 'max_value'='lunch', 'avg_size'='248400', 'max_size'='248400' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_sub_shift set stats ('row_count'='86400', 'ndv'='4', 'min_value'='afternoon', 'max_value'='night', 'avg_size'='597600', 'max_size'='597600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time_id set stats ('row_count'='86400', 'ndv'='85663', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPAAAA', 'avg_size'='1382400', 'max_size'='1382400' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_char_count set stats ('row_count'='2040', 'ndv'='1363', 'min_value'='303', 'max_value'='8523', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040', 'ndv'='5', 'min_value'='0', 'max_value'='4', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_rec_start_date set stats ('row_count'='2040', 'ndv'='4', 'min_value'='1997-09-03', 'max_value'='2001-09-03', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_web_page_sk set stats ('row_count'='2040', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_cdemo_sk set stats ('row_count'='28795080', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_hdemo_sk set stats ('row_count'='28795080', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_item_sk set stats ('row_count'='28795080', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_reason_sk set stats ('row_count'='28795080', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_cdemo_sk set stats ('row_count'='287997024', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_wholesale_cost set stats ('row_count'='287997024', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_paid_inc_tax set stats ('row_count'='287997024', 'ndv'='20203', 'min_value'='0.00', 'max_value'='21344.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_promo_sk set stats ('row_count'='287997024', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sold_date_sk set stats ('row_count'='287997024', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ticket_number set stats ('row_count'='287997024', 'ndv'='23905324', 'min_value'='1', 'max_value'='24000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_contract set stats ('row_count'='20', 'ndv'='20', 'min_value'='2mM8l', 'max_value'='yVfotg7Tio3MVhBg6Bkn', 'avg_size'='252', 'max_size'='252' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_country set stats ('row_count'='2000000', 'ndv'='211', 'min_value'='', 'max_value'='ZIMBABWE', 'avg_size'='16787900', 'max_size'='16787900' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_year set stats ('row_count'='2000000', 'ndv'='69', 'min_value'='1924', 'max_value'='1992', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_addr_sk set stats ('row_count'='2000000', 'ndv'='866672', 'min_value'='1', 'max_value'='1000000', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_addr_sk set stats ('row_count'='2000000', 'ndv'='866672', 'min_value'='1', 'max_value'='1000000', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_sales_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2448998', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_shipto_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2449028', 'max_value'='2452678', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_last_review_date_sk set stats ('row_count'='2000000', 'ndv'='366', 'min_value'='2452283', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_salutation set stats ('row_count'='2000000', 'ndv'='7', 'min_value'='', 'max_value'='Sir', 'avg_size'='6257882', 'max_size'='6257882' )
-    '''
-
-    sql '''
-    alter table dbgen_version modify column dv_cmdline_args set stats ('row_count'='1', 'ndv'='1', 'min_value'='-SCALE 100 -PARALLEL 10 -CHILD 1 -TERMINATE N -DIR /mnt/datadisk0/doris/tools/tpcds-tools/bin/tpcds-data ', 'max_value'='-SCALE 100 -PARALLEL 10 -CHILD 1 -TERMINATE N -DIR /mnt/datadisk0/doris/tools/tpcds-tools/bin/tpcds-data ', 'avg_size'='105', 'max_size'='105' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_marital_status set stats ('row_count'='1920800', 'ndv'='5', 'min_value'='D', 'max_value'='W', 'avg_size'='1920800', 'max_size'='1920800' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_desc set stats ('row_count'='55', 'ndv'='54', 'min_value'='Did not fit', 'max_value'='unauthoized purchase', 'avg_size'='758', 'max_size'='758' )
-    '''
-
-    sql '''
-    alter table reason modify column r_reason_desc set stats ('row_count'='55', 'ndv'='54', 'min_value'='Did not fit', 'max_value'='unauthoized purchase', 'avg_size'='758', 'max_size'='758' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_week set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date set stats ('row_count'='73049', 'ndv'='73250', 'min_value'='1900-01-02', 'max_value'='2100-01-01', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'min_value'='Friday', 'max_value'='Wednesday', 'avg_size'='521779', 'max_size'='521779' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_dom set stats ('row_count'='73049', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_dom set stats ('row_count'='73049', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_fy_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_moy set stats ('row_count'='73049', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_qoy set stats ('row_count'='73049', 'ndv'='4', 'min_value'='1', 'max_value'='4', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_qoy set stats ('row_count'='73049', 'ndv'='4', 'min_value'='1', 'max_value'='4', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_same_day_ly set stats ('row_count'='73049', 'ndv'='72450', 'min_value'='2414657', 'max_value'='2487705', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_weekend set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_country set stats ('row_count'='15', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='195', 'max_size'='195' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_street_type set stats ('row_count'='15', 'ndv'='11', 'min_value'='', 'max_value'='Wy', 'avg_size'='58', 'max_size'='58' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Rooms cook ', 'avg_size'='230', 'max_size'='230' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_warehouse_sq_ft set stats ('row_count'='15', 'ndv'='14', 'min_value'='73065', 'max_value'='977787', 'avg_size'='60', 'max_size'='60' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_tax set stats ('row_count'='143997065', 'ndv'='2488', 'min_value'='0.00', 'max_value'='2619.36', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_wholesale_cost set stats ('row_count'='143997065', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_list_price set stats ('row_count'='143997065', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid set stats ('row_count'='143997065', 'ndv'='27448', 'min_value'='0.00', 'max_value'='29760.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sales_price set stats ('row_count'='143997065', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_warehouse_sk set stats ('row_count'='143997065', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_wholesale_cost set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_call_center_sk set stats ('row_count'='30', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_class set stats ('row_count'='30', 'ndv'='3', 'min_value'='large', 'max_value'='small', 'avg_size'='166', 'max_size'='166' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_open_date_sk set stats ('row_count'='30', 'ndv'='15', 'min_value'='2450794', 'max_value'='2451146', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_rec_start_date set stats ('row_count'='30', 'ndv'='4', 'min_value'='1998-01-01', 'max_value'='2002-01-01', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='1st ', 'max_value'='View ', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_street_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='1st ', 'max_value'='View ', 'avg_size'='240', 'max_size'='240' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_date_sk set stats ('row_count'='399330000', 'ndv'='261', 'min_value'='2450815', 'max_value'='2452635', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_quantity_on_hand set stats ('row_count'='399330000', 'ndv'='1006', 'min_value'='0', 'max_value'='1000', 'avg_size'='1597320000', 'max_size'='1597320000' )
-    '''
-
-    sql '''
-    alter table inventory modify column inv_warehouse_sk set stats ('row_count'='399330000', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='3194640000', 'max_size'='3194640000' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_amount set stats ('row_count'='14404374', 'ndv'='20656', 'min_value'='0.00', 'max_value'='28778.31', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_amount set stats ('row_count'='14404374', 'ndv'='20656', 'min_value'='0.00', 'max_value'='28778.31', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_tax set stats ('row_count'='14404374', 'ndv'='1926', 'min_value'='0.00', 'max_value'='2390.75', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_store_credit set stats ('row_count'='14404374', 'ndv'='12156', 'min_value'='0.00', 'max_value'='22167.49', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_warehouse_sk set stats ('row_count'='14404374', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_dep_count set stats ('row_count'='7200', 'ndv'='10', 'min_value'='0', 'max_value'='9', 'avg_size'='28800', 'max_size'='28800' )
-    '''
-
-    sql '''
-    alter table household_demographics modify column hd_vehicle_count set stats ('row_count'='7200', 'ndv'='6', 'min_value'='-1', 'max_value'='4', 'avg_size'='28800', 'max_size'='28800' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_address_id set stats ('row_count'='1000000', 'ndv'='999950', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPOAAA', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_county set stats ('row_count'='1000000', 'ndv'='1825', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='13540273', 'max_size'='13540273' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_name set stats ('row_count'='1000000', 'ndv'='8155', 'min_value'='', 'max_value'='Woodland Woodland', 'avg_size'='8445649', 'max_size'='8445649' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_name set stats ('row_count'='1000000', 'ndv'='8155', 'min_value'='', 'max_value'='Woodland Woodland', 'avg_size'='8445649', 'max_size'='8445649' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_type set stats ('row_count'='1000000', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='4073296', 'max_size'='4073296' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_income_band_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_upper_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='10000', 'max_value'='200000', 'avg_size'='80', 'max_size'='80' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_start_date_sk set stats ('row_count'='20400', 'ndv'='91', 'min_value'='2450815', 'max_value'='2453005', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table item modify column i_class set stats ('row_count'='204000', 'ndv'='100', 'min_value'='', 'max_value'='womens watch', 'avg_size'='1585937', 'max_size'='1585937' )
-    '''
-
-    sql '''
-    alter table item modify column i_manufact set stats ('row_count'='204000', 'ndv'='1004', 'min_value'='', 'max_value'='pripripri', 'avg_size'='2298787', 'max_size'='2298787' )
-    '''
-
-    sql '''
-    alter table item modify column i_manufact_id set stats ('row_count'='204000', 'ndv'='1005', 'min_value'='1', 'max_value'='1000', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_rec_end_date set stats ('row_count'='204000', 'ndv'='3', 'min_value'='1999-10-27', 'max_value'='2001-10-26', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_units set stats ('row_count'='204000', 'ndv'='22', 'min_value'='', 'max_value'='Unknown', 'avg_size'='852562', 'max_size'='852562' )
-    '''
-
-    sql '''
-    alter table item modify column i_wholesale_cost set stats ('row_count'='204000', 'ndv'='89', 'min_value'='0.02', 'max_value'='88.91', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_account_credit set stats ('row_count'='7197670', 'ndv'='10868', 'min_value'='0.00', 'max_value'='23028.27', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_item_sk set stats ('row_count'='7197670', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_net_loss set stats ('row_count'='7197670', 'ndv'='11012', 'min_value'='0.50', 'max_value'='15068.96', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_net_loss set stats ('row_count'='7197670', 'ndv'='11012', 'min_value'='0.50', 'max_value'='15068.96', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_order_number set stats ('row_count'='7197670', 'ndv'='4249346', 'min_value'='1', 'max_value'='5999999', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_addr_sk set stats ('row_count'='7197670', 'ndv'='999503', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_cash set stats ('row_count'='7197670', 'ndv'='14621', 'min_value'='0.00', 'max_value'='26466.56', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_refunded_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1868495', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_tax set stats ('row_count'='7197670', 'ndv'='1820', 'min_value'='0.00', 'max_value'='2551.16', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_customer_sk set stats ('row_count'='7197670', 'ndv'='1926139', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_county set stats ('row_count'='24', 'ndv'='9', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='331', 'max_size'='331' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_name set stats ('row_count'='24', 'ndv'='4', 'min_value'='site_0', 'max_value'='site_3', 'avg_size'='144', 'max_size'='144' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_name set stats ('row_count'='24', 'ndv'='24', 'min_value'='11th ', 'max_value'='Wilson Ridge', 'avg_size'='219', 'max_size'='219' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_street_type set stats ('row_count'='24', 'ndv'='15', 'min_value'='Avenue', 'max_value'='Wy', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_demo set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='984', 'max_size'='984' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_email set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_tv set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_cost set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1000.00', 'max_value'='1000.00', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_cost set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1000.00', 'max_value'='1000.00', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_discount_active set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='981', 'max_size'='981' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_id set stats ('row_count'='1000', 'ndv'='1004', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPCAAAAA', 'avg_size'='16000', 'max_size'='16000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_response_targe set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='4000', 'max_size'='4000' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_addr_sk set stats ('row_count'='72001237', 'ndv'='998891', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1835731', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_customer_sk set stats ('row_count'='72001237', 'ndv'='1899439', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_discount_amt set stats ('row_count'='72001237', 'ndv'='27052', 'min_value'='0.00', 'max_value'='29982.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_list_price set stats ('row_count'='72001237', 'ndv'='29104', 'min_value'='1.02', 'max_value'='29997.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_sales_price set stats ('row_count'='72001237', 'ndv'='27115', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_list_price set stats ('row_count'='72001237', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid set stats ('row_count'='72001237', 'ndv'='26912', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_promo_sk set stats ('row_count'='72001237', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_promo_sk set stats ('row_count'='72001237', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1822804', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_customer_sk set stats ('row_count'='72001237', 'ndv'='1898561', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_date_sk set stats ('row_count'='72001237', 'ndv'='1952', 'min_value'='2450817', 'max_value'='2452762', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_web_site_sk set stats ('row_count'='72001237', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table store modify column s_closed_date_sk set stats ('row_count'='402', 'ndv'='69', 'min_value'='2450823', 'max_value'='2451313', 'avg_size'='3216', 'max_size'='3216' )
-    '''
-
-    sql '''
-    alter table store modify column s_company_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_manager set stats ('row_count'='402', 'ndv'='286', 'min_value'='', 'max_value'='Zane Perez', 'avg_size'='5129', 'max_size'='5129' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_id set stats ('row_count'='402', 'ndv'='201', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPNAAAAAA', 'avg_size'='6432', 'max_size'='6432' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_sk set stats ('row_count'='402', 'ndv'='398', 'min_value'='1', 'max_value'='402', 'avg_size'='3216', 'max_size'='3216' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_number set stats ('row_count'='402', 'ndv'='267', 'min_value'='', 'max_value'='986', 'avg_size'='1150', 'max_size'='1150' )
-    '''
-
-    sql '''
-    alter table store modify column s_suite_number set stats ('row_count'='402', 'ndv'='75', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='3140', 'max_size'='3140' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_hour set stats ('row_count'='86400', 'ndv'='24', 'min_value'='0', 'max_value'='23', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_shift set stats ('row_count'='86400', 'ndv'='3', 'min_value'='first', 'max_value'='third', 'avg_size'='460800', 'max_size'='460800' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time set stats ('row_count'='86400', 'ndv'='86684', 'min_value'='0', 'max_value'='86399', 'avg_size'='345600', 'max_size'='345600' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_creation_date_sk set stats ('row_count'='2040', 'ndv'='134', 'min_value'='2450672', 'max_value'='2450815', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_rec_end_date set stats ('row_count'='2040', 'ndv'='3', 'min_value'='1999-09-03', 'max_value'='2001-09-02', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_rec_start_date set stats ('row_count'='2040', 'ndv'='4', 'min_value'='1997-09-03', 'max_value'='2001-09-03', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_web_page_id set stats ('row_count'='2040', 'ndv'='1019', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPEAAAAA', 'avg_size'='32640', 'max_size'='32640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_fee set stats ('row_count'='28795080', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_amt set stats ('row_count'='28795080', 'ndv'='15493', 'min_value'='0.00', 'max_value'='18973.20', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_returned_date_sk set stats ('row_count'='28795080', 'ndv'='2010', 'min_value'='2450820', 'max_value'='2452822', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_store_credit set stats ('row_count'='28795080', 'ndv'='9907', 'min_value'='0.00', 'max_value'='15642.11', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_store_credit set stats ('row_count'='28795080', 'ndv'='9907', 'min_value'='0.00', 'max_value'='15642.11', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_ticket_number set stats ('row_count'='28795080', 'ndv'='16790866', 'min_value'='1', 'max_value'='23999996', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_customer_sk set stats ('row_count'='287997024', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_list_price set stats ('row_count'='287997024', 'ndv'='19770', 'min_value'='1.00', 'max_value'='20000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_sales_price set stats ('row_count'='287997024', 'ndv'='19105', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_ext_tax set stats ('row_count'='287997024', 'ndv'='1722', 'min_value'='0.00', 'max_value'='1762.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_quantity set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sales_price set stats ('row_count'='287997024', 'ndv'='202', 'min_value'='0.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_store_sk set stats ('row_count'='287997024', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_carrier set stats ('row_count'='20', 'ndv'='20', 'min_value'='AIRBORNE', 'max_value'='ZOUROS', 'avg_size'='133', 'max_size'='133' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_cdemo_sk set stats ('row_count'='2000000', 'ndv'='1221921', 'min_value'='1', 'max_value'='1920798', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_current_hdemo_sk set stats ('row_count'='2000000', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_customer_id set stats ('row_count'='2000000', 'ndv'='1994557', 'min_value'='AAAAAAAAAAAAABAA', 'max_value'='AAAAAAAAPPPPPAAA', 'avg_size'='32000000', 'max_size'='32000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_login set stats ('row_count'='2000000', 'ndv'='1', 'min_value'='', 'max_value'='', 'avg_size'='0', 'max_size'='0' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_credit_rating set stats ('row_count'='1920800', 'ndv'='4', 'min_value'='Good', 'max_value'='Unknown', 'avg_size'='13445600', 'max_size'='13445600' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_demo_sk set stats ('row_count'='1920800', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='15366400', 'max_size'='15366400' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_dep_college_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_dep_employed_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
-    '''
-
-    sql '''
-    alter table customer_demographics modify column cd_marital_status set stats ('row_count'='1920800', 'ndv'='5', 'min_value'='D', 'max_value'='W', 'avg_size'='1920800', 'max_size'='1920800' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_month set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_current_year set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_date set stats ('row_count'='73049', 'ndv'='73250', 'min_value'='1900-01-02', 'max_value'='2100-01-01', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table date_dim modify column d_first_dom set stats ('row_count'='73049', 'ndv'='2410', 'min_value'='2415021', 'max_value'='2488070', 'avg_size'='292196', 'max_size'='292196' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_state set stats ('row_count'='15', 'ndv'='8', 'min_value'='AL', 'max_value'='SD', 'avg_size'='30', 'max_size'='30' )
-    '''
-
-    sql '''
-    alter table warehouse modify column w_zip set stats ('row_count'='15', 'ndv'='15', 'min_value'='28721', 'max_value'='78721', 'avg_size'='75', 'max_size'='75' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1915709', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_bill_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_discount_amt set stats ('row_count'='143997065', 'ndv'='27722', 'min_value'='0.00', 'max_value'='29765.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ext_list_price set stats ('row_count'='143997065', 'ndv'='29336', 'min_value'='1.00', 'max_value'='29997.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_ship set stats ('row_count'='143997065', 'ndv'='37890', 'min_value'='0.00', 'max_value'='43725.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_ship_tax set stats ('row_count'='143997065', 'ndv'='38890', 'min_value'='0.00', 'max_value'='45460.80', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_net_paid_inc_tax set stats ('row_count'='143997065', 'ndv'='28777', 'min_value'='0.00', 'max_value'='31745.52', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_sales_price set stats ('row_count'='143997065', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_date_sk set stats ('row_count'='143997065', 'ndv'='1933', 'min_value'='2450817', 'max_value'='2452744', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_date_sk set stats ('row_count'='143997065', 'ndv'='1933', 'min_value'='2450817', 'max_value'='2452744', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_ship_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
-    '''
-
-    sql '''
-    alter table catalog_sales modify column cs_wholesale_cost set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='575988260', 'max_size'='575988260' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_class set stats ('row_count'='30', 'ndv'='3', 'min_value'='large', 'max_value'='small', 'avg_size'='166', 'max_size'='166' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_company_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='110', 'max_size'='110' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_division set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_class set stats ('row_count'='30', 'ndv'='25', 'min_value'='A bit narrow forms matter animals. Consist', 'max_value'='Yesterday new men can make moreov', 'avg_size'='1033', 'max_size'='1033' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_suite_number set stats ('row_count'='30', 'ndv'='14', 'min_value'='Suite 0', 'max_value'='Suite W', 'avg_size'='234', 'max_size'='234' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_tax_percentage set stats ('row_count'='30', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_tax_percentage set stats ('row_count'='30', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_zip set stats ('row_count'='30', 'ndv'='14', 'min_value'='20059', 'max_value'='75281', 'avg_size'='150', 'max_size'='150' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_catalog_page_sk set stats ('row_count'='14404374', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_net_loss set stats ('row_count'='14404374', 'ndv'='11753', 'min_value'='0.50', 'max_value'='15781.83', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_order_number set stats ('row_count'='14404374', 'ndv'='9425725', 'min_value'='2', 'max_value'='16000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_cash set stats ('row_count'='14404374', 'ndv'='16271', 'min_value'='0.00', 'max_value'='24544.84', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_refunded_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1900770', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_return_quantity set stats ('row_count'='14404374', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='57617496', 'max_size'='57617496' )
-    '''
-
-    sql '''
-    alter table catalog_returns modify column cr_returning_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_city set stats ('row_count'='1000000', 'ndv'='977', 'min_value'='', 'max_value'='Zion', 'avg_size'='8681993', 'max_size'='8681993' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_street_type set stats ('row_count'='1000000', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='4073296', 'max_size'='4073296' )
-    '''
-
-    sql '''
-    alter table customer_address modify column ca_suite_number set stats ('row_count'='1000000', 'ndv'='76', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='7652799', 'max_size'='7652799' )
-    '''
-
-    sql '''
-    alter table income_band modify column ib_lower_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='0', 'max_value'='190001', 'avg_size'='80', 'max_size'='80' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_number set stats ('row_count'='20400', 'ndv'='109', 'min_value'='1', 'max_value'='109', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_id set stats ('row_count'='20400', 'ndv'='20341', 'min_value'='AAAAAAAAAAABAAAA', 'max_value'='AAAAAAAAPPPDAAAA', 'avg_size'='326400', 'max_size'='326400' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_catalog_page_sk set stats ('row_count'='20400', 'ndv'='20554', 'min_value'='1', 'max_value'='20400', 'avg_size'='163200', 'max_size'='163200' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_department set stats ('row_count'='20400', 'ndv'='2', 'min_value'='', 'max_value'='DEPARTMENT', 'avg_size'='201950', 'max_size'='201950' )
-    '''
-
-    sql '''
-    alter table catalog_page modify column cp_end_date_sk set stats ('row_count'='20400', 'ndv'='97', 'min_value'='2450844', 'max_value'='2453186', 'avg_size'='81600', 'max_size'='81600' )
-    '''
-
-    sql '''
-    alter table item modify column i_container set stats ('row_count'='204000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='1424430', 'max_size'='1424430' )
-    '''
-
-    sql '''
-    alter table item modify column i_formulation set stats ('row_count'='204000', 'ndv'='152702', 'min_value'='', 'max_value'='yellow98911509228741', 'avg_size'='4069400', 'max_size'='4069400' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_desc set stats ('row_count'='204000', 'ndv'='148398', 'min_value'='', 'max_value'='Youngsters used to save quite colour', 'avg_size'='20471814', 'max_size'='20471814' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_sk set stats ('row_count'='204000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1632000', 'max_size'='1632000' )
-    '''
-
-    sql '''
-    alter table item modify column i_item_sk set stats ('row_count'='204000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1632000', 'max_size'='1632000' )
-    '''
-
-    sql '''
-    alter table item modify column i_manager_id set stats ('row_count'='204000', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_rec_end_date set stats ('row_count'='204000', 'ndv'='3', 'min_value'='1999-10-27', 'max_value'='2001-10-26', 'avg_size'='816000', 'max_size'='816000' )
-    '''
-
-    sql '''
-    alter table item modify column i_size set stats ('row_count'='204000', 'ndv'='8', 'min_value'='', 'max_value'='small', 'avg_size'='880961', 'max_size'='880961' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_reason_sk set stats ('row_count'='7197670', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_amt set stats ('row_count'='7197670', 'ndv'='19263', 'min_value'='0.00', 'max_value'='28346.31', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_ship_cost set stats ('row_count'='7197670', 'ndv'='10429', 'min_value'='0.00', 'max_value'='13602.60', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_return_tax set stats ('row_count'='7197670', 'ndv'='1820', 'min_value'='0.00', 'max_value'='2551.16', 'avg_size'='28790680', 'max_size'='28790680' )
-    '''
-
-    sql '''
-    alter table web_returns modify column wr_returning_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1865149', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_company_name set stats ('row_count'='24', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='97', 'max_size'='97' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_gmt_offset set stats ('row_count'='24', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_name set stats ('row_count'='24', 'ndv'='4', 'min_value'='site_0', 'max_value'='site_3', 'avg_size'='144', 'max_size'='144' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_open_date_sk set stats ('row_count'='24', 'ndv'='12', 'min_value'='2450628', 'max_value'='2450807', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_open_date_sk set stats ('row_count'='24', 'ndv'='12', 'min_value'='2450628', 'max_value'='2450807', 'avg_size'='192', 'max_size'='192' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_rec_start_date set stats ('row_count'='24', 'ndv'='4', 'min_value'='1997-08-16', 'max_value'='2001-08-16', 'avg_size'='96', 'max_size'='96' )
-    '''
-
-    sql '''
-    alter table web_site modify column web_zip set stats ('row_count'='24', 'ndv'='14', 'min_value'='28828', 'max_value'='78828', 'avg_size'='120', 'max_size'='120' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_details set stats ('row_count'='1000', 'ndv'='992', 'min_value'='', 'max_value'='Young, valuable companies watch walls. Payments can flour', 'avg_size'='39304', 'max_size'='39304' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_channel_press set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='985', 'max_size'='985' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_end_date_sk set stats ('row_count'='1000', 'ndv'='571', 'min_value'='2450116', 'max_value'='2450967', 'avg_size'='8000', 'max_size'='8000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_id set stats ('row_count'='1000', 'ndv'='1004', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPCAAAAA', 'avg_size'='16000', 'max_size'='16000' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_promo_name set stats ('row_count'='1000', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='3924', 'max_size'='3924' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_purpose set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='6909', 'max_size'='6909' )
-    '''
-
-    sql '''
-    alter table promotion modify column p_purpose set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='6909', 'max_size'='6909' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_bill_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_coupon_amt set stats ('row_count'='72001237', 'ndv'='20659', 'min_value'='0.00', 'max_value'='27591.16', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_sales_price set stats ('row_count'='72001237', 'ndv'='27115', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_ship_cost set stats ('row_count'='72001237', 'ndv'='13977', 'min_value'='0.00', 'max_value'='14927.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_tax set stats ('row_count'='72001237', 'ndv'='2466', 'min_value'='0.00', 'max_value'='2682.90', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_wholesale_cost set stats ('row_count'='72001237', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ext_wholesale_cost set stats ('row_count'='72001237', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_item_sk set stats ('row_count'='72001237', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid set stats ('row_count'='72001237', 'ndv'='26912', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_tax set stats ('row_count'='72001237', 'ndv'='28263', 'min_value'='0.00', 'max_value'='32492.90', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_paid_inc_tax set stats ('row_count'='72001237', 'ndv'='28263', 'min_value'='0.00', 'max_value'='32492.90', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_net_profit set stats ('row_count'='72001237', 'ndv'='27958', 'min_value'='-9997.00', 'max_value'='19840.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_quantity set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_ship_mode_sk set stats ('row_count'='72001237', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_sold_date_sk set stats ('row_count'='72001237', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_web_page_sk set stats ('row_count'='72001237', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_web_site_sk set stats ('row_count'='72001237', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='576009896', 'max_size'='576009896' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_wholesale_cost set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table web_sales modify column ws_wholesale_cost set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='288004948', 'max_size'='288004948' )
-    '''
-
-    sql '''
-    alter table store modify column s_market_id set stats ('row_count'='402', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_rec_start_date set stats ('row_count'='402', 'ndv'='4', 'min_value'='1997-03-13', 'max_value'='2001-03-13', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_rec_start_date set stats ('row_count'='402', 'ndv'='4', 'min_value'='1997-03-13', 'max_value'='2001-03-13', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_store_name set stats ('row_count'='402', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='1575', 'max_size'='1575' )
-    '''
-
-    sql '''
-    alter table store modify column s_street_name set stats ('row_count'='402', 'ndv'='256', 'min_value'='', 'max_value'='Woodland ', 'avg_size'='3384', 'max_size'='3384' )
-    '''
-
-    sql '''
-    alter table store modify column s_tax_precentage set stats ('row_count'='402', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.11', 'avg_size'='1608', 'max_size'='1608' )
-    '''
-
-    sql '''
-    alter table store modify column s_zip set stats ('row_count'='402', 'ndv'='102', 'min_value'='', 'max_value'='79431', 'avg_size'='1980', 'max_size'='1980' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_sub_shift set stats ('row_count'='86400', 'ndv'='4', 'min_value'='afternoon', 'max_value'='night', 'avg_size'='597600', 'max_size'='597600' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time_sk set stats ('row_count'='86400', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='691200', 'max_size'='691200' )
-    '''
-
-    sql '''
-    alter table time_dim modify column t_time_sk set stats ('row_count'='86400', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='691200', 'max_size'='691200' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_access_date_sk set stats ('row_count'='2040', 'ndv'='101', 'min_value'='2452548', 'max_value'='2452648', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_access_date_sk set stats ('row_count'='2040', 'ndv'='101', 'min_value'='2452548', 'max_value'='2452648', 'avg_size'='16320', 'max_size'='16320' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_autogen_flag set stats ('row_count'='2040', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='2015', 'max_size'='2015' )
-    '''
-
-    sql '''
-    alter table web_page modify column wp_char_count set stats ('row_count'='2040', 'ndv'='1363', 'min_value'='303', 'max_value'='8523', 'avg_size'='8160', 'max_size'='8160' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_cdemo_sk set stats ('row_count'='28795080', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='230360640', 'max_size'='230360640' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_fee set stats ('row_count'='28795080', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_refunded_cash set stats ('row_count'='28795080', 'ndv'='12626', 'min_value'='0.00', 'max_value'='17556.95', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_quantity set stats ('row_count'='28795080', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_return_ship_cost set stats ('row_count'='28795080', 'ndv'='8186', 'min_value'='0.00', 'max_value'='9578.25', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_returns modify column sr_reversed_charge set stats ('row_count'='28795080', 'ndv'='9872', 'min_value'='0.00', 'max_value'='16099.52', 'avg_size'='115180320', 'max_size'='115180320' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_cdemo_sk set stats ('row_count'='287997024', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='2303976192', 'max_size'='2303976192' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_coupon_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_paid set stats ('row_count'='287997024', 'ndv'='19028', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_net_profit set stats ('row_count'='287997024', 'ndv'='19581', 'min_value'='-10000.00', 'max_value'='9889.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table store_sales modify column ss_sales_price set stats ('row_count'='287997024', 'ndv'='202', 'min_value'='0.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
-    '''
-
-    sql '''
-    alter table ship_mode modify column sm_type set stats ('row_count'='20', 'ndv'='6', 'min_value'='EXPRESS', 'max_value'='TWO DAY', 'avg_size'='150', 'max_size'='150' )
-    '''
-
-    sql '''
-    alter table customer modify column c_birth_day set stats ('row_count'='2000000', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='8000000', 'max_size'='8000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_customer_id set stats ('row_count'='2000000', 'ndv'='1994557', 'min_value'='AAAAAAAAAAAAABAA', 'max_value'='AAAAAAAAPPPPPAAA', 'avg_size'='32000000', 'max_size'='32000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_first_shipto_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2449028', 'max_value'='2452678', 'avg_size'='16000000', 'max_size'='16000000' )
-    '''
-
-    sql '''
-    alter table customer modify column c_last_name set stats ('row_count'='2000000', 'ndv'='4990', 'min_value'='', 'max_value'='Zuniga', 'avg_size'='11833714', 'max_size'='11833714' )
-    '''
-
-    sql '''
-    alter table call_center modify column cc_mkt_desc set stats ('row_count'='30', 'ndv'='22', 'min_value'='As existing eyebrows miss as the matters. Realistic stories may not face almost by a ', 'max_value'='Young tests could buy comfortable, local users', 'avg_size'='1766', 'max_size'='1766' )
-    '''
+sql """
+alter table web_sales modify column ws_web_site_sk set stats ('row_count'='72001237', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table web_returns modify column wr_item_sk set stats ('row_count'='7197670', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table customer modify column c_birth_country set stats ('row_count'='2000000', 'ndv'='211', 'min_value'='', 'max_value'='ZIMBABWE', 'avg_size'='16787900', 'max_size'='16787900' )
+"""
+
+sql """
+alter table web_page modify column wp_rec_start_date set stats ('row_count'='2040', 'ndv'='4', 'min_value'='1997-09-03', 'max_value'='2001-09-03', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table store_returns modify column sr_store_credit set stats ('row_count'='28795080', 'ndv'='9907', 'min_value'='0.00', 'max_value'='15642.11', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table warehouse modify column w_county set stats ('row_count'='15', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='207', 'max_size'='207' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_gender set stats ('row_count'='1920800', 'ndv'='2', 'min_value'='F', 'max_value'='M', 'avg_size'='1920800', 'max_size'='1920800' )
+"""
+
+sql """
+alter table web_returns modify column wr_refunded_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1868495', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table warehouse modify column w_warehouse_id set stats ('row_count'='15', 'ndv'='15', 'min_value'='AAAAAAAABAAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='240', 'max_size'='240' )
+"""
+
+sql """
+alter table item modify column i_size set stats ('row_count'='204000', 'ndv'='8', 'min_value'='', 'max_value'='small', 'avg_size'='880961', 'max_size'='880961' )
+"""
+
+sql """
+alter table web_sales modify column ws_sales_price set stats ('row_count'='72001237', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table date_dim modify column d_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table store modify column s_country set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='5174', 'max_size'='5174' )
+"""
+
+sql """
+alter table household_demographics modify column hd_income_band_sk set stats ('row_count'='7200', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='57600', 'max_size'='57600' )
+"""
+
+sql """
+alter table web_page modify column wp_creation_date_sk set stats ('row_count'='2040', 'ndv'='134', 'min_value'='2450672', 'max_value'='2450815', 'avg_size'='16320', 'max_size'='16320' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_reason_sk set stats ('row_count'='14404374', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_site modify column web_city set stats ('row_count'='24', 'ndv'='11', 'min_value'='Centerville', 'max_value'='Salem', 'avg_size'='232', 'max_size'='232' )
+"""
+
+sql """
+alter table item modify column i_class_id set stats ('row_count'='204000', 'ndv'='16', 'min_value'='1', 'max_value'='16', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_refunded_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_page modify column wp_customer_sk set stats ('row_count'='2040', 'ndv'='475', 'min_value'='711', 'max_value'='1996257', 'avg_size'='16320', 'max_size'='16320' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_marital_status set stats ('row_count'='1920800', 'ndv'='5', 'min_value'='D', 'max_value'='W', 'avg_size'='1920800', 'max_size'='1920800' )
+"""
+
+sql """
+alter table call_center modify column cc_suite_number set stats ('row_count'='30', 'ndv'='14', 'min_value'='Suite 0', 'max_value'='Suite W', 'avg_size'='234', 'max_size'='234' )
+"""
+
+sql """
+alter table web_page modify column wp_url set stats ('row_count'='2040', 'ndv'='2', 'min_value'='', 'max_value'='http://www.foo.com', 'avg_size'='36270', 'max_size'='36270' )
+"""
+
+sql """
+alter table web_sales modify column ws_wholesale_cost set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_return_quantity set stats ('row_count'='14404374', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_wholesale_cost set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table store_sales modify column ss_quantity set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table date_dim modify column d_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table date_dim modify column d_current_week set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table web_returns modify column wr_reason_sk set stats ('row_count'='7197670', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table promotion modify column p_channel_catalog set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_net_paid_inc_ship_tax set stats ('row_count'='143997065', 'ndv'='38890', 'min_value'='0.00', 'max_value'='45460.80', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_order_number set stats ('row_count'='143997065', 'ndv'='16050730', 'min_value'='1', 'max_value'='16000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table time_dim modify column t_am_pm set stats ('row_count'='86400', 'ndv'='2', 'min_value'='AM', 'max_value'='PM', 'avg_size'='172800', 'max_size'='172800' )
+"""
+
+sql """
+alter table promotion modify column p_promo_name set stats ('row_count'='1000', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='3924', 'max_size'='3924' )
+"""
+
+sql """
+alter table web_site modify column web_manager set stats ('row_count'='24', 'ndv'='19', 'min_value'='Adam Stonge', 'max_value'='Tommy Jones', 'avg_size'='297', 'max_size'='297' )
+"""
+
+sql """
+alter table store modify column s_gmt_offset set stats ('row_count'='402', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table web_sales modify column ws_quantity set stats ('row_count'='72001237', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table date_dim modify column d_weekend set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table store modify column s_number_employees set stats ('row_count'='402', 'ndv'='97', 'min_value'='200', 'max_value'='300', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table call_center modify column cc_mkt_desc set stats ('row_count'='30', 'ndv'='22', 'min_value'='As existing eyebrows miss as the matters. Realistic stories may not face almost by a ', 'max_value'='Young tests could buy comfortable, local users o', 'avg_size'='1766', 'max_size'='1766' )
+"""
+
+sql """
+alter table web_sales modify column ws_net_paid_inc_ship set stats ('row_count'='72001237', 'ndv'='36553', 'min_value'='0.00', 'max_value'='43468.92', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table item modify column i_item_sk set stats ('row_count'='204000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1632000', 'max_size'='1632000' )
+"""
+
+sql """
+alter table web_sales modify column ws_bill_addr_sk set stats ('row_count'='72001237', 'ndv'='998891', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table customer modify column c_salutation set stats ('row_count'='2000000', 'ndv'='7', 'min_value'='', 'max_value'='Sir', 'avg_size'='6257882', 'max_size'='6257882' )
+"""
+
+sql """
+alter table web_sales modify column ws_net_paid set stats ('row_count'='72001237', 'ndv'='26912', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table time_dim modify column t_time set stats ('row_count'='86400', 'ndv'='86684', 'min_value'='0', 'max_value'='86399', 'avg_size'='345600', 'max_size'='345600' )
+"""
+
+sql """
+alter table web_site modify column web_mkt_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table store_returns modify column sr_hdemo_sk set stats ('row_count'='28795080', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table catalog_page modify column cp_catalog_page_sk set stats ('row_count'='20400', 'ndv'='20554', 'min_value'='1', 'max_value'='20400', 'avg_size'='163200', 'max_size'='163200' )
+"""
+
+sql """
+alter table customer_address modify column ca_address_id set stats ('row_count'='1000000', 'ndv'='999950', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPOAAA', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table date_dim modify column d_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table web_returns modify column wr_net_loss set stats ('row_count'='7197670', 'ndv'='11012', 'min_value'='0.50', 'max_value'='15068.96', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table store modify column s_closed_date_sk set stats ('row_count'='402', 'ndv'='69', 'min_value'='2450823', 'max_value'='2451313', 'avg_size'='3216', 'max_size'='3216' )
+"""
+
+sql """
+alter table customer_address modify column ca_city set stats ('row_count'='1000000', 'ndv'='977', 'min_value'='', 'max_value'='Zion', 'avg_size'='8681993', 'max_size'='8681993' )
+"""
+
+sql """
+alter table customer modify column c_customer_id set stats ('row_count'='2000000', 'ndv'='1994557', 'min_value'='AAAAAAAAAAAAABAA', 'max_value'='AAAAAAAAPPPPPAAA', 'avg_size'='32000000', 'max_size'='32000000' )
+"""
+
+sql """
+alter table web_page modify column wp_access_date_sk set stats ('row_count'='2040', 'ndv'='101', 'min_value'='2452548', 'max_value'='2452648', 'avg_size'='16320', 'max_size'='16320' )
+"""
+
+sql """
+alter table warehouse modify column w_gmt_offset set stats ('row_count'='15', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='60', 'max_size'='60' )
+"""
+
+sql """
+alter table warehouse modify column w_street_number set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='957', 'avg_size'='40', 'max_size'='40' )
+"""
+
+sql """
+alter table store_sales modify column ss_ticket_number set stats ('row_count'='287997024', 'ndv'='23905324', 'min_value'='1', 'max_value'='24000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_fee set stats ('row_count'='14404374', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table date_dim modify column d_current_quarter set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table store modify column s_store_name set stats ('row_count'='402', 'ndv'='11', 'min_value'='', 'max_value'='pri', 'avg_size'='1575', 'max_size'='1575' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_wholesale_cost set stats ('row_count'='143997065', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table reason modify column r_reason_desc set stats ('row_count'='55', 'ndv'='54', 'min_value'='Did not fit', 'max_value'='unauthoized purchase', 'avg_size'='758', 'max_size'='758' )
+"""
+
+sql """
+alter table date_dim modify column d_same_day_ly set stats ('row_count'='73049', 'ndv'='72450', 'min_value'='2414657', 'max_value'='2487705', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table web_site modify column web_gmt_offset set stats ('row_count'='24', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table time_dim modify column t_sub_shift set stats ('row_count'='86400', 'ndv'='4', 'min_value'='afternoon', 'max_value'='night', 'avg_size'='597600', 'max_size'='597600' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_customer_sk set stats ('row_count'='72001237', 'ndv'='1898561', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table web_site modify column web_close_date_sk set stats ('row_count'='24', 'ndv'='8', 'min_value'='2443328', 'max_value'='2447131', 'avg_size'='192', 'max_size'='192' )
+"""
+
+sql """
+alter table call_center modify column cc_market_manager set stats ('row_count'='30', 'ndv'='24', 'min_value'='Charles Corbett', 'max_value'='Tom Root', 'avg_size'='373', 'max_size'='373' )
+"""
+
+sql """
+alter table store modify column s_market_desc set stats ('row_count'='402', 'ndv'='311', 'min_value'='', 'max_value'='Years get acute years. Right likely players mus', 'avg_size'='23261', 'max_size'='23261' )
+"""
+
+sql """
+alter table call_center modify column cc_sq_ft set stats ('row_count'='30', 'ndv'='22', 'min_value'='1670015', 'max_value'='31896816', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table customer_address modify column ca_country set stats ('row_count'='1000000', 'ndv'='2', 'min_value'='', 'max_value'='United States', 'avg_size'='12608739', 'max_size'='12608739' )
+"""
+
+sql """
+alter table promotion modify column p_promo_id set stats ('row_count'='1000', 'ndv'='1004', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPCAAAAA', 'avg_size'='16000', 'max_size'='16000' )
+"""
+
+sql """
+alter table customer modify column c_preferred_cust_flag set stats ('row_count'='2000000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='1930222', 'max_size'='1930222' )
+"""
+
+sql """
+alter table catalog_page modify column cp_catalog_page_id set stats ('row_count'='20400', 'ndv'='20341', 'min_value'='AAAAAAAAAAABAAAA', 'max_value'='AAAAAAAAPPPDAAAA', 'avg_size'='326400', 'max_size'='326400' )
+"""
+
+sql """
+alter table household_demographics modify column hd_dep_count set stats ('row_count'='7200', 'ndv'='10', 'min_value'='0', 'max_value'='9', 'avg_size'='28800', 'max_size'='28800' )
+"""
+
+sql """
+alter table store_sales modify column ss_ext_wholesale_cost set stats ('row_count'='287997024', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table promotion modify column p_end_date_sk set stats ('row_count'='1000', 'ndv'='571', 'min_value'='2450116', 'max_value'='2450967', 'avg_size'='8000', 'max_size'='8000' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_sold_date_sk set stats ('row_count'='143997065', 'ndv'='1835', 'min_value'='2450815', 'max_value'='2452654', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table web_returns modify column wr_return_quantity set stats ('row_count'='7197670', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_amt set stats ('row_count'='28795080', 'ndv'='15493', 'min_value'='0.00', 'max_value'='18973.20', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table web_site modify column web_rec_start_date set stats ('row_count'='24', 'ndv'='4', 'min_value'='1997-08-16', 'max_value'='2001-08-16', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table store_sales modify column ss_coupon_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table call_center modify column cc_company set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table warehouse modify column w_state set stats ('row_count'='15', 'ndv'='8', 'min_value'='AL', 'max_value'='SD', 'avg_size'='30', 'max_size'='30' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_warehouse_sk set stats ('row_count'='14404374', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returning_customer_sk set stats ('row_count'='14404374', 'ndv'='1991754', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table customer_address modify column ca_state set stats ('row_count'='1000000', 'ndv'='52', 'min_value'='', 'max_value'='WY', 'avg_size'='1939752', 'max_size'='1939752' )
+"""
+
+sql """
+alter table customer modify column c_customer_sk set stats ('row_count'='2000000', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table store_sales modify column ss_item_sk set stats ('row_count'='287997024', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_customer_sk set stats ('row_count'='143997065', 'ndv'='1993190', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table web_returns modify column wr_refunded_cash set stats ('row_count'='7197670', 'ndv'='14621', 'min_value'='0.00', 'max_value'='26466.56', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table customer modify column c_birth_day set stats ('row_count'='2000000', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='8000000', 'max_size'='8000000' )
+"""
+
+sql """
+alter table income_band modify column ib_income_band_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
+"""
+
+sql """
+alter table web_returns modify column wr_fee set stats ('row_count'='7197670', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table item modify column i_class set stats ('row_count'='204000', 'ndv'='100', 'min_value'='', 'max_value'='womens watch', 'avg_size'='1585937', 'max_size'='1585937' )
+"""
+
+sql """
+alter table customer modify column c_last_review_date_sk set stats ('row_count'='2000000', 'ndv'='366', 'min_value'='2452283', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table web_site modify column web_rec_end_date set stats ('row_count'='24', 'ndv'='3', 'min_value'='1999-08-16', 'max_value'='2001-08-15', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_reversed_charge set stats ('row_count'='14404374', 'ndv'='12359', 'min_value'='0.00', 'max_value'='23801.24', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table customer_address modify column ca_location_type set stats ('row_count'='1000000', 'ndv'='4', 'min_value'='', 'max_value'='single family', 'avg_size'='8728128', 'max_size'='8728128' )
+"""
+
+sql """
+alter table warehouse modify column w_street_type set stats ('row_count'='15', 'ndv'='11', 'min_value'='', 'max_value'='Wy', 'avg_size'='58', 'max_size'='58' )
+"""
+
+sql """
+alter table web_returns modify column wr_refunded_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table call_center modify column cc_manager set stats ('row_count'='30', 'ndv'='22', 'min_value'='Alden Snyder', 'max_value'='Wayne Ray', 'avg_size'='368', 'max_size'='368' )
+"""
+
+sql """
+alter table web_site modify column web_open_date_sk set stats ('row_count'='24', 'ndv'='12', 'min_value'='2450628', 'max_value'='2450807', 'avg_size'='192', 'max_size'='192' )
+"""
+
+sql """
+alter table dbgen_version modify column dv_version set stats ('row_count'='1', 'ndv'='1', 'min_value'='3.2.0', 'max_value'='3.2.0', 'avg_size'='5', 'max_size'='5' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_sales_price set stats ('row_count'='143997065', 'ndv'='302', 'min_value'='0.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table catalog_page modify column cp_catalog_number set stats ('row_count'='20400', 'ndv'='109', 'min_value'='1', 'max_value'='109', 'avg_size'='81600', 'max_size'='81600' )
+"""
+
+sql """
+alter table promotion modify column p_channel_press set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='985', 'max_size'='985' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_addr_sk set stats ('row_count'='72001237', 'ndv'='997336', 'min_value'='1', 'max_value'='1000000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_refunded_cash set stats ('row_count'='14404374', 'ndv'='16271', 'min_value'='0.00', 'max_value'='24544.84', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table call_center modify column cc_mkt_class set stats ('row_count'='30', 'ndv'='25', 'min_value'='A bit narrow forms matter animals. Consist', 'max_value'='Yesterday new men can make moreov', 'avg_size'='1033', 'max_size'='1033' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returned_date_sk set stats ('row_count'='14404374', 'ndv'='2105', 'min_value'='2450821', 'max_value'='2452921', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040', 'ndv'='5', 'min_value'='0', 'max_value'='4', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table web_returns modify column wr_return_ship_cost set stats ('row_count'='7197670', 'ndv'='10429', 'min_value'='0.00', 'max_value'='13602.60', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table warehouse modify column w_warehouse_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Rooms cook ', 'avg_size'='230', 'max_size'='230' )
+"""
+
+sql """
+alter table web_page modify column wp_type set stats ('row_count'='2040', 'ndv'='8', 'min_value'='', 'max_value'='welcome', 'avg_size'='12856', 'max_size'='12856' )
+"""
+
+sql """
+alter table store modify column s_division_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2779', 'max_size'='2779' )
+"""
+
+sql """
+alter table date_dim modify column d_dom set stats ('row_count'='73049', 'ndv'='31', 'min_value'='1', 'max_value'='31', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table date_dim modify column d_fy_week_seq set stats ('row_count'='73049', 'ndv'='10448', 'min_value'='1', 'max_value'='10436', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table web_returns modify column wr_return_tax set stats ('row_count'='7197670', 'ndv'='1820', 'min_value'='0.00', 'max_value'='2551.16', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table store modify column s_street_name set stats ('row_count'='402', 'ndv'='256', 'min_value'='', 'max_value'='Woodland ', 'avg_size'='3384', 'max_size'='3384' )
+"""
+
+sql """
+alter table store_sales modify column ss_hdemo_sk set stats ('row_count'='287997024', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table web_sales modify column ws_web_page_sk set stats ('row_count'='72001237', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table warehouse modify column w_warehouse_sq_ft set stats ('row_count'='15', 'ndv'='14', 'min_value'='73065', 'max_value'='977787', 'avg_size'='60', 'max_size'='60' )
+"""
+
+sql """
+alter table ship_mode modify column sm_type set stats ('row_count'='20', 'ndv'='6', 'min_value'='EXPRESS', 'max_value'='TWO DAY', 'avg_size'='150', 'max_size'='150' )
+"""
+
+sql """
+alter table date_dim modify column d_fy_year set stats ('row_count'='73049', 'ndv'='202', 'min_value'='1900', 'max_value'='2100', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_catalog_page_sk set stats ('row_count'='143997065', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table web_sales modify column ws_warehouse_sk set stats ('row_count'='72001237', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table item modify column i_wholesale_cost set stats ('row_count'='204000', 'ndv'='89', 'min_value'='0.02', 'max_value'='88.91', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_tax set stats ('row_count'='28795080', 'ndv'='1427', 'min_value'='0.00', 'max_value'='1611.71', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table store_sales modify column ss_net_paid_inc_tax set stats ('row_count'='287997024', 'ndv'='20203', 'min_value'='0.00', 'max_value'='21344.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table web_site modify column web_mkt_desc set stats ('row_count'='24', 'ndv'='15', 'min_value'='Acres see else children. Mutual too', 'max_value'='Well similar decisions used to keep hardly democratic, personal priorities.', 'avg_size'='1561', 'max_size'='1561' )
+"""
+
+sql """
+alter table customer modify column c_current_cdemo_sk set stats ('row_count'='2000000', 'ndv'='1221921', 'min_value'='1', 'max_value'='1920798', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table web_returns modify column wr_returning_customer_sk set stats ('row_count'='7197670', 'ndv'='1926139', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table store_sales modify column ss_ext_sales_price set stats ('row_count'='287997024', 'ndv'='19105', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_item_sk set stats ('row_count'='143997065', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table store modify column s_store_id set stats ('row_count'='402', 'ndv'='201', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPNAAAAAA', 'avg_size'='6432', 'max_size'='6432' )
+"""
+
+sql """
+alter table web_site modify column web_mkt_class set stats ('row_count'='24', 'ndv'='18', 'min_value'='About rural reasons shall no', 'max_value'='Wide, final representat', 'avg_size'='758', 'max_size'='758' )
+"""
+
+sql """
+alter table customer modify column c_birth_month set stats ('row_count'='2000000', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='8000000', 'max_size'='8000000' )
+"""
+
+sql """
+alter table date_dim modify column d_last_dom set stats ('row_count'='73049', 'ndv'='2419', 'min_value'='2415020', 'max_value'='2488372', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table web_sales modify column ws_bill_customer_sk set stats ('row_count'='72001237', 'ndv'='1899439', 'min_value'='1', 'max_value'='2000000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table web_sales modify column ws_item_sk set stats ('row_count'='72001237', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table call_center modify column cc_state set stats ('row_count'='30', 'ndv'='8', 'min_value'='AL', 'max_value'='TN', 'avg_size'='60', 'max_size'='60' )
+"""
+
+sql """
+alter table promotion modify column p_start_date_sk set stats ('row_count'='1000', 'ndv'='574', 'min_value'='2450100', 'max_value'='2450915', 'avg_size'='8000', 'max_size'='8000' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_date_sk set stats ('row_count'='143997065', 'ndv'='1933', 'min_value'='2450817', 'max_value'='2452744', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table store_sales modify column ss_sales_price set stats ('row_count'='287997024', 'ndv'='202', 'min_value'='0.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table promotion modify column p_channel_details set stats ('row_count'='1000', 'ndv'='992', 'min_value'='', 'max_value'='Young, valuable companies watch walls. Payments can flour', 'avg_size'='39304', 'max_size'='39304' )
+"""
+
+sql """
+alter table item modify column i_rec_end_date set stats ('row_count'='204000', 'ndv'='3', 'min_value'='1999-10-27', 'max_value'='2001-10-26', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table item modify column i_container set stats ('row_count'='204000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='1424430', 'max_size'='1424430' )
+"""
+
+sql """
+alter table web_site modify column web_tax_percentage set stats ('row_count'='24', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table customer modify column c_email_address set stats ('row_count'='2000000', 'ndv'='1936613', 'min_value'='', 'max_value'='Zulma.Wright@AqokXsju9f2yj.org', 'avg_size'='53014147', 'max_size'='53014147' )
+"""
+
+sql """
+alter table income_band modify column ib_lower_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='0', 'max_value'='190001', 'avg_size'='80', 'max_size'='80' )
+"""
+
+sql """
+alter table web_returns modify column wr_account_credit set stats ('row_count'='7197670', 'ndv'='10868', 'min_value'='0.00', 'max_value'='23028.27', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table web_sales modify column ws_bill_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table store_sales modify column ss_store_sk set stats ('row_count'='287997024', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table store_returns modify column sr_customer_sk set stats ('row_count'='28795080', 'ndv'='1994323', 'min_value'='1', 'max_value'='2000000', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table call_center modify column cc_class set stats ('row_count'='30', 'ndv'='3', 'min_value'='large', 'max_value'='small', 'avg_size'='166', 'max_size'='166' )
+"""
+
+sql """
+alter table time_dim modify column t_meal_time set stats ('row_count'='86400', 'ndv'='4', 'min_value'='', 'max_value'='lunch', 'avg_size'='248400', 'max_size'='248400' )
+"""
+
+sql """
+alter table web_site modify column web_street_number set stats ('row_count'='24', 'ndv'='14', 'min_value'='184', 'max_value'='973', 'avg_size'='70', 'max_size'='70' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_promo_sk set stats ('row_count'='143997065', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table customer modify column c_last_name set stats ('row_count'='2000000', 'ndv'='4990', 'min_value'='', 'max_value'='Zuniga', 'avg_size'='11833714', 'max_size'='11833714' )
+"""
+
+sql """
+alter table promotion modify column p_channel_event set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_amt_inc_tax set stats ('row_count'='28795080', 'ndv'='16190', 'min_value'='0.00', 'max_value'='20002.89', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table dbgen_version modify column dv_cmdline_args set stats ('row_count'='1', 'ndv'='1', 'min_value'='-SCALE 100 -PARALLEL 10 -CHILD 1 -TERMINATE N -DIR /mnt/datadisk0/doris/tools/tpcds-tools/bin/tpcds-data ', 'max_value'='-SCALE 100 -PARALLEL 10 -CHILD 1 -TERMINATE N -DIR /mnt/datadisk0/doris/tools/tpcds-tools/bin/tpcds-data ', 'avg_size'='105', 'max_size'='105' )
+"""
+
+sql """
+alter table warehouse modify column w_street_name set stats ('row_count'='15', 'ndv'='15', 'min_value'='', 'max_value'='Wilson Elm', 'avg_size'='128', 'max_size'='128' )
+"""
+
+sql """
+alter table call_center modify column cc_county set stats ('row_count'='30', 'ndv'='8', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='423', 'max_size'='423' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_refunded_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returning_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1913762', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_hdemo_sk set stats ('row_count'='72001237', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table call_center modify column cc_mkt_id set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table store modify column s_store_sk set stats ('row_count'='402', 'ndv'='398', 'min_value'='1', 'max_value'='402', 'avg_size'='3216', 'max_size'='3216' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_dep_employed_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_list_price set stats ('row_count'='143997065', 'ndv'='29336', 'min_value'='1.00', 'max_value'='29997.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table web_sales modify column ws_bill_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1835731', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table web_returns modify column wr_order_number set stats ('row_count'='7197670', 'ndv'='4249346', 'min_value'='1', 'max_value'='5999999', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table web_site modify column web_country set stats ('row_count'='24', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='312', 'max_size'='312' )
+"""
+
+sql """
+alter table web_sales modify column ws_net_profit set stats ('row_count'='72001237', 'ndv'='27958', 'min_value'='-9997.00', 'max_value'='19840.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_dep_college_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
+"""
+
+sql """
+alter table store modify column s_company_name set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
+"""
+
+sql """
+alter table web_site modify column web_zip set stats ('row_count'='24', 'ndv'='14', 'min_value'='28828', 'max_value'='78828', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table warehouse modify column w_city set stats ('row_count'='15', 'ndv'='11', 'min_value'='Bethel', 'max_value'='Union', 'avg_size'='111', 'max_size'='111' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_net_paid_inc_tax set stats ('row_count'='143997065', 'ndv'='28777', 'min_value'='0.00', 'max_value'='31745.52', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_quantity set stats ('row_count'='28795080', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table date_dim modify column d_date_id set stats ('row_count'='73049', 'ndv'='72907', 'min_value'='AAAAAAAAAAAAFCAA', 'max_value'='AAAAAAAAPPPPECAA', 'avg_size'='1168784', 'max_size'='1168784' )
+"""
+
+sql """
+alter table store_sales modify column ss_net_profit set stats ('row_count'='287997024', 'ndv'='19581', 'min_value'='-10000.00', 'max_value'='9889.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table call_center modify column cc_tax_percentage set stats ('row_count'='30', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.12', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table promotion modify column p_response_targe set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='4000', 'max_size'='4000' )
+"""
+
+sql """
+alter table time_dim modify column t_second set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
+"""
+
+sql """
+alter table date_dim modify column d_first_dom set stats ('row_count'='73049', 'ndv'='2410', 'min_value'='2415021', 'max_value'='2488070', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table web_returns modify column wr_return_amt set stats ('row_count'='7197670', 'ndv'='19263', 'min_value'='0.00', 'max_value'='28346.31', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table web_site modify column web_site_sk set stats ('row_count'='24', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='192', 'max_size'='192' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_ship_mode_sk set stats ('row_count'='14404374', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table warehouse modify column w_suite_number set stats ('row_count'='15', 'ndv'='14', 'min_value'='', 'max_value'='Suite X', 'avg_size'='111', 'max_size'='111' )
+"""
+
+sql """
+alter table web_page modify column wp_web_page_sk set stats ('row_count'='2040', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='16320', 'max_size'='16320' )
+"""
+
+sql """
+alter table item modify column i_brand_id set stats ('row_count'='204000', 'ndv'='951', 'min_value'='1001001', 'max_value'='10016017', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table store_sales modify column ss_customer_sk set stats ('row_count'='287997024', 'ndv'='1994393', 'min_value'='1', 'max_value'='2000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table time_dim modify column t_minute set stats ('row_count'='86400', 'ndv'='60', 'min_value'='0', 'max_value'='59', 'avg_size'='345600', 'max_size'='345600' )
+"""
+
+sql """
+alter table item modify column i_item_id set stats ('row_count'='204000', 'ndv'='103230', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPBAAA', 'avg_size'='3264000', 'max_size'='3264000' )
+"""
+
+sql """
+alter table date_dim modify column d_current_day set stats ('row_count'='73049', 'ndv'='1', 'min_value'='N', 'max_value'='N', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table item modify column i_manufact set stats ('row_count'='204000', 'ndv'='1004', 'min_value'='', 'max_value'='pripripri', 'avg_size'='2298787', 'max_size'='2298787' )
+"""
+
+sql """
+alter table store modify column s_division_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table dbgen_version modify column dv_create_date set stats ('row_count'='1', 'ndv'='1', 'min_value'='2023-03-16', 'max_value'='2023-03-16', 'avg_size'='4', 'max_size'='4' )
+"""
+
+sql """
+alter table web_site modify column web_name set stats ('row_count'='24', 'ndv'='4', 'min_value'='site_0', 'max_value'='site_3', 'avg_size'='144', 'max_size'='144' )
+"""
+
+sql """
+alter table customer_address modify column ca_suite_number set stats ('row_count'='1000000', 'ndv'='76', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='7652799', 'max_size'='7652799' )
+"""
+
+sql """
+alter table customer modify column c_first_sales_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2448998', 'max_value'='2452648', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table web_sales modify column ws_order_number set stats ('row_count'='72001237', 'ndv'='6015811', 'min_value'='1', 'max_value'='6000000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table store modify column s_zip set stats ('row_count'='402', 'ndv'='102', 'min_value'='', 'max_value'='79431', 'avg_size'='1980', 'max_size'='1980' )
+"""
+
+sql """
+alter table promotion modify column p_item_sk set stats ('row_count'='1000', 'ndv'='970', 'min_value'='280', 'max_value'='203966', 'avg_size'='8000', 'max_size'='8000' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_cdemo_sk set stats ('row_count'='72001237', 'ndv'='1822804', 'min_value'='1', 'max_value'='1920800', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table web_site modify column web_street_name set stats ('row_count'='24', 'ndv'='24', 'min_value'='11th ', 'max_value'='Wilson Ridge', 'avg_size'='219', 'max_size'='219' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returning_hdemo_sk set stats ('row_count'='14404374', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_purchase_estimate set stats ('row_count'='1920800', 'ndv'='20', 'min_value'='500', 'max_value'='10000', 'avg_size'='7683200', 'max_size'='7683200' )
+"""
+
+sql """
+alter table web_returns modify column wr_refunded_customer_sk set stats ('row_count'='7197670', 'ndv'='1923644', 'min_value'='1', 'max_value'='2000000', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_mode_sk set stats ('row_count'='143997065', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table customer modify column c_birth_year set stats ('row_count'='2000000', 'ndv'='69', 'min_value'='1924', 'max_value'='1992', 'avg_size'='8000000', 'max_size'='8000000' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_return_tax set stats ('row_count'='14404374', 'ndv'='1926', 'min_value'='0.00', 'max_value'='2390.75', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_sales_price set stats ('row_count'='72001237', 'ndv'='27115', 'min_value'='0.00', 'max_value'='29810.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table catalog_page modify column cp_catalog_page_number set stats ('row_count'='20400', 'ndv'='189', 'min_value'='1', 'max_value'='188', 'avg_size'='81600', 'max_size'='81600' )
+"""
+
+sql """
+alter table date_dim modify column d_date_sk set stats ('row_count'='73049', 'ndv'='73042', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='584392', 'max_size'='584392' )
+"""
+
+sql """
+alter table date_dim modify column d_month_seq set stats ('row_count'='73049', 'ndv'='2398', 'min_value'='0', 'max_value'='2400', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table inventory modify column inv_item_sk set stats ('row_count'='399330000', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='3194640000', 'max_size'='3194640000' )
+"""
+
+sql """
+alter table call_center modify column cc_open_date_sk set stats ('row_count'='30', 'ndv'='15', 'min_value'='2450794', 'max_value'='2451146', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table store_sales modify column ss_addr_sk set stats ('row_count'='287997024', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table web_returns modify column wr_returning_addr_sk set stats ('row_count'='7197670', 'ndv'='999584', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table store modify column s_market_id set stats ('row_count'='402', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_bill_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1915709', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table customer_address modify column ca_address_sk set stats ('row_count'='1000000', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='8000000', 'max_size'='8000000' )
+"""
+
+sql """
+alter table web_site modify column web_market_manager set stats ('row_count'='24', 'ndv'='21', 'min_value'='Albert Leung', 'max_value'='Zachery Oneil', 'avg_size'='294', 'max_size'='294' )
+"""
+
+sql """
+alter table item modify column i_rec_start_date set stats ('row_count'='204000', 'ndv'='4', 'min_value'='1997-10-27', 'max_value'='2001-10-27', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_mode_sk set stats ('row_count'='72001237', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table call_center modify column cc_street_type set stats ('row_count'='30', 'ndv'='9', 'min_value'='Avenue', 'max_value'='Way', 'avg_size'='140', 'max_size'='140' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_net_paid_inc_ship set stats ('row_count'='143997065', 'ndv'='37890', 'min_value'='0.00', 'max_value'='43725.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table store_returns modify column sr_returned_date_sk set stats ('row_count'='28795080', 'ndv'='2010', 'min_value'='2450820', 'max_value'='2452822', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table item modify column i_category set stats ('row_count'='204000', 'ndv'='11', 'min_value'='', 'max_value'='Women', 'avg_size'='1201703', 'max_size'='1201703' )
+"""
+
+sql """
+alter table store modify column s_street_type set stats ('row_count'='402', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='1657', 'max_size'='1657' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_list_price set stats ('row_count'='72001237', 'ndv'='29104', 'min_value'='1.02', 'max_value'='29997.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table call_center modify column cc_city set stats ('row_count'='30', 'ndv'='12', 'min_value'='Bethel', 'max_value'='Shady Grove', 'avg_size'='282', 'max_size'='282' )
+"""
+
+sql """
+alter table household_demographics modify column hd_buy_potential set stats ('row_count'='7200', 'ndv'='6', 'min_value'='0-500', 'max_value'='Unknown', 'avg_size'='54000', 'max_size'='54000' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_refunded_cdemo_sk set stats ('row_count'='14404374', 'ndv'='1900770', 'min_value'='1', 'max_value'='1920800', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table item modify column i_manager_id set stats ('row_count'='204000', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table customer_address modify column ca_gmt_offset set stats ('row_count'='1000000', 'ndv'='6', 'min_value'='-10.00', 'max_value'='-5.00', 'avg_size'='4000000', 'max_size'='4000000' )
+"""
+
+sql """
+alter table store modify column s_state set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='TN', 'avg_size'='800', 'max_size'='800' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_refunded_customer_sk set stats ('row_count'='14404374', 'ndv'='1977657', 'min_value'='1', 'max_value'='2000000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table item modify column i_product_name set stats ('row_count'='204000', 'ndv'='200390', 'min_value'='', 'max_value'='pripripripripriought', 'avg_size'='4546148', 'max_size'='4546148' )
+"""
+
+sql """
+alter table store_returns modify column sr_addr_sk set stats ('row_count'='28795080', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table item modify column i_category_id set stats ('row_count'='204000', 'ndv'='10', 'min_value'='1', 'max_value'='10', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_ship_cost set stats ('row_count'='28795080', 'ndv'='8186', 'min_value'='0.00', 'max_value'='9578.25', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_sold_time_sk set stats ('row_count'='143997065', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'min_value'='Friday', 'max_value'='Wednesday', 'avg_size'='521779', 'max_size'='521779' )
+"""
+
+sql """
+alter table web_returns modify column wr_web_page_sk set stats ('row_count'='7197670', 'ndv'='2032', 'min_value'='1', 'max_value'='2040', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table store modify column s_street_number set stats ('row_count'='402', 'ndv'='267', 'min_value'='', 'max_value'='986', 'avg_size'='1150', 'max_size'='1150' )
+"""
+
+sql """
+alter table web_sales modify column ws_sold_time_sk set stats ('row_count'='72001237', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table store_sales modify column ss_ext_tax set stats ('row_count'='287997024', 'ndv'='1722', 'min_value'='0.00', 'max_value'='1762.38', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table date_dim modify column d_dow set stats ('row_count'='73049', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table store_returns modify column sr_refunded_cash set stats ('row_count'='28795080', 'ndv'='12626', 'min_value'='0.00', 'max_value'='17556.95', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table call_center modify column cc_call_center_sk set stats ('row_count'='30', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='240', 'max_size'='240' )
+"""
+
+sql """
+alter table store_returns modify column sr_fee set stats ('row_count'='28795080', 'ndv'='101', 'min_value'='0.50', 'max_value'='100.00', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_return_ship_cost set stats ('row_count'='14404374', 'ndv'='11144', 'min_value'='0.00', 'max_value'='14130.96', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_bill_addr_sk set stats ('row_count'='143997065', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table time_dim modify column t_time_id set stats ('row_count'='86400', 'ndv'='85663', 'min_value'='AAAAAAAAAAAABAAA', 'max_value'='AAAAAAAAPPPPAAAA', 'avg_size'='1382400', 'max_size'='1382400' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_net_paid set stats ('row_count'='143997065', 'ndv'='27448', 'min_value'='0.00', 'max_value'='29760.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_bill_customer_sk set stats ('row_count'='143997065', 'ndv'='1993691', 'min_value'='1', 'max_value'='2000000', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table web_sales modify column ws_coupon_amt set stats ('row_count'='72001237', 'ndv'='20659', 'min_value'='0.00', 'max_value'='27591.16', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table promotion modify column p_promo_sk set stats ('row_count'='1000', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='8000', 'max_size'='8000' )
+"""
+
+sql """
+alter table web_page modify column wp_rec_end_date set stats ('row_count'='2040', 'ndv'='3', 'min_value'='1999-09-03', 'max_value'='2001-09-02', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table web_returns modify column wr_refunded_addr_sk set stats ('row_count'='7197670', 'ndv'='999503', 'min_value'='1', 'max_value'='1000000', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table web_page modify column wp_char_count set stats ('row_count'='2040', 'ndv'='1363', 'min_value'='303', 'max_value'='8523', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table promotion modify column p_purpose set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='6909', 'max_size'='6909' )
+"""
+
+sql """
+alter table web_sales modify column ws_ship_date_sk set stats ('row_count'='72001237', 'ndv'='1952', 'min_value'='2450817', 'max_value'='2452762', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table date_dim modify column d_current_year set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table store_sales modify column ss_net_paid set stats ('row_count'='287997024', 'ndv'='19028', 'min_value'='0.00', 'max_value'='19878.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table web_returns modify column wr_returned_date_sk set stats ('row_count'='7197670', 'ndv'='2185', 'min_value'='2450820', 'max_value'='2453002', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table store_returns modify column sr_cdemo_sk set stats ('row_count'='28795080', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table catalog_page modify column cp_description set stats ('row_count'='20400', 'ndv'='20501', 'min_value'='', 'max_value'='Youngsters should get very. Bad, necessary years must pick telecommunications. Co', 'avg_size'='1507423', 'max_size'='1507423' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_tax set stats ('row_count'='143997065', 'ndv'='2488', 'min_value'='0.00', 'max_value'='2619.36', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table date_dim modify column d_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_discount_amt set stats ('row_count'='143997065', 'ndv'='27722', 'min_value'='0.00', 'max_value'='29765.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table warehouse modify column w_zip set stats ('row_count'='15', 'ndv'='15', 'min_value'='28721', 'max_value'='78721', 'avg_size'='75', 'max_size'='75' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_catalog_page_sk set stats ('row_count'='14404374', 'ndv'='11515', 'min_value'='1', 'max_value'='17108', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_order_number set stats ('row_count'='14404374', 'ndv'='9425725', 'min_value'='2', 'max_value'='16000000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_cdemo_sk set stats ('row_count'='143997065', 'ndv'='1916125', 'min_value'='1', 'max_value'='1920800', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returned_time_sk set stats ('row_count'='14404374', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_wholesale_cost set stats ('row_count'='72001237', 'ndv'='10009', 'min_value'='1.00', 'max_value'='10000.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table web_page modify column wp_image_count set stats ('row_count'='2040', 'ndv'='7', 'min_value'='1', 'max_value'='7', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table time_dim modify column t_shift set stats ('row_count'='86400', 'ndv'='3', 'min_value'='first', 'max_value'='third', 'avg_size'='460800', 'max_size'='460800' )
+"""
+
+sql """
+alter table store_sales modify column ss_ext_discount_amt set stats ('row_count'='287997024', 'ndv'='16198', 'min_value'='0.00', 'max_value'='19225.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table warehouse modify column w_warehouse_sk set stats ('row_count'='15', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table store_sales modify column ss_sold_time_sk set stats ('row_count'='287997024', 'ndv'='47252', 'min_value'='28800', 'max_value'='75599', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table customer_address modify column ca_street_name set stats ('row_count'='1000000', 'ndv'='8155', 'min_value'='', 'max_value'='Woodland Woodland', 'avg_size'='8445649', 'max_size'='8445649' )
+"""
+
+sql """
+alter table customer_address modify column ca_county set stats ('row_count'='1000000', 'ndv'='1825', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='13540273', 'max_size'='13540273' )
+"""
+
+sql """
+alter table ship_mode modify column sm_contract set stats ('row_count'='20', 'ndv'='20', 'min_value'='2mM8l', 'max_value'='yVfotg7Tio3MVhBg6Bkn', 'avg_size'='252', 'max_size'='252' )
+"""
+
+sql """
+alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='0', 'max_value'='0', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table customer_address modify column ca_zip set stats ('row_count'='1000000', 'ndv'='7733', 'min_value'='', 'max_value'='99981', 'avg_size'='4848150', 'max_size'='4848150' )
+"""
+
+sql """
+alter table store modify column s_county set stats ('row_count'='402', 'ndv'='10', 'min_value'='', 'max_value'='Ziebach County', 'avg_size'='5693', 'max_size'='5693' )
+"""
+
+sql """
+alter table promotion modify column p_channel_tv set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='986', 'max_size'='986' )
+"""
+
+sql """
+alter table time_dim modify column t_time_sk set stats ('row_count'='86400', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='691200', 'max_size'='691200' )
+"""
+
+sql """
+alter table date_dim modify column d_following_holiday set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table store_returns modify column sr_return_time_sk set stats ('row_count'='28795080', 'ndv'='32660', 'min_value'='28799', 'max_value'='61199', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_ship_cost set stats ('row_count'='143997065', 'ndv'='14266', 'min_value'='0.00', 'max_value'='14896.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table item modify column i_brand set stats ('row_count'='204000', 'ndv'='714', 'min_value'='', 'max_value'='univunivamalg #9', 'avg_size'='3287671', 'max_size'='3287671' )
+"""
+
+sql """
+alter table customer modify column c_current_addr_sk set stats ('row_count'='2000000', 'ndv'='866672', 'min_value'='1', 'max_value'='1000000', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table store modify column s_floor_space set stats ('row_count'='402', 'ndv'='300', 'min_value'='5004767', 'max_value'='9997773', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table inventory modify column inv_warehouse_sk set stats ('row_count'='399330000', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='3194640000', 'max_size'='3194640000' )
+"""
+
+sql """
+alter table web_site modify column web_county set stats ('row_count'='24', 'ndv'='9', 'min_value'='Barrow County', 'max_value'='Ziebach County', 'avg_size'='331', 'max_size'='331' )
+"""
+
+sql """
+alter table call_center modify column cc_rec_start_date set stats ('row_count'='30', 'ndv'='4', 'min_value'='1998-01-01', 'max_value'='2002-01-01', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table date_dim modify column d_quarter_name set stats ('row_count'='73049', 'ndv'='799', 'min_value'='1900Q1', 'max_value'='2100Q1', 'avg_size'='438294', 'max_size'='438294' )
+"""
+
+sql """
+alter table call_center modify column cc_company_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='110', 'max_size'='110' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_credit_rating set stats ('row_count'='1920800', 'ndv'='4', 'min_value'='Good', 'max_value'='Unknown', 'avg_size'='13445600', 'max_size'='13445600' )
+"""
+
+sql """
+alter table web_returns modify column wr_return_amt_inc_tax set stats ('row_count'='7197670', 'ndv'='19975', 'min_value'='0.00', 'max_value'='29493.38', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table web_site modify column web_company_id set stats ('row_count'='24', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table date_dim modify column d_qoy set stats ('row_count'='73049', 'ndv'='4', 'min_value'='1', 'max_value'='4', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_quantity set stats ('row_count'='143997065', 'ndv'='100', 'min_value'='1', 'max_value'='100', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_ship_cost set stats ('row_count'='72001237', 'ndv'='13977', 'min_value'='0.00', 'max_value'='14927.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_list_price set stats ('row_count'='143997065', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table call_center modify column cc_zip set stats ('row_count'='30', 'ndv'='14', 'min_value'='20059', 'max_value'='75281', 'avg_size'='150', 'max_size'='150' )
+"""
+
+sql """
+alter table call_center modify column cc_division_name set stats ('row_count'='30', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='123', 'max_size'='123' )
+"""
+
+sql """
+alter table store_sales modify column ss_cdemo_sk set stats ('row_count'='287997024', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ext_sales_price set stats ('row_count'='143997065', 'ndv'='27598', 'min_value'='0.00', 'max_value'='29808.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_return_amt_inc_tax set stats ('row_count'='14404374', 'ndv'='21566', 'min_value'='0.00', 'max_value'='29353.87', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table income_band modify column ib_upper_bound set stats ('row_count'='20', 'ndv'='20', 'min_value'='10000', 'max_value'='200000', 'avg_size'='80', 'max_size'='80' )
+"""
+
+sql """
+alter table item modify column i_color set stats ('row_count'='204000', 'ndv'='93', 'min_value'='', 'max_value'='yellow', 'avg_size'='1094247', 'max_size'='1094247' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_ship_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table store modify column s_tax_precentage set stats ('row_count'='402', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.11', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table item modify column i_units set stats ('row_count'='204000', 'ndv'='22', 'min_value'='', 'max_value'='Unknown', 'avg_size'='852562', 'max_size'='852562' )
+"""
+
+sql """
+alter table reason modify column r_reason_id set stats ('row_count'='55', 'ndv'='55', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPCAAAAAA', 'avg_size'='880', 'max_size'='880' )
+"""
+
+sql """
+alter table store_sales modify column ss_ext_list_price set stats ('row_count'='287997024', 'ndv'='19770', 'min_value'='1.00', 'max_value'='20000.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table promotion modify column p_cost set stats ('row_count'='1000', 'ndv'='1', 'min_value'='1000.00', 'max_value'='1000.00', 'avg_size'='8000', 'max_size'='8000' )
+"""
+
+sql """
+alter table web_site modify column web_state set stats ('row_count'='24', 'ndv'='9', 'min_value'='AL', 'max_value'='TN', 'avg_size'='48', 'max_size'='48' )
+"""
+
+sql """
+alter table call_center modify column cc_country set stats ('row_count'='30', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='390', 'max_size'='390' )
+"""
+
+sql """
+alter table store modify column s_company_id set stats ('row_count'='402', 'ndv'='1', 'min_value'='1', 'max_value'='1', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table time_dim modify column t_hour set stats ('row_count'='86400', 'ndv'='24', 'min_value'='0', 'max_value'='23', 'avg_size'='345600', 'max_size'='345600' )
+"""
+
+sql """
+alter table date_dim modify column d_fy_quarter_seq set stats ('row_count'='73049', 'ndv'='801', 'min_value'='1', 'max_value'='801', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table ship_mode modify column sm_code set stats ('row_count'='20', 'ndv'='4', 'min_value'='AIR', 'max_value'='SURFACE', 'avg_size'='87', 'max_size'='87' )
+"""
+
+sql """
+alter table web_returns modify column wr_returning_hdemo_sk set stats ('row_count'='7197670', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_call_center_sk set stats ('row_count'='14404374', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table household_demographics modify column hd_demo_sk set stats ('row_count'='7200', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='57600', 'max_size'='57600' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_net_loss set stats ('row_count'='14404374', 'ndv'='11753', 'min_value'='0.50', 'max_value'='15781.83', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_item_sk set stats ('row_count'='14404374', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table store_returns modify column sr_item_sk set stats ('row_count'='28795080', 'ndv'='205012', 'min_value'='1', 'max_value'='204000', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table call_center modify column cc_street_number set stats ('row_count'='30', 'ndv'='15', 'min_value'='406', 'max_value'='984', 'avg_size'='88', 'max_size'='88' )
+"""
+
+sql """
+alter table promotion modify column p_channel_radio set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
+"""
+
+sql """
+alter table call_center modify column cc_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='California', 'max_value'='Pacific Northwest_1', 'avg_size'='401', 'max_size'='401' )
+"""
+
+sql """
+alter table call_center modify column cc_rec_end_date set stats ('row_count'='30', 'ndv'='3', 'min_value'='2000-01-01', 'max_value'='2001-12-31', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_dep_count set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='0', 'max_value'='6', 'avg_size'='7683200', 'max_size'='7683200' )
+"""
+
+sql """
+alter table inventory modify column inv_date_sk set stats ('row_count'='399330000', 'ndv'='261', 'min_value'='2450815', 'max_value'='2452635', 'avg_size'='3194640000', 'max_size'='3194640000' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_demo_sk set stats ('row_count'='1920800', 'ndv'='1916366', 'min_value'='1', 'max_value'='1920800', 'avg_size'='15366400', 'max_size'='15366400' )
+"""
+
+sql """
+alter table ship_mode modify column sm_ship_mode_sk set stats ('row_count'='20', 'ndv'='20', 'min_value'='1', 'max_value'='20', 'avg_size'='160', 'max_size'='160' )
+"""
+
+sql """
+alter table store_sales modify column ss_list_price set stats ('row_count'='287997024', 'ndv'='201', 'min_value'='1.00', 'max_value'='200.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
+
+sql """
+alter table reason modify column r_reason_sk set stats ('row_count'='55', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='440', 'max_size'='440' )
+"""
+
+sql """
+alter table web_page modify column wp_autogen_flag set stats ('row_count'='2040', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='2015', 'max_size'='2015' )
+"""
+
+sql """
+alter table web_sales modify column ws_sold_date_sk set stats ('row_count'='72001237', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_returning_addr_sk set stats ('row_count'='14404374', 'ndv'='1000237', 'min_value'='1', 'max_value'='1000000', 'avg_size'='115234992', 'max_size'='115234992' )
+"""
+
+sql """
+alter table web_site modify column web_street_type set stats ('row_count'='24', 'ndv'='15', 'min_value'='Avenue', 'max_value'='Wy', 'avg_size'='96', 'max_size'='96' )
+"""
+
+sql """
+alter table store modify column s_rec_end_date set stats ('row_count'='402', 'ndv'='3', 'min_value'='1999-03-13', 'max_value'='2001-03-12', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table item modify column i_formulation set stats ('row_count'='204000', 'ndv'='152702', 'min_value'='', 'max_value'='yellow98911509228741', 'avg_size'='4069400', 'max_size'='4069400' )
+"""
+
+sql """
+alter table customer_demographics modify column cd_education_status set stats ('row_count'='1920800', 'ndv'='7', 'min_value'='2 yr Degree', 'max_value'='Unknown', 'avg_size'='18384800', 'max_size'='18384800' )
+"""
+
+sql """
+alter table web_page modify column wp_link_count set stats ('row_count'='2040', 'ndv'='24', 'min_value'='2', 'max_value'='25', 'avg_size'='8160', 'max_size'='8160' )
+"""
+
+sql """
+alter table warehouse modify column w_country set stats ('row_count'='15', 'ndv'='1', 'min_value'='United States', 'max_value'='United States', 'avg_size'='195', 'max_size'='195' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_store_credit set stats ('row_count'='14404374', 'ndv'='12156', 'min_value'='0.00', 'max_value'='22167.49', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table store modify column s_rec_start_date set stats ('row_count'='402', 'ndv'='4', 'min_value'='1997-03-13', 'max_value'='2001-03-13', 'avg_size'='1608', 'max_size'='1608' )
+"""
+
+sql """
+alter table web_site modify column web_site_id set stats ('row_count'='24', 'ndv'='12', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='384', 'max_size'='384' )
+"""
+
+sql """
+alter table call_center modify column cc_gmt_offset set stats ('row_count'='30', 'ndv'='2', 'min_value'='-6.00', 'max_value'='-5.00', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table ship_mode modify column sm_ship_mode_id set stats ('row_count'='20', 'ndv'='20', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAPAAAAAAA', 'avg_size'='320', 'max_size'='320' )
+"""
+
+sql """
+alter table catalog_returns modify column cr_return_amount set stats ('row_count'='14404374', 'ndv'='20656', 'min_value'='0.00', 'max_value'='28778.31', 'avg_size'='57617496', 'max_size'='57617496' )
+"""
+
+sql """
+alter table store modify column s_hours set stats ('row_count'='402', 'ndv'='4', 'min_value'='', 'max_value'='8AM-8AM', 'avg_size'='2848', 'max_size'='2848' )
+"""
+
+sql """
+alter table web_returns modify column wr_returning_cdemo_sk set stats ('row_count'='7197670', 'ndv'='1865149', 'min_value'='1', 'max_value'='1920800', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_warehouse_sk set stats ('row_count'='143997065', 'ndv'='15', 'min_value'='1', 'max_value'='15', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table date_dim modify column d_date set stats ('row_count'='73049', 'ndv'='73250', 'min_value'='1900-01-02', 'max_value'='2100-01-01', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table customer modify column c_first_name set stats ('row_count'='2000000', 'ndv'='5140', 'min_value'='', 'max_value'='Zulma', 'avg_size'='11267996', 'max_size'='11267996' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_net_profit set stats ('row_count'='143997065', 'ndv'='28450', 'min_value'='-10000.00', 'max_value'='19840.00', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table web_site modify column web_suite_number set stats ('row_count'='24', 'ndv'='20', 'min_value'='Suite 130', 'max_value'='Suite U', 'avg_size'='196', 'max_size'='196' )
+"""
+
+sql """
+alter table web_sales modify column ws_list_price set stats ('row_count'='72001237', 'ndv'='301', 'min_value'='1.00', 'max_value'='300.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table web_returns modify column wr_returned_time_sk set stats ('row_count'='7197670', 'ndv'='87677', 'min_value'='0', 'max_value'='86399', 'avg_size'='57581360', 'max_size'='57581360' )
+"""
+
+sql """
+alter table web_sales modify column ws_net_paid_inc_tax set stats ('row_count'='72001237', 'ndv'='28263', 'min_value'='0.00', 'max_value'='32492.90', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table store_returns modify column sr_net_loss set stats ('row_count'='28795080', 'ndv'='8663', 'min_value'='0.50', 'max_value'='10447.72', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table date_dim modify column d_same_day_lq set stats ('row_count'='73049', 'ndv'='72231', 'min_value'='2414930', 'max_value'='2487978', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table store modify column s_suite_number set stats ('row_count'='402', 'ndv'='75', 'min_value'='', 'max_value'='Suite Y', 'avg_size'='3140', 'max_size'='3140' )
+"""
+
+sql """
+alter table catalog_page modify column cp_start_date_sk set stats ('row_count'='20400', 'ndv'='91', 'min_value'='2450815', 'max_value'='2453005', 'avg_size'='81600', 'max_size'='81600' )
+"""
+
+sql """
+alter table customer_address modify column ca_street_number set stats ('row_count'='1000000', 'ndv'='1002', 'min_value'='', 'max_value'='999', 'avg_size'='2805540', 'max_size'='2805540' )
+"""
+
+sql """
+alter table item modify column i_current_price set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0.09', 'max_value'='99.99', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table store_returns modify column sr_ticket_number set stats ('row_count'='28795080', 'ndv'='16790866', 'min_value'='1', 'max_value'='23999996', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_coupon_amt set stats ('row_count'='143997065', 'ndv'='22020', 'min_value'='0.00', 'max_value'='28422.94', 'avg_size'='575988260', 'max_size'='575988260' )
+"""
+
+sql """
+alter table date_dim modify column d_current_month set stats ('row_count'='73049', 'ndv'='2', 'min_value'='N', 'max_value'='Y', 'avg_size'='73049', 'max_size'='73049' )
+"""
+
+sql """
+alter table web_sales modify column ws_net_paid_inc_ship_tax set stats ('row_count'='72001237', 'ndv'='37541', 'min_value'='0.00', 'max_value'='44479.52', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table web_sales modify column ws_promo_sk set stats ('row_count'='72001237', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='576009896', 'max_size'='576009896' )
+"""
+
+sql """
+alter table customer modify column c_first_shipto_date_sk set stats ('row_count'='2000000', 'ndv'='3644', 'min_value'='2449028', 'max_value'='2452678', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table catalog_page modify column cp_end_date_sk set stats ('row_count'='20400', 'ndv'='97', 'min_value'='2450844', 'max_value'='2453186', 'avg_size'='81600', 'max_size'='81600' )
+"""
+
+sql """
+alter table store_sales modify column ss_promo_sk set stats ('row_count'='287997024', 'ndv'='986', 'min_value'='1', 'max_value'='1000', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table catalog_page modify column cp_type set stats ('row_count'='20400', 'ndv'='4', 'min_value'='', 'max_value'='quarterly', 'avg_size'='155039', 'max_size'='155039' )
+"""
+
+sql """
+alter table promotion modify column p_channel_demo set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='984', 'max_size'='984' )
+"""
+
+sql """
+alter table store modify column s_market_manager set stats ('row_count'='402', 'ndv'='286', 'min_value'='', 'max_value'='Zane Perez', 'avg_size'='5129', 'max_size'='5129' )
+"""
+
+sql """
+alter table item modify column i_item_desc set stats ('row_count'='204000', 'ndv'='148398', 'min_value'='', 'max_value'='Youngsters used to save quite colour', 'avg_size'='20471814', 'max_size'='20471814' )
+"""
+
+sql """
+alter table call_center modify column cc_division set stats ('row_count'='30', 'ndv'='6', 'min_value'='1', 'max_value'='6', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table web_site modify column web_class set stats ('row_count'='24', 'ndv'='1', 'min_value'='Unknown', 'max_value'='Unknown', 'avg_size'='168', 'max_size'='168' )
+"""
+
+sql """
+alter table store modify column s_geography_class set stats ('row_count'='402', 'ndv'='2', 'min_value'='', 'max_value'='Unknown', 'avg_size'='2793', 'max_size'='2793' )
+"""
+
+sql """
+alter table store_returns modify column sr_store_sk set stats ('row_count'='28795080', 'ndv'='200', 'min_value'='1', 'max_value'='400', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table call_center modify column cc_street_name set stats ('row_count'='30', 'ndv'='15', 'min_value'='1st ', 'max_value'='View ', 'avg_size'='240', 'max_size'='240' )
+"""
+
+sql """
+alter table date_dim modify column d_moy set stats ('row_count'='73049', 'ndv'='12', 'min_value'='1', 'max_value'='12', 'avg_size'='292196', 'max_size'='292196' )
+"""
+
+sql """
+alter table customer modify column c_current_hdemo_sk set stats ('row_count'='2000000', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='16000000', 'max_size'='16000000' )
+"""
+
+sql """
+alter table customer modify column c_login set stats ('row_count'='2000000', 'ndv'='1', 'min_value'='', 'max_value'='', 'avg_size'='0', 'max_size'='0' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_discount_amt set stats ('row_count'='72001237', 'ndv'='27052', 'min_value'='0.00', 'max_value'='29982.00', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table call_center modify column cc_call_center_id set stats ('row_count'='30', 'ndv'='15', 'min_value'='AAAAAAAAABAAAAAA', 'max_value'='AAAAAAAAOAAAAAAA', 'avg_size'='480', 'max_size'='480' )
+"""
+
+sql """
+alter table web_returns modify column wr_reversed_charge set stats ('row_count'='7197670', 'ndv'='10979', 'min_value'='0.00', 'max_value'='22972.36', 'avg_size'='28790680', 'max_size'='28790680' )
+"""
+
+sql """
+alter table store modify column s_city set stats ('row_count'='402', 'ndv'='19', 'min_value'='', 'max_value'='Union', 'avg_size'='3669', 'max_size'='3669' )
+"""
+
+sql """
+alter table promotion modify column p_channel_email set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='987', 'max_size'='987' )
+"""
+
+sql """
+alter table catalog_page modify column cp_department set stats ('row_count'='20400', 'ndv'='2', 'min_value'='', 'max_value'='DEPARTMENT', 'avg_size'='201950', 'max_size'='201950' )
+"""
+
+sql """
+alter table call_center modify column cc_hours set stats ('row_count'='30', 'ndv'='3', 'min_value'='8AM-12AM', 'max_value'='8AM-8AM', 'avg_size'='214', 'max_size'='214' )
+"""
+
+sql """
+alter table promotion modify column p_channel_dmail set stats ('row_count'='1000', 'ndv'='3', 'min_value'='', 'max_value'='Y', 'avg_size'='987', 'max_size'='987' )
+"""
+
+sql """
+alter table store modify column s_manager set stats ('row_count'='402', 'ndv'='301', 'min_value'='', 'max_value'='Zachary Price', 'avg_size'='5075', 'max_size'='5075' )
+"""
+
+sql """
+alter table store_returns modify column sr_reversed_charge set stats ('row_count'='28795080', 'ndv'='9872', 'min_value'='0.00', 'max_value'='16099.52', 'avg_size'='115180320', 'max_size'='115180320' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_call_center_sk set stats ('row_count'='143997065', 'ndv'='30', 'min_value'='1', 'max_value'='30', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table household_demographics modify column hd_vehicle_count set stats ('row_count'='7200', 'ndv'='6', 'min_value'='-1', 'max_value'='4', 'avg_size'='28800', 'max_size'='28800' )
+"""
+
+sql """
+alter table web_site modify column web_company_name set stats ('row_count'='24', 'ndv'='6', 'min_value'='able', 'max_value'='pri', 'avg_size'='97', 'max_size'='97' )
+"""
+
+sql """
+alter table web_page modify column wp_web_page_id set stats ('row_count'='2040', 'ndv'='1019', 'min_value'='AAAAAAAAAABAAAAA', 'max_value'='AAAAAAAAPPEAAAAA', 'avg_size'='32640', 'max_size'='32640' )
+"""
+
+sql """
+alter table store_sales modify column ss_sold_date_sk set stats ('row_count'='287997024', 'ndv'='1820', 'min_value'='2450816', 'max_value'='2452642', 'avg_size'='2303976192', 'max_size'='2303976192' )
+"""
+
+sql """
+alter table customer_address modify column ca_street_type set stats ('row_count'='1000000', 'ndv'='21', 'min_value'='', 'max_value'='Wy', 'avg_size'='4073296', 'max_size'='4073296' )
+"""
+
+sql """
+alter table web_sales modify column ws_ext_tax set stats ('row_count'='72001237', 'ndv'='2466', 'min_value'='0.00', 'max_value'='2682.90', 'avg_size'='288004948', 'max_size'='288004948' )
+"""
+
+sql """
+alter table item modify column i_manufact_id set stats ('row_count'='204000', 'ndv'='1005', 'min_value'='1', 'max_value'='1000', 'avg_size'='816000', 'max_size'='816000' )
+"""
+
+sql """
+alter table inventory modify column inv_quantity_on_hand set stats ('row_count'='399330000', 'ndv'='1006', 'min_value'='0', 'max_value'='1000', 'avg_size'='1597320000', 'max_size'='1597320000' )
+"""
+
+sql """
+alter table call_center modify column cc_employees set stats ('row_count'='30', 'ndv'='22', 'min_value'='2935', 'max_value'='69020', 'avg_size'='120', 'max_size'='120' )
+"""
+
+sql """
+alter table ship_mode modify column sm_carrier set stats ('row_count'='20', 'ndv'='20', 'min_value'='AIRBORNE', 'max_value'='ZOUROS', 'avg_size'='133', 'max_size'='133' )
+"""
+
+sql """
+alter table store_returns modify column sr_reason_sk set stats ('row_count'='28795080', 'ndv'='55', 'min_value'='1', 'max_value'='55', 'avg_size'='230360640', 'max_size'='230360640' )
+"""
+
+sql """
+alter table promotion modify column p_discount_active set stats ('row_count'='1000', 'ndv'='2', 'min_value'='', 'max_value'='N', 'avg_size'='981', 'max_size'='981' )
+"""
+
+sql """
+alter table catalog_sales modify column cs_bill_hdemo_sk set stats ('row_count'='143997065', 'ndv'='7251', 'min_value'='1', 'max_value'='7200', 'avg_size'='1151976520', 'max_size'='1151976520' )
+"""
+
+sql """
+alter table store_sales modify column ss_wholesale_cost set stats ('row_count'='287997024', 'ndv'='100', 'min_value'='1.00', 'max_value'='100.00', 'avg_size'='1151988096', 'max_size'='1151988096' )
+"""
 
 }
