@@ -997,14 +997,6 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
                     _opts.stats, &_inverted_index_iterators[unique_id]));
         }
-
-        if (_inverted_index_iterators.count(unique_id) > 0
-            && _inverted_index_iterators[unique_id]) {
-            //this column has inverted index
-            auto* inverted_index_iterator = _inverted_index_iterators[unique_id];
-            auto inverted_index_analyser_type = inverted_index_iterator->get_inverted_index_analyser_type();
-            _opts.runtime_state->get_query_ctx()->add_inverted_index_parser(column_name, inverted_index_analyser_type);
-        }
     }
     return Status::OK();
 }

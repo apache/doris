@@ -36,7 +36,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block, c
         if (context) {
             RuntimeState* state = context->state();
             DCHECK(nullptr != state);
-            parser_type = state->get_query_ctx()->get_inverted_index_parser(column_name);
+            parser_type = state->get_query_ctx()->inverted_index_parser_mgr()->get_inverted_index_parser(column_name);
         }
 
         const auto values_col =
