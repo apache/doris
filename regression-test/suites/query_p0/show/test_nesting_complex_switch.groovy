@@ -139,7 +139,7 @@ suite("test_nesting_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_s}"
         sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
         sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nesting_complex_type' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'true')"
 
         // map
         test {
