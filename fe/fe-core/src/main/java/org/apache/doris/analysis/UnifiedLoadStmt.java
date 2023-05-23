@@ -44,27 +44,21 @@ public class UnifiedLoadStmt extends DdlStmt {
 
     public static UnifiedLoadStmt buildMysqlLoadStmt(DataDescription dataDescription, Map<String, String> properties,
                                                      String comment) {
-        StatementBase proxyStmt;
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
-            proxyStmt = new MysqlLoadStmt(dataDescription, properties, comment);
-        } else {
-            proxyStmt = new LoadStmt(dataDescription, properties, comment);
+            return new UnifiedLoadStmt(new MysqlLoadStmt(dataDescription, properties, comment));
         }
-        return new UnifiedLoadStmt(proxyStmt);
+        return new UnifiedLoadStmt(new LoadStmt(dataDescription, properties, comment));
     }
 
     public static UnifiedLoadStmt buildBrokerLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                                                       BrokerDesc brokerDesc,
                                                       Map<String, String> properties, String comment) {
-        StatementBase proxyStmt;
         final ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
-            proxyStmt = new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
-        } else {
-            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
+            return new UnifiedLoadStmt(new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
         }
-        return new UnifiedLoadStmt(proxyStmt);
+        return new UnifiedLoadStmt(new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
     }
 
     public StatementBase getProxyStmt() {
