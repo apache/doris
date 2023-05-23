@@ -310,9 +310,7 @@ public class IntLiteral extends LiteralExpr {
                 return new FloatLiteral(new Double(value), targetType);
             } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
                 DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                if (targetType.isDecimalV2()) {
-                    res.setType(targetType);
-                }
+                res.setType(targetType);
                 return res;
             }
             return this;
