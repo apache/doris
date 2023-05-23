@@ -100,13 +100,13 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     const char* buf = mrb.buf();
 
     // mem: size-data-data
-    // 254-48-'5'-'120'-'-30000'-'900000'-'90000000'-'56.45'-'10.12'-'test'-''
-    // 1b--8b-1b----3b-----6b-------6b--------8b-------5b------5b------4b---0b
-    // 0   1  9     10     13       19        25       33      38      43   47
-    EXPECT_EQ(47, mrb.length());
+    // 254-48-'5'-'120'-'-30000'-'900000'-'90000000'-'56.45'-'10.12'-'test'-'NULL'
+    // 1b--8b-1b----3b-----6b-------6b--------8b-------5b------5b------4b---4b
+    // 0   1  9     10     13       19        25       33      38      43   47   51
+    EXPECT_EQ(51, mrb.length());
 
     EXPECT_EQ(254, *((uint8_t*)(buf)));
-    EXPECT_EQ(38, *((int64_t*)(buf + 1)));
+    EXPECT_EQ(42, *((int64_t*)(buf + 1)));
 
     EXPECT_EQ(0, strncmp(buf + 9, "5", 1));
     EXPECT_EQ(0, strncmp(buf + 10, "120", 3));
@@ -116,6 +116,7 @@ TEST(MysqlRowBufferTest, dynamic_mode) {
     EXPECT_EQ(0, strncmp(buf + 33, "56.45", 5));
     EXPECT_EQ(0, strncmp(buf + 38, "10.12", 5));
     EXPECT_EQ(0, strncmp(buf + 43, "test", 4));
+    EXPECT_EQ(0, strncmp(buf + 47, "NULL", 4));
 }
 
 } // namespace doris
