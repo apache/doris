@@ -194,9 +194,13 @@ protected:
     std::atomic_bool _should_stop = false;
     std::atomic_bool _is_finished = false;
 
-    // Pre-allocated blocks for all scanners to share, for memory reuse.
+    // Lazy-allocated blocks for all scanners to share, for memory reuse.
     doris::Mutex _free_blocks_lock;
     std::vector<vectorized::BlockUPtr> _free_blocks;
+    // The current number of free blocks available to the scanners.
+    // Used to limit the memory usage of the scanner.
+    // NOTE: this is NOT the size of `_free_blocks`.
+    int32_t _free_blocks_capacity = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause
