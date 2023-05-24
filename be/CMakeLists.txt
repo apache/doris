@@ -1050,7 +1050,7 @@ endfunction()
 
 
 gen_pch_target(thirdparty_pch true "")
-# gen_pch_target(agent_pch true thirdparty_pch)
+gen_pch_target(agent_pch true thirdparty_pch)
 # gen_pch_target(olap_pch true thirdparty_pch)
 # gen_pch_target(util_pch true thirdparty_pch)
 # gen_pch_target(exec_pch true thirdparty_pch)
