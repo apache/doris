@@ -200,6 +200,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         return fmt::format("{}", val);
     }
     case TYPE_TIME:
+    case TYPE_TIMEV2:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
         return fmt::format("{}", val);
