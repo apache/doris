@@ -20,8 +20,10 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -78,7 +80,9 @@ public class MemoTestUtils {
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
-        CascadesContext cascadesContext = CascadesContext.newRewriteContext(statementContext, initPlan);
+        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties();
+        CascadesContext cascadesContext = CascadesContext.newRewriteContext(
+                statementContext, initPlan, requestProperties);
         cascadesContext.toMemo();
         MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
         return cascadesContext;
