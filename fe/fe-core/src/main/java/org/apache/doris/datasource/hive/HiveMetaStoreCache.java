@@ -73,6 +73,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -287,8 +288,19 @@ public class HiveMetaStoreCache {
         FileCacheValue result = new FileCacheValue();
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
-        RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-        locatedFiles.files().forEach(result::addFile);
+        try {
+            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+            locatedFiles.files().forEach(result::addFile);
+        } catch (Exception e) {
+            // User may manually remove partition under HDFS, in this case,
+            // Hive doesn't aware that the removed partition is missing.
+            // Here is to support this case without throw an exception.
+            if (e.getCause() instanceof FileNotFoundException) {
+                LOG.warn(String.format("File %s not exist.", location));
+            } else {
+                throw e;
+            }
+        }
         result.setPartitionValues(partitionValues);
         return result;
     }
