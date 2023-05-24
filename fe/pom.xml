@@ -309,9 +309,9 @@ under the License.
             </activation>
             <repositories>
                 <repository>
-                    <id>central</id>
+                    <id>aliyun</id>
                     <name>central maven repo https</name>
-                    <url>https://repo.maven.apache.org/maven2</url>
+                    <url>https://maven.aliyun.com/repository/public</url>
                 </repository>
                 <repository>
                     <id>snapshots</id>
@@ -326,8 +326,8 @@ under the License.
             </repositories>
             <pluginRepositories>
                 <pluginRepository>
-                    <id>central</id>
-                    <url>https://repo.maven.apache.org/maven2</url>
+                    <id>aliyun</id>
+                    <url>https://maven.aliyun.com/repository/public</url>
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
