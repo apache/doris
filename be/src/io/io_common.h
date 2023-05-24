@@ -21,7 +21,7 @@
 
 namespace doris {
 
-enum ReaderType {
+enum class ReaderType {
     READER_QUERY = 0,
     READER_ALTER_TABLE = 1,
     READER_BASE_COMPACTION = 2,
