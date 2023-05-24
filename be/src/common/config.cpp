@@ -1010,6 +1010,10 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
 
+// enable set in BitmapValue, default as true on 2.0
+// the default value on 1.2.x will be false
+DEFINE_Bool(enable_set_in_bitmap_value, "true");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
