@@ -53,7 +53,7 @@ USE testdb;
 
 CREATE TABLE test_json (
   id INT,
-  j JSON
+  j JSONB
 )
 DUPLICATE KEY(id)
 DISTRIBUTED BY HASH(id) BUCKETS 10
