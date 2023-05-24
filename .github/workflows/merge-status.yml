@@ -25,7 +25,6 @@ on:
   pull_request:
 
 env:
-  PULL_REQUEST_NUM: $(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
   LATEST_COMMIT: $(curl -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')" > pr_details.json && jq -r '.head.sha' pr_details.json)
   TEAMCITY_URL: '-H \"Content-Type:text/plain\" -H \"Accept: application/json\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111'
 
@@ -45,7 +44,7 @@ jobs:
             echo "Comment was made on an issue, not a pull request."
           fi
           comment="${{ env.ISSUE_COMMENT }}"
-          pull_request_num=${{ env.PULL_REQUEST_NUM }}
+          pull_request_num="${{ github.event.pull_request.number }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")          
           comment_message="${comment}"
           latest_commit_id="${{ env.LATEST_COMMIT }}"
