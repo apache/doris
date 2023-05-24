@@ -113,6 +113,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/avro_reader.h"
 #include "vec/jsonb/serialize.h"
+#include "vec/exec/scan/avro_reader.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace google {
