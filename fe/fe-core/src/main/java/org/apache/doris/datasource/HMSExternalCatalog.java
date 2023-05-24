@@ -84,6 +84,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
         // check file.meta.cache.ttl-second parameter
         // CatalogProperty oriProperty = this.catalogProperty;
 
+        //当前属性
+        for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
+        }
+
         String fileMetaCacheTtlSecond = this.catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
@@ -101,13 +106,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
+        System.out.println("开始检查"+HdfsResource.DSF_NAMENODES);
         String namenodes = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
             throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
         }
-        for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
-            System.out.println(entry.getKey() + ": " + entry.getValue());
-        }
+
         String[] names = namenodes.split(",");
         for (String name : names) {
             String address = this.catalogProperty.getOrDefault(
