@@ -100,7 +100,7 @@ public class NativeInsertStmt extends InsertStmt {
     private final PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames.
     private List<Long> targetPartitionIds;
-    private final List<String> targetColumnNames;
+    protected List<String> targetColumnNames;
     private QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
@@ -111,7 +111,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     private final Map<String, Expr> exprByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
-    private Table targetTable;
+    protected Table targetTable;
 
     private DatabaseIf db;
     private long transactionId;

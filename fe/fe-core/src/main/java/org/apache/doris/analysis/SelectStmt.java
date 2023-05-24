@@ -2649,4 +2649,9 @@ public class SelectStmt extends QueryStmt {
             return null;
         }
     }
+
+    public void resetSelectList(SelectList selectList) {
+        this.selectList = selectList;
+        this.originSelectList = selectList.clone();
+    }
 }
