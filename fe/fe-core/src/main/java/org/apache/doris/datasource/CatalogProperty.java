@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
@@ -100,8 +101,7 @@ public class CatalogProperty implements Writable {
 
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
-        properties = props.entrySet().stream()
-                .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
+        properties = new HashMap<>(props);
     }
 
     public Map<String, String> getHadoopProperties() {
