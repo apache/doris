@@ -72,6 +72,7 @@ public abstract class JniScanner {
             throw e;
         }
         if (numRows == 0) {
+            releaseTable();
             return 0;
         }
         return getMetaAddress(numRows);

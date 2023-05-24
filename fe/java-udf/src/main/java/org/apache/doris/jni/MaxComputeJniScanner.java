@@ -46,7 +46,7 @@ public class MaxComputeJniScanner extends JniScanner {
 
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
     private static final String REGION = "region";
     private static final String PROJECT = "project";
     private static final String TABLE = "table";
@@ -113,7 +113,6 @@ public class MaxComputeJniScanner extends JniScanner {
             session = tunnel.createDownloadSession(project, table);
             totalRows = session.getRecordCount();
             // TODO Use split range
-            LOG.warn("MCJNI totalRows: " + totalRows);
         } catch (Exception e) {
             throw new IOException(e);
         }
@@ -170,7 +169,12 @@ public class MaxComputeJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        LOG.warn("MCJNI close()");
+        readRowsOffset = 0;
+        remainBatchRows = 0;
+        totalRows = 0;
+        if (curReader != null) {
+            curReader.close();
+        }
     }
 
     private boolean nextReader(long start, long size) throws IOException {
@@ -179,7 +183,6 @@ public class MaxComputeJniScanner extends JniScanner {
                 curReader.close();
             }
             if (readRowsOffset == totalRows) {
-                LOG.warn("MCJNI EOF");
                 return false;
             }
             curReader = session.openArrowRecordReader(start, size, columns);
@@ -206,7 +209,6 @@ public class MaxComputeJniScanner extends JniScanner {
         int realRows = readVectors(expectedRows);
         remainBatchRows -= realRows;
         readRowsOffset += realRows;
-        LOG.warn("MCJNI readRowsOffset: " + readRowsOffset);
         return realRows;
     }
 
