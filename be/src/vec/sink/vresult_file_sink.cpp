@@ -179,10 +179,9 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     } else {
         if (final_status.ok()) {
             auto st = _stream_sender->send(state, _output_block.get(), true);
-            if (st.template is<ErrorCode::END_OF_FILE>()) {
-                return Status::OK();
+            if (!st.template is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(st);
             }
-            RETURN_IF_ERROR(st);
         }
         RETURN_IF_ERROR(_stream_sender->close(state, final_status));
         _output_block->clear();
