@@ -36,5 +36,8 @@ jobs:
             echo "-----------------------------------------------------------------"
             running_builds_command="curl -s -X GET ${teamcity_url}/app/rest/builds\?locator\=buildType\:Doris_DorisRegression_Approval\,branch:pull/${pull_request_num}\,running:true"
             echo "${running_builds_command}" 
+            latest_commit_id="${{ env.LATEST_COMMIT }}"
             running_builds_list=$(eval "${running_builds_command}" > running_builds.json && jq -r '.build[].id' running_builds.json)
             echo "running_builds_list : ${running_builds_list}"
+            echo "${execute_command}"
+            eval "${running_builds_command}"
