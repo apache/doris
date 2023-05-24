@@ -15,14 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.udf.demo;
-
-import javax.crypto.*;
-import javax.crypto.spec.SecretKeySpec;
+package org.apache.doris.java.udf.demo;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.security.SecureRandom;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 
 /**
@@ -69,27 +70,27 @@ public class AESUtil {
             if (StringUtils.isBlank(content) || StringUtils.isBlank(secret)) {
                 return null;
             }
-            //Determine whether to encrypt or decrypt
+            // Determine whether to encrypt or decrypt
             boolean encrypt = mode == Cipher.ENCRYPT_MODE;
             byte[] data;
 
-            //1.Construct a key generator, specified as the AES algorithm, case-insensitive
+            // 1.Construct a key generator, specified as the AES algorithm, case-insensitive
             KeyGenerator kgen = KeyGenerator.getInstance(KEY_AES);
             SecureRandom secureRandom = SecureRandom.getInstance("SHA1PRNG");
-            //2. Initialize the key generator according to the ecnodeRules rules
-            //Generate a 128-bit random source, based on the incoming byte array
+            // 2. Initialize the key generator according to the ecnodeRules rules
+            // Generate a 128-bit random source, based on the incoming byte array
             secureRandom.setSeed(secret.getBytes());
-            //Generate a 128-bit random source, based on the incoming byte array
+            // Generate a 128-bit random source, based on the incoming byte array
             kgen.init(128, secureRandom);
-            //3.generate the original symmetric key
+            // 3.generate the original symmetric key
             SecretKey secretKey = kgen.generateKey();
-            //4.Get the byte array of the original symmetric key
+            // 4.Get the byte array of the original symmetric key
             byte[] enCodeFormat = secretKey.getEncoded();
-            //5.Generate AES key from byte array
+            // 5.Generate AES key from byte array
             SecretKeySpec keySpec = new SecretKeySpec(enCodeFormat, KEY_AES);
-            //6.According to the specified algorithm AES self-generated cipher
+            // 6.According to the specified algorithm AES self-generated cipher
             Cipher cipher = Cipher.getInstance(KEY_AES);
-            //7.Initialize the cipher, the first parameter is encryption (Encrypt_mode) or decryption (Decrypt_mode) operation,
+            // 7.Initialize the cipher, the first parameter is encryption (Encrypt_mode) or decryption (Decrypt_mode) operation,
             // the second parameter is the KEY used
             cipher.init(mode, keySpec);
 
@@ -100,7 +101,7 @@ public class AESUtil {
             }
             byte[] result = cipher.doFinal(data);
             if (encrypt) {
-                //convert binary to hexadecimal
+                // convert binary to hexadecimal
                 return parseByte2HexStr(result);
             } else {
                 return new String(result, defaultCharset);
