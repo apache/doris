@@ -43,31 +43,21 @@ github:
     merge:   false
     rebase:  false
   protected_branches:
-    master:
+    selectdb-cloud-dev:
       required_status_checks:
       # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          - Clang Formatter
-          - Build Extensions
-          - License Check
-          - P0 regression (Doris P0 Regression)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
           - CheckStyle
+          - MS UT (UT)
+          - FE UT (UT)
+          - CLOUT BE UT (UT)
+          - LOCAL BE UT (UT)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
   notifications:
-    pullrequests_status:  commits@doris.apache.org
+    pullrequests_status:  core@selectdb.com
   collaborators:
-    - jackwener
-    - tinkerrrr
-    - luzhijing
-    - spaces-X
-    - zuochunwei
-    - thomascai126
-    - dataroaring
-    - morrySnow
-    - dataalive
+    - gavinchou
