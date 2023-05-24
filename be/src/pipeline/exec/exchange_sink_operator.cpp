@@ -53,12 +53,8 @@ ExchangeSinkOperator::ExchangeSinkOperator(OperatorBuilderBase* operator_builder
 Status ExchangeSinkOperator::init(const TDataSink& tsink) {
     // -1 means not the mult cast stream sender
     if (_mult_cast_id == -1) {
-        RETURN_IF_ERROR(_sink->init(tsink));
         _dest_node_id = tsink.stream_sink.dest_node_id;
     } else {
-        TDataSink new_t_sink;
-        new_t_sink.stream_sink = tsink.multi_cast_stream_sink.sinks[_mult_cast_id];
-        RETURN_IF_ERROR(_sink->init(new_t_sink));
         _dest_node_id = tsink.multi_cast_stream_sink.sinks[_mult_cast_id].dest_node_id;
     }
     return Status::OK();

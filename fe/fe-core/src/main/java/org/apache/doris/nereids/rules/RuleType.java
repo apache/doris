@@ -214,6 +214,8 @@ public enum RuleType {
     PUSH_LIMIT_INTO_SORT(RuleTypeClass.REWRITE),
     // adjust nullable
     ADJUST_NULLABLE(RuleTypeClass.REWRITE),
+    // ensure having project on the top join
+    ENSURE_PROJECT_ON_TOP_JOIN(RuleTypeClass.REWRITE),
 
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
 

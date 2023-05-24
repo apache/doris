@@ -69,8 +69,6 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;

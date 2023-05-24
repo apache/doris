@@ -148,18 +148,6 @@ endif()
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 # Set all libraries
-add_library(ic STATIC IMPORTED)
-set_target_properties(ic PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libic.a)
-
-add_library(clucene-core STATIC IMPORTED)
-set_target_properties(clucene-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-core-static.a)
-
-add_library(clucene-shared STATIC IMPORTED)
-set_target_properties(clucene-shared PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-shared-static.a)
-
-add_library(clucene-contribs-lib STATIC IMPORTED)
-set_target_properties(clucene-contribs-lib PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-contribs-lib.a)
-
 add_library(gflags STATIC IMPORTED)
 set_target_properties(gflags PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgflags.a)
 
@@ -449,6 +437,39 @@ SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
+set(BUILD_STATIC_LIBRARIES ON)
+set(BUILD_SHARED_LIBRARIES OFF)
+set(BUILD_CONTRIBS_LIB ON)
+set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+set(USE_STAT64 0)
+
+if (USE_BTHREAD_SCANNER)
+    set(USE_BTHREAD ON)
+else()
+    set(USE_BTHREAD OFF)
+endif()
+
+
+add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
+
+if (COMPILER_CLANG)
+	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+else ()
+	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+endif()
+
+install(DIRECTORY
+    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
+    DESTINATION ${OUTPUT_DIR})
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -475,7 +496,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
@@ -502,12 +523,8 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
-        message(FATAL_ERROR "Need Clang version at least 13")
-    endif()
-
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
-        message(WARNING "Doris recommended to use Clang-16 to build backend")
+        message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
     add_compile_options(-fcolor-diagnostics 
@@ -521,7 +538,6 @@ if (COMPILER_CLANG)
                         -Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
                         -Wno-vla-extension
-                        -Wno-c++20-designator
                         -Wno-embedded-directive)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
@@ -529,8 +545,6 @@ if (COMPILER_CLANG)
             add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
         endif()
         add_definitions(-DUSE_LIBCPP)
-    else()
-        add_compile_options(-Wno-c++20-attribute-extensions)
     endif()
 endif ()
 
@@ -646,6 +660,13 @@ include_directories(
 )
 
 include_directories(
+    ${CMAKE_CURRENT_BINARY_DIR}/src/clucene/src/shared
+    ${SRC_DIR}/clucene/src/core
+    ${SRC_DIR}/clucene/src/shared
+    ${SRC_DIR}/clucene/src/contribs-lib
+)
+
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
 )
@@ -732,10 +753,6 @@ find_package(absl)
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
-    ic
-    clucene-core
-    clucene-shared
-    clucene-contribs-lib
     backtrace
     rocksdb
     cyrus-sasl
@@ -858,6 +875,10 @@ if (WITH_MYSQL)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 

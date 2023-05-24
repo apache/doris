@@ -36,7 +36,7 @@ public class AutoBucketUtils {
 
     private static int getBENum() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
+        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
 
         int activeBENum = 0;
         for (Backend backend : backends.values()) {
@@ -49,7 +49,7 @@ public class AutoBucketUtils {
 
     private static int getBucketsNumByBEDisks() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
+        ImmutableMap<Long, Backend> backends = infoService.getAllBackendsMap();
 
         int buckets = 0;
         for (Backend backend : backends.values()) {

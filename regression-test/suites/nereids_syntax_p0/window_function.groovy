@@ -20,6 +20,10 @@ suite("window_function") {
 
     sql "DROP TABLE IF EXISTS window_test"
 
+    sql "DROP TABLE IF EXISTS adj_nullable_1"
+
+    sql "DROP TABLE IF EXISTS adj_nullable_2"
+
     sql """
         CREATE TABLE `window_test` (
             `c1` int NULL,

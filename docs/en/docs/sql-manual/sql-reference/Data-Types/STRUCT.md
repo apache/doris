@@ -48,13 +48,19 @@ The names and number of Fields in a Struct is fixed and always Nullable, and a F
 - field_type: A data type.
 - COMMENT: An optional string describing the field. (currently not supported)
 
+The currently supported types are:
+
+```
+BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIMALV3, DATE,
+DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
+```
+
 We have a todo list for future version:
 
 ```
 TODO:
 	1、支持 COMMENT
-	2、支持 DECIMALV3 类型
-	3、支持嵌套 STRUCT 或其他的复杂类型
+	2、支持嵌套 STRUCT 或其他的复杂类型
 ```
 
 ### example

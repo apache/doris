@@ -495,6 +495,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return result;
     }
 
+    public Expr getChildWithoutCast(int i) {
+        Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
+        Expr child = children.get(i);
+        return child instanceof CastExpr ? child.children.get(0) : child;
+    }
+
     /**
      * Helper function: analyze list of exprs
      *
@@ -993,6 +999,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         for (Expr child : children) {
             child.treeToThriftHelper(container);
         }
+    }
+
+    public static Type getAssignmentCompatibleType(List<Expr> children) {
+        Type assignmentCompatibleType = Type.INVALID;
+        for (int i = 0; i < children.size()
+                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
+                || assignmentCompatibleType.isInvalid()); i++) {
+            if (children.get(i) instanceof NullLiteral) {
+                continue;
+            }
+            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
+                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
+                    true);
+        }
+        return assignmentCompatibleType;
     }
 
     // Convert this expr into msg (excluding children), which requires setting

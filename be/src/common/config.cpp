@@ -124,7 +124,7 @@ DEFINE_mString(process_full_gc_size, "20%");
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DEFINE_mBool(enable_query_memroy_overcommit, "true");
+DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -508,7 +508,7 @@ DEFINE_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "false");
+DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table

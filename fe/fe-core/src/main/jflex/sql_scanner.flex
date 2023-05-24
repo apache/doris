@@ -367,6 +367,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("property", new Integer(SqlParserSymbols.KW_PROPERTY));
         keywordMap.put("quantile_state", new Integer(SqlParserSymbols.KW_QUANTILE_STATE));
         keywordMap.put("quantile_union", new Integer(SqlParserSymbols.KW_QUANTILE_UNION));
+        keywordMap.put("agg_state", new Integer(SqlParserSymbols.KW_AGG_STATE));
         keywordMap.put("query", new Integer(SqlParserSymbols.KW_QUERY));
         keywordMap.put("quota", new Integer(SqlParserSymbols.KW_QUOTA));
         keywordMap.put("random", new Integer(SqlParserSymbols.KW_RANDOM));

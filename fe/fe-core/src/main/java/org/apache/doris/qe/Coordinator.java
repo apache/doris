@@ -587,7 +587,7 @@ public class Coordinator {
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
+            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
@@ -600,7 +600,7 @@ public class Coordinator {
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
-                topResultFileSink.setBrokerAddr(broker.ip, broker.port);
+                topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
             // This is a load process.
@@ -824,7 +824,8 @@ public class Coordinator {
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap);
+                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap,
+                            executionProfile.getLoadChannelProfile());
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -2686,6 +2687,7 @@ public class Coordinator {
         volatile boolean done;
         boolean hasCanceled;
         Map<TUniqueId, RuntimeProfile> fragmentInstancesMap;
+        RuntimeProfile loadChannelProfile;
         int cancelProgress = 0;
         int profileFragmentId;
         TNetworkAddress brpcAddress;
@@ -2697,12 +2699,14 @@ public class Coordinator {
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
-                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap) {
+                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap,
+                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
             this.numInstances = rpcParams.local_params.size();
             this.fragmentInstancesMap = fragmentInstancesMap;
+            this.loadChannelProfile = loadChannelProfile;
 
             this.initiated = false;
             this.done = false;
@@ -2740,6 +2744,9 @@ public class Coordinator {
 
             if (params.isSetProfile()) {
                 profile.update(params.profile);
+            }
+            if (params.isSetLoadChannelProfile()) {
+                loadChannelProfile.update(params.loadChannelProfile);
             }
             if (params.done) {
                 profile.setIsDone(true);

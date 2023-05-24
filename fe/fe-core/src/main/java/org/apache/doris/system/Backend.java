@@ -17,7 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
@@ -57,17 +56,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * eg usage information, current administrative state etc.
  */
 public class Backend implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Backend.class);
 
     // Represent a meaningless IP
     public static final String DUMMY_IP = "0.0.0.0";
-
-    public enum BackendState {
-        using, /* backend is belong to a cluster*/
-        offline,
-        free /* backend is not belong to any clusters */
-    }
-
-    private static final Logger LOG = LogManager.getLogger(Backend.class);
 
     @SerializedName("id")
     private long id;
@@ -95,14 +87,6 @@ public class Backend implements Writable {
 
     @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
-    @SerializedName("decommissionType")
-    private volatile int decommissionType;
-    @SerializedName("ownerClusterName")
-    private volatile String ownerClusterName;
-    // to index the state in some cluster
-    @SerializedName("backendState")
-    private volatile int backendState;
-    // private BackendState backendState;
 
     // rootPath -> DiskInfo
     @SerializedName("disksRef")
@@ -156,9 +140,6 @@ public class Backend implements Writable {
         this.beRpcPort = 0;
         this.disksRef = ImmutableMap.of();
 
-        this.ownerClusterName = "";
-        this.backendState = BackendState.free.ordinal();
-        this.decommissionType = DecommissionType.SystemDecommission.ordinal();
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
@@ -177,9 +158,6 @@ public class Backend implements Writable {
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
 
-        this.ownerClusterName = "";
-        this.backendState = BackendState.free.ordinal();
-        this.decommissionType = DecommissionType.SystemDecommission.ordinal();
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
@@ -276,10 +254,6 @@ public class Backend implements Writable {
         return false;
     }
 
-    public void setBackendState(BackendState state) {
-        this.backendState = state.ordinal();
-    }
-
     public void setHost(String host) {
         this.host = host;
     }
@@ -356,15 +330,6 @@ public class Backend implements Writable {
         return heartbeatFailureCounter;
     }
 
-    /**
-     * backend is free, and it isn't belong to any cluster
-     *
-     * @return
-     */
-    public boolean isFreeFromCluster() {
-        return this.backendState == BackendState.free.ordinal();
-    }
-
     public ImmutableMap<String, DiskInfo> getDisks() {
         return this.disksRef;
     }
@@ -389,7 +354,7 @@ public class Backend implements Writable {
     }
 
     public long getAvailableCapacityB() {
-        // when cluster init, disks is empty, return 1L.
+        // when system init, disks is empty, return 1L.
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long availableCapacityB = 1L;
         for (DiskInfo diskInfo : disks.values()) {
@@ -601,49 +566,20 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
-                && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
+        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort) && (bePort
+                == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime)
-                + ", tags: " + tagMap + "]";
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", tags: " + tagMap + "]";
     }
 
-    public String getOwnerClusterName() {
-        return ownerClusterName;
-    }
-
-    public void setOwnerClusterName(String name) {
-        ownerClusterName = name;
-    }
-
-    public void clearClusterName() {
-        ownerClusterName = "";
-    }
-
-    public BackendState getBackendState() {
-        switch (backendState) {
-            case 0:
-                return BackendState.using;
-            case 1:
-                return BackendState.offline;
-            default:
-                return BackendState.free;
-        }
-    }
-
-    public void setDecommissionType(DecommissionType type) {
-        decommissionType = type.ordinal();
-    }
-
-    public DecommissionType getDecommissionType() {
-        if (decommissionType == DecommissionType.ClusterDecommission.ordinal()) {
-            return DecommissionType.ClusterDecommission;
-        }
-        return DecommissionType.SystemDecommission;
+    public String getHealthyStatus() {
+        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
+                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
+                + TimeUtils.longToTimeString(lastUpdateMs);
     }
 
     /**
@@ -746,6 +682,13 @@ public class Backend implements Writable {
         public volatile boolean isQueryDisabled = false;
         @SerializedName("isLoadDisabled")
         public volatile boolean isLoadDisabled = false;
+
+        @Override
+        public String toString() {
+            return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
+                    + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
+                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+        }
     }
 
     public Tag getLocationTag() {

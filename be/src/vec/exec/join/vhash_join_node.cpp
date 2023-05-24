@@ -96,7 +96,8 @@ Overload(Callables&&... callables) -> Overload<Callables...>;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          HashJoinNode* join_node, int batch_size, uint8_t offset)
+                          HashJoinNode* join_node, int batch_size, uint8_t offset,
+                          RuntimeState* state)
             : _rows(rows),
               _skip_rows(0),
               _acquired_block(acquired_block),
@@ -104,6 +105,7 @@ struct ProcessHashTableBuild {
               _join_node(join_node),
               _batch_size(batch_size),
               _offset(offset),
+              _state(state),
               _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool short_circuit_for_null>
@@ -170,6 +172,9 @@ struct ProcessHashTableBuild {
             }
 
             for (size_t k = 0; k < _rows; ++k) {
+                if (k % 65536 == 0) {
+                    RETURN_IF_CANCELLED(_state);
+                }
                 if constexpr (ignore_null) {
                     if ((*null_map)[k]) {
                         continue;
@@ -198,6 +203,9 @@ struct ProcessHashTableBuild {
         bool build_unique = _join_node->_build_unique;
 #define EMPLACE_IMPL(stmt)                                                                  \
     for (size_t k = 0; k < _rows; ++k) {                                                    \
+        if (k % 65536 == 0) {                                                               \
+            RETURN_IF_CANCELLED(_state);                                                    \
+        }                                                                                   \
         if constexpr (ignore_null) {                                                        \
             if ((*null_map)[k]) {                                                           \
                 continue;                                                                   \
@@ -262,6 +270,7 @@ private:
     HashJoinNode* _join_node;
     int _batch_size;
     uint8_t _offset;
+    RuntimeState* _state;
 
     ProfileCounter* _build_side_compute_hash_timer;
     std::vector<size_t> _build_side_hash_values;
@@ -1064,7 +1073,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                         auto short_circuit_for_null_in_build_side) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                rows, block, raw_ptrs, this, state->batch_size(), offset);
+                                rows, block, raw_ptrs, this, state->batch_size(), offset, state);
                         return hash_table_build_process
                                 .template run<has_null_value, short_circuit_for_null_in_build_side>(
                                         arg,
