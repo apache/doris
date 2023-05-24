@@ -555,8 +555,8 @@
 
 // doris common headers
 // #include "common/compiler_util.h"
-// #include "common/config.h"
-// #include "common/logging.h"
-// #include "common/status.h"
-// #include "common/version_internal.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "common/version_internal.h"
 // #include "gutil/strings/substitute.h"
