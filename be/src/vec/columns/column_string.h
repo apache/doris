@@ -222,9 +222,11 @@ public:
             if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
                 continue;
             }
-            DCHECK(ptr != nullptr);
-            memcpy(data, ptr, length);
-            data += length;
+            if (length != 0) {
+                DCHECK(ptr != nullptr);
+                memcpy(data, ptr, length);
+                data += length;
+            }
             if (LIKELY(i != num - 1)) {
                 ptr = strings[i + 1].data;
                 length = 0;

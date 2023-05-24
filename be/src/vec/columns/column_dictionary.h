@@ -535,7 +535,6 @@ public:
         }
 
     private:
-        StringRef _null_value = StringRef();
         StringRef::Comparator _comparator;
         // dict code -> dict value
         std::unique_ptr<DictContainer> _dict_data;
