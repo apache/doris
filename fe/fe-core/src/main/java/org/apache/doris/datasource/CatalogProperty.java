@@ -36,8 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.stream.Collectors;
+
 
 /**
  * CatalogProperty to store the properties for catalog.
