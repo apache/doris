@@ -1403,7 +1403,9 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else if (fnName.getFunction().equalsIgnoreCase("coalesce") && children.size() > 1) {
+        } else if ((fnName.getFunction().equalsIgnoreCase("coalesce")
+                || fnName.getFunction().equalsIgnoreCase("greatest")
+                || fnName.getFunction().equalsIgnoreCase("least")) && children.size() > 1) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length && assignmentCompatibleType.isDecimalV3(); i++) {

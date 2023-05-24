@@ -444,11 +444,6 @@ public:
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
-
     std::string to_string() const;
 
     /// @return A json representation of this status.
@@ -496,6 +491,11 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
+
+    std::string code_as_string() const {
+        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                               : fmt::format("E{}", (int16_t)_code);
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
