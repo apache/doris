@@ -846,7 +846,7 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 //whether turn on quick compaction feature
-CONF_Bool(enable_quick_compaction, "false");
+CONF_Bool(enable_quick_compaction, "true");
 // For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
 CONF_Int32(quick_compaction_max_rows, "1000");
 // min compaction versions
