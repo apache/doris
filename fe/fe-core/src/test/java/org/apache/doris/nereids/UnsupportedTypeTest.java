@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -108,6 +109,9 @@ public class UnsupportedTypeTest extends TestWithFeService {
     }
 
     private void runPlanner(String sql) {
-        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(new NereidsParser().parseSingle(sql));
+        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(
+                new NereidsParser().parseSingle(sql),
+                PhysicalProperties.ANY
+        );
     }
 }
