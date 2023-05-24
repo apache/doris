@@ -309,7 +309,6 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | DOUBLE     | DataTypes.DoubleType             |
 | DATE       | DataTypes.StringType<sup>1</sup> |
 | DATETIME   | DataTypes.StringType<sup>1</sup> |
-| BINARY     | DataTypes.BinaryType             |
 | DECIMAL    | DecimalType                      |
 | CHAR       | DataTypes.StringType             |
 | LARGEINT   | DataTypes.StringType             |
@@ -317,6 +316,11 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | DECIMALV2  | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
+| Bitmap     | Unsupported datatype             |
+| DATEV2     | DataTypes.StringType<sup>2</sup> |
+| DATETIMEV2 | DataTypes.StringType<sup>2</sup> |
+| DECIMALV3  | DecimalType<sup>2</sup>          |
 
-* 注：Connector中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
+* 注1：Connector 中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
+* 注2：Connector 中，`DATEV2`、`DATETIMEV2`和`DECIMALV3`会在 Doris 2.0 及以上版本支持，对于 2.0 以下的版本，目前没有支持的计划。
 
