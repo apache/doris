@@ -20,7 +20,8 @@ suite("test_date_acquire") {
     sql 'set enable_fallback_to_original_planner=false'
 
     String res = sql 'explain select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
-    assertFalse(res.contains('now() | now(3) | current_date() | current_date() | current_time() | current_time() | now() | now(3)'))
+    res = res.split('VUNION')[1]
+    assertFalse(res.contains("()") || res.contains("(3)"))
 
     sql "set enable_fold_constant_by_be=true"
 
