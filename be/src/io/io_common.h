@@ -29,6 +29,7 @@ enum class ReaderType {
     READER_CHECKSUM = 4,
     READER_COLD_DATA_COMPACTION = 5,
     READER_SEGMENT_COMPACTION = 6,
+    UNKNOWN = 7
 };
 
 namespace io {
@@ -55,7 +56,7 @@ public:
               is_disposable(use_disposable_cache),
               read_segment_index(read_segment_index),
               file_cache_stats(stats) {}
-    ReaderType reader_type;
+    ReaderType reader_type = ReaderType::UNKNOWN;
     const TUniqueId* query_id = nullptr;
     bool is_disposable = false;
     bool read_segment_index = false;
