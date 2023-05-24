@@ -22,7 +22,8 @@
 name: Auto Check Merge State
 
 on:
-  pull_request:
+  pull_request_review:
+    types: [submitted]
 
 env:
   LATEST_COMMIT: $(curl -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')" > pr_details.json && jq -r '.head.sha' pr_details.json)
@@ -30,6 +31,7 @@ env:
 
 jobs:
   run_teamcity_pipeline:
+    if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
