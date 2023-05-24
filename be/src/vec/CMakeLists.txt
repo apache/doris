@@ -142,6 +142,7 @@ set(VEC_FILES
   exec/vpartition_sort_node.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
+  exec/join/grace_hash_join_node.cpp
   exec/join/vnested_loop_join_node.cpp
   exec/join/inner_join_impl.cpp
   exec/join/left_semi_join_impl.cpp
@@ -351,6 +352,10 @@ set(VEC_FILES
   exec/format/parquet/bool_rle_decoder.cpp
   exec/jni_connector.cpp
   exec/scan/jni_reader.cpp
+  spill/spill_stream.cpp
+  spill/spill_stream_manager.cpp
+  spill/spill_writer.cpp
+  spill/spill_reader.cpp
   )
 
 if (WITH_MYSQL)

@@ -46,6 +46,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exec/join/grace_hash_join_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -378,7 +379,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        if (state->enable_join_spill()) {
+            *node = pool->add(new vectorized::GraceHashJoinNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:

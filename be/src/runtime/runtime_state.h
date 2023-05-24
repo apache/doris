@@ -404,6 +404,18 @@ public:
                        : 0;
     }
 
+    bool enable_join_spill() const {
+        return _query_options.__isset.enable_join_spill && _query_options.enable_join_spill;
+    }
+
+    bool enable_sort_spill() const {
+        return _query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill;
+    }
+
+    bool enable_agg_spill() const {
+        return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
+    }
+
 private:
     Status create_error_log_file();
 

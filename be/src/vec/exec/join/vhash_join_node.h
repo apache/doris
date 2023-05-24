@@ -224,6 +224,10 @@ public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~HashJoinNode() override;
 
+    static Status evaluate_exprs(Block& block, std::vector<VExprContext*>& exprs,
+                                 RuntimeProfile::Counter& expr_call_timer,
+                                 std::vector<int>& res_col_ids);
+
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
@@ -345,9 +349,6 @@ private:
     Status _materialize_build_side(RuntimeState* state) override;
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
-
-    Status _do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
 
     template <bool BuildSide>
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,

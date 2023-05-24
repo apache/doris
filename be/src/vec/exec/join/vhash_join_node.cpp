@@ -622,8 +622,8 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         _probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-        RETURN_IF_ERROR(
-                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
+        RETURN_IF_ERROR(evaluate_exprs(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer,
+                                       res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
@@ -985,9 +985,9 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
     return Status::OK();
 }
 
-Status HashJoinNode::_do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
-                                  RuntimeProfile::Counter& expr_call_timer,
-                                  std::vector<int>& res_col_ids) {
+Status HashJoinNode::evaluate_exprs(Block& block, std::vector<VExprContext*>& exprs,
+                                    RuntimeProfile::Counter& expr_call_timer,
+                                    std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column
@@ -1042,7 +1042,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
 
     ColumnUInt8::MutablePtr null_map_val;
     std::vector<int> res_col_ids(_build_expr_ctxs.size());
-    RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
+    RETURN_IF_ERROR(evaluate_exprs(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
     }

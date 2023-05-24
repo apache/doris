@@ -221,6 +221,12 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_join_spill = false
+
+  75: optional bool enable_sort_spill = false
+
+  76: optional bool enable_agg_spill = false
 }
     
 

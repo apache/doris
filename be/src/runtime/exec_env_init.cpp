@@ -144,6 +144,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_join_node_thread_pool);
 
+    int spill_io_thread_count = config::spill_io_thread_pool_thread_num;
+    if (spill_io_thread_count <= 0) {
+        spill_io_thread_count = CpuInfo::num_cores();
+    }
+    ThreadPoolBuilder("SpillIOThreadPool")
+            .set_min_threads(spill_io_thread_count)
+            .set_max_threads(spill_io_thread_count)
+            .set_max_queue_size(config::spill_io_thread_pool_queue_size)
+            .build(&_spill_io_pool);
+
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);

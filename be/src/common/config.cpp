@@ -998,6 +998,9 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
 
+DEFINE_Int32(spill_io_thread_pool_thread_num, "64");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
