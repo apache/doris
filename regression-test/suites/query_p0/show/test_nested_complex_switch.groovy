@@ -17,9 +17,9 @@
 
 suite("test_nested_complex_switch", "query") {
     // define a sql table
-    def testTable_m = "test_nesting_complex_switch_map"
-    def testTable_a = "test_nesting_complex_switch_array"
-    def testTable_s = "test_nesting_complex_switch_struct"
+    def testTable_m = "test_nested_complex_switch_map"
+    def testTable_a = "test_nested_complex_switch_array"
+    def testTable_s = "test_nested_complex_switch_struct"
 
 
     def sql_m_s = """CREATE TABLE IF NOT EXISTS ${testTable_m} (
@@ -197,7 +197,7 @@ suite("test_nested_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_s}"
         sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
         sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nesting_complex_type' = 'false')"
+        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"
 
 
         // map
