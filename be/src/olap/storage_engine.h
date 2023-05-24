@@ -290,7 +290,6 @@ private:
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
-    bool _tablet_busy(TabletSharedPtr tablet);
 
 private:
     struct CompactionCandidate {

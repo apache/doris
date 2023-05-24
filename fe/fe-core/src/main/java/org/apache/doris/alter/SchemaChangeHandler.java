@@ -2425,9 +2425,6 @@ public class SchemaChangeHandler extends AlterHandler {
             IndexChangeJob indexChangeJob = iterator.next().getValue();
             if (indexChangeJob.isExpire()) {
                 iterator.remove();
-                // RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(
-                //         alterJobV2.getJobId(), alterJobV2.getType());
-                // Env.getCurrentEnv().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired inverted index job {}. finish at {}",
                         indexChangeJob.getJobId(), TimeUtils.longToTimeString(indexChangeJob.getFinishedTimeMs()));
             }
@@ -2448,10 +2445,6 @@ public class SchemaChangeHandler extends AlterHandler {
             runnableSchemaChangeJobV2.remove(log.getJobId());
         }
         super.replayRemoveAlterJobV2(log);
-    }
-
-    public void replayRemoveIndexChangeJob() {
-        // TODO
     }
 
     @Override

@@ -250,7 +250,7 @@ public:
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
-            const std::vector<int32_t>& alter_column_uids, bool is_drop_op);
+            const std::set<int32_t>& alter_index_uids, bool is_drop_op);
 
     void calculate_cumulative_point();
     // TODO(ygl):

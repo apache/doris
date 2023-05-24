@@ -52,7 +52,7 @@ public:
     void gc_output_rowset();
 
 private:
-    Status _write_inverted_index_data(int32_t segment_idx,
+    Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
                                  vectorized::Block* block);
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
@@ -61,14 +61,15 @@ private:
                          const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
+    Status _calc_alter_column_ids();
 private:
     TabletSharedPtr _tablet;
-    TabletSchemaSPtr _cur_tablet_schema;
     std::vector<TColumn> _columns;
     std::vector<TOlapTableIndex> _exist_indexes;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
     bool _is_drop_op;
-    std::vector<int32_t> _alter_column_uids;
+    std::unordered_map<std::string, std::set<int32_t>> _rowset_alter_index_column_ids;
+    std::set<int32_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetSharedPtr> _output_rowsets;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;

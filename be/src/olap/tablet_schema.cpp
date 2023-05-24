@@ -724,17 +724,6 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     init_from_pb(tablet_schema_pb);
 }
 
-void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema, 
-                                    const std::vector<TColumn>& t_columns) {
-    copy_from(tablet_schema);
-    if (!t_columns.empty() && t_columns[0].col_unique_id >= 0) {
-        clear_columns();
-        for (const auto& column : t_columns) {
-            append_column(TabletColumn(column));
-        }
-    }
-}
-
 std::string TabletSchema::to_key() const {
     TabletSchemaPB pb;
     to_schema_pb(&pb);
@@ -950,6 +939,17 @@ bool TabletSchema::has_inverted_index(int32_t col_unique_id) const {
                     return true;
                 }
             }
+        }
+    }
+
+    return false;
+}
+
+bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::INVERTED &&
+            _indexes[i].index_id() == index_id) {
+            return true;
         }
     }
 

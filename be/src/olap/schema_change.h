@@ -242,7 +242,6 @@ public:
     }
 
     static bool tablet_in_converting(int64_t tablet_id);
-    static bool base_tablet_ids_in_converting(int64_t tablet_id);
 
 private:
     static Status _get_versions_to_be_changed(TabletSharedPtr base_tablet,
@@ -284,7 +283,6 @@ private:
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;
-    static std::unordered_set<int64_t> _base_tablet_ids_in_converting;
     static std::set<std::string> _supported_functions;
 };
 } // namespace doris

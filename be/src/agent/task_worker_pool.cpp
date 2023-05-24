@@ -369,7 +369,6 @@ uint32_t TaskWorkerPool::_get_next_task_index(int32_t thread_count,
 void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TAlterInvertedIndexReq alter_inverted_index_rq;
 
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
@@ -380,47 +379,50 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
             }
 
             agent_task_req = _tasks.front();
-            alter_inverted_index_rq = agent_task_req.alter_inverted_index_req;
             _tasks.pop_front();
         }
 
+        auto& alter_inverted_index_rq = agent_task_req.alter_inverted_index_req;
         LOG(INFO) << "get alter inverted index task. signature=" << agent_task_req.signature
                   << ", tablet_id=" << alter_inverted_index_rq.tablet_id
                   << ", job_id=" << alter_inverted_index_rq.job_id;
 
+        Status status = Status::OK();
         TabletSharedPtr tablet_ptr =
                 StorageEngine::instance()->tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
         if (tablet_ptr != nullptr) {
-            // auto data_dir = tablet_ptr->data_dir();
-            // Return result to fe
-            Status status = Status::OK();
-            TFinishTaskRequest finish_task_request;
-            finish_task_request.__set_backend(_backend);
-            finish_task_request.__set_task_type(agent_task_req.task_type);
-            finish_task_request.__set_signature(agent_task_req.signature);
-
             EngineIndexChangeTask engine_task(alter_inverted_index_rq);
             status = _env->storage_engine()->execute_task(&engine_task);
-            std::vector<TTabletInfo> finish_tablet_infos;
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to alter inverted index task, signature=" << agent_task_req.signature
-                             << ", job_id=" << alter_inverted_index_rq.job_id
-                             << ", error=" << status;
-            } else {
-                LOG(WARNING) << "successfully alter inverted index task, signature=" << agent_task_req.signature
-                             << ", job_id=" << alter_inverted_index_rq.job_id;
-                TTabletInfo tablet_info;
-                status = _get_tablet_info(alter_inverted_index_rq.tablet_id, alter_inverted_index_rq.schema_hash,
-                                          agent_task_req.signature, &tablet_info);
-                if (status.ok()) {
-                    finish_tablet_infos.push_back(tablet_info);
-                }
-                finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
-            }
-            finish_task_request.__set_task_status(status.to_thrift());
-            _finish_task(finish_task_request);
-            _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+        } else {
+            status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
         }
+
+        // Return result to fe
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        std::vector<TTabletInfo> finish_tablet_infos;
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to alter inverted index task, signature=" << agent_task_req.signature
+                         << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                         << ", job_id=" << alter_inverted_index_rq.job_id
+                         << ", error=" << status;
+        } else {
+            LOG(INFO) << "successfully alter inverted index task, signature=" << agent_task_req.signature
+                         << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                         << ", job_id=" << alter_inverted_index_rq.job_id;
+            TTabletInfo tablet_info;
+            status = _get_tablet_info(alter_inverted_index_rq.tablet_id, alter_inverted_index_rq.schema_hash,
+                                      agent_task_req.signature, &tablet_info);
+            if (status.ok()) {
+                finish_tablet_infos.push_back(tablet_info);
+            }
+            finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
+        }
+        finish_task_request.__set_task_status(status.to_thrift());
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 

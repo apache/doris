@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -102,10 +103,18 @@ public class IndexChangeJob implements Writable {
     private List<Index> alterInvertedIndexes = null;
     @SerializedName(value = "originIndexId")
     private long originIndexId;
-    // @SerializedName(value = "partitionInvertedIndexTaskMap")
-    // private Map<Long, AgentBatchTask> partitionInvertedIndexTaskMap = Maps.newConcurrentMap();
     @SerializedName(value = "invertedIndexBatchTask")
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
+
+    public IndexChangeJob() {
+        this.jobId = -1;
+        this.dbId = -1;
+        this.tableId = -1;
+        this.tableName = "";
+
+        this.createTimeMs = System.currentTimeMillis();
+        this.jobState = JobState.WAITING_TXN;
+    }
 
     public IndexChangeJob(long jobId, long dbId, long tableId, String tableName) {
         this.jobId = jobId;
@@ -289,7 +298,6 @@ public class IndexChangeJob implements Writable {
             LOG.info("invertedIndexBatchTask:{}", invertedIndexBatchTask);
             AgentTaskQueue.addBatchTask(invertedIndexBatchTask);
             AgentTaskExecutor.submit(invertedIndexBatchTask);
-            // partitionInvertedIndexTaskMap.put(partitionId, invertedIndexBatchTask)
         } finally {
             olapTable.readUnlock();
         }
@@ -354,14 +362,45 @@ public class IndexChangeJob implements Writable {
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, IndexChangeJob.class);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_122) {
+            IndexChangeJob job = new IndexChangeJob();
+            job.readFields(in);
+            return job;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, IndexChangeJob.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, IndexChangeJob.class);
         Text.writeString(out, json);
+    }
+
+    protected void readFields(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_122) {
+            jobId = in.readLong();
+            jobState = JobState.valueOf(Text.readString(in));
+            dbId = in.readLong();
+            tableId = in.readLong();
+            tableName = Text.readString(in);
+            partitionId = in.readLong();
+            partitionName = Text.readString(in);
+            errMsg = Text.readString(in);
+            createTimeMs = in.readLong();
+            finishedTimeMs = in.readLong();
+            watershedTxnId = in.readLong();
+            isDropOp = in.readBoolean();
+            alterInvertedIndexes = Lists.newArrayList();
+            int alterInvertedIndexesSize = in.readInt();
+            for (int i = 0; i < alterInvertedIndexesSize; ++i) {
+                Index alterIndex = Index.read(in);
+                alterInvertedIndexes.add(alterIndex);
+            }
+            originIndexId = in.readLong();
+            invertedIndexBatchTask = new AgentBatchTask();
+        }
     }
 
     public String getAlterInvertedIndexesInfo() {

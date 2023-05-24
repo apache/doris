@@ -748,13 +748,6 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
         return Status::InternalError(
                     "tablet not exist, tablet_id={}.", tablet_id);
     }
-    bool tablet_busy = _tablet_busy(tablet);
-    if (tablet_busy) {
-        // can not do task this time
-        LOG(WARNING) << "tablet: " << tablet_id << " can not do build inverted index this time";
-        return Status::InternalError(
-                "tablet is busy, can not do build inverted index this time, tablet_id={}.", tablet_id);
-    }
 
     IndexBuilderSharedPtr index_builder =
             std::make_shared<IndexBuilder>(tablet, request.columns, request.indexes_desc,
@@ -767,21 +760,6 @@ Status StorageEngine::_handle_index_change(IndexBuilderSharedPtr index_builder) 
     RETURN_IF_ERROR(index_builder->init());
     RETURN_IF_ERROR(index_builder->do_build_inverted_index());
     return Status::OK();
-}
-
-bool StorageEngine::_tablet_busy(TabletSharedPtr tablet) {
-    std::shared_lock meta_rlock(tablet->get_header_lock());
-    if (SchemaChangeHandler::base_tablet_ids_in_converting(tablet->tablet_id())
-            || (tablet->tablet_state() == TABLET_NOTREADY 
-            && SchemaChangeHandler::tablet_in_converting(tablet->tablet_id()))) {
-        return true;
-    }
-
-    if (_tablet_submitted_cumu_compaction[tablet->data_dir()].count(tablet->tablet_id())
-                || _tablet_submitted_base_compaction[tablet->data_dir()].count(tablet->tablet_id())) {
-        return true;
-    }
-    return false;
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {

@@ -1288,13 +1288,13 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction()
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
-        const std::vector<int32_t>& alter_column_uids, bool is_drop_op) {
+        const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
-            for (const auto& col_uid : alter_column_uids) {
-                if (rowset->tablet_schema()->has_inverted_index(col_uid)) {
+            for (const auto& index_id : alter_index_uids) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
                     return true;
                 }
             }
