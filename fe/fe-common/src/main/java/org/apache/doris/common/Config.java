@@ -1932,6 +1932,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
+    /**
+     * Now we not fully support array/struct/map nesting complex type in many situation,
+     * so just disable creating nesting complex data type when create table.
+     * We can make it able after we fully support
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_nested_complex_type  = true;
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set
      * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",

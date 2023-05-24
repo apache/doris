@@ -523,6 +523,14 @@ public class JdbcClient {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                case "DOUBLE":
+                    // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
+                    // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
+                    // https://dev.mysql.com/doc/refman/8.0/en/numeric-type-syntax.html
+                    // The maximum value may cause errors due to insufficient accuracy
+                    return Type.DOUBLE;
+                case "FLOAT":
+                    return Type.FLOAT;
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }

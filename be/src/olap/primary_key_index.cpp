@@ -81,6 +81,7 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
                                           const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
+    _index_reader->set_is_pk_index(true);
     RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
 
     _index_parsed = true;

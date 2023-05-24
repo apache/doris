@@ -521,8 +521,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
             if (st.code() == ErrorCode::END_OF_FILE) {
                 return Status::OK();
             }
-            LOG(WARNING) << "bkd_query for column " << column_name
-                         << " failed: " << st.code_as_string();
+            LOG(WARNING) << "bkd_query for column " << column_name << " failed: " << st;
             return st;
         }
         *count = r->estimate_point_count(visitor.get());
@@ -571,8 +570,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
             if (st.code() == ErrorCode::END_OF_FILE) {
                 return Status::OK();
             }
-            LOG(WARNING) << "bkd_query for column " << column_name
-                         << " failed: " << st.code_as_string();
+            LOG(WARNING) << "bkd_query for column " << column_name << " failed: " << st;
             return st;
         }
         r->intersect(visitor.get());

@@ -59,6 +59,7 @@ Doris 支持 FQDN 之后，各节点之间通信完全基于 FQDN。添加各类
 4. 验证：可以在 FE1 上 `ping fe2` 等，能解析出正确的 IP 并且能 Ping 通，代表网络环境可用。
 5. 每个 FE 节点的 fe.conf 设置 `enable_fqdn_mode = true`。
 6. 参考[标准部署](../../install/standard-deployment.md)
+7. 按需在六台机器上选择几台机器部署broker，执行`ALTER SYSTEM ADD BROKER broker_name "fe1:8000","be1:8000",...;`。
 
 ### K8s 部署 Doris
 

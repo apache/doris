@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
+import org.apache.doris.nereids.rules.rewrite.logical.EnsureProjectOnTopJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
@@ -263,6 +264,11 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
+                custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
+                topDown(
+                    new PushdownFilterThroughProject(),
+                    new MergeProjects()
+                ),
                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                 bottomUp(
                     new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),

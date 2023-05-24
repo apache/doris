@@ -176,8 +176,13 @@ public class RuleSet {
             .addAll(OTHER_REORDER_RULES)
             .build();
 
-    public List<Rule> getOtherReorderRules() {
-        return OTHER_REORDER_RULES;
+    public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .add(JoinCommute.NON_INNER.build())
+            .addAll(OTHER_REORDER_RULES)
+            .build();
+
+    public List<Rule> getDPHypReorderRules() {
+        return DPHYP_REORDER_RULES;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
