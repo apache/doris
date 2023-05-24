@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
@@ -62,14 +63,15 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
         int retPercision = t1.getPrecision() + t2.getScale();
-        int retScale = t1.getScale() + t2.getScale() + 4;
+        int retScale = t1.getScale() + t2.getScale()
+                + ConnectContext.get().getSessionVariable().getDivPrecisionIncrement();
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
             retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
         }
         int targetScale = t1.getScale() + t2.getScale();
         Preconditions.checkState(retPercision >= targetScale,
                 "target scale " + targetScale + " larger than precision " + retPercision
-                + " in Divide return type");
+                        + " in Divide return type");
         Preconditions.checkState(retPercision >= retScale,
                 "scale " + retScale + " larger than precision " + retPercision
                         + " in Divide return type");
