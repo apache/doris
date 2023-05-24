@@ -38,12 +38,12 @@ jobs:
       - name: Run pipeline by teamcity restful
         run: |
           pull_request_num="${{ github.event.pull_request.number }}"
-          latest_commit_id="${{ env.LATEST_COMMIT }}"
+          latest_commit_id="${{ github.event.head_commit.id }}"
           teamcity_url="${{ env.TEAMCITY_URL }}"
           same_build_sign="false"
           echo "pull_request_num : ${pull_request_num}"
           echo "encoded_string : ${encoded_string}"
-          echo "latest_commit_id : ${{ env.LATEST_COMMIT }}"
+          echo "latest_commit_id : ${latest_commit_id}"
           pipeline="Doris_DorisRegression_Approval"
           for pipeline in ${trigger_pipelines}
           do
