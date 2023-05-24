@@ -126,7 +126,7 @@ public class ExprTest {
         Assert.assertEquals(0, castLiteral.getHour());
         Assert.assertEquals(0, castLiteral.getMinute());
         Assert.assertEquals(0, castLiteral.getSecond());
-        
+
         DateLiteral srcDate = new DateLiteral("2020-01-01", Type.DATE);
         DateLiteral srcDateV2 = new DateLiteral("2020-01-01", Type.DATEV2);
         DateLiteral srcDateTime = new DateLiteral("2020-01-01 12:34:45", Type.DATETIME);
