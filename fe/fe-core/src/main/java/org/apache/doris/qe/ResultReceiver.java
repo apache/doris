@@ -45,11 +45,13 @@ public class ResultReceiver {
     private long packetIdx = 0;
     private long timeoutTs = 0;
     private TNetworkAddress address;
+    private Types.PUniqueId queryId;
     private Types.PUniqueId finstId;
     private Long backendId;
     private Thread currentThread;
 
-    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs) {
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs) {
+        this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
@@ -75,13 +77,13 @@ public class ResultReceiver {
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();
                     if (currentTs >= timeoutTs) {
-                        throw new TimeoutException("query timeout");
+                        throw new TimeoutException("query timeout, query id = " + DebugUtil.printId(this.queryId));
                     }
                     try {
                         pResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
                     } catch (InterruptedException e) {
                         // continue to get result
-                        LOG.info("future get interrupted Exception");
+                        LOG.info("future get interrupted Exception", e);
                         if (isCancel) {
                             status.setStatus(Status.CANCELLED);
                             return null;
