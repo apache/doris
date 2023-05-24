@@ -346,7 +346,7 @@ public:
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 
-        void insert_value(StringRef& value) {
+        void insert_value(const StringRef& value) {
             _dict_data->push_back_without_reserve(value);
             _total_str_len += value.size;
         }
