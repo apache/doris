@@ -7,7 +7,7 @@ PhysicalQuickSort
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](partsupp.ps_partkey = lineitem.l_partkey)(partsupp.ps_suppkey = lineitem.l_suppkey)
+--------------hashJoin[INNER_JOIN](partsupp.ps_suppkey = lineitem.l_suppkey)(partsupp.ps_partkey = lineitem.l_partkey)
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
