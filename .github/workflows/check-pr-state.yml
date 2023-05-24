@@ -29,7 +29,6 @@ env:
 
 jobs:
   run_teamcity_pipeline:
-    if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
