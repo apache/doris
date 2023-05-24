@@ -19,7 +19,7 @@
 ---
 
 
-name: Auto Check PR
+name: Auto Check Merge State
 
 on:
   pull_request:
