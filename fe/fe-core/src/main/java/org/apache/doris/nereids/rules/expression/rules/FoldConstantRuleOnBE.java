@@ -23,6 +23,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -168,6 +169,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setRepeatMaxNum(context.getSessionVariable().repeatMaxNum);
+            tQueryOptions.setBeExecVersion(Config.be_exec_version);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
