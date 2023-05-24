@@ -106,7 +106,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        System.out.println("开始检查"+HdfsResource.DSF_NAMENODES);
+        System.out.println("开始检查" + HdfsResource.DSF_NAMENODES);
         String namenodes = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
             throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
