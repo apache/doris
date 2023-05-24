@@ -3083,6 +3083,7 @@ public class Coordinator {
                 params.setBackendNum(backendNum++);
                 params.setQueryGlobals(queryGlobals);
                 params.setQueryOptions(queryOptions);
+                params.query_options.setEnablePipelineEngine(false);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3147,6 +3148,7 @@ public class Coordinator {
                     params.setCoord(coordAddress);
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
+                    params.query_options.setEnablePipelineEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());
