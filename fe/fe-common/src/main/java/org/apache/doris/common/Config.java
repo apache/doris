@@ -1492,6 +1492,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_resource_group = false;
 
+    @ConfField(mutable = true)
+    public static boolean enable_query_queue = true;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
