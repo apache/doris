@@ -27,20 +27,19 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/jni_connector.h"
 
 namespace doris {
-    class RuntimeProfile;
+class RuntimeProfile;
 
-    class RuntimeState;
+class RuntimeState;
 
-    class SlotDescriptor;
-    namespace vectorized {
-        class Block;
-    } // namespace vectorized
-    struct TypeDescriptor;
+class SlotDescriptor;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -52,41 +51,40 @@ class AvroReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(AvroReader);
 
 public:
-
     /**
      * Call java side by jni to get table data.
      */
-    AvroReader(RuntimeState *state, RuntimeProfile *profile,
-               const TFileScanRangeParams &params,
-               const std::vector<SlotDescriptor *> &file_slot_descs);
+    AvroReader(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams& params,
+               const std::vector<SlotDescriptor*>& file_slot_descs);
 
     /**
      * Call java side by jni to get table schema.
      */
     AvroReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               const std::vector<SlotDescriptor *> &file_slot_descs);
+               const std::vector<SlotDescriptor*>& file_slot_descs);
 
     ~AvroReader() override;
 
-    Status get_next_block(Block *block, size_t *read_rows, bool *eof) override;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor> *name_to_type,
-                       std::unordered_set<std::string> *missing_cols) override;
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
 
     Status init_fetch_table_reader(
-            std::unordered_map<std::string, ColumnValueRangeType> *colname_to_value_range);
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status init_fetch_table_schema_reader();
 
-    Status get_parsed_schema(std::vector<std::string>* col_names, std::vector<TypeDescriptor>* col_types) override;
+    Status get_parsed_schema(std::vector<std::string>* col_names,
+                             std::vector<TypeDescriptor>* col_types) override;
 
 private:
-    const std::vector<SlotDescriptor *> &_file_slot_descs;
-    RuntimeState *_state;
-    RuntimeProfile *_profile;
+    const std::vector<SlotDescriptor*>& _file_slot_descs;
+    RuntimeState* _state;
+    RuntimeProfile* _profile;
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
-    std::unordered_map<std::string, ColumnValueRangeType> *_colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::unique_ptr<JniConnector> _jni_connector;
 };
 

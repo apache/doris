@@ -56,11 +56,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/csv/csv_reader.h"
-#include "vec/exec/scan/avro_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/scan/avro_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -644,7 +644,8 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroReader::create_unique(_state, _profile, _params, _file_slot_descs);
-            init_status = ((AvroReader *) (_cur_reader.get()))->init_fetch_table_reader(_colname_to_value_range);
+            init_status = ((AvroReader*)(_cur_reader.get()))
+                                  ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
         default:
