@@ -286,7 +286,11 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         if (in_block->rows() > 0) {
-            return _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            auto st = _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            if (st.template is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            return st;
         }
         return Status::OK();
     }

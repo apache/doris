@@ -178,7 +178,11 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(_stream_sender->send(state, _output_block.get(), true));
+            auto st = _stream_sender->send(state, _output_block.get(), true);
+            if (st.template is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(st);
         }
         RETURN_IF_ERROR(_stream_sender->close(state, final_status));
         _output_block->clear();
