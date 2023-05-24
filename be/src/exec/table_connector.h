@@ -64,7 +64,7 @@ public:
     //write data into table vectorized
     Status append(const std::string& table_name, vectorized::Block* block,
                   const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
-                  uint32_t start_send_row, uint32_t* num_rows_sent,
+                  uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
                   TOdbcTableType::type table_type = TOdbcTableType::MYSQL);
 
     void init_profile(RuntimeProfile*);
