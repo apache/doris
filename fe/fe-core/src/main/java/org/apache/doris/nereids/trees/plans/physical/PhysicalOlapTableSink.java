@@ -80,10 +80,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
-        this.database = Preconditions.checkNotNull(database, "database != null in PhysicalOlapTableSink");
-        this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = cols;
-        this.partitionIds = partitionIds;
+        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
+        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
+        this.cols = copyIfNotNull(cols);
+        this.partitionIds = copyIfNotNull(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
@@ -107,6 +107,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         return singleReplicaLoad;
     }
 
+    private <T> List<T> copyIfNotNull(List<T> list) {
+        return list == null ? null : ImmutableList.copyOf(list);
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
@@ -122,17 +126,17 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         PhysicalOlapTableSink<?> that = (PhysicalOlapTableSink<?>) o;
-        return Objects.equals(targetTable, that.targetTable) && Objects.equals(partitionIds,
-                that.partitionIds);
+        return singleReplicaLoad == that.singleReplicaLoad
+                && Objects.equals(database, that.database)
+                && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(cols, that.cols)
+                && Objects.equals(partitionIds, that.partitionIds);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(targetTable, partitionIds);
+        return Objects.hash(database, targetTable, cols, partitionIds, singleReplicaLoad);
     }
 
     @Override
@@ -145,6 +149,9 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         return computeOutput();
     }
 
+    /**
+     * override function of AbstractPlan.
+     */
     @Override
     public Set<Slot> getOutputSet() {
         return ImmutableSet.copyOf(getOutput());

@@ -61,10 +61,10 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.database = Preconditions.checkNotNull(database, "database != null in LogicalOlapTableSink");
-        this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in LogicalOlapTableSink");
-        this.cols = cols;
-        this.partitionIds = partitionIds;
+        this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
+        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
+        this.cols = copyIfNotNull(cols);
+        this.partitionIds = copyIfNotNull(partitionIds);
     }
 
     @Override
@@ -88,6 +88,10 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    private <T> List<T> copyIfNotNull(List<T> list) {
+        return list == null ? null : ImmutableList.copyOf(list);
     }
 
     @Override
