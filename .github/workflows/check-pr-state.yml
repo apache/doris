@@ -38,7 +38,7 @@ jobs:
       - name: Run pipeline by teamcity restful
         run: |
           pull_request_num="${{ github.event.pull_request.number }}"
-          latest_commit_id="${{ github.event.head_commit.id }}"
+          latest_commit_id="${{ env.LATEST_COMMIT }}"
           teamcity_url="${{ env.TEAMCITY_URL }}"
           same_build_sign="false"
           echo "pull_request_num : ${pull_request_num}"
