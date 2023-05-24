@@ -24,6 +24,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,10 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM supplier";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(parser.parseSingle(sql));
+        planner.plan(
+                parser.parseSingle(sql),
+                PhysicalProperties.ANY
+        );
         CascadesContext cascadesContext = planner.getCascadesContext();
         List<Table> f = (List<Table>) Deencapsulation.getField(cascadesContext, "tables");
         Assertions.assertEquals(1, f.size());
@@ -60,7 +64,10 @@ public class ReadLockTest extends SSBTestBase {
                 + "        FROM cte1 as t1, cte1 as t2";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(parser.parseSingle(sql));
+        planner.plan(
+                parser.parseSingle(sql),
+                PhysicalProperties.ANY
+        );
         CascadesContext cascadesContext = planner.getCascadesContext();
         List<Table> f = (List<Table>) Deencapsulation.getField(cascadesContext, "tables");
         Assertions.assertEquals(1, f.size());
@@ -72,7 +79,10 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM (SELECT * FROM supplier) t";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(parser.parseSingle(sql));
+        planner.plan(
+                parser.parseSingle(sql),
+                PhysicalProperties.ANY
+        );
         CascadesContext cascadesContext = planner.getCascadesContext();
         List<Table> f = (List<Table>) Deencapsulation.getField(cascadesContext, "tables");
 
@@ -85,7 +95,10 @@ public class ReadLockTest extends SSBTestBase {
         String sql = "SELECT s_suppkey FROM supplier WHERE s_suppkey > (SELECT MAX(lo_orderkey) FROM lineorder)";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(parser.parseSingle(sql));
+        planner.plan(
+                parser.parseSingle(sql),
+                PhysicalProperties.ANY
+        );
         CascadesContext cascadesContext = planner.getCascadesContext();
         List<Table> f = (List<Table>) Deencapsulation.getField(cascadesContext, "tables");
         Assertions.assertEquals(2, f.size());
