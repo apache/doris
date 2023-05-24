@@ -1843,6 +1843,23 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
+                true);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
+        if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
+            if (this.children.size() == 1
+                    && !(this.children.get(0) instanceof LiteralExpr)) {
+                throw new AnalysisException("The param of rand function must be literal");
+            }
+        }
+        if (f != null) {
+            if (name.toLowerCase().endsWith(AGG_STATE_SUFFIX)) {
+                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
+            }
+            return f;
+        }
+
         boolean isUnion = name.toLowerCase().endsWith(AGG_UNION_SUFFIX);
         boolean isMerge = name.toLowerCase().endsWith(AGG_MERGE_SUFFIX);
         if (isUnion || isMerge) {
@@ -1861,10 +1878,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 throw new AnalysisException("agg_state's subTypes is null");
             }
 
-            Function searchDesc = new Function(new FunctionName(name), aggState.getSubTypes(), Type.INVALID, false,
+            searchDesc = new Function(new FunctionName(name), aggState.getSubTypes(), Type.INVALID, false,
                     true);
 
-            Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
+            f = Env.getCurrentEnv().getFunction(searchDesc, mode);
             if (f == null || !(f instanceof AggregateFunction)) {
                 return null;
             }
@@ -1879,24 +1896,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             } else {
                 f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
             }
-
-            return f;
-        } else {
-            FunctionName fnName = new FunctionName(name);
-            Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
-                    true);
-            Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
-            if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
-                if (this.children.size() == 1
-                        && !(this.children.get(0) instanceof LiteralExpr)) {
-                    throw new AnalysisException("The param of rand function must be literal");
-                }
-            }
-            if (name.toLowerCase().endsWith(AGG_STATE_SUFFIX) && f != null) {
-                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
-            }
-            return f;
         }
+
+        return f;
     }
 
     protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
