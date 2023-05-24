@@ -126,6 +126,10 @@ public class ExprTest {
         Assert.assertEquals(0, castLiteral.getHour());
         Assert.assertEquals(0, castLiteral.getMinute());
         Assert.assertEquals(0, castLiteral.getSecond());
+        
+        Assert.assertEquals("20200101", new DateLiteral("2020-01-01", Type.DATE).uncheckedCastTo(Type.FLOAT).getStringValue());
+        Assert.assertEquals("20200101", new DateLiteral("2020-01-01", Type.DATEV2).uncheckedCastTo(Type.FLOAT).getStringValue());
+        Assert.assertEquals("20200101123445", new DateLiteral("2020-01-01 12:34:45", Type.DATETIMEV2).uncheckedCastTo(Type.FLOAT).getStringValue());
 
         // float
         FloatLiteral floatLiteral = new FloatLiteral(0.1, Type.FLOAT);
