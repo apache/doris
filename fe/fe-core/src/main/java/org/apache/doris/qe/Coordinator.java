@@ -1140,7 +1140,11 @@ public class Coordinator {
                             + " query id: {}, instance id: {}, error message: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN",
                     status.getErrorMsg());
-            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            }
         } finally {
             lock.unlock();
         }
