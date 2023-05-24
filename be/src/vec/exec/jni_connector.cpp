@@ -207,25 +207,24 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     return Status::OK();
 }
 
-Status JniConnector::_init_jni_scanner(JNIEnv* env) {
+Status JniConnector::_init_jni_scanner(JNIEnv *env) {
     _init_scanner_params(env);
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, _connector_class.c_str(), &_jni_scanner_cls));
     _scanner_constructor = env->GetMethodID(_jni_scanner_cls, "<init>", "(Ljava/util/Map;)V");
     RETURN_ERROR_IF_EXC(env);
 
-    _jni_scanner_obj = env->NewObject(_jni_scanner_cls, _scanner_constructor, _hashmap_object);
+    _jni_scanner_obj =
+            env->NewObject(_jni_scanner_cls, _scanner_constructor, _hashmap_object);
     env->DeleteLocalRef(_hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
     RETURN_ERROR_IF_EXC(env);
-    _jni_scanner_get_table_schema =
-            env->GetMethodID(_jni_scanner_cls, "getTableSchema", "()Ljava/lang/String;");
+    _jni_scanner_get_table_schema = env->GetMethodID(_jni_scanner_cls, "getTableSchema", "()Ljava/lang/String;");
     RETURN_ERROR_IF_EXC(env);
     _jni_scanner_close = env->GetMethodID(_jni_scanner_cls, "close", "()V");
     RETURN_ERROR_IF_EXC(env);
-    _jni_scanner_release_table_schema =
-            env->GetMethodID(_jni_scanner_cls, "releaseTableSchema", "()V");
+    _jni_scanner_release_table_schema = env->GetMethodID(_jni_scanner_cls, "releaseTableSchema", "()V");
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
