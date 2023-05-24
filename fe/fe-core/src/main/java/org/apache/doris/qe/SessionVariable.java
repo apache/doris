@@ -65,6 +65,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
@@ -145,6 +146,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
     // Maximum runtime bloom filter size, in bytes
     public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    public static final String USE_RF_DEFAULT = "use_rf_default";
     // Time in ms to wait until runtime filters are delivered.
     public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
     // Maximum number of bloom runtime filters allowed per query
@@ -153,6 +155,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
+
+    public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
@@ -366,6 +370,14 @@ public class SessionVariable implements Serializable, Writable {
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
     public int queryTimeoutS = 300;
+
+    // The global max_execution_time value provides the default for the session value for new connections.
+    // The session value applies to SELECT executions executed within the session that include
+    // no MAX_EXECUTION_TIME(N) optimizer hint or for which N is 0.
+    // https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html
+    // So that it is == query timeout in doris
+    @VariableMgr.VarAttr(name = MAX_EXECUTION_TIME, fuzzy = true, setter = "setMaxExecutionTimeMS")
+    public int maxExecutionTimeMS = -1;
 
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
     public int insertTimeoutS = 14400;
@@ -613,6 +625,13 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 102400;
+
+    public int getBeNumberForTest() {
+        return beNumberForTest;
+    }
+
+    @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
+    private int beNumberForTest = -1;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -1051,6 +1070,10 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
+    public int getMaxExecutionTimeMS() {
+        return maxExecutionTimeMS;
+    }
+
     public int getInsertTimeoutS() {
         return insertTimeoutS;
     }
@@ -1208,6 +1231,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setQueryTimeoutS(int queryTimeoutS) {
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = maxExecutionTimeMS;
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+    }
+
+    public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
+        this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
+        this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
     }
 
     public String getResourceGroup() {

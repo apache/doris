@@ -78,9 +78,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-// `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G).
-// 6.4G is the maximum memory reserved for the system by default.
-DEFINE_String(mem_limit, "auto");
+DEFINE_String(mem_limit, "80%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -105,7 +103,7 @@ DEFINE_mInt32(hash_table_double_grow_degree, "31");
 
 DEFINE_mInt32(max_fill_rate, "2");
 
-DEFINE_mInt32(double_resize_threshold, "20");
+DEFINE_mInt32(double_resize_threshold, "23");
 // Expand the hash table before inserting data, the maximum expansion size.
 // There are fewer duplicate keys, reducing the number of resize hash tables
 // There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
@@ -126,7 +124,7 @@ DEFINE_mString(process_full_gc_size, "20%");
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DEFINE_mBool(enable_query_memroy_overcommit, "true");
+DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -304,6 +302,9 @@ DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
 
+// Cache for mow primary key storage page size
+DEFINE_String(pk_storage_page_cache_limit, "10%");
+
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
@@ -450,9 +451,9 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is true.
+// The configuration is used to enable lazy open feature, and the default value is false.
 // When there is mixed deployment in the upgraded version, it needs to be set to false.
-DEFINE_mBool(enable_lazy_open_partition, "true");
+DEFINE_mBool(enable_lazy_open_partition, "false");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
@@ -507,7 +508,7 @@ DEFINE_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "false");
+DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -545,7 +546,7 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
-DEFINE_mInt32(memory_gc_sleep_time_s, "1");
+DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 DEFINE_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -707,9 +708,6 @@ DEFINE_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
-
-// Print more detailed logs, more detailed records, etc.
-DEFINE_mBool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
@@ -955,6 +953,8 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 // inverted index searcher cache
 // cache entry stay time after lookup, default 1h
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
+// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
+DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -994,6 +994,9 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+
+//disable shrink memory by default
+DEFINE_Bool(enable_shrink_memory, "false");
 
 #ifdef BE_TEST
 // test s3

@@ -28,7 +28,7 @@ class SystemAllocator {
 public:
     static uint8_t* allocate(size_t length);
 
-    static void free(uint8_t* ptr, size_t length);
+    static void free(uint8_t* ptr);
 
 private:
     static uint8_t* allocate_via_mmap(size_t length);

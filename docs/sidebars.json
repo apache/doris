@@ -607,19 +607,18 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
-                                "sql-manual/sql-functions/json-functions/jsonb_parse",
-                                "sql-manual/sql-functions/json-functions/jsonb_extract",
-                                "sql-manual/sql-functions/json-functions/jsonb_exists_path",
-                                "sql-manual/sql-functions/json-functions/jsonb_type",
-                                "sql-manual/sql-functions/json-functions/get_json_double",
-                                "sql-manual/sql-functions/json-functions/get_json_int",
-                                "sql-manual/sql-functions/json-functions/get_json_string",
+                                "sql-manual/sql-functions/json-functions/json_parse",
+                                "sql-manual/sql-functions/json-functions/json_extract",
+                                "sql-manual/sql-functions/json-functions/json_exists_path",
+                                "sql-manual/sql-functions/json-functions/json_type",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
                                 "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
-                                "sql-manual/sql-functions/json-functions/json_extract"
+                                "sql-manual/sql-functions/json-functions/get_json_double",
+                                "sql-manual/sql-functions/json-functions/get_json_int",
+                                "sql-manual/sql-functions/json-functions/get_json_string"
                             ]
                         },
                         {
@@ -787,6 +786,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
@@ -822,6 +822,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
@@ -837,6 +838,7 @@
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
@@ -979,6 +981,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCE-GROUPS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
@@ -1022,8 +1025,9 @@
                                 "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/JSONB",
-                                "sql-manual/sql-reference/Data-Types/STRUCT"
+                                "sql-manual/sql-reference/Data-Types/MAP",
+                                "sql-manual/sql-reference/Data-Types/STRUCT",
+                                "sql-manual/sql-reference/Data-Types/JSON"
                             ]
                         },
                         {
@@ -1076,7 +1080,6 @@
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
                 "admin-manual/tracing",
-                "admin-manual/optimization",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {
@@ -1135,6 +1138,7 @@
                         "admin-manual/system-table/rowsets"
                     ]
                 },
+                "admin-manual/resource-group",
                 "admin-manual/multi-tenant",
                 {
                     "type": "category",

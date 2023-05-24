@@ -43,10 +43,8 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Table;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -80,7 +78,7 @@ public class DiskRebalanceTest {
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-    private Table<String, Tag, ClusterLoadStatistic> statisticMap;
+    private Map<Tag, LoadStatisticForTag> statisticMap;
 
     @Before
     public void setUp() throws Exception {
@@ -139,11 +137,11 @@ public class DiskRebalanceTest {
     }
 
     private void generateStatisticMap() {
-        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
-                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+        LoadStatisticForTag loadStatistic = new LoadStatisticForTag(Tag.DEFAULT_BACKEND_TAG, systemInfoService,
+                invertedIndex);
         loadStatistic.init();
-        statisticMap = HashBasedTable.create();
-        statisticMap.put(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, loadStatistic);
+        statisticMap = Maps.newHashMap();
+        statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
     }
 
     private void createPartitionsForTable(OlapTable olapTable, MaterializedIndex index, Long partitionCount) {
@@ -233,17 +231,16 @@ public class DiskRebalanceTest {
         Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
         generateStatisticMap();
         rebalancer.updateLoadStatistic(statisticMap);
-        for (Table.Cell<String, Tag, ClusterLoadStatistic> s : statisticMap.cellSet()) {
+        for (Map.Entry<Tag, LoadStatisticForTag> s : statisticMap.entrySet()) {
             if (s.getValue() != null) {
-                LOG.info("cluster = {}, tag = {}, statistic = {}",
-                        s.getRowKey(), s.getColumnKey(), s.getValue().getBrief());
+                LOG.info("tag = {}, statistic = {}", s.getKey(), s.getValue().getBrief());
             }
         }
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
         Assert.assertEquals(2, alternativeTablets.size());
         Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
-        for (Backend be : Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER)) {
+        for (Backend be : Env.getCurrentSystemInfo().getAllBackends()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash)
                         .collect(Collectors.toList());

@@ -70,13 +70,21 @@ namespace io {
 using namespace Aws::S3::Model;
 using Aws::S3::S3Client;
 
+bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer", "total_num");
+bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer", "bytes_written");
+bvar::Adder<uint64_t> s3_file_created_total("s3_file_writer", "file_created");
+bvar::Adder<uint64_t> s3_file_being_written("s3_file_writer", "file_being_written");
+
 S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3Conf& s3_conf,
                            FileSystemSPtr fs)
         : FileWriter(Path(s3_conf.endpoint) / s3_conf.bucket / path, std::move(fs)),
           _bucket(s3_conf.bucket),
           _key(std::move(path)),
           _upload_cost_ms(std::make_unique<int64_t>()),
-          _client(std::move(client)) {}
+          _client(std::move(client)) {
+    s3_file_writer_total << 1;
+    s3_file_being_written << 1;
+}
 
 S3FileWriter::~S3FileWriter() {
     if (_opened) {
@@ -85,6 +93,7 @@ S3FileWriter::~S3FileWriter() {
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
     // in case there are task which might run after this object is destroyed
     _wait_until_finish("dtor");
+    s3_file_being_written << -1;
 }
 
 Status S3FileWriter::_create_multi_upload_request() {
@@ -259,6 +268,7 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
         buf._on_failed(s);
         return;
     }
+    s3_bytes_written_total << buf.get_size();
 
     std::unique_ptr<CompletedPart> completed_part = std::make_unique<CompletedPart>();
     completed_part->SetPartNumber(part_num);
@@ -305,6 +315,7 @@ Status S3FileWriter::_complete() {
         LOG_WARNING(s.to_string());
         return s;
     }
+    s3_file_created_total << 1;
     return Status::OK();
 }
 
@@ -341,6 +352,8 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
                                     response.GetError().GetMessage(),
                                     static_cast<int>(response.GetError().GetResponseCode()));
     }
+    s3_bytes_written_total << buf.get_size();
+    s3_file_created_total << 1;
 }
 
 } // namespace io

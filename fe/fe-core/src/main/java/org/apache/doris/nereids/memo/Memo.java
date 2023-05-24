@@ -46,6 +46,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +62,7 @@ import javax.annotation.Nullable;
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
+    public static final Logger LOG = LogManager.getLogger(Memo.class);
     // generate group id in memo is better for test, since we can reproduce exactly same Memo.
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
@@ -356,6 +359,9 @@ public class Memo {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+            LOG.info("Insert a plan into targetGroup but differ in logicalproperties."
+                            + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
+                    plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();

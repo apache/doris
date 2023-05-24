@@ -188,6 +188,19 @@ std::string MemTrackerLimiter::type_log_usage(MemTracker::Snapshot snapshot) {
                        print_bytes(snapshot.peak_consumption), snapshot.peak_consumption);
 }
 
+std::string MemTrackerLimiter::type_detail_usage(const std::string& msg, Type type) {
+    std::string detail = fmt::format("{}, Type:{}, Memory Tracker Summary", msg, type_string(type));
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == type) {
+                detail += "\n    " + MemTrackerLimiter::log_usage(tracker->make_snapshot());
+            }
+        }
+    }
+    return detail;
+}
+
 void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
@@ -233,6 +246,7 @@ std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, boo
 }
 
 void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
+    // The default interval between two prints is 100ms (config::memory_maintenance_sleep_time_ms).
     if (MemTrackerLimiter::_enable_print_log_process_usage) {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
         LOG(WARNING) << log_process_usage_str(msg, with_stacktrace);
@@ -273,14 +287,13 @@ std::string MemTrackerLimiter::process_mem_log_str() {
             MemInfo::refresh_interval_memory_growth);
 }
 
-std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str(int64_t bytes) {
+std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str() {
     return fmt::format(
             "process memory used {} exceed limit {} or sys mem available {} less than low "
-            "water mark {}, failed alloc size {}",
+            "water mark {}",
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
             MemInfo::sys_mem_available_str(),
-            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-            print_bytes(bytes));
+            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
 }
 
 std::string MemTrackerLimiter::query_tracker_limit_exceeded_str(
@@ -474,21 +487,13 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
 }
 
 int64_t MemTrackerLimiter::tg_memory_limit_gc(
-        uint64_t id, const std::string& name, int64_t memory_limit,
+        int64_t need_free_mem, int64_t used_memory, uint64_t id, const std::string& name,
+        int64_t memory_limit,
         std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups) {
-    int64_t used_memory = 0;
-    for (auto& mem_tracker_group : tracker_limiter_groups) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (const auto& tracker : mem_tracker_group.trackers) {
-            used_memory += tracker->consumption();
-        }
-    }
-
-    if (used_memory <= memory_limit) {
+    if (need_free_mem <= 0) {
         return 0;
     }
 
-    int64_t need_free_mem = used_memory - memory_limit;
     int64_t freed_mem = 0;
     constexpr auto query_type = MemTrackerLimiter::Type::QUERY;
     auto cancel_str = [id, &name, memory_limit, used_memory](int64_t mem_consumption,
@@ -501,7 +506,7 @@ int64_t MemTrackerLimiter::tg_memory_limit_gc(
                 MemTracker::print_bytes(mem_consumption), BackendOptions::get_localhost(),
                 MemTracker::print_bytes(used_memory), MemTracker::print_bytes(memory_limit));
     };
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, query_type, tracker_limiter_groups, cancel_str);
     }

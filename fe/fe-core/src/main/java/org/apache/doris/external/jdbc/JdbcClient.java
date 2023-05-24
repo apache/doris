@@ -229,7 +229,7 @@ public class JdbcClient {
                     if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
                         continue;
                     }
-                    if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(db)) {
+                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
                         continue;
                     }
                     databaseNames.add(db);
@@ -250,10 +250,10 @@ public class JdbcClient {
         try {
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
+                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
@@ -403,6 +403,8 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
+            String modifiedTableName;
+            boolean isModify = false;
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -418,12 +420,18 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
-                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
+                    break;
+                case JdbcResource.ORACLE:
+                    modifiedTableName = tableName.replace("/", "%");
+                    if (!modifiedTableName.equals(tableName)) {
+                        isModify = true;
+                    }
+                    rs = databaseMetaData.getColumns(null, dbName, modifiedTableName, null);
                     break;
                 case JdbcResource.TRINO:
                 case JdbcResource.PRESTO:
@@ -433,6 +441,14 @@ public class JdbcClient {
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
+                // for oracle special table name
+                if (isModify) {
+                    String actualTableName = rs.getString("TABLE_NAME");
+                    if (!tableName.equals(actualTableName)) {
+                        continue;
+                    }
+                }
+
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -507,6 +523,14 @@ public class JdbcClient {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                case "DOUBLE":
+                    // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
+                    // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
+                    // https://dev.mysql.com/doc/refman/8.0/en/numeric-type-syntax.html
+                    // The maximum value may cause errors due to insufficient accuracy
+                    return Type.DOUBLE;
+                case "FLOAT":
+                    return Type.FLOAT;
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -625,7 +649,7 @@ public class JdbcClient {
             case "inet":
             case "macaddr":
             case "varbit":
-            case "jsonb":
+            case "json":
             case "uuid":
             case "bytea":
                 return ScalarType.createStringType();

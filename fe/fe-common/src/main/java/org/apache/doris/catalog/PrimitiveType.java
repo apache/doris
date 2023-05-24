@@ -48,7 +48,7 @@ public enum PrimitiveType {
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR, true),
-    JSONB("JSONB", 16, TPrimitiveType.JSONB, true),
+    JSONB("JSON", 16, TPrimitiveType.JSONB, true),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2, true),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
@@ -59,6 +59,7 @@ public enum PrimitiveType {
     HLL("HLL", 16, TPrimitiveType.HLL, true),
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT, true),
     QUANTILE_STATE("QUANTILE_STATE", 16, TPrimitiveType.QUANTILE_STATE, true),
+    AGG_STATE("AGG_STATE", 16, TPrimitiveType.AGG_STATE, true),
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
@@ -493,6 +494,9 @@ public enum PrimitiveType {
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
 
+        builder.put(AGG_STATE, AGG_STATE);
+        builder.put(AGG_STATE, VARCHAR);
+
         // TIME
         builder.put(TIME, TIME);
         builder.put(TIME, TIMEV2);
@@ -561,6 +565,7 @@ public enum PrimitiveType {
         supportedTypes.add(MAP);
         supportedTypes.add(QUANTILE_STATE);
         supportedTypes.add(VARIANT);
+        supportedTypes.add(AGG_STATE);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -624,6 +629,7 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][TIMEV2.ordinal()] = TIMEV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
         compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
+        compatibilityMatrix[NULL_TYPE.ordinal()][AGG_STATE.ordinal()] = AGG_STATE;
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
@@ -911,6 +917,8 @@ public enum PrimitiveType {
         compatibilityMatrix[TIMEV2.ordinal()][TIMEV2.ordinal()] = TIMEV2;
 
         compatibilityMatrix[QUANTILE_STATE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
+
+        compatibilityMatrix[AGG_STATE.ordinal()][AGG_STATE.ordinal()] = INVALID_TYPE;
     }
 
     static {
@@ -1002,6 +1010,8 @@ public enum PrimitiveType {
                 return BITMAP;
             case QUANTILE_STATE:
                 return QUANTILE_STATE;
+            case AGG_STATE:
+                return AGG_STATE;
             case ARRAY:
                 return ARRAY;
             case MAP:
@@ -1141,7 +1151,7 @@ public enum PrimitiveType {
     }
 
     public boolean isStringType() {
-        return (this == VARCHAR || this == CHAR || this == HLL || this == STRING);
+        return (this == VARCHAR || this == CHAR || this == STRING || this == AGG_STATE);
     }
 
     public boolean isJsonbType() {

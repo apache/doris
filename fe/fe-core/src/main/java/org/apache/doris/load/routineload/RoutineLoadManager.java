@@ -103,7 +103,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public void updateBeIdToMaxConcurrentTasks() {
-        beIdToMaxConcurrentTasks = Env.getCurrentSystemInfo().getBackendIds(true).stream().collect(
+        beIdToMaxConcurrentTasks = Env.getCurrentSystemInfo().getAllBackendIds(true).stream().collect(
                 Collectors.toMap(beId -> beId, beId -> Config.max_routine_load_task_num_per_be));
     }
 
@@ -376,7 +376,7 @@ public class RoutineLoadManager implements Writable {
     // throw exception if unrecoverable errors happen.
     // ATTN: this is only used for unit test now.
     public long getMinTaskBeId(String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Env.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
+        List<Long> beIdsInCluster = Env.getCurrentSystemInfo().getAllBackendIds(true);
         if (beIdsInCluster == null) {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
@@ -442,7 +442,7 @@ public class RoutineLoadManager implements Writable {
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
-            // 3. The previos BE is not in cluster && is not load available, find a new BE with min tasks
+            // 3. The previous BE is not in cluster && is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
@@ -495,8 +495,7 @@ public class RoutineLoadManager implements Writable {
                 tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
             }
         }
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().setCluster(cluster)
-                .addTags(tags).build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().addTags(tags).build();
         return Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
     }
 

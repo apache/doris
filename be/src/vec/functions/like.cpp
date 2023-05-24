@@ -838,6 +838,7 @@ void register_function_like(SimpleFunctionFactory& factory) {
 
 void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexp>();
+    factory.register_alias(FunctionRegexp::name, FunctionRegexp::alias);
 }
 
 } // namespace doris::vectorized

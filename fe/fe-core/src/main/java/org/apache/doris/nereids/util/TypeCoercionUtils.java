@@ -451,8 +451,8 @@ public class TypeCoercionUtils {
         }
 
         DataType commonType = DoubleType.INSTANCE;
-        if (t1.isDoubleType() || t1.isFloatType() || t1.isLargeIntType()
-                || t2.isDoubleType() || t2.isFloatType() || t2.isLargeIntType()) {
+        if (t1.isDoubleType() || t1.isFloatType()
+                || t2.isDoubleType() || t2.isFloatType()) {
             // double type
         } else if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             // divide should cast to precision and target scale
@@ -535,6 +535,9 @@ public class TypeCoercionUtils {
                 break;
             }
         }
+        if (commonType.isFloatType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
+            commonType = DoubleType.INSTANCE;
+        }
 
         boolean isBitArithmetic = binaryArithmetic instanceof BitAnd
                 || binaryArithmetic instanceof BitOr
@@ -577,13 +580,12 @@ public class TypeCoercionUtils {
                 return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
             }
 
-            // add, subtract and mod should cast children to exactly same type as return type
+            // add, subtract should cast children to exactly same type as return type
             if (binaryArithmetic instanceof Add
-                    || binaryArithmetic instanceof Subtract
-                    || binaryArithmetic instanceof Mod) {
+                    || binaryArithmetic instanceof Subtract) {
                 return castChildren(binaryArithmetic, left, right, retType);
             }
-            // multiply do not need to cast children to same type
+            // multiply and mode do not need to cast children to same type
             return binaryArithmetic.withChildren(castIfNotSameType(left, dt1), castIfNotSameType(right, dt2));
         }
 
@@ -798,7 +800,7 @@ public class TypeCoercionUtils {
 
     private static boolean maybeCastToVarchar(DataType t) {
         return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isTimeV2Type() || t.isJsonType()
-                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType();
+                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
     }
 
     @Developing
@@ -959,8 +961,16 @@ public class TypeCoercionUtils {
                         DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), true));
             }
             if (leftType instanceof DecimalV2Type || rightType instanceof DecimalV2Type) {
-                return Optional.of(DecimalV2Type.widerDecimalV2Type(
+                if (leftType instanceof BigIntType || rightType instanceof BigIntType
+                        || leftType instanceof LargeIntType || rightType instanceof LargeIntType) {
+                    // only decimalv3 can hold big or large int
+                    return Optional
+                            .of(DecimalV3Type.widerDecimalV3Type(DecimalV3Type.forType(leftType),
+                                    DecimalV3Type.forType(rightType), true));
+                } else {
+                    return Optional.of(DecimalV2Type.widerDecimalV2Type(
                             DecimalV2Type.forType(leftType), DecimalV2Type.forType(rightType)));
+                }
             }
             return Optional.of(commonType);
         }
@@ -1169,14 +1179,17 @@ public class TypeCoercionUtils {
                         throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
                     }
                     // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("NULL"));
+                    newArguments.add(new StringLiteral("NULL"));
                 } else {
                     newArguments.add(argument);
                 }
             }
-            // add json type string to the last
-            newArguments.add(new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
-                    jsonTypeStr.toString()));
+            if (arguments.isEmpty()) {
+                newArguments.add(new StringLiteral(""));
+            } else {
+                // add json type string to the last
+                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
+            }
             return (BoundFunction) function.withChildren(newArguments);
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage());

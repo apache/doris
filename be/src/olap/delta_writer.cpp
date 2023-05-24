@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
@@ -45,6 +46,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
@@ -225,7 +227,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     _mem_table->insert(block, row_idxs, is_append);
 
-    if (UNLIKELY(_mem_table->need_agg())) {
+    if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
@@ -240,7 +242,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    _merged_rows += _mem_table->merged_rows();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -317,6 +318,10 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
+
+    auto& merged_rows = _merged_rows;
+    _mem_table->set_callback(
+            [&merged_rows](int64_t ret_merged_rows) { merged_rows += ret_merged_rows; });
 }
 
 Status DeltaWriter::close() {
@@ -559,6 +564,14 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         _unfinished_slave_node.insert(node_info.id());
     }
 
+    std::vector<int64_t> indices_ids;
+    auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
+    for (auto& column : tablet_schema->columns()) {
+        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+        if (index_meta) {
+            indices_ids.emplace_back(index_meta->index_id());
+        }
+    }
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
@@ -575,6 +588,22 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         segment_name << _cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
         request.mutable_segments_size()->insert({segment_id, segment_size});
+
+        if (!indices_ids.empty()) {
+            for (auto index_id : indices_ids) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        tablet_path + "/" + segment_name.str(), index_id);
+                int64_t size = std::filesystem::file_size(inverted_index_file);
+                PTabletWriteSlaveRequest::IndexSize index_size;
+                index_size.set_indexid(index_id);
+                index_size.set_size(size);
+                // Fetch the map value for the current segment_id.
+                // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                // Add the new index size to the map value.
+                *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+            }
+        }
     }
     RefCountClosure<PTabletWriteSlaveResult>* closure =
             new RefCountClosure<PTabletWriteSlaveResult>();

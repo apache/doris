@@ -32,27 +32,33 @@ public class UnifiedLoadStmt extends DdlStmt {
 
     private final StatementBase proxyStmt;
 
-    public UnifiedLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-            BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment, LoadType loadType) {
-        final ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
-            switch (loadType) {
-                case BROKER_LOAD:
-                    proxyStmt = new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment);
-                    break;
-                case MYSQL_LOAD:
-                default:
-                    throw new IllegalStateException("does not support load type: " + loadType);
-            }
-        } else {
-            proxyStmt = new LoadStmt(label, dataDescriptions, brokerDesc, cluster, properties, comment);
-        }
+    public UnifiedLoadStmt(StatementBase proxyStmt) {
+        this.proxyStmt = proxyStmt;
     }
 
     public void init() {
         Preconditions.checkNotNull(proxyStmt, "impossible state, proxy stmt should be not null");
         proxyStmt.setOrigStmt(getOrigStmt());
         proxyStmt.setUserInfo(getUserInfo());
+    }
+
+    public static UnifiedLoadStmt buildMysqlLoadStmt(DataDescription dataDescription, Map<String, String> properties,
+                                                     String comment) {
+        final ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
+            return new UnifiedLoadStmt(new MysqlLoadStmt(dataDescription, properties, comment));
+        }
+        return new UnifiedLoadStmt(new LoadStmt(dataDescription, properties, comment));
+    }
+
+    public static UnifiedLoadStmt buildBrokerLoadStmt(LabelName label, List<DataDescription> dataDescriptions,
+                                                      BrokerDesc brokerDesc,
+                                                      Map<String, String> properties, String comment) {
+        final ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
+            return new UnifiedLoadStmt(new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
+        }
+        return new UnifiedLoadStmt(new LoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
     }
 
     public StatementBase getProxyStmt() {

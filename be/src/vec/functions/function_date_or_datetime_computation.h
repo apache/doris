@@ -686,8 +686,6 @@ public:
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(typename Transform::ReturnType);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;

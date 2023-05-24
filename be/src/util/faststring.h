@@ -27,13 +27,15 @@
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
 #include "util/slice.h"
+#include "vec/common/allocator.h"
 
 namespace doris {
 
 // A faststring is similar to a std::string, except that it is faster for many
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
-class faststring {
+// only build() can transfer data to the outside.
+class faststring : private Allocator<false, false, false> {
 public:
     enum { kInitialCapacity = 32 };
 
@@ -43,7 +45,7 @@ public:
     explicit faststring(size_t capacity)
             : data_(initial_data_), len_(0), capacity_(kInitialCapacity) {
         if (capacity > capacity_) {
-            data_ = new uint8_t[capacity];
+            data_ = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity));
             capacity_ = capacity;
         }
         ASAN_POISON_MEMORY_REGION(data_, capacity_);
@@ -52,7 +54,7 @@ public:
     ~faststring() {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
         if (data_ != initial_data_) {
-            delete[] data_;
+            Allocator::free_no_munmap(data_);
         }
     }
 
@@ -83,7 +85,7 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = new uint8_t[len_];
+            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
             memcpy(ret, data_, len_);
         }
         OwnedSlice result(ret, len_);
