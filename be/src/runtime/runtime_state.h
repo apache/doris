@@ -161,7 +161,7 @@ public:
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        Status st(ErrorCode::CANCELLED);
+        Status st<ErrorCode::CANCELLED>("query is cancelled");
         LOG(INFO) << "task is cancelled, st = " << st;
     }
 
