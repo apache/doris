@@ -303,8 +303,8 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testCommitRoutineLoadTransaction(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked KafkaConsumer kafkaConsumer,
-            @Mocked EditLog editLog)
+                                                 @Mocked KafkaConsumer kafkaConsumer,
+                                                 @Mocked EditLog editLog)
             throws UserException {
         FakeEnv.setEnv(masterEnv);
 
@@ -322,7 +322,7 @@ public class GlobalTransactionMgrTest {
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "default_cluster", 20000,
-                partitionIdToOffset,false);
+                partitionIdToOffset, false);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
@@ -361,7 +361,7 @@ public class GlobalTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
-        RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob, "jobStatistic");
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
@@ -373,8 +373,8 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked EditLog editLog,
-            @Mocked KafkaConsumer kafkaConsumer)
+                                                             @Mocked EditLog editLog,
+                                                             @Mocked KafkaConsumer kafkaConsumer)
             throws UserException {
 
         FakeEnv.setEnv(masterEnv);
@@ -394,7 +394,7 @@ public class GlobalTransactionMgrTest {
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", 20000,
-                partitionIdToOffset,false);
+                partitionIdToOffset, false);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
@@ -434,7 +434,7 @@ public class GlobalTransactionMgrTest {
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
         // current total rows and error rows will be reset after job pause, so here they should be 0.
-        RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob, "jobStatistic");
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
         Assert.assertEquals(Long.valueOf(111L),

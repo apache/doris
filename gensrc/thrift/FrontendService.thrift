@@ -589,6 +589,12 @@ struct TStreamLoadPutResult {
     2: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
+struct TStreamLoadMultiTablePutResult {
+    1: required Status.TStatus status
+    // valid when status is OK
+    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
+}
+
 struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
@@ -901,6 +907,8 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+    
+    TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request, 2: list<string> table_names)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 

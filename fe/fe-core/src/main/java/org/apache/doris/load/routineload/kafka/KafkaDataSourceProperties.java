@@ -98,7 +98,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                     .add(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()).build();
 
     public KafkaDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
-        super(dataSourceProperties,multiLoad);
+        super(dataSourceProperties, multiLoad);
     }
 
     public KafkaDataSourceProperties(Map<String, String> originalDataSourceProperties) {
@@ -163,7 +163,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
             throw new AnalysisException("Only one of " + KafkaConfiguration.KAFKA_OFFSETS.getName() + " and "
                     + KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName() + " can be set.");
         }
-        if (multiLoad) {
+        if (multiTable) {
             checkAndSetMultiLoadProperties();
         }
         if (isAlter() && CollectionUtils.isNotEmpty(partitions) && CollectionUtils.isEmpty(offsets)

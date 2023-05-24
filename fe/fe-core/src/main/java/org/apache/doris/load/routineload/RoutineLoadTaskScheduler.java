@@ -17,11 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Maps;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
@@ -46,21 +42,15 @@ import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.stream.Collectors;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
  * Step1: update backend slot if interval more than BACKEND_SLOT_UPDATE_INTERVAL_MS
  * Step2: submit beIdToBatchTask when queue is empty
  * Step3: take a task from queue and schedule this task
- * <p>
+ *
  * The scheduler will be blocked in step3 till the queue receive a new task
  */
 public class RoutineLoadTaskScheduler extends MasterDaemon {
@@ -72,13 +62,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
     private RoutineLoadManager routineLoadManager;
     private LinkedBlockingQueue<RoutineLoadTaskInfo> needScheduleTasksQueue = Queues.newLinkedBlockingQueue();
-    
-    /**
-     * multi task prepare info map
-     * key: uuid id
-     * value: multi task prepare info
-     */
-    private Map<UUID, RoutineLoadTaskInfo> mutliTaskPrepareInfoMap = Maps.newHashMap();
 
     private long lastBackendSlotUpdateTime = -1;
 
@@ -129,11 +112,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
     }
 
-    private void schedulerMultiJobTaskPrepare(RoutineLoadTaskInfo routineLoadTaskInfo) {
-        // todo  send request to be
-        mutliTaskPrepareInfoMap.put(routineLoadTaskInfo.id, routineLoadTaskInfo);
-    }
-
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         LOG.debug("schedule routine load task info {} for job {}",
@@ -143,8 +121,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // task has been abandoned while renew task has been added in queue
             // or database has been deleted
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
-                    .add("error_msg", "task has been abandoned when scheduling task")
-                    .build());
+                             .add("error_msg", "task has been abandoned when scheduling task")
+                             .build());
             return;
         }
 
@@ -324,46 +302,5 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
         routineLoadTaskInfo.setBeId(beId);
         return true;
-    }
-
-    /**
-     * check if the table exists
-     *
-     * @throws MetaNotFoundException
-     */
-    private List<OlapTable> checkAndReturnMultiTable() throws UserException {
-        //todo
-        RoutineLoadTaskInfo routineLoadTaskInfo = mutliTaskPrepareInfoMap.get(null);
-
-        List<String> tableNames = null;
-        if (CollectionUtils.isEmpty(tableNames)) {
-            throw new MetaNotFoundException("table not found");
-        }
-
-        // todo Whether there will be a large amount of data risk
-        List<Table> tables = Env.getCurrentInternalCatalog().getDbOrMetaException(null).getTables();
-        if (CollectionUtils.isEmpty(tables)) {
-            routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.PAUSED,
-                            new ErrorReason(InternalErrorCode.DB_ERR, "no tables found"), false);
-        }
-        List<OlapTable> olapTables = new ArrayList<>(tableNames.size());
-        Map<String, OlapTable> olapTableMap = tables.stream().map(OlapTable.class::cast).collect(Collectors.toMap(OlapTable::getName, olapTable -> olapTable));
-        for (String tableName : tableNames) {
-            if (null == olapTableMap.get(tableName)) {
-                routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                        .updateState(JobState.PAUSED,
-                                new ErrorReason(InternalErrorCode.DB_ERR, "not found table : " + tableName), false);
-            }
-            olapTables.add(olapTableMap.get(tableName));
-        }
-        return olapTables;
-
-    }
-
-    //todo create stream load execute plan
-    private void createStreamLoadExecutePlan(List<OlapTable> olapTables) {
-        
-
     }
 }

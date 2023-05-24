@@ -45,14 +45,14 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private Map<Integer, Long> partitionIdToOffset;
 
     public KafkaTaskInfo(UUID id, long jobId, String clusterName,
-            long timeoutMs, Map<Integer, Long> partitionIdToOffset,boolean isMultiTable) {
-        super(id, jobId, clusterName, timeoutMs,isMultiTable);
+                         long timeoutMs, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
+        super(id, jobId, clusterName, timeoutMs, isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset,boolean isMultiTable) {
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
-                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(),isMultiTable);
+                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
@@ -72,9 +72,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setTxnId(txnId);
         Database database =
                 Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
-        Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
+
         tRoutineLoadTask.setDb(database.getFullName());
-        tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(),
                 routineLoadJob.getId(), DebugUtil.printId(id), txnId);
@@ -87,7 +86,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        tRoutineLoadTask.setParams(rePlan(routineLoadJob));
+        tRoutineLoadTask.setIsMultiTable(isMultiTable);
+        if (!isMultiTable) {
+            Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
+            tRoutineLoadTask.setTbl(tbl.getName());
+            tRoutineLoadTask.setParams(rePlan(routineLoadJob));
+        }
         tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());

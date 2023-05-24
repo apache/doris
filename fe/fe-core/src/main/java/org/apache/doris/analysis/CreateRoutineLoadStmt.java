@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -134,7 +133,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .build();
 
     private final LabelName labelName;
-    private final String tableName;
+    private String tableName;
     private final List<ParseNode> loadPropertyList;
     private final Map<String, String> jobProperties;
     private final String typeName;
@@ -157,8 +156,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     /**
      * RoutineLoad support json data.
      * Require Params:
-     *   1) dataFormat = "json"
-     *   2) jsonPaths = "$.XXX.xxx"
+     * 1) dataFormat = "json"
+     * 2) jsonPaths = "$.XXX.xxx"
      */
     private String format = ""; //default is csv.
     private String jsonPaths = "";
@@ -171,6 +170,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private LoadTask.MergeType mergeType;
 
+    private boolean isMultiTable = false;
+
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 5 && v <= 60;
@@ -182,14 +183,31 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
-                                 String comment,boolean multiLoad) {
+                                 String comment) {
         this.labelName = labelName;
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(typeName, dataSourceProperties,multiLoad);
+                .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
+        this.mergeType = mergeType;
+        if (comment != null) {
+            this.comment = comment;
+        }
+    }
+
+    public CreateRoutineLoadStmt(LabelName labelName, List<ParseNode> loadPropertyList,
+                                 Map<String, String> jobProperties, String typeName,
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
+                                 String comment) {
+        this.isMultiTable = true;
+        this.labelName = labelName;
+        this.loadPropertyList = loadPropertyList;
+        this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
+        this.typeName = typeName.toUpperCase();
+        this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
+                .createDataSource(typeName, dataSourceProperties, true);
         this.mergeType = mergeType;
         if (comment != null) {
             this.comment = comment;
@@ -317,10 +335,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         labelName.analyze(analyzer);
         dbName = labelName.getDbName();
         name = labelName.getLabelName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        if (isMultiTable) {
+            return;
+        }
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
@@ -395,9 +416,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
-                        precedingImportWhereStmt, importWhereStmt,
-                        partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
-                        importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+                precedingImportWhereStmt, importWhereStmt,
+                partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+                importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
     private void checkJobProperties() throws UserException {

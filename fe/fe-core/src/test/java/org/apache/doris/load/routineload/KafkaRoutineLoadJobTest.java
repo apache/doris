@@ -99,11 +99,11 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testRoutineLoadTaskConcurrentNum(@Injectable PartitionInfo partitionInfo1,
-                             @Injectable PartitionInfo partitionInfo2,
-                             @Mocked Env env,
-                             @Mocked SystemInfoService systemInfoService,
-                             @Mocked Database database,
-                             @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
+                                                 @Injectable PartitionInfo partitionInfo2,
+                                                 @Mocked Env env,
+                                                 @Mocked SystemInfoService systemInfoService,
+                                                 @Mocked Database database,
+                                                 @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
         List<Integer> partitionList1 = Lists.newArrayList(1, 2);
         List<Integer> partitionList2 = Lists.newArrayList(1, 2, 3);
         List<Integer> partitionList3 = Lists.newArrayList(1, 2, 3, 4);
@@ -224,7 +224,7 @@ public class KafkaRoutineLoadJobTest {
         Map<Integer, Long> partitionIdsToOffset = Maps.newHashMap();
         partitionIdsToOffset.put(100, 0L);
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(new UUID(1, 1), 1L, "default_cluster",
-                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset,false);
+                maxBatchIntervalS * 2 * 1000, partitionIdsToOffset, false);
         kafkaTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis() - maxBatchIntervalS * 2 * 1000 - 1);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
 
@@ -244,7 +244,7 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testFromCreateStmt(@Mocked Env env,
                                    @Injectable Database database,
-            @Injectable OlapTable table) throws UserException {
+                                   @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
         RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
                 LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
@@ -285,7 +285,7 @@ public class KafkaRoutineLoadJobTest {
         new MockUp<KafkaUtil>() {
             @Mock
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
+                                                       Map<String, String> convertedCustomProperties) throws UserException {
                 return Lists.newArrayList(1, 2, 3);
             }
         };
@@ -315,9 +315,9 @@ public class KafkaRoutineLoadJobTest {
         customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
-                                                                                loadPropertyList, properties,
-                                                                                typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND, "");
+                loadPropertyList, properties,
+                typeName, customProperties,
+                LoadTask.MergeType.APPEND, "");
         Deencapsulation.setField(createRoutineLoadStmt, "name", jobName);
         return createRoutineLoadStmt;
     }

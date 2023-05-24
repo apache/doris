@@ -57,9 +57,9 @@ public abstract class AbstractDataSourceProperties {
     protected String timezone;
 
 
-    public AbstractDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
+    public AbstractDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiTable) {
         this.originalDataSourceProperties = dataSourceProperties;
-        this.multiLoad = multiLoad;
+        this.multiTable = multiTable;
     }
 
     public AbstractDataSourceProperties(Map<String, String> originalDataSourceProperties) {
@@ -74,7 +74,7 @@ public abstract class AbstractDataSourceProperties {
      * Whether the data source is multi load
      * default is false
      */
-    protected boolean multiLoad = false;
+    protected boolean multiTable = false;
 
     /**
      * Check required properties

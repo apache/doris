@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -112,6 +110,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                long dbId, long tableId, String brokerList, String topic,
                                UserIdentity userIdentity) {
         super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA, userIdentity);
+        this.brokerList = brokerList;
+        this.topic = topic;
+        this.progress = new KafkaProgress();
+    }
+
+    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+                               long dbId, String brokerList, String topic,
+                               UserIdentity userIdentity) {
+        super(id, name, clusterName, dbId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
@@ -218,7 +225,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
-                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress,isMultiTable());
+                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress, isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -287,7 +294,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaTaskInfo oldKafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
         // add new task
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(oldKafkaTaskInfo,
-                ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()),isMultiTable());
+                ((KafkaProgress) progress).getPartitionIdToOffset(oldKafkaTaskInfo.getPartitions()), isMultiTable());
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
@@ -404,9 +411,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // init kafka routine load job
         long id = Env.getCurrentEnv().getNextId();
         KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                db.getClusterName(), db.getId(), tableId,
-                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
+        KafkaRoutineLoadJob kafkaRoutineLoadJob;
+        if (kafkaProperties.isMultiTable()) {
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
+                    db.getClusterName(), db.getId(),
+                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
+        } else {
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
+                    db.getClusterName(), db.getId(), tableId,
+                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
+        }
         kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();
         kafkaRoutineLoadJob.checkCustomPartition();

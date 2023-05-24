@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
@@ -56,6 +55,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -185,8 +185,10 @@ public class RoutineLoadManager implements Writable {
     private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
         idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
 
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.computeIfAbsent(routineLoadJob.getDbId(), k -> Maps.newConcurrentMap());
-        List<RoutineLoadJob> routineLoadJobList = nameToRoutineLoadJob.computeIfAbsent(routineLoadJob.getName(), k -> Lists.newArrayList());
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob
+                .computeIfAbsent(routineLoadJob.getDbId(), k -> Maps.newConcurrentMap());
+        List<RoutineLoadJob> routineLoadJobList = nameToRoutineLoadJob
+                .computeIfAbsent(routineLoadJob.getName(), k -> Lists.newArrayList());
         routineLoadJobList.add(routineLoadJob);
         // add txn state callback in factory
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);

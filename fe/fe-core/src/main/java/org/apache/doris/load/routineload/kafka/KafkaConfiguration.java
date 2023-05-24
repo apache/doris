@@ -38,18 +38,14 @@ public enum KafkaConfiguration {
 
     KAFKA_DEFAULT_OFFSETS("kafka_default_offsets", "OFFSET_END", offset -> offset),
     KAFKA_ORIGIN_DEFAULT_OFFSETS("kafka_origin_default_offsets", null, offset -> offset),
-    
-    KAFKA_TABLE_NAME_LOCATION("kafka_table_name_location", "key", value -> value.replace(" ", "")),
-    
-    KAFKA_TABLE_NAME_FORMAT("kafka_table_name_format", "TEXT", value -> value.replace(" ", "")),
-    
-/*    KAFKA_JSON_TABLE_NAME_FIELD_NAME("kafka_json_table_name_field_name", "table_name", value -> value.replace(" ", "")),
-
-    KAFKA_JSON_TABLE_NAME_JSON_PATH("kafka_json_table_name_json_path", null, value -> value.replace(" ", "")),*/
-    
+    KAFKA_TABLE_NAME_LOCATION("kafka_table_name_location", "key",
+            value -> value.replace(" ", "")),
+    KAFKA_TABLE_NAME_FORMAT("kafka_table_name_format", "TEXT",
+            value -> value.replace(" ", "")),
     KAFKA_TEXT_TABLE_NAME_FIELD_INDEX("kafka_text_table_name_field_index", 0, Integer::parseInt),
-    
-    KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER("kafka_text_table_name_field_delimiter", ",", value -> value.replace(" ", ""));
+
+    KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER("kafka_text_table_name_field_delimiter", ",",
+            value -> value.replace(" ", ""));
     private final String name;
 
     public String getName() {
