@@ -19,6 +19,7 @@
 
 #include "common/object_pool.h"
 #include "runtime/type_limit.h"
+#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 // only used in Runtime Filter
@@ -40,7 +41,12 @@ public:
 template <class T>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
-    MinMaxNumFunc() = default;
+    MinMaxNumFunc(int precision = 0, int scale = 0) : _precision(precision), _scale(scale) {
+        if constexpr (vectorized::IsDecimalNumber<T>) {
+            _max = vectorized::max_decimal_value<T>(precision);
+            _min = vectorized::min_decimal_value<T>(precision);
+        }
+    }
     ~MinMaxNumFunc() override = default;
 
     void insert(const void* data) override {
@@ -133,6 +139,8 @@ private:
     T _min = type_limit<T>::max();
     // we use _empty to avoid compare twice
     bool _empty = true;
+    int _precision;
+    int _scale;
 };
 
 } // namespace doris
