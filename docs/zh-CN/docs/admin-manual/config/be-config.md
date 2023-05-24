@@ -652,6 +652,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 * 默认值: true
 
+#### `pick_rowset_to_compact_interval_sec`
+
+* 类型: int64
+* 描述: 选取 rowset 去合并的时间间隔，单位为秒
+* 默认值: 86400
+
 
 ### 导入
 
