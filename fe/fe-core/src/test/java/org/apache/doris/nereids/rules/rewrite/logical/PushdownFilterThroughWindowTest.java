@@ -41,6 +41,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.doris.qe.ConnectContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -72,6 +73,8 @@ public class PushdownFilterThroughWindowTest implements MemoPatternMatchSupporte
      */
     @Test
     public void pushDownFilterThroughWindowTest() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
         NamedExpression gender = scan.getOutput().get(1).toSlot();
         NamedExpression age = scan.getOutput().get(3).toSlot();
 
@@ -92,7 +95,7 @@ public class PushdownFilterThroughWindowTest implements MemoPatternMatchSupporte
                 .project(ImmutableList.of(0))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(context, plan)
                 .applyTopDown(new PushdownFilterThroughWindow())
                 .matches(
                     logicalProject(

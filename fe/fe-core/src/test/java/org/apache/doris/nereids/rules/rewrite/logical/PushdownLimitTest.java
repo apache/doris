@@ -46,6 +46,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -260,6 +261,8 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     public void testLimitPushWindow() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
         NamedExpression grade = scanScore.getOutput().get(2).toSlot();
 
         List<Expression> partitionKeyList = ImmutableList.of();
@@ -277,7 +280,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 .limit(100)
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(context, plan)
                 .rewrite()
                 .matches(
                     logicalLimit(
@@ -300,6 +303,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     public void testTopNPushWindow() {
+        connectContext.getSessionVariable().setEnablePartitionTopN(true);
         PlanChecker.from(connectContext)
                 .analyze("select *, rank() over(partition by k2 order by k2) as num from t1 order by num limit 10;")
                 .rewrite()
