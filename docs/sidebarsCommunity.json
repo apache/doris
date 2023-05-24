@@ -4,6 +4,7 @@
         "gitter",
         "subscribe-mail-list",
         "feedback",
+        "doris-future",
         {
             "type": "category",
             "label": "How to Contribute",
