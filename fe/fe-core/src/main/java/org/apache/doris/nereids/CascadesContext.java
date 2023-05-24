@@ -124,27 +124,32 @@ public class CascadesContext implements ScheduleContext, PlanSource {
      * @param statementContext {@link StatementContext} reference
      */
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
-            CTEContext cteContext) {
+            CTEContext cteContext, PhysicalProperties requiredProperties) {
         this.plan = plan;
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, null, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requiredProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.cteContext = cteContext;
     }
 
+    public static CascadesContext newMemoContext(StatementContext statementContext,
+            Plan initPlan, PhysicalProperties requireProperties) {
+        return new CascadesContext(initPlan, new Memo(initPlan), statementContext, requireProperties);
+    }
+
     public static CascadesContext newRewriteContext(StatementContext statementContext,
-            Plan initPlan) {
-        return new CascadesContext(initPlan, null, statementContext);
+            Plan initPlan, PhysicalProperties requiredProperties) {
+        return new CascadesContext(initPlan, null, statementContext, requiredProperties);
     }
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan, CTEContext cteContext) {
-        return new CascadesContext(initPlan, null, statementContext, cteContext);
+        return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -166,7 +171,7 @@ public class CascadesContext implements ScheduleContext, PlanSource {
     }
 
     public synchronized boolean isTimeout() {
-        return false;
+        return isTimeout;
     }
 
     public void toMemo() {
@@ -221,10 +226,6 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     public JobContext getCurrentJobContext() {
         return currentJobContext;
-    }
-
-    public PhysicalProperties getProperties() {
-        return currentJobContext.getRequiredProperties();
     }
 
     public RuntimeFilterContext getRuntimeFilterContext() {
