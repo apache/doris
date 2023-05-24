@@ -240,18 +240,23 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
+        boolean hasNull = false;
         for (Expression e : or.children()) {
             e = e.accept(this, context);
             if (BooleanLiteral.TRUE.equals(e)) {
                 return BooleanLiteral.TRUE;
             } else if (e instanceof NullLiteral) {
-                return e;
+                hasNull = true;
             } else if (!BooleanLiteral.FALSE.equals(e)) {
                 nonFalseLiteral.add(e);
             }
         }
         if (nonFalseLiteral.isEmpty()) {
-            return BooleanLiteral.FALSE;
+            if (hasNull) {
+                return new NullLiteral(BooleanType.INSTANCE);
+            } else {
+                return BooleanLiteral.FALSE;
+            }
         }
         if (nonFalseLiteral.size() == 1) {
             return nonFalseLiteral.get(0);
