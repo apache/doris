@@ -124,14 +124,14 @@ public class CascadesContext implements ScheduleContext, PlanSource {
      * @param statementContext {@link StatementContext} reference
      */
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
-            CTEContext cteContext, PhysicalProperties requiredProperties) {
+            CTEContext cteContext, PhysicalProperties requestProperties) {
         this.plan = plan;
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, requiredProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requestProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.cteContext = cteContext;
@@ -143,8 +143,8 @@ public class CascadesContext implements ScheduleContext, PlanSource {
     }
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
-            Plan initPlan, PhysicalProperties requiredProperties) {
-        return new CascadesContext(initPlan, null, statementContext, requiredProperties);
+            Plan initPlan, PhysicalProperties requestProperties) {
+        return new CascadesContext(initPlan, null, statementContext, requestProperties);
     }
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
