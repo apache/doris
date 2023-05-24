@@ -77,7 +77,7 @@ public class ResultReceiver {
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();
                     if (currentTs >= timeoutTs) {
-                        throw new TimeoutException("query timeout, query id = " + this.queryId.toString());
+                        throw new TimeoutException("query timeout, query id = " + DebugUtil.printId(this.queryId));
                     }
                     try {
                         pResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
