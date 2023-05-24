@@ -25,3 +25,11 @@ k2	INT	Yes	true	\N
 k3	INT	Yes	true	\N	
 int_value	INT	Yes	false	\N	NONE
 
+-- !select_dup_table --
+
+-- !desc_dup_table --
+k1	INT	Yes	true	\N	
+k2	INT	Yes	true	\N	
+k3	INT	Yes	true	\N	
+int_value	INT	Yes	false	\N	NONE
+

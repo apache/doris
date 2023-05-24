@@ -543,6 +543,7 @@ private:
     std::shared_ptr<OlapTableSchemaParam> _schema;
     OlapTableLocationParam* _location = nullptr;
     bool _write_single_replica = false;
+    bool _dry_run_load = false;
     OlapTableLocationParam* _slave_location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 

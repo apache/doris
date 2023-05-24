@@ -3076,6 +3076,12 @@ public class Env {
                 sb.append(olapTable.isDynamicSchema()).append("\"");
             }
 
+            // return load in sink
+            if (olapTable.dryRunLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DRY_RUN_LOAD).append("\" = \"");
+                sb.append(olapTable.dryRunLoad()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");

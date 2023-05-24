@@ -1807,9 +1807,25 @@ public class OlapTable extends Table {
         tableProperty.buildStoreRowColumn();
     }
 
+    public void setDryRunLoad(boolean dryRunLoad) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DRY_RUN_LOAD,
+                Boolean.valueOf(dryRunLoad).toString());
+        tableProperty.buildDryRunLoad();
+    }
+
     public Boolean storeRowColumn() {
         if (tableProperty != null) {
             return tableProperty.storeRowColumn();
+        }
+        return false;
+    }
+
+    public Boolean dryRunLoad() {
+        if (tableProperty != null) {
+            return tableProperty.dryRunLoad();
         }
         return false;
     }

@@ -125,6 +125,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
 
+    public static final String PROPERTIES_DRY_RUN_LOAD = "dry_run_load";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
@@ -565,6 +567,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeDryRunLoad(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_DRY_RUN_LOAD);
+        // set false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_DRY_RUN_LOAD);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_DRY_RUN_LOAD
                 + " must be `true` or `false`");
     }
 

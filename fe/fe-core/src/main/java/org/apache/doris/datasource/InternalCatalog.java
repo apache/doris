@@ -2016,6 +2016,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setStoreRowColumn(storeRowColumn);
 
+        boolean dryRunLoad = PropertyAnalyzer.analyzeDryRunLoad(properties);
+        olapTable.setDryRunLoad(dryRunLoad);
+
         // set dynamic schema
         boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);

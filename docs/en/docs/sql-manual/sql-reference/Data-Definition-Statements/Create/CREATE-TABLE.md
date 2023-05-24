@@ -388,6 +388,14 @@ distribution_desc
         When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
 
         `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `dry_run_load`
+
+        Whether to disable load data for this table.
+
+        If this property is set to 'true', insert data (including `insert into`、`stream load` and so on) will skip all the tables of this table and will return ok in sink.
+
+        `"dry_run_load" = "false"`
     
     * Dynamic partition related
     

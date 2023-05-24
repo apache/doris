@@ -238,6 +238,7 @@ struct TOlapTableSink {
     16: optional bool load_to_single_tablet
     17: optional bool write_single_replica
     18: optional Descriptors.TOlapTableLocationParam slave_location
+    19: optional bool dry_run_load
 }
 
 struct TDataSink {

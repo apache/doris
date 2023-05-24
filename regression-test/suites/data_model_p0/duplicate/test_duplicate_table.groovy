@@ -65,4 +65,27 @@ suite("test_duplicate_table") {
     order_qt_select_dup_table "select * from ${tbName1}"
     qt_desc_dup_table "desc ${tbName1}"
     sql "DROP TABLE ${tbName1}"
+
+    def tbName2 = "test_default_data_model_dry_run_load"
+    sql "DROP TABLE IF EXISTS ${tbName2}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName2} (
+                k1 int,
+                k2 int, 
+                k3 int,
+                int_value int
+            )
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1","dry_run_load"="true");
+        """
+    sql "insert into ${tbName2} values(0, 1, 2, 4)"
+    sql "insert into ${tbName2} values(0, 1, 2, 5)"
+    sql "insert into ${tbName2} values(0, 1, 2, 3)"
+    order_qt_select_dup_table "select * from ${tbName2}"
+    qt_desc_dup_table "desc ${tbName2}"
+    List<List<Object>> result  = sql "show tables like '${tbName2}'"
+    logger.info("${result}")
+    assertEquals(result.size(), 1)
+    result = sql "show partitions from ${tbName2}"
+    assertEquals(Integer.valueOf(result.get(0).get(2)), 1)
+    sql "DROP TABLE ${tbName2}"
 }

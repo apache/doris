@@ -386,6 +386,14 @@ distribution_desc
 
         `"enable_duplicate_without_keys_by_default" = "false"`
 
+    * `dry_run_load`
+
+        是否关闭表的数据导入。
+
+        如果这个属性设置成 `true`, 写入数据（包括`insert into`、`stream load`等）将会跳过所有tablets，直接在sink模块返回成功。 
+
+        `"dry_run_load" = "false"`
+
     * 动态分区相关
     
         动态分区相关参数如下：

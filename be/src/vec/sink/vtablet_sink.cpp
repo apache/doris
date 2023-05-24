@@ -551,6 +551,10 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (payload->second.empty()) {
         return Status::OK();
     }
+    if (_parent->_dry_run_load) {
+        VLOG_DEBUG << "_dry_run_load == true, do not send data really";
+        return Status::OK();
+    }
     // If add_block() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -671,6 +675,10 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
+        return 0;
+    }
+    if (_parent->_dry_run_load) {
+        VLOG_DEBUG << "_dry_run_load == true, do not send data really";
         return 0;
     }
 
@@ -827,7 +835,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
-                                                                                          "http");
+                                                                                        "http");
         _add_block_closure->cntl.http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _add_block_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -836,15 +844,15 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, nullptr,
-                                                             &_add_block_closure->result,
-                                                             _add_block_closure);
+                                                            &_add_block_closure->result,
+                                                            _add_block_closure);
         }
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
-                                           &_add_block_closure->result, _add_block_closure);
+                                        &_add_block_closure->result, _add_block_closure);
         }
     }
 
@@ -1002,6 +1010,9 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
             return Status::InternalError("single replica load is disabled on BE.");
         }
     }
+    if (table_sink.__isset.dry_run_load && table_sink.dry_run_load) {
+        _dry_run_load = true;
+    }
 
     if (table_sink.__isset.load_channel_timeout_s) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
@@ -1116,30 +1127,32 @@ Status VOlapTableSink::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    fmt::memory_buffer buf;
-    for (auto index_channel : _channels) {
-        fmt::format_to(buf, "index id:{}", index_channel->_index_id);
-        index_channel->for_each_node_channel(
-                [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
-    }
-    LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
+    if (!_dry_run_load) {
+        fmt::memory_buffer buf;
+        for (auto index_channel : _channels) {
+            fmt::format_to(buf, "index id:{}", index_channel->_index_id);
+            index_channel->for_each_node_channel(
+                    [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
+        }
+        LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
 
-    for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([&index_channel](
-                                                     const std::shared_ptr<VNodeChannel>& ch) {
-            auto st = ch->open_wait();
-            if (!st.ok()) {
-                // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
-                // This phase will not fail due to a single tablet.
-                // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
-                index_channel->mark_as_failed(
-                        ch->node_id(), ch->host(),
-                        fmt::format("{}, open failed, err: {}", ch->channel_info(), st.to_string()),
-                        -1);
-            }
-        });
+        for (auto index_channel : _channels) {
+            index_channel->for_each_node_channel([&index_channel](
+                                                        const std::shared_ptr<VNodeChannel>& ch) {
+                auto st = ch->open_wait();
+                if (!st.ok()) {
+                    // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
+                    // This phase will not fail due to a single tablet.
+                    // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
+                    index_channel->mark_as_failed(
+                            ch->node_id(), ch->host(),
+                            fmt::format("{}, open failed, err: {}", ch->channel_info(), st.to_string()),
+                            -1);
+                }
+            });
 
-        RETURN_IF_ERROR(index_channel->check_intolerable_failure());
+            RETURN_IF_ERROR(index_channel->check_intolerable_failure());
+        }
     }
     int32_t send_batch_parallelism =
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
@@ -1338,7 +1351,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
         // open partition
-        if (config::enable_lazy_open_partition) {
+        if (config::enable_lazy_open_partition && !_dry_run_load) {
             // aysnc open operation,don't block send operation
             _open_partition(partition);
         }
@@ -1365,6 +1378,10 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             RETURN_IF_CATCH_EXCEPTION(
                     vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
         }
+    }
+    if (_dry_run_load) {
+        VLOG_DEBUG << "_dry_run_load == true, do not send data really";
+        return Status::OK();
     }
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
@@ -1407,54 +1424,56 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 num_node_channels = 0;
         VNodeChannelStat channel_stat;
         {
-            for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel(
-                        [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });
-                num_node_channels += index_channel->num_node_channels();
+            if (!_dry_run_load) {
+                for (auto index_channel : _channels) {
+                    index_channel->for_each_node_channel(
+                            [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });
+                    num_node_channels += index_channel->num_node_channels();
+                }
+
+                for (auto index_channel : _channels) {
+                    int64_t add_batch_exec_time = 0;
+                    int64_t wait_exec_time = 0;
+                    index_channel->for_each_node_channel(
+                            [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
+                            &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
+                            &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                            &total_wait_exec_time_ns, &wait_exec_time,
+                            &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
+                                auto s = ch->close_wait(state);
+                                if (!s.ok()) {
+                                    auto err_msg = s.to_string();
+                                    index_channel->mark_as_failed(ch->node_id(), ch->host(), err_msg,
+                                                                -1);
+                                    // cancel the node channel in best effort
+                                    ch->cancel(err_msg);
+                                    LOG(WARNING) << ch->channel_info()
+                                                << ", close channel failed, err: " << err_msg;
+                                }
+                                ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
+                                                &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
+                                                &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                                                &total_wait_exec_time_ns, &wait_exec_time,
+                                                &total_add_batch_num);
+                            });
+
+                    if (add_batch_exec_time > max_add_batch_exec_time_ns) {
+                        max_add_batch_exec_time_ns = add_batch_exec_time;
+                    }
+                    if (wait_exec_time > max_wait_exec_time_ns) {
+                        max_wait_exec_time_ns = wait_exec_time;
+                    }
+
+                    // check if index has intolerable failure
+                    Status index_st = index_channel->check_intolerable_failure();
+                    if (!index_st.ok()) {
+                        status = index_st;
+                    } else if (Status st = index_channel->check_tablet_received_rows_consistency();
+                            !st.ok()) {
+                        status = st;
+                    }
+                } // end for index channels
             }
-
-            for (auto index_channel : _channels) {
-                int64_t add_batch_exec_time = 0;
-                int64_t wait_exec_time = 0;
-                index_channel->for_each_node_channel(
-                        [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
-                         &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                         &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                         &total_wait_exec_time_ns, &wait_exec_time,
-                         &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                            auto s = ch->close_wait(state);
-                            if (!s.ok()) {
-                                auto err_msg = s.to_string();
-                                index_channel->mark_as_failed(ch->node_id(), ch->host(), err_msg,
-                                                              -1);
-                                // cancel the node channel in best effort
-                                ch->cancel(err_msg);
-                                LOG(WARNING) << ch->channel_info()
-                                             << ", close channel failed, err: " << err_msg;
-                            }
-                            ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                            &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                                            &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                                            &total_wait_exec_time_ns, &wait_exec_time,
-                                            &total_add_batch_num);
-                        });
-
-                if (add_batch_exec_time > max_add_batch_exec_time_ns) {
-                    max_add_batch_exec_time_ns = add_batch_exec_time;
-                }
-                if (wait_exec_time > max_wait_exec_time_ns) {
-                    max_wait_exec_time_ns = wait_exec_time;
-                }
-
-                // check if index has intolerable failure
-                Status index_st = index_channel->check_intolerable_failure();
-                if (!index_st.ok()) {
-                    status = index_st;
-                } else if (Status st = index_channel->check_tablet_received_rows_consistency();
-                           !st.ok()) {
-                    status = st;
-                }
-            } // end for index channels
         }
         // TODO need to be improved
         LOG(INFO) << "total mem_exceeded_block_ns=" << channel_stat.mem_exceeded_block_ns

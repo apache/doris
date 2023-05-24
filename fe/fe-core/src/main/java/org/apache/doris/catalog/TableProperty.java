@@ -84,6 +84,8 @@ public class TableProperty implements Writable {
 
     private boolean storeRowColumn = false;
 
+    private boolean dryRunLoad = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -191,8 +193,18 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildDryRunLoad() {
+        dryRunLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DRY_RUN_LOAD, "false"));
+        return this;
+    }
+
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public boolean dryRunLoad() {
+        return dryRunLoad;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -415,6 +427,7 @@ public class TableProperty implements Writable {
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
                 .buildDisableAutoCompaction()
+                .buildDryRunLoad()
                 .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
