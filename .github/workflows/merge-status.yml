@@ -36,7 +36,7 @@ jobs:
             pull_request_num=${{ env.PULL_REQUEST_NUM }}
             echo "${pull_request_num}"
             echo "-----------------------------------------------------------------"
-            curl -s -X GET -H 'Content-Type:text/plain' -H 'Accept: application/json' -u OneMoreChance:OneMoreChance "http://43.132.222.7:8111/app/rest/builds?locator=buildType:Doris_DorisRegression_Approval,branch:pull/${pull_request_num},running:true"
+            curl -s -X GET -H 'Content-Type:text/plain' -H 'Accept: application/json' -u OneMoreChance:OneMoreChance "http://43.132.222.7:8111/app/rest/builds?locator=buildType:Doris_DorisRegression_Approval,branch:pull/19962,running:true"
             echo "${running_builds_command}" 
             latest_commit_id="${{ env.LATEST_COMMIT }}"
             running_builds_list=$(eval "${running_builds_command}" > running_builds.json && jq -r '.build[].id' running_builds.json)
