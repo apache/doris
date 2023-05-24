@@ -38,11 +38,6 @@ jobs:
     steps:
       - name: Run pipeline by teamcity restful
         run: |
-          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
-            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
-          else
-            echo "Comment was made on an issue, not a pull request."
-          fi
           comment="${{ env.ISSUE_COMMENT }}"
           pull_request_num="${{ github.event.pull_request.number }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")          
