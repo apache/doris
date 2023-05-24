@@ -17,8 +17,6 @@
 #
 
 ---
-
-
 name: Auto Check Merge State
 
 on:
@@ -47,14 +45,7 @@ jobs:
           echo "pull_request_num : ${pull_request_num}"
           echo "encoded_string : ${encoded_string}"
           echo "latest_commit_id : ${{ env.LATEST_COMMIT }}"
-          trigger_pipelines="Doris_DorisRegression_Approval"
-          
-          if [ -z "${trigger_pipelines}" ];then
-            echo "Just a general comment that doesn't match any pipeline rules"
-          fi
-          
-          echo "need run pipelines: ${trigger_pipelines}"
-          
+          pipeline="Doris_DorisRegression_Approval"
           for pipeline in ${trigger_pipelines}
           do
             echo "-----------------------------------------------------------------"
