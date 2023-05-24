@@ -559,4 +559,4 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/version_internal.h"
-// #include "gutil/strings/substitute.h"
+#include "gutil/strings/substitute.h"
