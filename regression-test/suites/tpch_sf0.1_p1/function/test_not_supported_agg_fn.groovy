@@ -39,6 +39,7 @@ suite("test_not_supported_agg_fn") {
         }
 
         sql "set enable_nereids_planner=true;"
+        sql "set enable_fallback_to_original_planner=false;"
         test {
             sql """
                 select sum(1);
