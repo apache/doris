@@ -79,6 +79,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
+        System.out.println("开始检查checkProperties");
         super.checkProperties();
         // check file.meta.cache.ttl-second parameter
         // CatalogProperty oriProperty = this.catalogProperty;
@@ -124,6 +125,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
         }
+        System.out.println("结束检查");
 
     }
 

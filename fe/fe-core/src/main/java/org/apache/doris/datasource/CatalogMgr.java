@@ -324,6 +324,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
+            System.out.println("replayAlterCatalogProps(log)之前");
             replayAlterCatalogProps(log);
             System.out.println("replayAlterCatalogProps(log)之后");
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
@@ -551,7 +552,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
                     ((ExternalCatalog) catalog).checkProperties();
-                } catch (DdlException ddlException) {
+                } catch (Exception ddlException) {
                     //把数据回退回去
                     ((ExternalCatalog) catalog).rollBackCatalogProps(oldProps);
                     System.out.println("扔数据" + ddlException.getMessage());
