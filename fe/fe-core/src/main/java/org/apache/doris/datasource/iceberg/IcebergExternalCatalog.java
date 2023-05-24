@@ -51,7 +51,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     public IcebergExternalCatalog(long catalogId, String name) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG);
-        this.type = "iceberg";
     }
 
     @Override
