@@ -104,19 +104,13 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const UInt8*
 template <bool is_binary_format>
 Status DataTypeHLLSerDe::_write_column_to_mysql(
         const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, int scale, bool col_const) const {
+        int start, int end, bool col_const) const {
     int buf_ret = 0;
-    auto& column_hll = assert_cast<const ColumnHLL&>(column);
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        const auto col_index = index_check_const(i, col_const);
-        HyperLogLog hyperLogLog = column_hll.get_element(col_index);
-        size_t size = hyperLogLog.max_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-        hyperLogLog.serialize((uint8*)buf.get());
-        buf_ret = result[row_idx].push_string(buf.get(), size);
+        buf_ret = result[row_idx].push_null();
         ++row_idx;
     }
     return Status::OK();

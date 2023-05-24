@@ -61,13 +61,11 @@ public:
         LOG(FATAL) << "Not support read FixedLengthObject column from arrow";
     }
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
+                                 int row_idx, int start, int end, bool col_const) const override {
         LOG(FATAL) << "Not support write object column to mysql";
     }
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
+                                 int row_idx, int start, int end, bool col_const) const override {
         LOG(FATAL) << "Not support write object column to mysql";
     }
 };

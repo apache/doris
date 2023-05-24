@@ -76,16 +76,11 @@ public:
     // MySQL serializer and deserializer
     virtual Status write_column_to_mysql(const IColumn& column,
                                          std::vector<MysqlRowBuffer<false>>& result, int row_idx,
-                                         int start, int end, int scale, bool col_const) const = 0;
+                                         int start, int end, bool col_const) const = 0;
 
     virtual Status write_column_to_mysql(const IColumn& column,
                                          std::vector<MysqlRowBuffer<true>>& result, int start,
-                                         int row_idx, int end, int scale, bool col_const) const = 0;
-    //    // for nested column, we need write one mysql row with multi memory rows in column
-    //    virtual Status write_column_to_mysql(const IColumn& column,
-    //                                         std::vector<MysqlRowBuffer<false>>& result, int row_idx,
-    //                                         int start, int end, int scale, bool col_const) const = 0;
-
+                                         int row_idx, int end, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
     // ORC serializer and deserializer

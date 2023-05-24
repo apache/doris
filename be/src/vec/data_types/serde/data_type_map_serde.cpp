@@ -57,7 +57,7 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
 template <bool is_binary_format>
 Status DataTypeMapSerDe::_write_column_to_mysql(
         const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, int scale, bool col_const) const {
+        int start, int end, bool col_const) const {
     int buf_ret = 0;
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
@@ -78,30 +78,30 @@ Status DataTypeMapSerDe::_write_column_to_mysql(
                 buf_ret = result[row_idx].push_string(", ", 2);
             }
             if (nested_keys_column.is_null_at(j)) {
-                buf_ret = result[i].push_string("NULL", strlen("NULL"));
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
             } else {
                 if (is_key_string) {
                     buf_ret = result[row_idx].push_string("\"", 1);
-                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(
-                            nested_keys_column, result, row_idx, j, j + 1, scale, col_const));
+                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result,
+                                                                     row_idx, j, j + 1, col_const));
                     buf_ret = result[row_idx].push_string("\"", 1);
                 } else {
-                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(
-                            nested_keys_column, result, row_idx, j, j + 1, scale, col_const));
+                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result,
+                                                                     row_idx, j, j + 1, col_const));
                 }
             }
             buf_ret = result[row_idx].push_string(":", 1);
-            if (nested_values_column.is_null_at(i)) {
-                buf_ret = result[i].push_string("NULL", strlen("NULL"));
+            if (nested_values_column.is_null_at(j)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
             } else {
                 if (is_val_string) {
                     buf_ret = result[row_idx].push_string("\"", 1);
                     RETURN_IF_ERROR(value_serde->write_column_to_mysql(
-                            nested_values_column, result, row_idx, j, j + 1, scale, col_const));
+                            nested_values_column, result, row_idx, j, j + 1, col_const));
                     buf_ret = result[row_idx].push_string("\"", 1);
                 } else {
                     RETURN_IF_ERROR(value_serde->write_column_to_mysql(
-                            nested_values_column, result, row_idx, j, j + 1, scale, col_const));
+                            nested_values_column, result, row_idx, j, j + 1, col_const));
                 }
             }
         }

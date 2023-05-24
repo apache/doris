@@ -87,7 +87,7 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 template <bool is_binary_format>
 Status DataTypeArraySerDe::_write_column_to_mysql(
         const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, int scale, bool col_const) const {
+        int start, int end, bool col_const) const {
     int buf_ret = 0;
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
@@ -110,11 +110,11 @@ Status DataTypeArraySerDe::_write_column_to_mysql(
                 if (is_nested_string) {
                     buf_ret = result[row_idx].push_string("\"", 1);
                     RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j,
-                                                                        j + 1, scale, col_const));
+                                                                        j + 1, col_const));
                     buf_ret = result[row_idx].push_string("\"", 1);
                 } else {
                     RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, row_idx, j,
-                                                                        j + 1, scale, col_const));
+                                                                        j + 1, col_const));
                 }
             }
         }

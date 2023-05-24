@@ -48,22 +48,20 @@ class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
     }
 
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
     }
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, int scale, bool col_const) const;
+                                  int row_idx, int start, int end, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

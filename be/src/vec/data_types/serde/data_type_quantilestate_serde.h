@@ -58,22 +58,20 @@ public:
         LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
     }
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
     }
 
     Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, int scale,
-                                 bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, scale, col_const);
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
     }
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, int scale, bool col_const) const;
+                                  int row_idx, int start, int end, bool col_const) const;
 };
 
 template <typename T>
@@ -121,23 +119,18 @@ void DataTypeQuantileStateSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     col.insert_value(val);
 }
 
+// QuantileState is binary data which is not shown by mysql
 template <typename T>
 template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe<T>::_write_column_to_mysql(
         const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, int scale, bool col_const) const {
+        int start, int end, bool col_const) const {
     int buf_ret = 0;
-    auto& column_quantile = reinterpret_cast<const ColumnQuantileState<T>&>(column);
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        const auto col_index = index_check_const(i, col_const);
-        auto& quantileValue = const_cast<QuantileState<T>&>(column_quantile.get_element(col_index));
-        size_t size = quantileValue.get_serialized_size();
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-        quantileValue.serialize((uint8_t*)buf.get());
-        buf_ret = result[row_idx].push_string(buf.get(), size);
+        buf_ret = result[row_idx].push_null();
         ++row_idx;
     }
     return Status::OK();
