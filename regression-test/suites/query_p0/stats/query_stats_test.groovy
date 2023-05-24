@@ -16,6 +16,10 @@
 // under the License.
 
 suite("query_stats_test") {
+
+    // nereids not support query stats now, fallback to legacy planner.
+    sql """set enable_nereids_planner=false"""
+
     def tbName = "stats_table"
     sql """ DROP TABLE IF EXISTS ${tbName} """
     sql """
