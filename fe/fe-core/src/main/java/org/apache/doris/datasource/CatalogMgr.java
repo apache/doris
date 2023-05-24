@@ -547,7 +547,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 //要求检查全量而不是增量
                 //先把数据拿过来放进去
                 Map<String, String> oldProps = log.getProps();
-
+                System.out.println("oldProps+" + oldProps.size());
                 //直接把老的放进去
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
@@ -555,6 +555,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 } catch (Exception ddlException) {
                     //把数据回退回去
                     System.out.println("开始回退");
+                    if (oldProps != null) {
+                        System.out.println("oldProps+" + oldProps.size());
+                    } else {
+                        System.out.println("oldProp==NULL");
+                    }
+
                     ((ExternalCatalog) catalog).rollBackCatalogProps(oldProps);
                     System.out.println("扔数据" + ddlException.getMessage());
                     throw new DdlException("props error" + ddlException.getMessage());
