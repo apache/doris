@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_duplicate_table_without_keys") {
-    def dbName = "test_duplicate_db"
+    def dbName = "test_duplicate_table_without_keys"
     List<List<Object>> db = sql "show databases like '${dbName}'"
     if (db.size() == 0) {
         sql "CREATE DATABASE  ${dbName}"
