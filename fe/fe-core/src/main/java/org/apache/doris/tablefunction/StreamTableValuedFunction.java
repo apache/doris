@@ -42,8 +42,13 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
     }
 
     private HttpPut getHttpRequest(Map<String, String> params){
-        // todo:
-       return new HttpPut();
+        // for test:
+       HttpPut httpPut = new HttpPut();
+       httpPut.addHeader("Host","127.0.0.1:8040");
+       httpPut.addHeader("column_separator",",");
+       httpPut.addHeader("Expect","100-continue");
+
+       return httpPut;
     }
     @Override
     public TFileType getTFileType() {
