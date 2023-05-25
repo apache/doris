@@ -864,6 +864,7 @@ visible_functions = [
     [['hour'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
     [['minute'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
     [['second'], 'TINYINT', ['DATETIME'], 'ALWAYS_NULLABLE'],
+    [['microsecond'], 'INT', ['DATETIME'], 'ALWAYS_NULLABLE'],
 
     [['makedate'], 'DATE', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
     [['years_add'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
@@ -982,6 +983,7 @@ visible_functions = [
     [['hour'], 'TINYINT', ['DATETIMEV2'], ''],
     [['minute'], 'TINYINT', ['DATETIMEV2'], ''],
     [['second'], 'TINYINT', ['DATETIMEV2'], ''],
+    [['microsecond'], 'INT', ['DATETIMEV2'], ''],
 
     [['year'], 'SMALLINT', ['DATEV2'], ''],
     [['month'], 'TINYINT', ['DATEV2'], ''],
@@ -998,6 +1000,7 @@ visible_functions = [
     [['hour'], 'TINYINT', ['DATEV2'], ''],
     [['minute'], 'TINYINT', ['DATEV2'], ''],
     [['second'], 'TINYINT', ['DATEV2'], ''],
+    [['microsecond'], 'INT', ['DATEV2'], ''],
 
     [['years_add'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],
     [['years_sub'], 'DATETIMEV2', ['DATETIMEV2', 'INT'], ''],

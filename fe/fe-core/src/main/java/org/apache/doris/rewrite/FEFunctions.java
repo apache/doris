@@ -212,6 +212,11 @@ public class FEFunctions {
         return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
     }
 
+    @FEFunction(name = "microsecond", argTypes = { "DATETIME" }, returnType = "INT")
+    public static IntLiteral microsecond(LiteralExpr arg) throws AnalysisException {
+        return new IntLiteral(((DateLiteral) arg).getMicrosecond(), Type.INT);
+    }
+
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
     public static IntLiteral unixTimestamp(LiteralExpr arg) throws AnalysisException {
         long unixTime = ((DateLiteral) arg).unixTimestamp(TimeUtils.getTimeZone()) / 1000;

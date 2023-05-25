@@ -316,6 +316,9 @@ suite("test_date_function") {
     qt_sql """ select second('2018-12-31 23:59:59') """
     qt_sql """ select second('2018-12-31 00:00:00') """
 
+    // MICROSECOND
+    qt_sql """ select microsecond('1999-01-02 10:11:12.000123') """
+
     // STR_TO_DATE
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
