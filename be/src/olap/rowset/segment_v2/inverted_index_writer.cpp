@@ -85,7 +85,26 @@ public:
         _field_name = std::wstring(field_name.begin(), field_name.end());
     }
 
-    ~InvertedIndexColumnWriterImpl() override = default;
+    ~InvertedIndexColumnWriterImpl() override {
+        // The close function is expected to be called when the column writer finishes its operations.
+        // If it's not called, it indicates that an unexpected event has occurred.
+        // This destructor checks if the close() function has been called. If not, it attempts to release memory.
+        if (_index_writer) {
+            _CLDELETE(_index_writer)
+        }
+
+        if (_doc) {
+            _CLDELETE(_doc)
+        }
+
+        if (_analyzer) {
+            _CLDELETE(_analyzer)
+        }
+
+        if (_char_string_reader) {
+            _CLDELETE(_char_string_reader)
+        }
+    };
 
     Status init() override {
         try {
