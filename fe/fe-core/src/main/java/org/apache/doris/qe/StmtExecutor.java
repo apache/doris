@@ -2395,7 +2395,7 @@ public class StmtExecutor {
                 LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
                 return resultRows;
             }
-            planner.getFragments();
+
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
