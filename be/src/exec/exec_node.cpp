@@ -62,6 +62,7 @@
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vmysql_scan_node.h" // IWYU pragma: keep
+#include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -318,6 +319,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
+    case TPlanNodeType::PARTITION_SORT_NODE:
         break;
     default: {
         const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -438,6 +440,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::PARTITION_SORT_NODE:
+        *node = pool->add(new vectorized::VPartitionSortNode(pool, tnode, descs));
+        return Status::OK();
     default:
         std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);

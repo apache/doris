@@ -61,6 +61,8 @@
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/partition_sort_sink_operator.h"
+#include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -530,6 +532,20 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr sort_source =
                 std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
+        break;
+    }
+    case TPlanNodeType::PARTITION_SORT_NODE: {
+        auto new_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
+
+        OperatorBuilderPtr partition_sort_sink = std::make_shared<PartitionSortSinkOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipeline->set_sink(partition_sort_sink));
+
+        OperatorBuilderPtr partition_sort_source =
+                std::make_shared<PartitionSortSourceOperatorBuilder>(next_operator_builder_id(),
+                                                                     node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(partition_sort_source));
         break;
     }
     case TPlanNodeType::ANALYTIC_EVAL_NODE: {
