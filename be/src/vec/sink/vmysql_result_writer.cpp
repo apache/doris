@@ -37,8 +37,6 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
-#include "runtime/ipv4_value.h"
-#include "runtime/ipv6_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -70,7 +68,10 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
+
 
 namespace doris {
 namespace vectorized {

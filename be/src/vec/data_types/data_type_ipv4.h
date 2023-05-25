@@ -71,4 +71,9 @@ public:
     //    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
 };
 
+template <typename DataType>
+constexpr bool IsIPv4Type = false;
+template <>
+inline constexpr bool IsIPv4Type<DataTypeIPv4> = true;
+
 } // namespace doris::vectorized
