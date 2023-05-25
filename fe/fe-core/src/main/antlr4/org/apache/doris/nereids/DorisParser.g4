@@ -40,6 +40,11 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | explain? INSERT INTO tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?  // partition define
+        (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
+        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
+        query                                                          #insertIntoQuery
     ;
 
 // -----------------Command accessories-----------------
@@ -579,6 +584,7 @@ nonReserved
     | IS
     | ITEMS
     | KEYS
+    | LABEL
     | LAST
     | LAZY
     | LEADING

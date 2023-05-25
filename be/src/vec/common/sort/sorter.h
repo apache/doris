@@ -60,13 +60,14 @@ public:
               limit_(limit),
               profile_(profile) {
         external_sort_bytes_threshold_ = state->external_sort_bytes_threshold();
+        if (profile != nullptr) {
+            block_spill_profile_ = profile->create_child("BlockSpill", true, true);
+            profile->add_child(block_spill_profile_, false, nullptr);
 
-        block_spill_profile_ = profile->create_child("BlockSpill", true, true);
-        profile->add_child(block_spill_profile_, false, nullptr);
-
-        spilled_block_count_ = ADD_COUNTER(block_spill_profile_, "BlockCount", TUnit::UNIT);
-        spilled_original_block_size_ =
-                ADD_COUNTER(block_spill_profile_, "BlockBytes", TUnit::BYTES);
+            spilled_block_count_ = ADD_COUNTER(block_spill_profile_, "BlockCount", TUnit::UNIT);
+            spilled_original_block_size_ =
+                    ADD_COUNTER(block_spill_profile_, "BlockBytes", TUnit::BYTES);
+        }
     }
 
     ~MergeSorterState() = default;
@@ -90,6 +91,10 @@ public:
     bool is_spilled() const { return is_spilled_; }
 
     const Block& last_sorted_block() const { return sorted_blocks_.back(); }
+
+    std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
+    std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
+    std::vector<MergeSortCursorImpl>& get_cursors() { return cursors_; }
 
     std::unique_ptr<Block> unsorted_block_;
 
