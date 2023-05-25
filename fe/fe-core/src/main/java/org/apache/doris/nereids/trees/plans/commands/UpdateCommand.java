@@ -17,28 +17,106 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+
+import com.amazonaws.services.dynamodbv2.xspec.L;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * update command
+ * the two case will be handled as:
+ * case 1:
+ *  update table t1 set v1 = v1 + 1 where k1 = 1 and k2 = 2;
+ * =>
+ *  insert into table (v1) select v1 + 1 from table t1 where k1 = 1 and k2 = 2
+ * case 2:
+ *  update t1 set t1.c1 = t2.c1, t1.c3 = t2.c3 * 100
+ *  from t2 inner join t3 on t2.id = t3.id
+ *  where t1.id = t2.id;
+ * =>
+ *  insert into t1 (c1, c3) select t2.c1, t2.c3 * 100 from t1 join t2 inner join t3 on t2.id = t3.id where t1.id = t2.id
  */
 public class UpdateCommand extends Command implements ForwardWithSync {
-    private List<Pair<List<String>, Expression>> assignments;
-    private String tableName;
+    private final List<Pair<List<String>, Expression>> assignments;
+    private final List<String> nameParts;
+    private final String tableAlias;
     private LogicalPlan logicalQuery;
+    private OlapTable targetTable;
 
-    public UpdateCommand(String tableName, List<Pair<List<String>, Expression>> assignments, LogicalPlan logicalQuery) {
+    public UpdateCommand(List<String> nameParts, String tableAlias, List<Pair<List<String>, Expression>> assignments,
+            LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
-        this.tableName = tableName;
+        this.nameParts = nameParts;
+        this.tableAlias = tableAlias;
         this.assignments = assignments;
         this.logicalQuery = logicalQuery;
+    }
 
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        checkTable(ctx);
+        getQueryPlan();
+        new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
+    private void checkTable(ConnectContext ctx) throws AnalysisException {
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Update is forbidden since current session is in debug mode."
+                    + " Please check the following session variables: "
+                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+        }
+        TableIf table = RelationUtil.getTable(nameParts, ctx.getEnv());
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("target table in update command should be an olapTable");
+        }
+        targetTable = ((OlapTable) table);
+        if (targetTable.getType() != Table.TableType.OLAP
+                || targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("Only unique table could be updated.");
+        }
+    }
+
+    /**
+     * public for test
+     */
+    public void getQueryPlan() {
+        List<String> colNames = assignments.stream().map(pair -> pair.first.get(pair.first.size() - 1))
+                .collect(Collectors.toList());
+        List<Expression> selectLists = assignments.stream().map(pair -> pair.second).collect(Collectors.toList());
+        logicalQuery = new LogicalProject<>(selectLists.stream()
+                .map(expr -> expr instanceof UnboundSlot
+                        ? ((NamedExpression) expr)
+                        : new Alias(expr, expr.toSql()))
+                .collect(Collectors.toList()),
+                logicalQuery);
+
+        // make UnboundTableSink
+        logicalQuery = new UnboundOlapTableSink<>(nameParts, colNames, null, null, logicalQuery);
     }
 
     @Override
