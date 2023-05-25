@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
@@ -64,7 +64,7 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
         int retPercision = t1.getPrecision() + t2.getScale();
         int retScale = t1.getScale() + t2.getScale()
-                + ConnectContext.get().getSessionVariable().getDivPrecisionIncrement();
+                + Config.div_precision_increment;
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
             retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
         }

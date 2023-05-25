@@ -469,10 +469,6 @@ Translated with www.DeepL.com/Translator (free version)
 
     Used to control the calculation method of constant folding. The default is `false`, that is, calculation is performed in `FE`; if it is set to `true`, it will be calculated by `BE` through `RPC` request.
 
-* `div_precision_increment`
-
-    This variable indicates the number of digits by which to increase the scale of the result of division operations performed with the `/` operator. The default value is 4, and it is currently only used for the DECIMALV3 type.
-
 * `cpu_resource_limit`
 
      Used to limit the resource overhead of a query. This is an experimental feature. The current implementation is to limit the number of scan threads for a query on a single node. The number of scan threads is limited, and the data returned from the bottom layer slows down, thereby limiting the overall computational resource overhead of the query. Assuming it is set to 2, a query can use up to 2 scan threads on a single node.

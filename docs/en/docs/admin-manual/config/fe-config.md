@@ -2726,9 +2726,18 @@ Controls whether to enable query hit statistics. The default is false.
 
 #### `max_instance_num`
 
-<version since="1.2.4"></version>
+<version since="dev"></version>
 
 Default: 128
 
 This is used to limit the setting of "parallel_fragment_exec_instance_num".
 "parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+Default: 4
+
+This variable indicates the number of digits by which to increase the scale of the result of 
+division operations performed with the `/` operator. 
+The default value is 4, and it is currently only used for the DECIMALV3 type and nereids_planner.

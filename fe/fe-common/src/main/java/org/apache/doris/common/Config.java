@@ -1954,6 +1954,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int max_instance_num = 128;
 
+    /*
+     * This variable indicates the number of digits by which to increase the scale
+     * of the result of division operations performed with the `/` operator. The
+     * default value is 4, and it is currently only used for the DECIMALV3 type.
+     */
+    @ConfField(mutable = true)
+    public static int div_precision_increment = 4;
+
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.
