@@ -117,11 +117,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public KafkaRoutineLoadJob(Long id, String name, String clusterName,
                                long dbId, String brokerList, String topic,
-                               UserIdentity userIdentity) {
+                               UserIdentity userIdentity, boolean isMultiTable) {
         super(id, name, clusterName, dbId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
+        setMultiTable(isMultiTable);
     }
 
     public String getTopic() {
@@ -404,19 +405,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
-        OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
-        checkMeta(olapTable, stmt.getRoutineLoadDesc());
-        long tableId = olapTable.getId();
 
-        // init kafka routine load job
         long id = Env.getCurrentEnv().getNextId();
         KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
         KafkaRoutineLoadJob kafkaRoutineLoadJob;
         if (kafkaProperties.isMultiTable()) {
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                     db.getClusterName(), db.getId(),
-                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
+                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
         } else {
+            OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
+            checkMeta(olapTable, stmt.getRoutineLoadDesc());
+            long tableId = olapTable.getId();
+            // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
                     db.getClusterName(), db.getId(), tableId,
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());

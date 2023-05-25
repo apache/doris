@@ -148,7 +148,7 @@ public class CreateRoutineLoadStmtTest {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
-        String tableNameString = null;
+        String tableNameString = "table1";
         String topicName = "topic1";
         String serverAddress = "127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
