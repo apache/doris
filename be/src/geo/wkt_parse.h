@@ -24,6 +24,10 @@
 namespace doris {
 
 class GeoShape;
+class GeoCollection;
+class GeoMultiPoint;
+class GeoMultiLineString;
+class GeoMultiPolygon;
 
 class WktParse {
 public:

@@ -30,9 +30,13 @@ struct WkbParseContext;
 namespace doris {
 
 class GeoShape;
-class GeoLine;
 class GeoPoint;
+class GeoLineString;
 class GeoPolygon;
+class GeoMultiPoint;
+class GeoMultiLineString;
+class GeoMultiPolygon;
+class GeoCollection;
 
 class WkbParse {
 public:
@@ -47,11 +51,19 @@ public:
 private:
     static std::unique_ptr<GeoPoint> readPoint(WkbParseContext* ctx);
 
-    static std::unique_ptr<GeoLine> readLine(WkbParseContext* ctx);
+    static std::unique_ptr<GeoLineString> readLine(WkbParseContext* ctx);
 
     static std::unique_ptr<GeoPolygon> readPolygon(WkbParseContext* ctx);
 
-    static GeoCoordinateList readCoordinateList(unsigned size, WkbParseContext* ctx);
+    static std::unique_ptr<GeoMultiPoint> readMultiPoint(WkbParseContext* ctx);
+
+    static std::unique_ptr<GeoMultiLineString> readMultiLineString(WkbParseContext* ctx);
+
+    static std::unique_ptr<GeoMultiPolygon> readMultiPolygon(WkbParseContext* ctx);
+
+    static std::unique_ptr<GeoCollection> read_geometry_collection(WkbParseContext* ctx);
+
+    static GeoCoordinates readCoordinateList(unsigned size, WkbParseContext* ctx);
 
     static GeoParseStatus minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx);
 

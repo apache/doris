@@ -21,7 +21,16 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/geo")
 
-add_library(GeoType STATIC geo_types.cpp)
+add_library(GeoType STATIC
+        util/GeoShape.cpp
+        util/GeoPoint.cpp
+        util/GeoLineString.cpp
+        util/GeoPolygon.cpp
+        util/GeoCircle.cpp
+        util/GeoMultiPoint.cpp
+        util/GeoCollection.cpp
+        util/GeoMultiLineString.cpp
+        util/GeoMultiPolygon.cpp)
 
 add_library(Geo STATIC
     geo_common.cpp
@@ -32,7 +41,8 @@ add_library(Geo STATIC
     geo_tobinary.cpp
     ByteOrderValues.cpp
     machine.h
-)
+    geo_tojson.cpp
+    geojson_parse.cpp)
 pch_reuse(Geo)
 
 target_link_libraries(Geo GeoType)
