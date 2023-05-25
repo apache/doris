@@ -317,7 +317,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
             Map properties = catalog.getProperties();
-            if (properties!=null){
+            if (properties != null) {
                 System.out.println("老数据");
                 System.out.println(properties.get("hive.metastore.uris"));
             }
@@ -557,10 +557,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 Map<String, String> oldProps = log.getProps();
 
 
-
-                if (oldProps!=null){
+                if (oldProps != null) {
                     System.out.println("oldProps+" + oldProps.size());
-                }else {
+                } else {
                     System.out.println("oldProps is null");
                 }
 
