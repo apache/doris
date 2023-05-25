@@ -1969,6 +1969,16 @@ BE副本数的平衡阈值。
 2. 因为一旦关闭平衡，不稳定的 colocate 表可能无法恢复
 3. 最终查询时无法使用 colocate 计划。
 
+#### `balance_slot_num_per_path`
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+balance 时每个路径的默认 slot 数量
+
 #### `disable_tablet_scheduler`
 
 默认值：false
