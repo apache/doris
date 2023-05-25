@@ -415,7 +415,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 timeout = Config.broker_load_default_timeout_second;
                 break;
             case INSERT:
-                timeout = Config.insert_load_default_timeout_second;
+                if (ConnectContext.get() != null) {
+                    timeout = ConnectContext.get().getExecTimeout();
+                } else {
+                    timeout = Config.insert_load_default_timeout_second;
+                }
                 break;
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
