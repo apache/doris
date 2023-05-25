@@ -53,6 +53,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
+import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
@@ -144,6 +145,7 @@ public class RuleSet {
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
+            .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
