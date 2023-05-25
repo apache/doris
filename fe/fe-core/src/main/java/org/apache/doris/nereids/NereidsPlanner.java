@@ -233,7 +233,6 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
-            cascadesContext.setJobContext(PhysicalProperties.GATHER);
             initMemo();
 
             deriveStats();
