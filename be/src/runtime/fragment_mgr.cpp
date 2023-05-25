@@ -687,16 +687,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.resource_groups && !params.resource_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
-                                                                         &task_group_info);
-                if (status.ok()) {
-                    auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
-                            task_group_info);
-                    tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    query_ctx->set_task_group(tg);
-                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id)
-                              << " use task group: " << tg->debug_string();
-                }
+                RETURN_IF_ERROR(taskgroup::TaskGroupInfo::parse_group_info(
+                        params.resource_groups[0], &task_group_info));
+                auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
+                        task_group_info);
+                tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                query_ctx->set_task_group(tg);
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id)
+                          << " use task group: " << tg->debug_string();
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id)
                            << " does not use task group.";

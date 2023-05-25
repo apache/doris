@@ -83,6 +83,9 @@ DEFINE_String(mem_limit, "80%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Resource group memory limit as a percentage of mem_limit
+DEFINE_String(resource_group_mem_limit, "90%");
+
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.

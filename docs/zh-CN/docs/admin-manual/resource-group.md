@@ -28,15 +28,29 @@ under the License.
 
 <version since="dev"></version>
 
-资源组可限制组内任务在单个be节点上的计算资源和内存资源的使用，从而达到资源隔离的目的。
+资源组可限制组内任务在单个be节点上的计算资源和内存资源的使用，从而达到资源隔离的目的。当前可支持查询绑定到资源组。
 
-## 资源组属性
+## 计算资源隔离
+
+资源组在[pipeline执行引擎](../query-acceleration/pipeline-execution-engine.md)的基础上实现计算资源隔离。每个资源组内会评估一个vruntime，pipeline执行引擎优先调度vruntime较小的资源组。
+
+### 计算资源隔离相关属性
 
 * cpu_share：必选，用于设置资源组获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的资源组可获取cpu资源的权重。例如，用户创建了3个资源组 rg-a、rg-b和rg-c，cpu_share 分别为 10、30、40，某一时刻rg-a和rg-b正在跑任务，而rg-c没有任务，此时rg-a可获得 25% (10 / (10 + 30))的cpu资源，而资源组rg-b可获得75%的cpu资源。如果系统只有一个资源组正在运行，则不管其cpu_share的值为多少，它都可以获取全部的cpu资源。
 
-* memory_limit: 必选，用于设置资源组可以使用be内存的百分比。资源组内存限制的绝对值为： 物理内存 * mem_limit * memory_limit，其中 mem_limit 为be配置项。系统所有资源组的 memory_limit总合不可超过100%。资源组在绝大多数情况下保证组内任务可使用memory_limit的内存，当资源组内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
+## 内存资源隔离
 
-* enable_memory_overcommit: 可选，用于开启资源组内存软隔离，默认为false。如果设置为false，则该资源组为内存硬隔离，系统检测到资源组内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该资源组为内存软隔离，如果系统有空闲内存资源则该资源组在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有资源组开启该配置时，所有资源组的 memory_limit 总合低于100%，剩余部分用于资源组内存超发。
+资源组在[内存跟踪器](./maint-monitor/memory-management/memory-tracker.md)的基础上实现内存资源隔离。支持配置资源组为内存硬隔离或内存软隔离。在内存硬隔离下，内存GC线程检测到资源组内存使用超出memory_limit限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；在内存软隔离下，如果内存资源有空闲，则在资源组使用内存超出资源组memory_limit限制后，该资源组可借用其他资源组或系统内存，直到系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有资源组开启内存软限制时，适当调低 resource_group_mem_limit 或者使所有资源组的 memory_limit 总合低于100%，以预留适当的内存用于资源组内存超发。
+
+可以通过 be.conf 中的 resource_group_mem_limit 配置项指定资源组管理的总内存，资源组在每个be节点中管理的内存为
+`resource_group_memory = mem_limit * resource_group_mem_limit`，
+这里的mem_limit为be.conf中的配置项，表示be进程可使用内存，默认resource_group_mem_limit = 90%。由于be还有其他任务，如果resource_group_mem_limit设置的较高，可能在未达到资源组mem_limit限制而先达到be进程内存GC阈值，造成资源组内任务被be进程GC。
+
+### 内存资源隔离相关属性
+
+* memory_limit: 必选，指定该资源组内存限制。资源组内存限制的绝对值为：`resource_group_memory * memory_limit`。系统所有资源组的 memory_limit总合不可超过100%。资源组在绝大多数情况下保证组内任务可使用memory_limit的内存，当资源组内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存。
+
+* enable_memory_overcommit: 可选，用于开启资源组内存软隔离，默认为false。如果设置为false，则该资源组为内存硬隔离；如果设置为true，则该资源组为内存软隔离。
 
 ## 资源组使用
 

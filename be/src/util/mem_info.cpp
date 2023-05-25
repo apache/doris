@@ -61,6 +61,8 @@ std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_soft_mem_limit = -1;
 std::string MemInfo::_s_soft_mem_limit_str = "";
 
+int64_t MemInfo::_task_group_mem_limit = -1;
+
 int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
 int64_t MemInfo::_s_virtual_memory_used = 0;
@@ -367,6 +369,13 @@ void MemInfo::init() {
     _s_process_full_gc_size =
             ParseUtil::parse_mem_spec(config::process_full_gc_size, -1, _s_mem_limit, &is_percent);
 
+    _task_group_mem_limit = ParseUtil::parse_mem_spec(config::resource_group_mem_limit, -1,
+                                                      _s_mem_limit, &is_percent);
+    if (_task_group_mem_limit <= 0) {
+        LOG(WARNING) << "Failed to parse resource group mem limit from '" + config::mem_limit +
+                                "'.";
+    }
+
     std::string line;
     int64_t _s_vm_min_free_kbytes = 0;
     std::ifstream vminfo("/proc/sys/vm/min_free_kbytes", std::ios::in);
@@ -441,6 +450,9 @@ void MemInfo::init() {
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
+
+    _task_group_mem_limit = ParseUtil::parse_mem_spec(config::resource_group_mem_limit, -1,
+                                                      _s_mem_limit, &is_percent);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

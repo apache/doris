@@ -117,6 +117,11 @@ public:
         return _s_soft_mem_limit_str;
     }
 
+    static inline int64_t task_group_mem_limit() {
+        DCHECK(_s_initialized);
+        return _task_group_mem_limit;
+    }
+
     static std::string debug_string();
 
     static void process_cache_gc(int64_t& freed_mem);
@@ -150,6 +155,8 @@ private:
     static int64_t _s_sys_mem_available_warning_water_mark;
     static int64_t _s_process_minor_gc_size;
     static int64_t _s_process_full_gc_size;
+
+    static int64_t _task_group_mem_limit;
 };
 
 } // namespace doris

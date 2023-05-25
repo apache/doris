@@ -177,12 +177,15 @@ Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_gr
 
     bool is_percent = true;
     auto mem_limit_str = resource_group.properties.find(MEMORY_LIMIT)->second;
-    auto mem_limit =
-            ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
+    // mem_limit = physical memory * config::mem_limit * config::resource_group_mem_limit * MEMORY_LIMIT
+    auto mem_limit = ParseUtil::parse_mem_spec(mem_limit_str, MemInfo::task_group_mem_limit(), -1,
+                                               &is_percent);
     if (UNLIKELY(mem_limit <= 0)) {
         std::stringstream ss;
-        ss << "parse memory limit from TPipelineResourceGroup error, " << MEMORY_LIMIT << ": "
-           << mem_limit_str;
+        ss << " parse memory limit from TPipelineResourceGroup error, " << MEMORY_LIMIT << ": "
+           << mem_limit_str << ", resource_group_mem_limit: " << MemInfo::task_group_mem_limit()
+           << ", ";
+        resource_group.printTo(ss);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
