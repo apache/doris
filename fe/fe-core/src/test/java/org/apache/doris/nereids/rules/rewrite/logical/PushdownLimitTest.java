@@ -311,24 +311,22 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
         List<Expression> partitionKeyList = ImmutableList.of();
         List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
-            new OrderKey(grade, true, true)));
+                new OrderKey(grade, true, true)));
         WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.RANGE,
-            WindowFrame.FrameBoundary.newPrecedingBoundary(),
-            WindowFrame.FrameBoundary.newCurrentRowBoundary());
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
         WindowExpression window1 = new WindowExpression(new Rank(), partitionKeyList, orderKeyList, windowFrame);
         Alias windowAlias1 = new Alias(window1, window1.toSql());
         List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
         LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
-        List<OrderKey> orderKey =  ImmutableList.of(
-            new OrderKey(windowAlias1.toSlot(), true, true)
+        List<OrderKey> orderKey = ImmutableList.of(
+                new OrderKey(windowAlias1.toSlot(), true, true)
         );
         LogicalSort<LogicalWindow> sort = new LogicalSort<>(orderKey, window);
 
         LogicalPlan plan = new LogicalPlanBuilder(sort)
-            .limit(100)
-            .build();
-
-
+                .limit(100)
+                .build();
 
         PlanChecker.from(context, plan)
                 .rewrite()
