@@ -316,12 +316,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
-            Map properties = catalog.getProperties();
-            if (properties != null) {
-                System.out.println("老数据");
-                System.out.println(properties.get("hive.metastore.uris"));
-            }
-
+            Map<String, String> oldProperties = catalog.getProperties();
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -329,9 +324,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
+            System.out.println("old data");
+            for (Map.Entry<String, String> entry : oldProperties.entrySet()) {
+                System.out.println(entry);
+            }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             System.out.println("replayAlterCatalogProps(log)之前");
-            replayAlterCatalogProps(log);
+            replayAlterCatalogProps(log, oldProperties);
             System.out.println("replayAlterCatalogProps(log)之后");
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
@@ -544,43 +543,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for alter catalog props event.
      */
-    public void replayAlterCatalogProps(CatalogLog log) throws DdlException {
+    public void replayAlterCatalogProps(CatalogLog log, Map oldProperties) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             if (catalog instanceof ExternalCatalog) {
 
                 Map<String, String> newProps = log.getNewProps();
-                System.out.println(newProps.get("hive.metastore.uris"));
-                //要求检查全量而不是增量
-                //先把数据拿过来放进去  getProps是null
-                Map<String, String> oldProps = log.getProps();
-
-
-                if (oldProps != null) {
-                    System.out.println("oldProps+" + oldProps.size());
-                } else {
-                    System.out.println("oldProps is null");
-                }
 
                 //直接把老的放进去
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
                     ((ExternalCatalog) catalog).checkProperties();
-                } catch (Exception ddlException) {
+                } catch (DdlException ddlException) {
                     //把数据回退回去
-                    System.out.println("开始回退");
-                    if (oldProps != null) {
-                        System.out.println("oldProps+" + oldProps.size());
-                    } else {
-                        System.out.println("oldProp==NULL");
+                    if (oldProperties != null) {
+                        ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
                     }
-
-                    ((ExternalCatalog) catalog).rollBackCatalogProps(oldProps);
-                    System.out.println("扔数据" + ddlException.getMessage());
                     throw new DdlException("props error" + ddlException.getMessage());
                 }
-
 
                 if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                     long catalogId = catalog.getId();

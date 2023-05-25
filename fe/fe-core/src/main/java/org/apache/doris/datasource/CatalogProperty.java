@@ -99,11 +99,8 @@ public class CatalogProperty implements Writable {
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {
-        System.out.println("开始清理");
         properties.clear();
-        System.out.println("清理完成");
         properties = new HashMap<>(props);
-        System.out.println("创建完成");
     }
 
     public Map<String, String> getHadoopProperties() {
