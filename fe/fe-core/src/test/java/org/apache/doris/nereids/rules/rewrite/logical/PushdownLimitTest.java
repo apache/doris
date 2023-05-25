@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -303,9 +305,32 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     public void testTopNPushWindow() {
-        connectContext.getSessionVariable().setEnablePartitionTopN(true);
-        PlanChecker.from(connectContext)
-                .analyze("select *, rank() over(partition by k2 order by k2) as num from t1 order by num limit 10;")
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression grade = scanScore.getOutput().get(2).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of();
+        List<OrderExpression> orderKeyList = ImmutableList.of(new OrderExpression(
+            new OrderKey(grade, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.RANGE,
+            WindowFrame.FrameBoundary.newPrecedingBoundary(),
+            WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new Rank(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
+        List<OrderKey> orderKey =  ImmutableList.of(
+            new OrderKey(windowAlias1.toSlot(), true, true)
+        );
+        LogicalSort<LogicalWindow> sort = new LogicalSort<>(orderKey, window);
+
+        LogicalPlan plan = new LogicalPlanBuilder(sort)
+            .limit(100)
+            .build();
+
+
+
+        PlanChecker.from(context, plan)
                 .rewrite()
                 .matches(
                     logicalTopN(
@@ -316,7 +341,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                                 WindowFuncType funName = logicalPartitionTopN.getFunction();
                                 boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
                                 long partitionLimit = logicalPartitionTopN.getPartitionLimit();
-                                return funName == WindowFuncType.RANK && hasGlobalLimit && partitionLimit == 10;
+                                return funName == WindowFuncType.RANK && hasGlobalLimit && partitionLimit == 100;
                             })
                         )
                     )
