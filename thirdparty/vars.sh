@@ -455,7 +455,7 @@ FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 # libhdfs
 HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.1-for-doris.tar.gz"
 HADOOP_LIBS_NAME="hadoop-3.3.4.1-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="hadoop-3.3.4.1-for-doris"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.1-for-doris"
 HADOOP_LIBS_MD5SUM="d10881a7cf42d94f76db3fb0e3c6e0c0"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES

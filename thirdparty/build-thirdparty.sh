@@ -1575,7 +1575,7 @@ build_fast_float() {
 build_hadoop_libs() {
     check_if_source_exist "${HADOOP_LIBS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
-    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" > env.sh
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
     ./build.sh
 
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
