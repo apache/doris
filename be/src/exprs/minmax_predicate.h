@@ -19,7 +19,6 @@
 
 #include "common/object_pool.h"
 #include "runtime/type_limit.h"
-#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 // only used in Runtime Filter
