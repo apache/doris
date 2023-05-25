@@ -109,7 +109,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         String sql = "explain insert into t1 select * from (select cast(k1 as varchar), 1, 1, 1 from src) t";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
     }
-    
+
     @Test
     public void testInsertIntoSomeColumns() throws Exception {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
