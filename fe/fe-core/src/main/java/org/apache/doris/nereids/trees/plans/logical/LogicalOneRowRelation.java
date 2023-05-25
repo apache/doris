@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -55,6 +56,8 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
         super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
         Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
                 "OneRowRelation can not contains any slot");
+        Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(AggregateFunction.class)),
+                "OneRowRelation can not contains any aggregate function");
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
         this.buildUnionNode = buildUnionNode;
     }
