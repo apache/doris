@@ -40,6 +40,8 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
+// this suites will not be executed
+excludeSuites = "q67_ignore_temporarily"
 
 cacheDataPath="/data/regression/"
 

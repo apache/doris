@@ -57,14 +57,12 @@ Status VTableSink::prepare(RuntimeState* state) {
 }
 
 Status VTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
     return Status::OK();
 }
 
 Status VTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VTableSink::send");
     return Status::OK();
 }
 Status VTableSink::close(RuntimeState* state, Status exec_status) {

@@ -40,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -108,7 +107,7 @@ public class ResourceTagQueryTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -234,7 +233,7 @@ public class ResourceTagQueryTest {
             if (i > 2) {
                 break;
             }
-            String stmtStr = "alter system modify backend \"" + be.getIp() + ":" + be.getHeartbeatPort()
+            String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
                     + "\" set ('tag.location' = '" + tag + "')";
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Env.getCurrentEnv(), stmt);

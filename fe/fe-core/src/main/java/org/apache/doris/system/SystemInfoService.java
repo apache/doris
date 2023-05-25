@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -35,10 +34,12 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.Backend.BackendState;
+import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -46,16 +47,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -82,34 +79,24 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
 
     public static class HostInfo implements Comparable<HostInfo> {
-        public String ip;
-        public String hostName;
+        public String host;
         public int port;
 
-        public HostInfo(String ip, String hostName, int port) {
-            this.ip = ip;
-            this.hostName = hostName;
+        public HostInfo(String host, int port) {
+            this.host = host;
             this.port = port;
         }
 
-        public String getIp() {
-            return ip;
-        }
-
-        public String getHostName() {
-            return hostName;
+        public String getHost() {
+            return host;
         }
 
         public int getPort() {
             return port;
         }
 
-        public void setIp(String ip) {
-            this.ip = ip;
-        }
-
-        public void setHostName(String hostName) {
-            this.hostName = hostName;
+        public void setHost(String host) {
+            this.host = host;
         }
 
         public void setPort(int port) {
@@ -117,12 +104,12 @@ public class SystemInfoService {
         }
 
         public String getIdent() {
-            return StringUtils.isEmpty(hostName) ? ip : hostName;
+            return host;
         }
 
         @Override
         public int compareTo(@NotNull HostInfo o) {
-            int res = ip.compareTo(o.getIp());
+            int res = host.compareTo(o.getHost());
             if (res == 0) {
                 return Integer.compare(port, o.getPort());
             }
@@ -133,13 +120,7 @@ public class SystemInfoService {
             if (other.getPort() != port) {
                 return false;
             }
-            if (hostName != null && hostName.equals(other.getHostName())) {
-                return true;
-            }
-            if (ip != null && ip.equals(other.getIp())) {
-                return true;
-            }
-            return false;
+            return host.equals(other.getHost());
         }
 
         @Override
@@ -151,16 +132,14 @@ public class SystemInfoService {
                 return false;
             }
             HostInfo that = (HostInfo) o;
-            return Objects.equals(ip, that.getIp())
-                    && Objects.equals(hostName, that.getHostName())
+            return Objects.equals(host, that.getHost())
                     && Objects.equals(port, that.getPort());
         }
 
         @Override
         public String toString() {
             return "HostInfo{"
-                    + "ip='" + ip + '\''
-                    + ", hostName='" + hostName + '\''
+                    + "host='" + host + '\''
                     + ", port=" + port
                     + '}';
         }
@@ -178,34 +157,38 @@ public class SystemInfoService {
         }
     };
 
+    public static TPaloNodesInfo createAliveNodesInfo() {
+        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        for (Long id : systemInfoService.getAllBackendIds(true /*need alive*/)) {
+            Backend backend = systemInfoService.getBackend(id);
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+        }
+        return nodesInfo;
+    }
+
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
             throws UserException {
-        addBackends(hostInfos, isFree, "", Tag.DEFAULT_BACKEND_TAG.toMap());
+        addBackends(hostInfos, Tag.DEFAULT_BACKEND_TAG.toMap());
     }
 
     /**
      * @param hostInfos : backend's ip, hostName and port
-     * @param isFree : if true the backend is not owned by any cluster
-     * @param destCluster : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
-    public void addBackends(List<HostInfo> hostInfos, boolean isFree, String destCluster,
-            Map<String, String> tagMap) throws UserException {
+    public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
         for (HostInfo hostInfo : hostInfos) {
-            if (Config.enable_fqdn_mode && StringUtils.isEmpty(hostInfo.getHostName())) {
-                throw new DdlException("backend's hostName should not be empty while enable_fqdn_mode is true");
-            }
             // check is already exist
-            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) != null) {
-                String backendIdentifier = (Config.enable_fqdn_mode ? hostInfo.getHostName() : hostInfo.getIp()) + ":"
+            if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) != null) {
+                String backendIdentifier = hostInfo.getHost() + ":"
                         + hostInfo.getPort();
                 throw new DdlException("Same backend already exists[" + backendIdentifier + "]");
             }
         }
 
         for (HostInfo hostInfo : hostInfos) {
-            addBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort(), isFree, destCluster, tagMap);
+            addBackend(hostInfo.getHost(), hostInfo.getPort(), tagMap);
         }
     }
 
@@ -217,18 +200,9 @@ public class SystemInfoService {
         idToBackendRef = newIdToBackend;
     }
 
-    private void setBackendOwner(Backend backend, String clusterName) {
-        final Cluster cluster = Env.getCurrentEnv().getCluster(clusterName);
-        Preconditions.checkState(cluster != null);
-        cluster.addBackend(backend.getId());
-        backend.setOwnerClusterName(clusterName);
-        backend.setBackendState(BackendState.using);
-    }
-
     // Final entry of adding backend
-    private void addBackend(String ip, String hostName, int heartbeatPort, boolean isFree, String destCluster,
-            Map<String, String> tagMap) {
-        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), ip, hostName, heartbeatPort);
+    private void addBackend(String host, int heartbeatPort, Map<String, String> tagMap) {
+        Backend newBackend = new Backend(Env.getCurrentEnv().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
@@ -240,16 +214,6 @@ public class SystemInfoService {
         copiedReportVersions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
-
-        if (!Strings.isNullOrEmpty(destCluster)) {
-            // add backend to destCluster
-            setBackendOwner(newBackend, destCluster);
-        } else if (!isFree) {
-            // add backend to DEFAULT_CLUSTER
-            setBackendOwner(newBackend, DEFAULT_CLUSTER);
-        } else {
-            // backend is free
-        }
 
         // set tags
         newBackend.setTagMap(tagMap);
@@ -265,14 +229,13 @@ public class SystemInfoService {
     public void dropBackends(List<HostInfo> hostInfos) throws DdlException {
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
-            if (getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort()) == null) {
-                String backendIdentifier = Config.enable_fqdn_mode && hostInfo.getHostName() != null
-                        ? hostInfo.getHostName() : hostInfo.getIp() + ":" + hostInfo.getPort();
+            if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {
+                String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
         }
         for (HostInfo hostInfo : hostInfos) {
-            dropBackend(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
+            dropBackend(hostInfo.getHost(), hostInfo.getPort());
         }
     }
 
@@ -282,15 +245,17 @@ public class SystemInfoService {
         if (backend == null) {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
-
-        dropBackend(backend.getIp(), backend.getHostName(), backend.getHeartbeatPort());
+        dropBackend(backend.getHost(), backend.getHeartbeatPort());
+        // update BeInfoCollector
+        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+        beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
-    public void dropBackend(String ip, String hostName, int heartbeatPort) throws DdlException {
-        Backend droppedBackend = getBackendWithHeartbeatPort(ip, hostName, heartbeatPort);
+    public void dropBackend(String host, int heartbeatPort) throws DdlException {
+        Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
         if (droppedBackend == null) {
-            throw new DdlException("backend does not exists[" + (ip == null ? hostName : ip)
+            throw new DdlException("backend does not exists[" + host
                     + ":" + heartbeatPort + "]");
         }
         // update idToBackend
@@ -305,13 +270,6 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update cluster
-        final Cluster cluster = Env.getCurrentEnv().getCluster(droppedBackend.getOwnerClusterName());
-        if (null != cluster) {
-            cluster.removeBackend(droppedBackend.getId());
-        } else {
-            LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist.");
-        }
         // log
         Env.getCurrentEnv().getEditLog().logDropBackend(droppedBackend);
         LOG.info("finished to drop {}", droppedBackend);
@@ -364,16 +322,10 @@ public class SystemInfoService {
         return true;
     }
 
-    public Backend getBackendWithHeartbeatPort(String ip, String hostName, int heartPort) {
+    public Backend getBackendWithHeartbeatPort(String host, int heartPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (hostName != null) {
-                if (hostName.equals(backend.getHostName()) && backend.getHeartbeatPort() == heartPort) {
-                    return backend;
-                }
-            }
-
-            if (backend.getIp().equals(ip) && backend.getHeartbeatPort() == heartPort) {
+            if (backend.getHost().equals(host) && backend.getHeartbeatPort() == heartPort) {
                 return backend;
             }
         }
@@ -383,7 +335,7 @@ public class SystemInfoService {
     public Backend getBackendWithBePort(String ip, int bePort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(ip) && backend.getBePort() == bePort) {
+            if (backend.getHost().equals(ip) && backend.getBePort() == bePort) {
                 return backend;
             }
         }
@@ -393,14 +345,18 @@ public class SystemInfoService {
     public Backend getBackendWithHttpPort(String ip, int httpPort) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(ip) && backend.getHttpPort() == httpPort) {
+            if (backend.getHost().equals(ip) && backend.getHttpPort() == httpPort) {
                 return backend;
             }
         }
         return null;
     }
 
-    public List<Long> getBackendIds(boolean needAlive) {
+    public List<Long> getAllBackendIds() {
+        return getAllBackendIds(false);
+    }
+
+    public List<Long> getAllBackendIds(boolean needAlive) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
         if (!needAlive) {
@@ -431,434 +387,16 @@ public class SystemInfoService {
         return backendIds;
     }
 
-    /**
-     * choose backends to create cluster
-     *
-     * @param clusterName
-     * @param instanceNum
-     * @return if BE available is less than requested , return null.
-     */
-    public List<Long> createCluster(String clusterName, int instanceNum) {
-        final List<Long> chosenBackendIds = Lists.newArrayList();
-        final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                true /* need free */,
-                false /* can not be in decommission*/);
-
-        LOG.info("begin to create cluster {} with instance num: {}", clusterName, instanceNum);
-        int availableBackendsCount = 0;
-        // list of backends on each host.
-        List<List<Backend>> hostBackendsList = Lists.newArrayList();
-        for (List<Backend> list : hostBackendsMap.values()) {
-            availableBackendsCount += list.size();
-            hostBackendsList.add(list);
-        }
-
-        if (instanceNum > availableBackendsCount) {
-            LOG.warn("not enough available backends. requires :" + instanceNum
-                    + ", available:" + availableBackendsCount);
-            return null;
-        }
-
-        //  sort by number of backend in host
-        Collections.sort(hostBackendsList, hostBackendsListComparator);
-
-        // hostIsEmpty is used to mark if host is empty, so avoid
-        // iterating hostIsEmpty with numOfHost in every circle.
-        boolean[] hostIsEmpty = new boolean[hostBackendsList.size()];
-        for (int i = 0; i < hostBackendsList.size(); i++) {
-            hostIsEmpty[i] = false;
-        }
-        //  to select backend in circle
-        int numOfHost = hostBackendsList.size();
-        for (int i = 0; ; i = ++i % hostBackendsList.size()) {
-            if (hostBackendsList.get(i).size() > 0) {
-                chosenBackendIds.add(hostBackendsList.get(i).remove(0).getId());
-            } else {
-                // avoid counting repeatedly
-                if (hostIsEmpty[i] == false) {
-                    hostIsEmpty[i] = true;
-                    numOfHost--;
-                }
-            }
-            if (chosenBackendIds.size() == instanceNum || numOfHost == 0) {
-                break;
-            }
-        }
-
-        if (chosenBackendIds.size() != instanceNum) {
-            LOG.warn("not enough available backends. require :" + instanceNum + " get:" + chosenBackendIds.size());
-            return null;
-        }
-        return chosenBackendIds;
+    public List<Backend> getAllBackends() {
+        return Lists.newArrayList(idToBackendRef.values());
     }
 
-
-    /**
-     * remove backends in cluster
-     *
-     * @throws DdlException
-     */
-    public void releaseBackends(String clusterName, boolean isReplay) {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
-        final List<Long> backendIds = getClusterBackendIds(clusterName);
-        final Iterator<Long> iterator = backendIds.iterator();
-
-        while (iterator.hasNext()) {
-            final Long id = iterator.next();
-            if (!idToBackend.containsKey(id)) {
-                LOG.warn("cluster {} contain backend {} that doesn't exist", clusterName, id);
-            } else {
-                final Backend backend = idToBackend.get(id);
-                backend.setBackendState(BackendState.free);
-                backend.clearClusterName();
-                if (!isReplay) {
-                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-                }
-            }
-        }
+    public List<Backend> getMixBackends() {
+        return idToBackendRef.values().stream().filter(backend -> backend.isMixNode()).collect(Collectors.toList());
     }
 
-    /**
-     * select host where has least free backends , be's state become free when decommission finish
-     *
-     * @param shrinkNum
-     * @return
-     */
-    @Deprecated
-    public List<Long> calculateDecommissionBackends(String clusterName, int shrinkNum) {
-        LOG.info("calculate decommission backend in cluster: {}. decommission num: {}", clusterName, shrinkNum);
-
-        final List<Long> decomBackendIds = Lists.newArrayList();
-        ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
-        final List<Long> clusterBackends = getClusterBackendIds(clusterName);
-        // host -> backends of this cluster
-        final Map<String, List<Backend>> hostBackendsMapInCluster = Maps.newHashMap();
-
-        // put backend in same host in list
-        for (Long id : clusterBackends) {
-            final Backend backend = idToBackends.get(id);
-            if (hostBackendsMapInCluster.containsKey(backend.getIp())) {
-                hostBackendsMapInCluster.get(backend.getIp()).add(backend);
-            } else {
-                List<Backend> list = Lists.newArrayList();
-                list.add(backend);
-                hostBackendsMapInCluster.put(backend.getIp(), list);
-            }
-        }
-
-        List<List<Backend>> hostList = Lists.newArrayList(hostBackendsMapInCluster.values());
-        Collections.sort(hostList, hostBackendsListComparator);
-
-        // in each cycle, choose one backend from the host which has maximal backends num.
-        // break if all hosts are empty or get enough backends.
-        while (true) {
-            if (hostList.get(0).size() > 0) {
-                decomBackendIds.add(hostList.get(0).remove(0).getId());
-                if (decomBackendIds.size() == shrinkNum) {
-                    // enough
-                    break;
-                }
-                Collections.sort(hostList, hostBackendsListComparator);
-            } else {
-                // all hosts empty
-                break;
-            }
-        }
-
-        if (decomBackendIds.size() != shrinkNum) {
-            LOG.info("failed to get enough backends to shrink in cluster: {}. required: {}, get: {}",
-                    clusterName, shrinkNum, decomBackendIds.size());
-            return null;
-        }
-
-        return decomBackendIds;
-    }
-
-    /**
-     * to expand backends in cluster.
-     * firstly, acquire backends from hosts not in this cluster.
-     * if not enough, secondly acquire backends from hosts in this cluster, returns a list of hosts
-     * sorted by the descending order of the number of backend in the first two ways,
-     * and get backends from the list in cycle.
-     *
-     * @param clusterName
-     * @param expansionNum
-     * @return
-     */
-    public List<Long> calculateExpansionBackends(String clusterName, int expansionNum) {
-        LOG.debug("calculate expansion backend in cluster: {}, new instance num: {}", clusterName, expansionNum);
-
-        final List<Long> chosenBackendIds = Lists.newArrayList();
-        ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
-        // host -> backends
-        final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                true /* need free */,
-                false /* can not be in decommission */);
-        final List<Long> clusterBackends = getClusterBackendIds(clusterName);
-
-        // hosts not in cluster
-        List<List<Backend>> hostsNotInCluster = Lists.newArrayList();
-        // hosts in cluster
-        List<List<Backend>> hostsInCluster = Lists.newArrayList();
-
-        int availableBackendsCount = 0;
-
-        Set<String> hostsSet = Sets.newHashSet();
-        for (Long beId : clusterBackends) {
-            hostsSet.add(getBackend(beId).getIp());
-        }
-
-        // distinguish backend in or not in cluster
-        for (Map.Entry<String, List<Backend>> entry : hostBackendsMap.entrySet()) {
-            availableBackendsCount += entry.getValue().size();
-            if (hostsSet.contains(entry.getKey())) {
-                hostsInCluster.add(entry.getValue());
-            } else {
-                hostsNotInCluster.add(entry.getValue());
-            }
-        }
-
-        if (expansionNum > availableBackendsCount) {
-            LOG.info("not enough available backends. requires :" + expansionNum
-                    + ", available:" + availableBackendsCount);
-            return null;
-        }
-
-        Collections.sort(hostsNotInCluster, hostBackendsListComparator);
-        Collections.sort(hostsInCluster, hostBackendsListComparator);
-
-        // first select backends which belong to the hosts NOT IN this cluster
-        if (hostsNotInCluster.size() > 0) {
-            // hostIsEmpty is used to mark if host is empty, so
-            // avoid iterating hostIsEmpty with numOfHost in every circle
-            boolean[] hostIsEmpty = new boolean[hostsNotInCluster.size()];
-            for (int i = 0; i < hostsNotInCluster.size(); i++) {
-                hostIsEmpty[i] = false;
-            }
-            int numOfHost = hostsNotInCluster.size();
-            for (int i = 0; ; i = ++i % hostsNotInCluster.size()) {
-                if (hostsNotInCluster.get(i).size() > 0) {
-                    chosenBackendIds.add(hostsNotInCluster.get(i).remove(0).getId());
-                } else {
-                    // avoid counting repeatedly
-                    if (hostIsEmpty[i] == false) {
-                        hostIsEmpty[i] = true;
-                        numOfHost--;
-                    }
-                }
-                if (chosenBackendIds.size() == expansionNum || numOfHost == 0) {
-                    break;
-                }
-            }
-        }
-
-        // if not enough, select backends which belong to the hosts IN this cluster
-        if (hostsInCluster.size() > 0 && chosenBackendIds.size() != expansionNum) {
-            boolean[] hostIsEmpty = new boolean[hostsInCluster.size()];
-            for (int i = 0; i < hostsInCluster.size(); i++) {
-                hostIsEmpty[i] = false;
-            }
-            int numOfHost = hostsInCluster.size();
-            for (int i = 0; ; i = ++i % hostsInCluster.size()) {
-                if (hostsInCluster.get(i).size() > 0) {
-                    chosenBackendIds.add(hostsInCluster.get(i).remove(0).getId());
-                } else {
-                    if (hostIsEmpty[i] == false) {
-                        hostIsEmpty[i] = true;
-                        numOfHost--;
-                    }
-                }
-                if (chosenBackendIds.size() == expansionNum || numOfHost == 0) {
-                    break;
-                }
-            }
-        }
-
-        if (chosenBackendIds.size() != expansionNum) {
-            LOG.info("not enough available backends. requires :" + expansionNum
-                    + ", get:" + chosenBackendIds.size());
-            return null;
-        }
-
-        // set be state and owner
-        Iterator<Long> iterator = chosenBackendIds.iterator();
-        while (iterator.hasNext()) {
-            final Long id = iterator.next();
-            final Backend backend = idToBackends.get(id);
-            backend.setOwnerClusterName(clusterName);
-            backend.setBackendState(BackendState.using);
-            Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-        }
-        return chosenBackendIds;
-    }
-
-    /**
-     * get cluster's backend id list
-     *
-     * @param name
-     * @return
-     */
-    public List<Backend> getClusterBackends(String name) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final List<Backend> ret = Lists.newArrayList();
-
-        if (Strings.isNullOrEmpty(name)) {
-            return ret;
-        }
-
-        for (Backend backend : copiedBackends.values()) {
-            if (name.equals(backend.getOwnerClusterName())) {
-                ret.add(backend);
-            }
-        }
-        return ret;
-    }
-
-    public List<Backend> getClusterMixBackends(String name) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final List<Backend> ret = Lists.newArrayList();
-
-        if (Strings.isNullOrEmpty(name)) {
-            return ret;
-        }
-
-        for (Backend backend : copiedBackends.values()) {
-            if (name.equals(backend.getOwnerClusterName()) && backend.isMixNode()) {
-                ret.add(backend);
-            }
-        }
-        return ret;
-    }
-
-    public List<Backend> getClusterCnBackends(String name) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final List<Backend> ret = Lists.newArrayList();
-
-        if (Strings.isNullOrEmpty(name)) {
-            return ret;
-        }
-
-        for (Backend backend : copiedBackends.values()) {
-            if (name.equals(backend.getOwnerClusterName()) && backend.isComputeNode()) {
-                ret.add(backend);
-            }
-        }
-        return ret;
-    }
-
-    /**
-     * get cluster's backend id list
-     *
-     * @param name
-     * @return
-     */
-    public List<Backend> getClusterBackends(String name, boolean needAlive) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final List<Backend> ret = new ArrayList<Backend>();
-
-        if (Strings.isNullOrEmpty(name)) {
-            return null;
-        }
-
-        if (needAlive) {
-            for (Backend backend : copiedBackends.values()) {
-                if (backend != null && name.equals(backend.getOwnerClusterName())
-                        && backend.isAlive()) {
-                    ret.add(backend);
-                }
-            }
-        } else {
-            for (Backend backend : copiedBackends.values()) {
-                if (name.equals(backend.getOwnerClusterName())) {
-                    ret.add(backend);
-                }
-            }
-        }
-
-        return ret;
-    }
-
-    /**
-     * get cluster's backend id list
-     *
-     * @param clusterName
-     * @return
-     */
-    public List<Long> getClusterBackendIds(String clusterName) {
-        if (Strings.isNullOrEmpty(clusterName)) {
-            return null;
-        }
-
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
-        final List<Long> beIds = Lists.newArrayList();
-
-        for (Backend backend : idToBackend.values()) {
-            if (clusterName.equals(backend.getOwnerClusterName())) {
-                beIds.add(backend.getId());
-            }
-        }
-        return beIds;
-    }
-
-    /**
-     * get cluster's backend id list
-     *
-     * @param clusterName
-     * @return
-     */
-    public List<Long> getClusterBackendIds(String clusterName, boolean needAlive) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final List<Long> ret = new ArrayList<Long>();
-
-        if (Strings.isNullOrEmpty(clusterName)) {
-            return null;
-        }
-
-        if (needAlive) {
-            for (Backend backend : copiedBackends.values()) {
-                if (backend != null && clusterName.equals(backend.getOwnerClusterName())
-                        && backend.isAlive()) {
-                    ret.add(backend.getId());
-                }
-            }
-        } else {
-            for (Backend backend : copiedBackends.values()) {
-                if (clusterName.equals(backend.getOwnerClusterName())) {
-                    ret.add(backend.getId());
-                }
-            }
-        }
-
-        return ret;
-    }
-
-    /**
-     * return backend list in every host
-     *
-     * @return
-     */
-    private Map<String, List<Backend>> getHostBackendsMap(boolean needAlive, boolean needFree,
-            boolean canBeDecommission) {
-        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
-        final Map<String, List<Backend>> classMap = Maps.newHashMap();
-
-        // to select backend where state is free
-        for (Backend backend : copiedBackends.values()) {
-            if ((needAlive && !backend.isAlive()) || (needFree && !backend.isFreeFromCluster())
-                    || (!canBeDecommission && backend.isDecommissioned())) {
-                continue;
-            }
-            if (classMap.containsKey(backend.getIp())) {
-                final List<Backend> list = classMap.get(backend.getIp());
-                list.add(backend);
-                classMap.put(backend.getIp(), list);
-            } else {
-                final List<Backend> list = new ArrayList<Backend>();
-                list.add(backend);
-                classMap.put(backend.getIp(), list);
-            }
-        }
-        return classMap;
+    public List<Backend> getCnBackends() {
+        return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
     }
 
     class BeComparator implements Comparator<Backend> {
@@ -900,12 +438,12 @@ public class SystemInfoService {
         if (!policy.allowOnSameHost) {
             Map<String, List<Backend>> backendMaps = Maps.newHashMap();
             for (Backend backend : candidates) {
-                if (backendMaps.containsKey(backend.getIp())) {
-                    backendMaps.get(backend.getIp()).add(backend);
+                if (backendMaps.containsKey(backend.getHost())) {
+                    backendMaps.get(backend.getHost()).add(backend);
                 } else {
                     List<Backend> list = Lists.newArrayList();
                     list.add(backend);
-                    backendMaps.put(backend.getIp(), list);
+                    backendMaps.put(backend.getHost(), list);
                 }
             }
             candidates.clear();
@@ -925,8 +463,8 @@ public class SystemInfoService {
 
     // Select the smallest number of tablets as the starting position of
     // round robin in the BE that match the policy
-    public int getStartPosOfRoundRobin(Tag tag, String clusterName, TStorageMedium storageMedium) {
-        BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+    public int getStartPosOfRoundRobin(Tag tag, TStorageMedium storageMedium) {
+        BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                 .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(tag))
                 .setStorageMedium(storageMedium);
         if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
@@ -950,13 +488,13 @@ public class SystemInfoService {
     }
 
     public Map<Tag, List<Long>> getBeIdRoundRobinForReplicaCreation(
-            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium,
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium,
             Map<Tag, Integer> nextIndexs) throws DdlException {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
-            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
                     .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
                     .setStorageMedium(storageMedium);
             if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
@@ -983,34 +521,55 @@ public class SystemInfoService {
      * The following parameters need to be considered when selecting backends.
      *
      * @param replicaAlloc
-     * @param clusterName
      * @param storageMedium
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
             throws DdlException {
+        Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
 
-        for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
-            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
-                    .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
-                    .setStorageMedium(storageMedium);
-            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
-                builder.allowOnSameHost();
+        int aliveBackendNum = (int) copiedBackends.values().stream().filter(Backend::isAlive).count();
+        if (aliveBackendNum < replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("replication num should be less than the number of available backends. "
+                    + "replication num is " + replicaAlloc.getTotalReplicaNum()
+                    + ", available backend num is " + aliveBackendNum);
+        } else {
+            List<String> failedEntries = Lists.newArrayList();
+
+            for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+                BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder()
+                        .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
+                        .setStorageMedium(storageMedium);
+                if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
+                    builder.allowOnSameHost();
+                }
+
+                BeSelectionPolicy policy = builder.build();
+                List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                if (beIds.isEmpty()) {
+                    LOG.error("failed backend(s) for policy:" + policy);
+                    String errorReplication = "replication tag: " + entry.getKey()
+                            + ", replication num: " + entry.getValue()
+                            + ", storage medium: " + storageMedium;
+                    failedEntries.add(errorReplication);
+                } else {
+                    chosenBackendIds.put(entry.getKey(), beIds);
+                    totalReplicaNum += beIds.size();
+                }
             }
 
-            BeSelectionPolicy policy = builder.build();
-            List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-            if (beIds.isEmpty()) {
-                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
+            if (!failedEntries.isEmpty()) {
+                String failedMsg = Joiner.on("\n").join(failedEntries);
+                throw new DdlException("Failed to find enough backend, please check the replication num,"
+                        + "replication tag and storage medium.\n" + "Create failed replications:\n" + failedMsg);
             }
-            chosenBackendIds.put(entry.getKey(), beIds);
-            totalReplicaNum += beIds.size();
         }
+
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return chosenBackendIds;
     }
@@ -1048,12 +607,12 @@ public class SystemInfoService {
         // for each host, random select one backend.
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : candidates) {
-            if (backendMaps.containsKey(backend.getIp())) {
-                backendMaps.get(backend.getIp()).add(backend);
+            if (backendMaps.containsKey(backend.getHost())) {
+                backendMaps.get(backend.getHost()).add(backend);
             } else {
                 List<Backend> list = Lists.newArrayList();
                 list.add(backend);
-                backendMaps.put(backend.getIp(), list);
+                backendMaps.put(backend.getHost(), list);
             }
         }
         candidates.clear();
@@ -1077,18 +636,8 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
-    public ImmutableMap<Long, Backend> getBackendsInCluster(String cluster) {
-        if (Strings.isNullOrEmpty(cluster)) {
-            return idToBackendRef;
-        }
-
-        Map<Long, Backend> retMaps = Maps.newHashMap();
-        for (Backend backend : idToBackendRef.values().asList()) {
-            if (cluster.equals(backend.getOwnerClusterName())) {
-                retMaps.put(backend.getId(), backend);
-            }
-        }
-        return ImmutableMap.copyOf(retMaps);
+    public ImmutableMap<Long, Backend> getAllBackendsMap() {
+        return idToBackendRef;
     }
 
     public long getBackendReportVersion(long backendId) {
@@ -1145,7 +694,7 @@ public class SystemInfoService {
         this.idToReportVersionRef = null;
     }
 
-    public static HostInfo getIpHostAndPort(String hostPort, boolean strictCheck)
+    public static HostInfo getHostAndPort(String hostPort)
             throws AnalysisException {
         hostPort = hostPort.replaceAll("\\s+", "");
         if (hostPort.isEmpty()) {
@@ -1159,9 +708,8 @@ public class SystemInfoService {
 
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
-        String hostName = hostInfo.getHostName();
-        String ip = hostName;
-        if (Strings.isNullOrEmpty(hostName)) {
+        String host = hostInfo.getHost();
+        if (Strings.isNullOrEmpty(host)) {
             throw new AnalysisException("Host is null");
         }
 
@@ -1173,25 +721,7 @@ public class SystemInfoService {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
 
-            // validate host
-            if (!InetAddressValidator.getInstance().isValid(ip)) {
-                // maybe this is a hostname
-                // if no IP address for the host could be found, 'getByName'
-                // will throw UnknownHostException
-                InetAddress inetAddress = InetAddress.getByName(hostName);
-                ip = inetAddress.getHostAddress();
-            } else {
-                hostName = NetUtils.getHostnameByIp(ip);
-                if (hostName.equals(ip)) {
-                    hostName = null;
-                }
-            }
-            return new HostInfo(ip, hostName, heartbeatPort);
-        } catch (UnknownHostException e) {
-            if (!strictCheck) {
-                return new HostInfo(null, hostName, heartbeatPort);
-            }
-            throw new AnalysisException("Unknown host: " + e.getMessage());
+            return new HostInfo(host, heartbeatPort);
         } catch (Exception e) {
             throw new AnalysisException("Encounter unknown exception: " + e.getMessage());
         }
@@ -1199,8 +729,8 @@ public class SystemInfoService {
 
 
     public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
-        HostInfo hostInfo = getIpHostAndPort(hostPort, true);
-        return Pair.of(hostInfo.getIp(), hostInfo.getPort());
+        HostInfo hostInfo = getHostAndPort(hostPort);
+        return Pair.of(hostInfo.getHost(), hostInfo.getPort());
     }
 
     public void replayAddBackend(Backend newBackend) {
@@ -1215,18 +745,6 @@ public class SystemInfoService {
         copiedReportVersions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
-
-        // to add be to DEFAULT_CLUSTER
-        if (newBackend.getBackendState() == BackendState.using) {
-            final Cluster cluster = Env.getCurrentEnv().getCluster(DEFAULT_CLUSTER);
-            if (null != cluster) {
-                // replay log
-                cluster.addBackend(newBackend.getId());
-            } else {
-                // This happens in loading image when fe is restarted, because loadCluster is after loadBackend,
-                // cluster is not created. Be in cluster will be updated in loadCluster.
-            }
-        }
     }
 
     public void replayDropBackend(Backend backend) {
@@ -1243,13 +761,9 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update cluster
-        final Cluster cluster = Env.getCurrentEnv().getCluster(backend.getOwnerClusterName());
-        if (null != cluster) {
-            cluster.removeBackend(backend.getId());
-        } else {
-            LOG.error("Cluster " + backend.getOwnerClusterName() + " no exist.");
-        }
+        // update BeInfoCollector
+        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+        beinfoCollector.dropBeInfo(backend.getId());
     }
 
     public void updateBackendState(Backend be) {
@@ -1258,9 +772,7 @@ public class SystemInfoService {
         // backend may already be dropped. this may happen when
         // drop and modify operations do not guarantee the order.
         if (memoryBe != null) {
-            if (be.getHostName() != null && !be.getIp().equalsIgnoreCase(memoryBe.getIp())) {
-                memoryBe.setIp(be.getIp());
-            }
+            memoryBe.setHost(be.getHost());
             memoryBe.setBePort(be.getBePort());
             memoryBe.setAlive(be.isAlive());
             memoryBe.setDecommissioned(be.isDecommissioned());
@@ -1270,16 +782,12 @@ public class SystemInfoService {
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
-            memoryBe.setBackendState(be.getBackendState());
-            memoryBe.setOwnerClusterName(be.getOwnerClusterName());
-            memoryBe.setDecommissionType(be.getDecommissionType());
         }
     }
 
-    private long getClusterAvailableCapacityB(String clusterName) {
-        List<Backend> clusterBackends = getClusterBackends(clusterName);
+    private long getAvailableCapacityB() {
         long capacity = 0L;
-        for (Backend backend : clusterBackends) {
+        for (Backend backend : idToBackendRef.values()) {
             // Here we do not check if backend is alive,
             // We suppose the dead backends will back to alive later.
             if (backend.isDecommissioned()) {
@@ -1293,9 +801,9 @@ public class SystemInfoService {
         return capacity;
     }
 
-    public void checkClusterCapacity(String clusterName) throws DdlException {
-        if (getClusterAvailableCapacityB(clusterName) <= 0L) {
-            throw new DdlException("Cluster " + clusterName + " has no available capacity");
+    public void checkAvailableCapacity() throws DdlException {
+        if (getAvailableCapacityB() <= 0L) {
+            throw new DdlException("System has no available disk capacity");
         }
     }
 
@@ -1307,7 +815,7 @@ public class SystemInfoService {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         List<Backend> selectedBackends = Lists.newArrayList();
         for (Backend backend : idToBackend.values()) {
-            if (backend.getIp().equals(host)) {
+            if (backend.getHost().equals(host)) {
                 selectedBackends.add(backend);
             }
         }
@@ -1318,17 +826,6 @@ public class SystemInfoService {
 
         Collections.shuffle(selectedBackends);
         return selectedBackends.get(0).getId();
-    }
-
-    public Set<String> getClusterNames() {
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
-        Set<String> clusterNames = Sets.newHashSet();
-        for (Backend backend : idToBackend.values()) {
-            if (!Strings.isNullOrEmpty(backend.getOwnerClusterName())) {
-                clusterNames.add(backend.getOwnerClusterName());
-            }
-        }
-        return clusterNames;
     }
 
     /*
@@ -1369,15 +866,15 @@ public class SystemInfoService {
     }
 
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
-        Backend be = getBackendWithHeartbeatPort(clause.getIp(), clause.getHostName(), clause.getPort());
+        Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
-            throw new DdlException("backend does not exists[" + clause.getIp() + ":" + clause.getPort() + "]");
+            throw new DdlException("backend does not exists[" + clause.getHost() + ":" + clause.getPort() + "]");
         }
-        if (!Strings.isNullOrEmpty(be.getHostName()) && be.getHostName().equals(clause.getNewHostName())) {
+        if (be.getHost().equals(clause.getNewHost())) {
             // no need to modify
             return;
         }
-        be.setHostName(clause.getNewHostName());
+        be.setHost(clause.getNewHost());
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
     }
 
@@ -1385,10 +882,10 @@ public class SystemInfoService {
         List<HostInfo> hostInfos = alterClause.getHostInfos();
         List<Backend> backends = Lists.newArrayList();
         for (HostInfo hostInfo : hostInfos) {
-            Backend be = getBackendWithHeartbeatPort(hostInfo.getIp(), hostInfo.getHostName(), hostInfo.getPort());
+            Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
             if (be == null) {
-                throw new DdlException("backend does not exists[" + (Config.enable_fqdn_mode ? hostInfo.getIdent()
-                        : hostInfo.getIp()) + ":" + hostInfo.getPort() + "]");
+                throw new DdlException(
+                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
             }
             backends.add(be);
         }
@@ -1427,15 +924,15 @@ public class SystemInfoService {
         memBe.setTagMap(backend.getTagMap());
         memBe.setQueryDisabled(backend.isQueryDisabled());
         memBe.setLoadDisabled(backend.isLoadDisabled());
-        memBe.setHostName(backend.getHostName());
+        memBe.setHost(backend.getHost());
         LOG.debug("replay modify backend: {}", backend);
     }
 
     // Check if there is enough suitable BE for replica allocation
-    public void checkReplicaAllocation(String cluster, ReplicaAllocation replicaAlloc) throws DdlException {
-        List<Backend> backends = getClusterBackends(cluster);
+    public void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
+        List<Backend> backends = getMixBackends();
         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-            if (backends.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(entry.getKey()))
+            if (backends.stream().filter(b -> b.getLocationTag().equals(entry.getKey()))
                     .count() < entry.getValue()) {
                 throw new DdlException(
                         "Failed to find enough host with tag(" + entry.getKey() + ") in all backends. need: "
@@ -1444,21 +941,17 @@ public class SystemInfoService {
         }
     }
 
-    public Set<Tag> getTagsByCluster(String clusterName) {
-        List<Backend> bes = getClusterBackends(clusterName);
+    public Set<Tag> getTags() {
+        List<Backend> bes = getMixBackends();
         Set<Tag> tags = Sets.newHashSet();
         for (Backend be : bes) {
-            if (be == null || !be.isMixNode()) {
-                continue;
-            }
             tags.add(be.getLocationTag());
         }
         return tags;
     }
 
-    public List<Backend> getBackendsByTagInCluster(String clusterName, Tag tag) {
-        List<Backend> bes = getClusterBackends(clusterName);
-        return bes.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(tag))
-                .collect(Collectors.toList());
+    public List<Backend> getBackendsByTag(Tag tag) {
+        List<Backend> bes = getMixBackends();
+        return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
     }
 }

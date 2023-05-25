@@ -51,6 +51,8 @@ public class JdbcClient {
 
     private static final int HTTP_TIMEOUT_MS = 10000;
 
+    public static final int JDBC_DATETIME_SCALE = 6;
+
     private String dbType;
     private String jdbcUser;
 
@@ -211,6 +213,7 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = stmt.executeQuery("SHOW SCHEMAS");
                     break;
                 default:
@@ -226,7 +229,7 @@ public class JdbcClient {
                     if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
                         continue;
                     }
-                    if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(db)) {
+                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
                         continue;
                     }
                     databaseNames.add(db);
@@ -247,15 +250,16 @@ public class JdbcClient {
         try {
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.OCEANBASE:
                     databaseNames.add(conn.getCatalog());
                     break;
+                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                 case JdbcResource.OCEANBASE_ORACLE:
                     databaseNames.add(conn.getSchema());
                     break;
@@ -278,6 +282,7 @@ public class JdbcClient {
         ResultSet rs = null;
         List<String> tablesName = Lists.newArrayList();
         String[] types = {"TABLE", "VIEW"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
@@ -290,11 +295,14 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -320,6 +328,7 @@ public class JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         String[] types = {"TABLE", "VIEW"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
@@ -332,11 +341,14 @@ public class JdbcClient {
                 case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -391,6 +403,8 @@ public class JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
+            String modifiedTableName;
+            boolean isModify = false;
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -406,20 +420,35 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
-                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.OCEANBASE_ORACLE:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
+                case JdbcResource.ORACLE:
+                    modifiedTableName = tableName.replace("/", "%");
+                    if (!modifiedTableName.equals(tableName)) {
+                        isModify = true;
+                    }
+                    rs = databaseMetaData.getColumns(null, dbName, modifiedTableName, null);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
+                // for oracle special table name
+                if (isModify) {
+                    String actualTableName = rs.getString("TABLE_NAME");
+                    if (!tableName.equals(actualTableName)) {
+                        continue;
+                    }
+                }
+
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -464,6 +493,7 @@ public class JdbcClient {
             case JdbcResource.SAP_HANA:
                 return saphanaTypeToDoris(fieldSchema);
             case JdbcResource.TRINO:
+            case JdbcResource.PRESTO:
                 return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
@@ -493,6 +523,14 @@ public class JdbcClient {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                case "DOUBLE":
+                    // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
+                    // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
+                    // https://dev.mysql.com/doc/refman/8.0/en/numeric-type-syntax.html
+                    // The maximum value may cause errors due to insufficient accuracy
+                    return Type.DOUBLE;
+                case "FLOAT":
+                    return Type.FLOAT;
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -518,7 +556,9 @@ public class JdbcClient {
             case "TIMESTAMP":
             case "DATETIME":
             case "DATETIMEV2": // for jdbc catalog connecting Doris database
-                return ScalarType.createDatetimeV2Type(0);
+                // mysql can support microsecond
+                // todo(gaoxin): Get real precision of DATETIMEV2
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
@@ -586,7 +626,8 @@ public class JdbcClient {
                 return charType;
             case "timestamp":
             case "timestamptz":
-                return ScalarType.createDatetimeV2Type(0);
+                // postgres can support microsecond
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
             case "date":
                 return ScalarType.createDateV2Type();
             case "bool":
@@ -608,7 +649,7 @@ public class JdbcClient {
             case "inet":
             case "macaddr":
             case "varbit":
-            case "jsonb":
+            case "json":
             case "uuid":
             case "bytea":
                 return ScalarType.createStringType();
@@ -637,7 +678,13 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.createDatetimeV2Type(6);
+            // DateTime with second precision, DateTime64 with [0~9] precision
+            if (ckType.equals("DateTime")) {
+                return ScalarType.createDatetimeV2Type(0);
+            } else {
+                // will lose precision
+                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+            }
         } else if (ckType.startsWith("Array")) {
             String cktype = ckType.substring(6, ckType.length() - 1);
             fieldSchema.setDataTypeName(cktype);
@@ -685,7 +732,8 @@ public class JdbcClient {
             if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
                 return Type.UNSUPPORTED;
             }
-            return ScalarType.createDatetimeV2Type(0);
+            // oracle can support nanosecond, will lose precision
+            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
         }
         switch (oracleType) {
             /**
@@ -734,6 +782,7 @@ public class JdbcClient {
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
+                // can save date and time with second precision
                 return ScalarType.createDatetimeV2Type(0);
             case "VARCHAR2":
             case "NVARCHAR2":
@@ -773,9 +822,11 @@ public class JdbcClient {
             case "real":
                 return Type.FLOAT;
             case "float":
-            case "money":
-            case "smallmoney":
                 return Type.DOUBLE;
+            case "money":
+                return ScalarType.createDecimalV3Type(19, 4);
+            case "smallmoney":
+                return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
             case "numeric":
                 int precision = fieldSchema.getColumnSize();
@@ -784,9 +835,14 @@ public class JdbcClient {
             case "date":
                 return ScalarType.createDateV2Type();
             case "datetime":
+                // datetime with millisecond precision
+                return ScalarType.createDatetimeV2Type(3);
             case "datetime2":
-            case "smalldatetime":
+                // datetime2 with 100 nanoseconds precision, will lose precision
                 return ScalarType.createDatetimeV2Type(6);
+            case "smalldatetime":
+                // smalldatetime with second precision
+                return ScalarType.createDatetimeV2Type(0);
             case "char":
             case "varchar":
             case "nchar":
@@ -826,8 +882,11 @@ public class JdbcClient {
             case "DOUBLE":
                 return Type.DOUBLE;
             case "TIMESTAMP":
-            case "SECONDDATE":
+                // TIMESTAMP with 100 nanoseconds precision, will lose precision
                 return ScalarType.createDatetimeV2Type(6);
+            case "SECONDDATE":
+                // SECONDDATE with second precision
+                return ScalarType.createDatetimeV2Type(0);
             case "DATE":
                 return ScalarType.createDateV2Type();
             case "BOOLEAN":
@@ -870,7 +929,8 @@ public class JdbcClient {
             charType.setLength(fieldSchema.columnSize);
             return charType;
         } else if (trinoType.startsWith("timestamp")) {
-            return ScalarType.createDatetimeV2Type(6);
+            // timestamp with picoseconds precision, will lose precision
+            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
         } else if (trinoType.startsWith("array")) {
             String trinoArrType = trinoType.substring(6, trinoType.length() - 1);
             fieldSchema.setDataTypeName(trinoArrType);

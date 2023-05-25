@@ -47,84 +47,38 @@ Github: https://github.com/apache/incubator-doris-spark-connector
 
 Ready to work
 
-1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+1. Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
 
-2.Specify the thrift installation directory
+2. Execute following command in source dir:
+`sh build.sh`
+Follow the prompts to enter the Scala and Spark versions you need to start compiling.
 
-```bash
-##source file content
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar`.
+Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
-##amend as below,MacOS as an example
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
+For example upload `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
 
-Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
-Windows:
-  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Modify thrift-0.13.0.exe to thrift 
- 
-MacOS:
-  1. Download: `brew install thrift@0.13.0`
-  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-
-Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
-Linux:
-    1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   Check the version after installation is complete：thrift --version
-   Note: If you have compiled Doris, you do not need to install thrift, you can directly use $DORIS_HOME/thirdparty/installed/bin/thrift
-```
-
-Execute following command in source dir
-
-```bash
-sh build.sh --spark 2.3.4 --scala 2.11 ## spark 2.3.4, scala 2.11
-sh build.sh --spark 3.1.2 --scala 2.12 ## spark 3.1.2, scala 2.12
-sh build.sh --spark 3.2.0 --scala 2.12 \
---mvn-args "-Dnetty.version=4.1.68.Final -Dfasterxml.jackson.version=2.12.3" ## spark 3.2.0, scala 2.12
-```
-> Note: If you check out the source code from tag, you can just run sh build.sh --tag without specifying the spark and scala versions. This is because the version in the tag source code is fixed.
-
-After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package ,for example upload `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
-
-1. Upload  doris-spark-connector-3.1.2-2.12-1.0.0.jar  Jar to hdfs.
+1. Upload  spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar  Jar to hdfs.
 
 ```
 hdfs dfs -mkdir /spark-jars/
-hdfs dfs -put /your_local_path/doris-spark-connector-3.1.2-2.12-1.0.0.jar /spark-jars/
-
+hdfs dfs -put /your_local_path/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar /spark-jars/
 ```
 
-2. Add doris-spark-connector-3.1.2-2.12-1.0.0.jar  depence in Cluster.
+2. Add spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar  depence in Cluster.
 
 ```
-spark.yarn.jars=hdfs:///spark-jars/doris-spark-connector-3.1.2-2.12-1.0.0.jar
+spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar
 ```
-
 
 
 ## Using Maven
 
 ```
 <dependency>
-  <groupId>org.apache.doris</groupId>
-  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
-  <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
-  <version>1.0.1</version>
+    <groupId>org.apache.doris</groupId>
+    <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+    <version>1.1.0</version>
 </dependency>
 ```
 

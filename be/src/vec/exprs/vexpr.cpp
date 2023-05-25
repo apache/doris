@@ -49,6 +49,7 @@
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -61,7 +62,7 @@ using doris::RuntimeState;
 using doris::RowDescriptor;
 using doris::TypeDescriptor;
 
-VExpr::VExpr(const doris::TExprNode& node)
+VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
           _type(TypeDescriptor::from_thrift(node.type)),
@@ -75,19 +76,14 @@ VExpr::VExpr(const doris::TExprNode& node)
     if (node.__isset.is_nullable) {
         is_nullable = node.is_nullable;
     }
+    // If we define null literal ,should make nullable data type to get correct field instead of undefined ptr
+    if (node.node_type == TExprNodeType::NULL_LITERAL) {
+        CHECK(is_nullable);
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
-VExpr::VExpr(const VExpr& vexpr)
-        : _node_type(vexpr._node_type),
-          _opcode(vexpr._opcode),
-          _type(vexpr._type),
-          _data_type(vexpr._data_type),
-          _children(vexpr._children),
-          _fn(vexpr._fn),
-          _fn_context_index(vexpr._fn_context_index),
-          _constant_col(vexpr._constant_col),
-          _prepared(vexpr._prepared) {}
+VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
         : _opcode(TExprOpcode::INVALID_OPCODE),
@@ -124,14 +120,14 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::close(doris::RuntimeState* state, VExprContext* context,
+void VExpr::close(RuntimeState* state, VExprContext* context,
                   FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
         _children[i]->close(state, context, scope);
     }
 }
 
-Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, VExpr** expr) {
+Status VExpr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr) {
     try {
         switch (texpr_node.node_type) {
         case TExprNodeType::BOOL_LITERAL:
@@ -158,43 +154,43 @@ Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, 
             *expr = pool->add(VStructLiteral::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::SLOT_REF: {
+        case TExprNodeType::SLOT_REF: {
             *expr = pool->add(VSlotRef::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::COLUMN_REF: {
+        case TExprNodeType::COLUMN_REF: {
             *expr = pool->add(VColumnRef::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::COMPOUND_PRED: {
+        case TExprNodeType::COMPOUND_PRED: {
             *expr = pool->add(VcompoundPred::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_EXPR: {
             *expr = pool->add(VLambdaFunctionExpr::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
             *expr = pool->add(VLambdaFunctionCallExpr::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::ARITHMETIC_EXPR:
-        case doris::TExprNodeType::BINARY_PRED:
-        case doris::TExprNodeType::FUNCTION_CALL:
-        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
-        case doris::TExprNodeType::MATCH_PRED: {
+        case TExprNodeType::ARITHMETIC_EXPR:
+        case TExprNodeType::BINARY_PRED:
+        case TExprNodeType::FUNCTION_CALL:
+        case TExprNodeType::COMPUTE_FUNCTION_CALL:
+        case TExprNodeType::MATCH_PRED: {
             *expr = pool->add(VectorizedFnCall::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::CAST_EXPR: {
+        case TExprNodeType::CAST_EXPR: {
             *expr = pool->add(VCastExpr::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::IN_PRED: {
+        case TExprNodeType::IN_PRED: {
             *expr = pool->add(VInPredicate::create_unique(texpr_node).release());
             break;
         }
-        case doris::TExprNodeType::CASE_EXPR: {
+        case TExprNodeType::CASE_EXPR: {
             if (!texpr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
@@ -216,7 +212,7 @@ Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, 
         default:
             return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
         }
-    } catch (const doris::Exception& e) {
+    } catch (const Exception& e) {
         return Status::Error(e.code(), e.to_string());
     }
     if (!(*expr)->data_type()) {
@@ -225,9 +221,8 @@ Status VExpr::create_expr(ObjectPool* pool, const doris::TExprNode& texpr_node, 
     return Status::OK();
 }
 
-Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
-                                      const std::vector<doris::TExprNode>& nodes, int* node_idx,
-                                      VExpr** root_expr, VExprContext** ctx) {
+Status VExpr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
+                                      int* node_idx, VExpr** root_expr, VExprContext** ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");
@@ -242,9 +237,9 @@ Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
     DCHECK(root_expr != nullptr);
     DCHECK(ctx != nullptr);
     *root_expr = root;
-    *ctx = pool->add(VExprContext::create_unique(root).release());
     // short path for leaf node
     if (root_children <= 0) {
+        *ctx = pool->add(VExprContext::create_unique(root).release());
         return Status::OK();
     }
 
@@ -271,11 +266,11 @@ Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
             s.push({expr, num_children});
         }
     }
+    *ctx = pool->add(VExprContext::create_unique(root).release());
     return Status::OK();
 }
 
-Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texpr,
-                               VExprContext** ctx) {
+Status VExpr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, VExprContext** ctx) {
     if (texpr.nodes.size() == 0) {
         *ctx = nullptr;
         return Status::OK();
@@ -296,7 +291,7 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     return status;
 }
 
-Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<doris::TExpr>& texprs,
+Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
                                 std::vector<VExprContext*>* ctxs) {
     ctxs->clear();
     for (int i = 0; i < texprs.size(); ++i) {
@@ -350,8 +345,6 @@ std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
     out << " type=" << _type.debug_string();
-    out << " codegen="
-        << "false";
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);
@@ -414,7 +407,7 @@ Status VExpr::get_const_col(VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* context) {
+void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
     std::vector<TypeDescriptor> arg_types;
     for (int i = 0; i < _children.size(); ++i) {
         arg_types.push_back(_children[i]->type());
@@ -453,6 +446,13 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
             function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
         }
     }
+}
+
+Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const {
+    if (is_constant() && !VectorizedUtils::all_arguments_are_constant(block, arguments)) {
+        return Status::InternalError("const check failed, expr={}", debug_string());
+    }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

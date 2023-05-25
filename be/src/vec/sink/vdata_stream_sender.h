@@ -185,7 +185,7 @@ protected:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _cur_pb_block;
+    PBlock* _cur_pb_block = nullptr;
 
     // used by pipeline engine
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;

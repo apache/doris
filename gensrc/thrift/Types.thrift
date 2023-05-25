@@ -389,8 +389,10 @@ enum TOdbcTableType {
     CLICKHOUSE,
     SAP_HANA,
     TRINO,
+    PRESTO,
     OCEANBASE,
-    OCEANBASE_ORACLE
+    OCEANBASE_ORACLE,
+    NEBULA
 }
 
 struct TJdbcExecutorCtorParams {
@@ -594,6 +596,7 @@ enum TTableType {
     HUDI_TABLE,
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
+    MAX_COMPUTE_TABLE,
 }
 
 enum TKeysType {

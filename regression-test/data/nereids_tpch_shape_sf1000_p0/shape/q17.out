@@ -5,7 +5,7 @@ PhysicalProject
 ----PhysicalDistribute
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------filter((cast(l_quantity as DECIMAL(27, 9)) < (avg(l_quantity) OVER(PARTITION BY p_partkey) * 0.200000000)))
+----------filter((cast(l_quantity as DECIMAL(27, 9)) < (0.200000000 * avg(l_quantity) OVER(PARTITION BY p_partkey))))
 ------------PhysicalWindow
 --------------PhysicalQuickSort
 ----------------PhysicalDistribute

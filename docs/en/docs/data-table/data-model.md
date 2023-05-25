@@ -32,7 +32,7 @@ This topic introduces the data models in Doris from a logical perspective so you
 
 In Doris, data is logically described in the form of tables. A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively.
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column .
 
 Data models in Doris fall into three types:
 
@@ -107,6 +107,20 @@ Suppose that you have the following import data (raw data):
 | 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl_agg values
+(10000,"2017-10-01","Beijing",20,0,"2017-10-01 06:00:00",20,10,10),
+(10000,"2017-10-01","Beijing",20,0,"2017-10-01 07:00:00",15,2,2),
+(10001,"2017-10-01","Beijing",30,1,"2017-10-01 17:05:45",2,22,22),
+(10002,"2017-10-02","Shanghai",20,1,"2017-10-02 12:59:12",200,5,5),
+(10003,"2017-10-02","Guangzhou",32,0,"2017-10-02 11:20:00",30,11,11),
+(10004,"2017-10-01","Shenzhen",35,0,"2017-10-01 10:00:15",100,3,3),
+(10004,"2017-10-03","Shenzhen",35,0,"2017-10-03 10:20:22",11,6,6);
+```
+
 Assume that this is a table recording the user behaviors when visiting a certain commodity page. The first row of data, for example, is explained as follows:
 
 | Data | Description|
@@ -154,7 +168,7 @@ Here is a modified version of the table schema in Example 1:
 | --------------- | ------------ | --------------- | ------------------------------------------------------------ |
 | user_id         | LARGEINT     |                 | User ID                                                      |
 | date            | DATE         |                 | Date when the data are imported                              |
-| time stamp      | DATETIME     |                 | Date and time when the data are imported (with second-level accuracy) |
+| timestamp      | DATETIME     |                 | Date and time when the data are imported (with second-level accuracy) |
 | city            | VARCHAR (20) |                 | User location city                                           |
 | age             | SMALLINT     |                 | User age                                                     |
 | sex             | TINYINT      |                 | User gender                                                  |
@@ -176,6 +190,19 @@ Suppose that the import data are as follows:
 | 10003   | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
 | 10004   | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
 | 10004   | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl values
+(10000,"2017-10-01","2017-10-01 08:00:05","Beijing",20,0,"2017-10-01 06:00:00",20,10,10),
+(10000,"2017-10-01","2017-10-01 09:00:05","Beijing",20,0,"2017-10-01 07:00:00",15,2,2),
+(10001,"2017-10-01","2017-10-01 18:12:10","Beijing",30,1,"2017-10-01 17:05:45",2,22,22),
+(10002,"2017-10-02","2017-10-02 13:10:00","Shanghai",20,1,"2017-10-02 12:59:12",200,5,5),
+(10003,"2017-10-02","2017-10-02 13:15:00","Guangzhou",32,0,"2017-10-02 11:20:00",30,11,11),
+(10004,"2017-10-01","2017-10-01 12:12:48","Shenzhen",35,0,"2017-10-01 10:00:15",100,3,3),
+(10004,"2017-10-03","2017-10-03 12:38:20","Shenzhen",35,0,"2017-10-03 10:20:22",11,6,6);
+```
 
 After importing, this batch of data will be stored in Doris as follows:
 
@@ -210,6 +237,14 @@ Now you need to import a new batch of data:
 | ------- | ---------- | -------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
 | 10004   | 2017-10-03 | Shenzhen | 35   | 0    | 2017-10-03 11:22:00 | 44   | 19               | 19               |
 | 10005   | 2017-10-03 | Changsha | 29   | 1    | 2017-10-03 18:11:02 | 3    | 1                | 1                |
+
+And you can import data with the following sql:
+
+```sql
+insert into example_db.example_tbl_agg values
+(10004,"2017-10-03","Shenzhen",35,0,"2017-10-03 11:22:00",44,19,19),
+(10005,"2017-10-03","Changsha",29,1,"2017-10-03 18:11:02",3,1,1);
+```
 
 After importing, the data stored in Doris will be updated as follows:
 
@@ -304,7 +339,9 @@ PROPERTIES (
 
 That is to say, the Merge on Read implementation of the Unique Model is equivalent to the REPLACE aggregation type in the Aggregate Model. The internal implementation and data storage are exactly the same.
 
-### Merge on Write (Since Doris 1.2)
+<version since="1.2">
+
+### Merge on Write
 
 The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
 
@@ -313,6 +350,10 @@ In Doris 1.2.0, as a new feature, Merge on Write is disabled by default, and use
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+
+> NOTE:
+> 1. It is recommended to use version 1.2.4 or above, as this version has fixed some bugs and stability issues.
+> 2. Add the configuration item "disable_storage_page_cache=false" to the be.conf file. Failure to add this configuration item may have a significant impact on data load performance.
 
 Take the previous table as an example, the corresponding CREATE TABLE statement should be:
 
@@ -358,6 +399,8 @@ On a Unique table with the Merge on Write option enabled, during the import stag
 2. The old Merge on Read cannot be seamlessly upgraded to the new implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
 3. The two unique features `delete sign` and `sequence col` of the Unique Model can be used as normal in the new implementation, and their usage remains unchanged.
 
+</version>
+
 ## Duplicate Model
 
 In some multi-dimensional analysis scenarios, there is no need for primary keys or data aggregation. For these cases, we introduce the Duplicate Model to. Here is an example:
@@ -392,7 +435,7 @@ PROPERTIES (
 
 Different from the Aggregate and Unique Models, the Duplicate Model stores the data as they are and executes no aggregation. Even if there are two identical rows of data, they will both be retained. The DUPLICATE KEY in the CREATE TABLE statement is only used to specify based on which columns the data are sorted. (A more appropriate name than DUPLICATE KEY would be SORTING COLUMN, but it is named as such to specify the data model used. For more information, see [Prefix Index](https://doris.apache.org/docs/dev/data-table/index/prefix-index/).) For the choice of DUPLICATE KEY, we recommend the first 2-4 columns.
 
-The Duplicate Mode l is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
+The Duplicate Model is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
 
 ## Limitations of Aggregate Model
 

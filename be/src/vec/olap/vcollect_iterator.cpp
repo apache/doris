@@ -65,8 +65,10 @@ VCollectIterator::~VCollectIterator() {
 }
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
-                            bool is_reverse) {
+                            bool is_reverse,
+                            std::vector<std::pair<int, int>> rs_readers_segment_offsets) {
     _reader = reader;
+
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
     if (_reader->_reader_type == READER_QUERY &&
@@ -75,6 +77,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
+
     // When data is none overlapping, no need to build heap to traverse data
     if (!ori_data_overlapping) {
         _merge = false;
@@ -82,12 +85,16 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = true;
     }
     _is_reverse = is_reverse;
+
     // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
     if (_reader->_reader_context.read_orderby_key_limit > 0 &&
         (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
+        // When we use scanner pooling + query with topn_with_limit, we need it because we initialize our rs_reader
+        // in out method but not upstream user. At time we init readers, we will need to use it.
+        _rs_readers_segment_offsets = rs_readers_segment_offsets;
     } else {
         _topn_limit = 0;
     }
@@ -277,9 +284,13 @@ Status VCollectIterator::_topn_next(Block* block) {
         std::reverse(_rs_readers.begin(), _rs_readers.end());
     }
 
-    for (auto rs_reader : _rs_readers) {
+    bool segment_empty = _rs_readers_segment_offsets.empty();
+    for (size_t i = 0; i < _rs_readers.size(); i++) {
+        const auto& rs_reader = _rs_readers[i];
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
-        RETURN_NOT_OK(rs_reader->init(&_reader->_reader_context));
+        RETURN_IF_ERROR(
+                rs_reader->init(&_reader->_reader_context,
+                                segment_empty ? std::pair {0, 0} : _rs_readers_segment_offsets[i]));
 
         // read _topn_limit rows from this rs
         size_t read_rows = 0;
@@ -481,7 +492,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
             }
 
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-                RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
+                RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
             }
         }
     } while (!_is_empty());
@@ -497,7 +508,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
         _ref.row_pos++;
     }
 
-    RETURN_NOT_OK(_refresh_current_row());
+    RETURN_IF_ERROR(_refresh_current_row());
 
     if (_get_data_by_ref) {
         _ref = _block_view[_current];
@@ -522,7 +533,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
             return Status::Error<END_OF_FILE>();
         }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-            RETURN_NOT_OK(_rs_reader->current_block_row_locations(&_block_row_locations));
+            RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
         }
         return Status::OK();
     }

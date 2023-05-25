@@ -88,7 +88,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
             LOG.warn("failed to get a broker address: " + e.getMessage());
             return null;
         }
-        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
+        TNetworkAddress address = new TNetworkAddress(broker.host, broker.port);
         TPaloBrokerService.Client client;
         try {
             client = ClientPool.brokerPool.borrowObject(address);
@@ -581,7 +581,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
             List<TBrokerFileStatus> fileStatus = rep.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
-                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0);
+                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0, tFile.getModificationTime());
                 result.add(file);
             }
             LOG.info("finished to list remote path {}. get files: {}", remotePath, result);

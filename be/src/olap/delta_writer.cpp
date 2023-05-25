@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
@@ -45,6 +46,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
@@ -141,8 +143,8 @@ Status DeltaWriter::init() {
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(_tablet,
-                                                          CompactionType::CUMULATIVE_COMPACTION);
+        StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
             LOG(WARNING) << "failed to init delta writer. version count: "
                          << _tablet->version_count()
@@ -158,8 +160,8 @@ Status DeltaWriter::init() {
             return Status::Error<TRY_LOCK_FAILED>();
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
-                                                                  _req.txn_id, _req.load_id));
+        RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
+                                                                    _req.txn_id, _req.load_id));
     }
     if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
@@ -178,7 +180,7 @@ Status DeltaWriter::init() {
     context.is_direct_write = true;
     context.mow_context =
             std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
-    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
+    RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
@@ -187,7 +189,7 @@ Status DeltaWriter::init() {
     // unique key should flush serial because we need to make sure same key should sort
     // in the same order in all replica.
     bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+    RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
@@ -205,7 +207,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -225,7 +227,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     _mem_table->insert(block, row_idxs, is_append);
 
-    if (UNLIKELY(_mem_table->need_agg())) {
+    if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
@@ -240,7 +242,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    _merged_rows += _mem_table->merged_rows();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -269,7 +270,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
-        RETURN_NOT_OK(_flush_token->wait());
+        RETURN_IF_ERROR(_flush_token->wait());
     }
     return Status::OK();
 }
@@ -286,7 +287,7 @@ Status DeltaWriter::wait_flush() {
             return _cancel_status;
         }
     }
-    RETURN_NOT_OK(_flush_token->wait());
+    RETURN_IF_ERROR(_flush_token->wait());
     return Status::OK();
 }
 
@@ -317,6 +318,10 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
+
+    auto& merged_rows = _merged_rows;
+    _mem_table->set_callback(
+            [&merged_rows](int64_t ret_merged_rows) { merged_rows += ret_merged_rows; });
 }
 
 Status DeltaWriter::close() {
@@ -327,7 +332,7 @@ Status DeltaWriter::close() {
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create an empty rowset
         // for this tablet when being closed.
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -343,7 +348,7 @@ Status DeltaWriter::close() {
     auto s = _flush_memtable_async();
     _mem_table.reset();
     _is_closed = true;
-    if (OLAP_UNLIKELY(!s.ok())) {
+    if (UNLIKELY(!s.ok())) {
         return s;
     } else {
         return Status::OK();
@@ -400,12 +405,14 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr, _delete_bitmap,
-                                                    _cur_max_version, true));
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr,
+                                                        _delete_bitmap, _cur_max_version, true));
+        }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
-                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;
@@ -557,15 +564,23 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         _unfinished_slave_node.insert(node_info.id());
     }
 
+    std::vector<int64_t> indices_ids;
+    auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
+    for (auto& column : tablet_schema->columns()) {
+        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+        if (index_meta) {
+            indices_ids.emplace_back(index_meta->index_id());
+        }
+    }
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
     request.set_host(BackendOptions::get_localhost());
-    request.set_http_port(config::single_replica_load_download_port);
+    request.set_http_port(config::webserver_port);
     string tablet_path = _tablet->tablet_path();
     request.set_rowset_path(tablet_path);
     request.set_token(ExecEnv::GetInstance()->token());
-    request.set_brpc_port(config::single_replica_load_brpc_port);
+    request.set_brpc_port(config::brpc_port);
     request.set_node_id(node_info.id());
     for (int segment_id = 0; segment_id < _cur_rowset->rowset_meta()->num_segments();
          segment_id++) {
@@ -573,6 +588,22 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         segment_name << _cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
         request.mutable_segments_size()->insert({segment_id, segment_size});
+
+        if (!indices_ids.empty()) {
+            for (auto index_id : indices_ids) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        tablet_path + "/" + segment_name.str(), index_id);
+                int64_t size = std::filesystem::file_size(inverted_index_file);
+                PTabletWriteSlaveRequest::IndexSize index_size;
+                index_size.set_indexid(index_id);
+                index_size.set_size(size);
+                // Fetch the map value for the current segment_id.
+                // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                // Add the new index size to the map value.
+                *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+            }
+        }
     }
     RefCountClosure<PTabletWriteSlaveResult>* closure =
             new RefCountClosure<PTabletWriteSlaveResult>();

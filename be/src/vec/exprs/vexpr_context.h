@@ -68,6 +68,13 @@ public:
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);
+    [[nodiscard]] static Status execute_conjuncts(const std::vector<VExprContext*>& ctxs,
+                                                  const std::vector<IColumn::Filter*>* filters,
+                                                  Block* block, IColumn::Filter* result_filter,
+                                                  bool* can_filter_all);
+    [[nodiscard]] static Status execute_conjuncts_and_filter_block(
+            const std::vector<VExprContext*>& ctxs, const std::vector<IColumn::Filter*>* filters,
+            Block* block, std::vector<uint32_t>& columns_to_filter, int column_to_keep);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(
             const std::vector<vectorized::VExprContext*>&, const Block&, Block*);
@@ -82,6 +89,10 @@ public:
     }
 
     void clone_fn_contexts(VExprContext* other);
+
+    bool force_materialize_slot() const { return _force_materialize_slot; }
+
+    void set_force_materialize_slot() { _force_materialize_slot = true; }
 
 private:
     friend class VExpr;
@@ -105,5 +116,9 @@ private:
 
     /// The depth of expression-tree.
     int _depth_num = 0;
+
+    // This flag only works on VSlotRef.
+    // Force to materialize even if the slot need_materialize is false, we just ignore need_materialize flag
+    bool _force_materialize_slot = false;
 };
 } // namespace doris::vectorized

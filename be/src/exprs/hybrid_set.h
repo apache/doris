@@ -60,7 +60,7 @@ public:
     }
 
     // Use '|' instead of '||' has better performance by test.
-    bool find(const T& value) const {
+    ALWAYS_INLINE bool find(const T& value) const {
         if constexpr (N == 1) {
             return (value == _data[0]);
         }
@@ -585,21 +585,26 @@ public:
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
         auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const uint32_t* __restrict offset = col.get_offsets().data();
+        const uint8_t* __restrict data = col.get_chars().data();
+        uint8_t* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
+            uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i));
+                result_data[i] = _set.find(StringRef(cursor, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(col.get_data_at(i));
+                result_data[i] = !_set.find(StringRef(cursor, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i)) & (!null_map_data[i]);
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(col.get_data_at(i)) & (!null_map_data[i]));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
             }
+            cursor += len;
         }
     }
 

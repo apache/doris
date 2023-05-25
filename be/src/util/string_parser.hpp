@@ -38,6 +38,8 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/large_int_value.h"
+#include "vec/common/int_exp.h"
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
@@ -78,10 +80,27 @@ public:
     };
 
     template <typename T>
-    static T numeric_limits(bool negative);
+    static T numeric_limits(bool negative) {
+        if constexpr (std::is_same_v<T, __int128>) {
+            return negative ? MIN_INT128 : MAX_INT128;
+        } else {
+            return negative ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
+        }
+    }
 
     template <typename T>
-    static T get_scale_multiplier(int scale);
+    static T get_scale_multiplier(int scale) {
+        static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
+                              std::is_same_v<T, __int128>,
+                      "You can only instantiate as int32_t, int64_t, __int128.");
+        if constexpr (std::is_same_v<T, int32_t>) {
+            return common::exp10_i32(scale);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            return common::exp10_i64(scale);
+        } else if constexpr (std::is_same_v<T, __int128>) {
+            return common::exp10_i128(scale);
+        }
+    }
 
     // This is considerably faster than glibc's implementation (25x).
     // In the case of overflow, the max/min value for the data type will be returned.
@@ -253,7 +272,7 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
     switch (*s) {
     case '-':
         negative = true;
-        max_val = StringParser::numeric_limits<T>(false) + 1;
+        max_val += 1;
         [[fallthrough]];
     case '+':
         ++i;
@@ -502,14 +521,6 @@ inline bool StringParser::string_to_bool_internal(const char* s, int len, ParseR
 
     *result = PARSE_FAILURE;
     return false;
-}
-
-template <>
-__int128 StringParser::numeric_limits<__int128>(bool negative);
-
-template <typename T>
-T StringParser::numeric_limits(bool negative) {
-    return negative ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
 }
 
 template <>

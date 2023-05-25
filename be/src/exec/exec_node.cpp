@@ -62,6 +62,7 @@
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vmysql_scan_node.h" // IWYU pragma: keep
+#include "vec/exec/vpartition_sort_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -120,6 +121,8 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
+    _span = state->get_tracer()->StartSpan(get_name());
+    OpentelemetryScope scope {_span};
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
@@ -166,7 +169,7 @@ Status ExecNode::reset(RuntimeState* state) {
 Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     DCHECK(statistics != nullptr);
     for (auto child_node : _children) {
-        child_node->collect_query_statistics(statistics);
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics));
     }
     return Status::OK();
 }
@@ -182,7 +185,7 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         }
         vectorized::VExpr::close(_projections, state);
 
-        runtime_profile()->add_to_span();
+        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }
 }
@@ -316,6 +319,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::META_SCAN_NODE:
+    case TPlanNodeType::PARTITION_SORT_NODE:
         break;
     default: {
         const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -436,6 +440,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
         return Status::OK();
 
+    case TPlanNodeType::PARTITION_SORT_NODE:
+        *node = pool->add(new vectorized::VPartitionSortNode(pool, tnode, descs));
+        return Status::OK();
     default:
         std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);

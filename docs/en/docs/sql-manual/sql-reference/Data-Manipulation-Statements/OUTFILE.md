@@ -55,6 +55,7 @@ illustrate:
     my_file_abcdefg_1.csv
     my_file_abcdegf_2.csv
     ```
+    You can also omit the file prefix and specify only the file directory, such as: `hdfs://path/to/`
 
 2. format_as
 
@@ -72,37 +73,43 @@ illustrate:
     grammar:
     [PROPERTIES ("key"="value", ...)]
     The following properties are supported:
-    column_separator: column separator. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
-    line_delimiter: line delimiter. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
-    max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
+
+    File related properties
+        column_separator: column separator. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+        line_delimiter: line delimiter. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+        max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
+        delete_existing_files: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/" 
     
     Broker related properties need to be prefixed with `broker.`:
-    broker.name: broker name
-    broker.hadoop.security.authentication: specify the authentication method as kerberos
-    broker.kerberos_principal: specifies the principal of kerberos
-    broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
+        broker.name: broker name
+        broker.hadoop.security.authentication: specify the authentication method as kerberos
+        broker.kerberos_principal: specifies the principal of kerberos
+        broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
     
     HDFS related properties:
-    fs.defaultFS: namenode address and port
-    hadoop.username: hdfs username
-    dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
-    dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
-    dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
-    dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+        fs.defaultFS: namenode address and port
+        hadoop.username: hdfs username
+        dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+        dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+        dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
-    For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
-    dfs.namenode.kerberos.principal: HDFS namenode service principal
-    hadoop.security.authentication: kerberos
-    hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
-    hadoop.kerberos.keytab: HDFS client keytab location.
+        For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
+        dfs.namenode.kerberos.principal: HDFS namenode service principal
+        hadoop.security.authentication: kerberos
+        hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
+        hadoop.kerberos.keytab: HDFS client keytab location.
     
     For the S3 protocol, you can directly execute the S3 protocol configuration:
-    AWS_ENDPOINT
-    AWS_ACCESS_KEY
-    AWS_SECRET_KEY
-    AWS_REGION
+    s3.endpoint
+    s3.access_key
+    s3.secret_key
+    s3.region
     use_path_stype: (optional) default false . The S3 SDK uses the virtual-hosted style by default. However, some object storage systems may not be enabled or support virtual-hosted style access. At this time, we can add the use_path_style parameter to force the use of path style access method.
+
     ```
+
+    > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.
 
 ### example
 
@@ -224,10 +231,10 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 
@@ -243,10 +250,10 @@ illustrate:
    format as csv
    properties
    (
-       "AWS_ENDPOINT" = "http://s3.bd.bcebos.com",
-       "AWS_ACCESS_KEY" = "xxxx",
-       "AWS_SECRET_KEY" = "xxx",
-       "AWS_REGION" = "bd"
+        "s3.endpoint" = "http://s3.bd.bcebos.com",
+        "s3.access_key" = "xxxx",
+        "s3.secret_key" = "xxx",
+        "s3.region" = "bd"
    )
    ````
 

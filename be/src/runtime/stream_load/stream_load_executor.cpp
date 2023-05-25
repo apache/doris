@@ -17,6 +17,8 @@
 
 #include "runtime/stream_load/stream_load_executor.h"
 
+#include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -56,6 +58,10 @@ TLoadTxnCommitResult k_stream_load_commit_result;
 TLoadTxnRollbackResult k_stream_load_rollback_result;
 Status k_stream_load_plan_status;
 #endif
+
+bvar::LatencyRecorder g_stream_load_begin_txn_latency("stream_load", "begin_txn");
+bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precommit_txn");
+bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
 
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
 // submit this params
@@ -143,6 +149,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 #endif
     return Status::OK();
 }
+
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_begin_request_total->increment(1);
 
@@ -160,10 +167,12 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 
     TLoadTxnBeginResult result;
     Status status;
+    int64_t duration_ns = 0;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
     } else {
+        SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -175,6 +184,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 #endif
         status = Status(result.status);
     }
+    g_stream_load_begin_txn_latency << duration_ns / 1000;
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status << ctx->brief();
         if (result.__isset.job_status) {
@@ -197,16 +207,21 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxnPreCommit(result, request);
-            },
-            config::txn_commit_rpc_timeout_ms));
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnPreCommit(result, request);
+                },
+                config::txn_commit_rpc_timeout_ms));
 #else
-    result = k_stream_load_commit_result;
+        result = k_stream_load_commit_result;
 #endif
+    }
+    g_stream_load_precommit_txn_latency << duration_ns / 1000;
     // Return if this transaction is precommitted successful; otherwise, we need try
     // to
     // rollback this transaction
@@ -234,12 +249,17 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxn2PC(result, request);
-            },
-            config::txn_commit_rpc_timeout_ms));
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxn2PC(result, request);
+                },
+                config::txn_commit_rpc_timeout_ms));
+    }
+    g_stream_load_commit_txn_latency << duration_ns / 1000;
     Status status(result.status);
     if (!status.ok()) {
         LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status;

@@ -28,7 +28,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/text_converter.hpp"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"

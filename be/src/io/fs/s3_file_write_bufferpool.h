@@ -33,7 +33,7 @@
 namespace doris {
 namespace io {
 
-// TODO(AlexYue): 1. support write into cache 2. unify write buffer and read buffer
+// TODO(AlexYue): 1. support write into cache 2. unify write buffer and read buffer 3. decouple reserved memory and Callbacks
 struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     using Callback = std::function<void()>;
 

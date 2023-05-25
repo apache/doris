@@ -104,68 +104,6 @@ public class ArithmeticExpr extends Expr {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getNumericTypes()) {
-            NullableMode mode = t.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t, mode));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.ADD.getName(), Lists.newArrayList(t, t), t, mode));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t, mode));
-        }
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
-                Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
-                Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
-                Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
-                Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-
-        // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
-        // builtins, see palo_functions.py
-        for (Type t : Type.getIntegerTypes()) {
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t),
-                    t, Function.NullableMode.ALWAYS_NULLABLE));
-        }
-
         // init vec build function
         for (int i = 0; i < Type.getNumericTypes().size(); i++) {
             Type t1 = Type.getNumericTypes().get(i);
@@ -174,81 +112,81 @@ public class ArithmeticExpr extends Expr {
 
                 Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false));
                 NullableMode mode = retType.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2), retType, mode));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.ADD.getName(), Lists.newArrayList(t1, t2), retType, mode));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2), retType, mode));
             }
         }
 
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
                 Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL64),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL128),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL128),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL32),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
 
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.FLOAT, Type.FLOAT),
                 Type.FLOAT, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
                 Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.MAX_DECIMALV2_TYPE, Type.MAX_DECIMALV2_TYPE),
                 Type.MAX_DECIMALV2_TYPE, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL32, Type.DECIMAL32),
                 Type.DECIMAL32, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL64, Type.DECIMAL64),
                 Type.DECIMAL64, Function.NullableMode.ALWAYS_NULLABLE));
-        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.MOD.getName(),
                 Lists.<Type>newArrayList(Type.DECIMAL128, Type.DECIMAL128),
                 Type.DECIMAL128, Function.NullableMode.ALWAYS_NULLABLE));
@@ -258,11 +196,11 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getIntegerTypes().size(); j++) {
                 Type t2 = Type.getIntegerTypes().get(j);
 
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
                         Type.getAssignmentCompatibleType(t1, t2, false),
                         Function.NullableMode.ALWAYS_NULLABLE));
-                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MOD.getName(), Lists.newArrayList(t1, t2),
                         Type.getAssignmentCompatibleType(t1, t2, false),
                         Function.NullableMode.ALWAYS_NULLABLE));

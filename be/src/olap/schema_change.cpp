@@ -121,7 +121,6 @@ public:
                 try {
                     vectorized::AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    {finalized_block.get_data_type(i)},
                                     vectorized::AGG_LOAD_SUFFIX);
                     agg_functions.push_back(function);
                     // create aggregate data
@@ -311,6 +310,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
+            ref_block->replace_by_position_if_const(result_column_id);
+
             if (ref_block->get_by_position(result_column_id).column->size() != row_size) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
@@ -661,7 +662,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
 
     // load segments
     SegmentCacheHandle segment_cache_handle;
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
             false));
 
@@ -731,7 +732,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                 if (res.is<END_OF_FILE>()) {
                     break;
                 }
-                RETURN_NOT_OK_LOG(
+                RETURN_NOT_OK_STATUS_WITH_WARN(
                         res, "failed to read next block when schema change for inverted index.");
             }
 
@@ -1548,8 +1549,8 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     }
     *max_rowset = rowset;
 
-    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           versions_to_be_changed));
+    RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
+                                                             versions_to_be_changed));
 
     return Status::OK();
 }

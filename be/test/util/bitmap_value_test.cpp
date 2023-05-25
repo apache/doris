@@ -29,6 +29,28 @@
 namespace doris {
 using roaring::Roaring;
 
+TEST(BitmapValueTest, copy) {
+    BitmapValue empty;
+    BitmapValue single(1024);
+    BitmapValue bitmap({1024, 1025, 1026});
+
+    BitmapValue copied = bitmap;
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_TRUE(copied.contains(1025));
+    EXPECT_TRUE(copied.contains(1026));
+    copied &= single;
+
+    // value of copied changed.
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_FALSE(copied.contains(1025));
+    EXPECT_FALSE(copied.contains(1026));
+
+    // value of bitmap not changed.
+    EXPECT_TRUE(bitmap.contains(1024));
+    EXPECT_TRUE(bitmap.contains(1025));
+    EXPECT_TRUE(bitmap.contains(1026));
+}
+
 TEST(BitmapValueTest, bitmap_union) {
     BitmapValue empty;
     BitmapValue single(1024);

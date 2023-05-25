@@ -23,12 +23,14 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
@@ -84,6 +86,12 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType fileCompressType = tableValuedFunction.getTFileCompressType();
+        return Util.getOrInferCompressType(fileCompressType, fileSplit.getPath().toString());
+    }
+
+    @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileType();
     }
@@ -111,23 +119,12 @@ public class TVFScanNode extends FileQueryScanNode {
             Path path = new Path(fileStatus.getPath());
             try {
                 splits.addAll(splitFile(path, fileStatus.getBlockSize(), null, fileStatus.getSize(),
-                        fileStatus.isSplitable, null));
+                        fileStatus.getModificationTime(), fileStatus.isSplitable, null));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", path, e);
                 throw new UserException(e);
             }
         }
         return splits;
-    }
-
-    private void addFileSplits(Path path, long fileSize, long splitSize, List<Split> splits) {
-        long bytesRemaining;
-        for (bytesRemaining = fileSize; (double) bytesRemaining / (double) splitSize > 1.1D;
-                bytesRemaining -= splitSize) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, splitSize, fileSize, new String[0], null));
-        }
-        if (bytesRemaining != 0L) {
-            splits.add(new FileSplit(path, fileSize - bytesRemaining, bytesRemaining, fileSize, new String[0], null));
-        }
     }
 }

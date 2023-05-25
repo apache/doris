@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class RuntimeState;
@@ -69,6 +70,8 @@ struct ResultFileOptions {
     bool is_refactor_before_flag = false;
     std::string orc_schema;
 
+    bool delete_existing_files = false;
+
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
@@ -76,6 +79,8 @@ struct ResultFileOptions {
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
+        delete_existing_files =
+                t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
 
         is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
@@ -137,6 +142,7 @@ public:
 
 private:
     Status prepare_exprs(RuntimeState* state);
+    Status second_phase_fetch_data(RuntimeState* state, Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
@@ -152,6 +158,9 @@ private:
     std::shared_ptr<VResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size;            // Allocated from _pool
+
+    // for fetch data by rowids
+    TFetchOption _fetch_option;
 };
 } // namespace vectorized
 

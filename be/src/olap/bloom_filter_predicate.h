@@ -40,7 +40,7 @@ public:
                                int be_exec_version)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())),
+              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())),
               _be_exec_version(be_exec_version) {}
     ~BloomFilterColumnPredicate() override = default;
 

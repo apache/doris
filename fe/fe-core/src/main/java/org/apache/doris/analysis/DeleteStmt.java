@@ -130,11 +130,15 @@ public class DeleteStmt extends DdlStmt {
                     + " Please check the following session variables: "
                     + String.join(", ", SessionVariable.DEBUG_VARIABLES));
         }
+        boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
         for (Column column : targetTable.getColumns()) {
             Expr expr;
+            // in mow, we can use partial update so we only need key column and delete sign
             if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 expr = new BoolLiteral(true);
-            } else if (column.isKey() || !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
+            } else if (column.isKey()) {
+                expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
+            } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else {
                 continue;
@@ -166,13 +170,19 @@ public class DeleteStmt extends DdlStmt {
                 // limit
                 LimitElement.NO_LIMIT
         );
+        boolean isPartialUpdate = false;
+        if (((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite()
+                && cols.size() < targetTable.getColumns().size()) {
+            isPartialUpdate = true;
+        }
 
-        insertStmt = new InsertStmt(
+        insertStmt = new NativeInsertStmt(
                 new InsertTarget(tableName, null),
                 null,
                 cols,
                 new InsertSource(selectStmt),
-                null);
+                null,
+                isPartialUpdate);
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws UserException {

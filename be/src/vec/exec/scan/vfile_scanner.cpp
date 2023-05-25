@@ -563,8 +563,13 @@ Status VFileScanner::_get_next_reader() {
         _src_block_init = false;
         if (_next_range >= _ranges.size()) {
             _scanner_eof = true;
+            _state->update_num_finished_scan_range(1);
             return Status::OK();
         }
+        if (_next_range != 0) {
+            _state->update_num_finished_scan_range(1);
+        }
+
         const TFileRangeDesc& range = _ranges[_next_range++];
 
         // create reader for specific format
@@ -576,7 +581,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _kv_cache);
+                    _kv_cache, _state->query_options().enable_parquet_lazy_mat);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
@@ -605,10 +610,16 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
+            if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
+                RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
+                _discard_conjuncts();
+            }
             _cur_reader = OrcReader::create_unique(
                     _profile, _state, _params, range, _file_col_names,
-                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get());
-            init_status = ((OrcReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
+                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
+                    _state->query_options().enable_orc_lazy_mat);
+            init_status = ((OrcReader*)(_cur_reader.get()))
+                                  ->init_reader(_colname_to_value_range, _push_down_expr);
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:

@@ -502,7 +502,8 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
-        _create_agg_status(_agg_data->without_key);
+        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
+        RETURN_IF_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -510,7 +511,6 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 Status AggregationNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(_children[0]->open(state));
@@ -522,14 +522,12 @@ Status AggregationNode::open(RuntimeState* state) {
     while (!eos) {
         RETURN_IF_CANCELLED(state);
         release_block_memory(block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, &block, &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         RETURN_IF_ERROR(sink(state, &block, eos));
     }
     _children[0]->close(state);
@@ -550,22 +548,18 @@ Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
 }
 
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (_is_streaming_preagg) {
         RETURN_IF_CANCELLED(state);
         release_block_memory(_preagg_block);
         while (_preagg_block.rows() == 0 && !_child_eos) {
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    _children[0]->get_next_after_projects(
-                            state, &_preagg_block, &_child_eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[0], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    _children[0]->get_next_span(), _child_eos);
+            RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                    state, &_preagg_block, &_child_eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[0], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
         };
         {
             if (_preagg_block.rows() != 0) {
@@ -625,7 +619,6 @@ void AggregationNode::release_resource(RuntimeState* state) {
 
 Status AggregationNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
     return ExecNode::close(state);
 }
 
@@ -677,7 +670,9 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         if (!column_type->equals(*data_types[i])) {
             if (!is_array(remove_nullable(column_type))) {
                 DCHECK(column_type->is_nullable());
-                DCHECK(!data_types[i]->is_nullable());
+                DCHECK(!data_types[i]->is_nullable())
+                        << " column type: " << column_type->get_name()
+                        << ", data type: " << data_types[i]->get_name();
                 DCHECK(remove_nullable(column_type)->equals(*data_types[i]))
                         << " column type: " << remove_nullable(column_type)->get_name()
                         << ", data type: " << data_types[i]->get_name();
@@ -930,8 +925,7 @@ Status AggregationNode::_reset_hash_table() {
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
                                 _align_aggregate_states));
-                HashTableType new_hash_table;
-                hash_table = std::move(new_hash_table);
+                hash_table = HashTableType();
                 _agg_arena_pool.reset(new Arena);
                 return Status::OK();
             },

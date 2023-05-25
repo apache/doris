@@ -1685,7 +1685,7 @@ public class QueryPlanTest extends TestWithFeService {
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion
-                ? "PREDICATES: `day` = '2020-10-30 10:00:01.111111'"
+                ? "VEMPTYSET"
                 : "PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
 
@@ -1861,7 +1861,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "     \"max_file_size\" = \"500MB\" );";
         String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         if (Config.enable_date_conversion) {
-            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07',"
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07' AND"
                     + " `date` <= '2021-10-11'"));
         } else {
             Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00' AND"

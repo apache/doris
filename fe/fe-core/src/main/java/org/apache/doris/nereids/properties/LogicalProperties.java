@@ -108,6 +108,19 @@ public class LogicalProperties {
     }
 
     @Override
+    public String toString() {
+        return "LogicalProperties{"
+                + "\noutputSupplier=" + outputSupplier.get()
+                + "\nnonUserVisibleOutputSupplier=" + nonUserVisibleOutputSupplier.get()
+                + "\noutputExprIdsSupplier=" + outputExprIdsSupplier.get()
+                + "\noutputSetSupplier=" + outputSetSupplier.get()
+                + "\noutputMapSupplier=" + outputMapSupplier.get()
+                + "\noutputExprIdSetSupplier=" + outputExprIdSetSupplier.get()
+                + "\nhashCode=" + hashCode
+                + '}';
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

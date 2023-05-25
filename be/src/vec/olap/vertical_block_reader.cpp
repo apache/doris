@@ -67,7 +67,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
-        RETURN_NOT_OK(
+        RETURN_IF_ERROR(
                 rs_reader->get_segment_iterators(&_reader_context, segment_iters, {0, 0}, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
@@ -126,9 +126,17 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
         if (read_params.tablet->tablet_schema()->has_sequence_col()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
-        _vcollect_iter = new_vertical_heap_merge_iterator(
-                std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids, ori_return_col_size,
-                read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
+        if (read_params.tablet->tablet_schema()->num_key_columns() == 0) {
+            _vcollect_iter = new_vertical_fifo_merge_iterator(
+                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
+                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    _row_sources_buffer);
+        } else {
+            _vcollect_iter = new_vertical_heap_merge_iterator(
+                    std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids,
+                    ori_return_col_size, read_params.tablet->keys_type(), seq_col_idx,
+                    _row_sources_buffer);
+        }
     } else {
         _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
                                                           ori_return_col_size, _row_sources_buffer);
@@ -141,6 +149,10 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     // In agg keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
         auto st = _vcollect_iter->next_row(&_next_row);
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
+            LOG(WARNING) << "failed to init first row for agg key";
+            return st;
+        }
         _eof = st.is<END_OF_FILE>();
     }
 
@@ -162,8 +174,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function =
                 tablet_schema.column(_return_columns.at(idx))
-                        .get_aggregate_function({_next_row.block->get_data_type(idx)},
-                                                vectorized::AGG_READER_SUFFIX);
+                        .get_aggregate_function(vectorized::AGG_READER_SUFFIX);
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
         // create aggregate data
@@ -187,7 +198,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
     StorageReadOptions opts;
     _reader_context.batch_size = opts.block_row_max;
-    RETURN_NOT_OK(TabletReader::init(read_params));
+    RETURN_IF_ERROR(TabletReader::init(read_params));
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {

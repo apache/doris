@@ -105,7 +105,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(tablet_schema->compression_type());
+    meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
@@ -143,6 +143,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _opts.compression_type =
+            (block == nullptr || block->bytes() > config::segment_compression_threshold_kb * 1024)
+                    ? _tablet_schema->compression_type()
+                    : NO_COMPRESSION;
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
@@ -203,6 +207,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
                 return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for agg_state type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for agg_state type");
+            }
+        }
         if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {
@@ -244,9 +257,6 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
             _primary_key_index_builder.reset(
                     new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
             RETURN_IF_ERROR(_primary_key_index_builder->init());
-#ifndef NDEBUG
-            _key_set.reset(new std::unordered_set<std::string>());
-#endif
         } else {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
@@ -320,14 +330,19 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
             break;
         }
     }
+    if (row_column_id == 0) {
+        return;
+    }
     vectorized::ColumnString* row_store_column =
             static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
                                                            .column->assume_mutable_ref()
                                                            .assume_mutable()
                                                            .get());
     row_store_column->clear();
+    vectorized::DataTypeSerDeSPtrs serdes =
+            vectorized::create_data_type_serdes(block.get_data_types());
     vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns());
+                                                   _tablet_schema->num_columns(), serdes);
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
@@ -347,15 +362,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
-    std::vector<uint32_t> missing_cids;
-    std::vector<uint32_t> including_cids;
-    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
-        if (_tablet_schema->is_column_missing(i)) {
-            missing_cids.push_back(i);
-        } else {
-            including_cids.push_back(i);
-        }
-    }
+    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
+
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
     size_t input_id = 0;
@@ -384,33 +393,37 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    for (size_t pos = 0; pos < num_rows; pos++) {
-        std::string key = _full_encode_keys(key_columns, pos);
-        RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-        _maybe_invalid_row_cache(key);
+    // locate rows in base data
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        for (size_t pos = row_pos; pos < num_rows; pos++) {
+            std::string key = _full_encode_keys(key_columns, pos);
+            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            _maybe_invalid_row_cache(key);
 
-        RowLocation loc;
-        // save rowset shared ptr so this rowset wouldn't delete
-        RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
-                                          _mow_context->max_version, &rowset);
-        if (st.is<NOT_FOUND>()) {
-            if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
-                return Status::InternalError("partial update key not exist before");
+            RowLocation loc;
+            // save rowset shared ptr so this rowset wouldn't delete
+            RowsetSharedPtr rowset;
+            auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
+                                              _mow_context->max_version, &rowset);
+            if (st.is<NOT_FOUND>()) {
+                if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
+                    return Status::InternalError("partial update key not exist before");
+                }
+                has_default = true;
+                use_default_flag.emplace_back(true);
+                continue;
             }
-            has_default = true;
-            use_default_flag.emplace_back(true);
-            continue;
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to lookup row key, error: " << st;
+                return st;
+            }
+            // partial update should not contain invisible columns
+            use_default_flag.emplace_back(false);
+            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+            _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+            _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to lookup row key";
-            return st;
-        }
-        // partial update should not contain invisible columns
-        use_default_flag.emplace_back(false);
-        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
-        _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
     }
     CHECK(use_default_flag.size() == num_rows);
 
@@ -571,17 +584,18 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
+            std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
-#ifndef NDEBUG
-                DCHECK(_key_set.get() != nullptr);
-                _key_set->insert(key);
-#endif
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
+                DCHECK(key.compare(last_key) > 0)
+                        << "found duplicate key or key is not sorted! current key: " << key
+                        << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
                 _maybe_invalid_row_cache(key);
+                last_key = std::move(key);
             }
         } else {
             // create short key indexes'

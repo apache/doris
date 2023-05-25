@@ -35,6 +35,7 @@ enum TDataSinkType {
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
+    MULTI_CAST_DATA_STREAM_SINK,
 }
 
 enum TResultSinkType {
@@ -69,6 +70,25 @@ enum TParquetDataType {
     FIXED_LEN_BYTE_ARRAY,
 }
 
+enum TParquetDataLogicalType {
+      UNDEFINED = 0,  // Not a real logical type
+      STRING = 1,
+      MAP,
+      LIST,
+      ENUM,
+      DECIMAL,
+      DATE,
+      TIME,
+      TIMESTAMP,
+      INTERVAL,
+      INT,
+      NIL,  // Thrift NullType: annotates data that is always null
+      JSON,
+      BSON,
+      UUID,
+      NONE  // Not a real logical type; should always be last element
+    }
+
 enum TParquetRepetitionType {
     REQUIRED,
     REPEATED,
@@ -79,6 +99,7 @@ struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
     3: optional string schema_column_name    
+    4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
 struct TResultFileSinkOptions {
@@ -101,10 +122,22 @@ struct TResultFileSinkOptions {
     13: optional bool parquet_disable_dictionary
     14: optional TParquetVersion parquet_version
     15: optional string orc_schema
+
+    16: optional bool delete_existing_files;
 }
 
 struct TMemoryScratchSink {
 
+}
+
+// Specification of one output destination of a plan fragment
+struct TPlanFragmentDestination {
+  // the globally unique fragment instance id
+  1: required Types.TUniqueId fragment_instance_id
+
+  // ... which is being executed on this server
+  2: required Types.TNetworkAddress server
+  3: optional Types.TNetworkAddress brpc_server
 }
 
 // Sink which forwards data to a remote plan fragment,
@@ -122,9 +155,23 @@ struct TDataStreamSink {
   3: optional bool ignore_not_found
 }
 
+struct TMultiCastDataStreamSink {
+    1: optional list<TDataStreamSink> sinks;
+    2: optional list<list<TPlanFragmentDestination>> destinations;
+}
+
+struct TFetchOption {
+    1: optional bool use_two_phase_fetch;
+    // Nodes in this cluster, used for second phase fetch
+    2: optional Descriptors.TPaloNodesInfo nodes_info;
+    // Whether fetch row store
+    3: optional bool fetch_row_store;
+}
+
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options // deprecated
+    2: optional TResultFileSinkOptions file_options; // deprecated
+    3: optional TFetchOption fetch_option;
 }
 
 struct TResultFileSink {
@@ -201,5 +248,6 @@ struct TDataSink {
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
   11: optional TJdbcTableSink jdbc_table_sink
+  12: optional TMultiCastDataStreamSink multi_cast_stream_sink
 }
 

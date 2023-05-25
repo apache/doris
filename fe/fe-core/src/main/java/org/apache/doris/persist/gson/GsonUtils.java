@@ -47,11 +47,14 @@ import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
+import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
@@ -59,11 +62,17 @@ import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.BrokerHbResponse;
+import org.apache.doris.system.FrontendHbResponse;
+import org.apache.doris.system.HeartbeatResponse;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -179,7 +188,13 @@ public class GsonUtils {
             .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
             .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
-            .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName());
+            .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName());
+    // routine load data source
+    private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(
+                            AbstractDataSourceProperties.class, "clazz")
+                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
@@ -187,15 +202,23 @@ public class GsonUtils {
             .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
-            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName());
+            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-                    TableIf.class, "clazz")
-            .registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
+                    TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
-            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName());
+            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
+            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName());
+
+    // runtime adapter for class "HeartbeatResponse"
+    private static RuntimeTypeAdapterFactory<HeartbeatResponse> hbResponseTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(HeartbeatResponse.class, "clazz")
+            .registerSubtype(BackendHbResponse.class, BackendHbResponse.class.getSimpleName())
+            .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
+            .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
@@ -210,10 +233,10 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(policyTypeAdapterFactory)
-            .registerTypeAdapterFactory(dsTypeAdapterFactory)
-            .registerTypeAdapterFactory(dbTypeAdapterFactory)
-            .registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
@@ -445,7 +468,7 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
+                                              final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);

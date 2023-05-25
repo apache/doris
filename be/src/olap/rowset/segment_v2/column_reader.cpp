@@ -31,6 +31,7 @@
 #include "olap/column_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -1287,7 +1288,8 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_CHAR:
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);

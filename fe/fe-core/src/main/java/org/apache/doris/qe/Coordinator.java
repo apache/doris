@@ -75,12 +75,15 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
+import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -96,6 +99,7 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -126,13 +130,10 @@ import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -151,8 +152,6 @@ import java.util.stream.Collectors;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
-
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
 
@@ -205,6 +204,7 @@ public class Coordinator {
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
     private final List<ScanNode> scanNodes;
+    private int scanRangeNum = 0;
     // number of instances of this query, equals to
     // number of backends executing plan fragments on behalf of this query;
     // set in computeFragmentExecParams();
@@ -331,7 +331,7 @@ public class Coordinator {
 
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
@@ -360,7 +360,7 @@ public class Coordinator {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
@@ -407,6 +407,10 @@ public class Coordinator {
 
     public TUniqueId getQueryId() {
         return queryId;
+    }
+
+    public int getScanRangeNum() {
+        return scanRangeNum;
     }
 
     public void setQueryId(TUniqueId queryId) {
@@ -517,7 +521,7 @@ public class Coordinator {
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("backend: {}-{}-{}", backendID, backend.getIp(), backend.getBePort());
+                LOG.debug("backend: {}-{}-{}", backendID, backend.getHost(), backend.getBePort());
             }
         }
     }
@@ -583,7 +587,7 @@ public class Coordinator {
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
+            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
@@ -596,7 +600,7 @@ public class Coordinator {
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
-                topResultFileSink.setBrokerAddr(broker.ip, broker.port);
+                topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
             // This is a load process.
@@ -606,6 +610,7 @@ public class Coordinator {
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
             Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
+            Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
         executionProfile.markInstances(instanceIds);
@@ -819,7 +824,8 @@ public class Coordinator {
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap);
+                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap,
+                            executionProfile.getLoadChannelProfile());
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -1386,7 +1392,7 @@ public class Coordinator {
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
-        TNetworkAddress dest = new TNetworkAddress(backend.getIp(), backend.getBeRpcPort());
+        TNetworkAddress dest = new TNetworkAddress(backend.getHost(), backend.getBeRpcPort());
         return dest;
     }
 
@@ -1399,7 +1405,7 @@ public class Coordinator {
         if (backend.getBrpcPort() < 0) {
             return null;
         }
-        return new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }
 
     // estimate if this fragment contains UnionNode
@@ -1934,6 +1940,7 @@ public class Coordinator {
                 TScanRangeParams scanRangeParams = new TScanRangeParams();
                 scanRangeParams.scan_range = location.scan_range;
                 scanRangeParamsList.add(scanRangeParams);
+                updateScanRangeNumByScanRange(scanRangeParams);
             }
         }
     }
@@ -1946,7 +1953,7 @@ public class Coordinator {
         Reference<Long> backendIdRef = new Reference<Long>();
         selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
-        TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+        TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
@@ -2025,7 +2032,7 @@ public class Coordinator {
         for (TScanRangeLocations scanRangeLocations : locations) {
             TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
             Backend backend = consistentHash.getNode(scanRangeLocations);
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backend.getId());
             // Why only increase 1 in other implementations ?
             if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
@@ -2043,6 +2050,7 @@ public class Coordinator {
             scanRangeParams.scan_range = scanRangeLocations.scan_range;
             scanRangeParams.setVolumeId(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);
+            updateScanRangeNumByScanRange(scanRangeParams);
         }
     }
 
@@ -2063,7 +2071,7 @@ public class Coordinator {
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
                     assignedBytesPerHost, replicaNumPerHost, backendIdRef);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
@@ -2076,9 +2084,34 @@ public class Coordinator {
             // Volume is optional, so we need to set the value and the is-set bit
             scanRangeParams.setVolumeId(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);
+            updateScanRangeNumByScanRange(scanRangeParams);
         }
     }
 
+    private void updateScanRangeNumByScanRange(TScanRangeParams param) {
+        TScanRange scanRange = param.getScanRange();
+        if (scanRange == null) {
+            return;
+        }
+        TBrokerScanRange brokerScanRange = scanRange.getBrokerScanRange();
+        if (brokerScanRange != null) {
+            scanRangeNum += brokerScanRange.getRanges().size();
+        }
+        TExternalScanRange externalScanRange = scanRange.getExtScanRange();
+        if (externalScanRange != null) {
+            TFileScanRange fileScanRange = externalScanRange.getFileScanRange();
+            if (fileScanRange != null) {
+                scanRangeNum += fileScanRange.getRanges().size();
+            }
+        }
+        TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
+        if (paloScanRange != null) {
+            scanRangeNum = scanRangeNum + 1;
+        }
+        // TODO: more ranges?
+    }
+
+    // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
@@ -2126,12 +2159,6 @@ public class Coordinator {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
-            }
-
-            if (params.isSetLoadedRows()) {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
@@ -2185,12 +2212,14 @@ public class Coordinator {
                 }
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
+        }
 
-            if (params.isSetLoadedRows()) {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            }
+        if (params.isSetLoadedRows()) {
+            Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                    params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
         }
     }
 
@@ -2419,6 +2448,7 @@ public class Coordinator {
                     TScanRangeParams scanRangeParams = new TScanRangeParams();
                     scanRangeParams.scan_range = location.scan_range;
                     scanRangeParamsList.add(scanRangeParams);
+                    updateScanRangeNumByScanRange(scanRangeParams);
                 }
             }
         }
@@ -2529,7 +2559,7 @@ public class Coordinator {
             this.instanceId = fi.instanceId;
             this.address = fi.host;
             this.backend = idToBackend.get(addressToBackendID.get(address));
-            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.loadChannelProfile = loadChannelProfile;
@@ -2657,6 +2687,7 @@ public class Coordinator {
         volatile boolean done;
         boolean hasCanceled;
         Map<TUniqueId, RuntimeProfile> fragmentInstancesMap;
+        RuntimeProfile loadChannelProfile;
         int cancelProgress = 0;
         int profileFragmentId;
         TNetworkAddress brpcAddress;
@@ -2668,19 +2699,21 @@ public class Coordinator {
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
-                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap) {
+                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap,
+                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
             this.numInstances = rpcParams.local_params.size();
             this.fragmentInstancesMap = fragmentInstancesMap;
+            this.loadChannelProfile = loadChannelProfile;
 
             this.initiated = false;
             this.done = false;
 
             this.backend = idToBackend.get(backendId);
-            this.address = new TNetworkAddress(backend.getIp(), backend.getBePort());
-            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+            this.address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
 
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
@@ -2711,6 +2744,9 @@ public class Coordinator {
 
             if (params.isSetProfile()) {
                 profile.update(params.profile);
+            }
+            if (params.isSetLoadChannelProfile()) {
+                loadChannelProfile.update(params.loadChannelProfile);
             }
             if (params.done) {
                 profile.setIsDone(true);
@@ -3047,6 +3083,7 @@ public class Coordinator {
                 params.setBackendNum(backendNum++);
                 params.setQueryGlobals(queryGlobals);
                 params.setQueryOptions(queryOptions);
+                params.query_options.setEnablePipelineEngine(false);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3111,6 +3148,7 @@ public class Coordinator {
                     params.setCoord(coordAddress);
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
+                    params.query_options.setEnablePipelineEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

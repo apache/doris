@@ -75,6 +75,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
     }
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
+    }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
     }

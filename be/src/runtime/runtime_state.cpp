@@ -60,6 +60,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
@@ -86,6 +87,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
@@ -115,6 +117,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
@@ -282,7 +285,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
     if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
-        !config::enable_query_memroy_overcommit) {
+        !config::enable_query_memory_overcommit) {
         auto failed_msg = thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
                 thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str(),
                 thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), msg);

@@ -140,7 +140,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    _clear();
 
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
@@ -155,6 +154,7 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _clear();
     _s_instance = nullptr;
 }
 
@@ -628,8 +628,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const double guard_space =
             ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
-    RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
-                      "failed to get root path stat info when sweep trash.")
+    RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
+                                   "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间

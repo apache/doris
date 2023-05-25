@@ -73,7 +73,7 @@ public class BackendTest {
     @Test
     public void getMethodTest() {
         Assert.assertEquals(backendId, backend.getId());
-        Assert.assertEquals(host, backend.getIp());
+        Assert.assertEquals(host, backend.getHost());
         Assert.assertEquals(heartbeatPort, backend.getHeartbeatPort());
         Assert.assertEquals(bePort, backend.getBePort());
 
@@ -153,7 +153,7 @@ public class BackendTest {
             Backend backend = Backend.read(dis);
             list2.add(backend);
             Assert.assertEquals(count, backend.getId());
-            Assert.assertEquals("10.120.22.32" + count, backend.getIp());
+            Assert.assertEquals("10.120.22.32" + count, backend.getHost());
         }
 
         // check isAlive

@@ -66,18 +66,19 @@
 // #endif
 // ------------------------------------------------------------------------
 
-#define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#define GUTILS_GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 
-#define CLANG_VERSION (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
+#define GUTILS_CLANG_VERSION \
+    (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
 
 // ThreadSanitizer provides own implementation of atomicops.
 #if defined(THREAD_SANITIZER)
 #include "gutil/atomicops-internals-tsan.h" // IWYU pragma: export
 #elif defined(__GNUC__) && (defined(__i386) || defined(__x86_64__))
 #include "gutil/atomicops-internals-x86.h" // IWYU pragma: export
-#elif defined(__GNUC__) && GCC_VERSION >= 40700
+#elif defined(__GNUC__) && GUTILS_GCC_VERSION >= 40700
 #include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
-#elif defined(__clang__) && CLANG_VERSION >= 30400
+#elif defined(__clang__) && GUTILS_CLANG_VERSION >= 30400
 #include "gutil/atomicops-internals-gcc.h" // IWYU pragma: export
 #else
 #error You need to implement atomic operations for this architecture

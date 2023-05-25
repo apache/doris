@@ -1,7 +1,9 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "en"
+    "language": "en",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
@@ -46,7 +48,7 @@ distribution_desc
 [extra_properties]
 ```
 
-* `column_definition_list`
+#### column_definition_list
 
     Column definition list:
 
@@ -146,7 +148,7 @@ distribution_desc
             v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
             ```
 
-* `index_definition_list`
+#### index_definition_list
 
     Index list definition:
 
@@ -168,13 +170,13 @@ distribution_desc
         ...
         ```
 
-* `engine_type`
+#### engine_type
 
     Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) document. Example:
 
     `ENGINE=olap`
 
-* `keys_type`
+#### keys_type
 
     Data model.
 
@@ -194,7 +196,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
 
-* `table_comment`
+#### table_comment
 
     Table notes. Example:
 
@@ -202,7 +204,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_info`
+#### partition_info
 
     Partition information supports three writing methods:
 
@@ -241,8 +243,18 @@ distribution_desc
         ```
     
 </version>
+
+
+    4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
+
+        ```
+        PARTITION BY RANGE(int_col)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
+        ```
     
-* `distribution_desc`
+#### distribution_desc
 
     Define the data bucketing method.
 
@@ -257,7 +269,7 @@ distribution_desc
        Explain:
        Use random numbers for bucketing.
 
-* `rollup_list`
+#### rollup_list
 
     Multiple materialized views (ROLLUP) can be created at the same time as the table is built.
 
@@ -276,7 +288,7 @@ distribution_desc
         )
         ```
 
-* `properties`
+#### properties
 
     Set table properties. The following attributes are currently supported:
 
@@ -364,7 +376,7 @@ distribution_desc
         The relevant parameters of dynamic partition are as follows:
     
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
-        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), HOUR (hour).
+        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), YEAR (year), HOUR (hour).
         * `dynamic_partition.start`: Used to specify how many partitions to delete forward. The value must be less than 0. The default is Integer.MIN_VALUE.
         * `dynamic_partition.end`: Used to specify the number of partitions created in advance. The value must be greater than 0.
         * `dynamic_partition.prefix`: Used to specify the partition name prefix to be created. For example, if the partition name prefix is ​​p, the partition name will be automatically created as p20200108.
@@ -655,6 +667,19 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
             V1 VARCHAR(20)
         ) PARTITION BY RANGE (k1) (
             FROM ("2023-01-03 12") TO ("2023-01-14 22") INTERVAL 1 HOUR
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
+```
+        CREATE TABLE create_table_multi_partion_integer
+        (
+            k1 BIGINT,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM (1) TO (100) INTERVAL 10
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1
         PROPERTIES(
             "replication_num" = "1"

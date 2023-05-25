@@ -495,6 +495,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return result;
     }
 
+    public Expr getChildWithoutCast(int i) {
+        Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
+        Expr child = children.get(i);
+        return child instanceof CastExpr ? child.children.get(0) : child;
+    }
+
     /**
      * Helper function: analyze list of exprs
      *
@@ -995,6 +1001,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public static Type getAssignmentCompatibleType(List<Expr> children) {
+        Type assignmentCompatibleType = Type.INVALID;
+        for (int i = 0; i < children.size()
+                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
+                || assignmentCompatibleType.isInvalid()); i++) {
+            if (children.get(i) instanceof NullLiteral) {
+                continue;
+            }
+            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
+                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
+                    true);
+        }
+        return assignmentCompatibleType;
+    }
+
     // Convert this expr into msg (excluding children), which requires setting
     // msg.op as well as the expr-specific field.
     protected abstract void toThrift(TExprNode msg);
@@ -1483,6 +1504,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Expr child = getChild(childIndex);
         Expr newChild = child.castTo(targetType);
         setChild(childIndex, newChild);
+    }
+
+    /**
+     * Assuming it can cast to the targetType, use for convert literal value to
+     * target type without a cast node.
+     */
+    public static Expr convertLiteral(Expr expr, Type targetType) throws AnalysisException {
+        if (!(expr instanceof LiteralExpr)) {
+            return expr;
+        }
+        Expr newExpr = expr.uncheckedCastTo(targetType);
+        if (newExpr instanceof CastExpr) {
+            return ((LiteralExpr) newExpr.getChild(0)).convertTo(targetType);
+        }
+        return newExpr;
     }
 
     /**

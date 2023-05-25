@@ -1,7 +1,9 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "zh-CN"
+    "language": "zh-CN",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
@@ -46,7 +48,7 @@ distribution_desc
 [extra_properties]
 ```
 
-* `column_definition_list`
+#### column_definition_list
 
     列定义列表：
     
@@ -147,7 +149,7 @@ distribution_desc
         v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
         ```
     
-* `index_definition_list`
+#### index_definition_list
 
     索引列表定义：
     
@@ -169,13 +171,13 @@ distribution_desc
         ...
         ```
 
-* `engine_type`
+#### engine_type
 
     表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) 文档。示例：
     
     `ENGINE=olap`
     
-* `keys_type`
+#### keys_type
 
     数据模型。
     
@@ -195,7 +197,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
     
-* `table_comment`
+#### table_comment
 
     表注释。示例：
     
@@ -203,7 +205,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_info`
+#### partition_info
 
     分区信息，支持三种写法：
     
@@ -238,9 +240,19 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-    
-* `distribution_desc`
-  
+
+    4. MULTI RANGE：批量创建数字类型的RANGE分区，定义分区的左闭右开区间，设定步长。
+
+        ```
+        PARTITION BY RANGE(int_col)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
+        ```
+
+
+#### distribution_desc
+
     定义数据分桶方式。
 
     1) Hash 分桶
@@ -254,7 +266,7 @@ distribution_desc
        说明：
           使用随机数进行分桶。 
 
-* `rollup_list`
+#### rollup_list
 
     建表的同时可以创建多个物化视图（ROLLUP）。
 
@@ -273,7 +285,7 @@ distribution_desc
         )
         ```
 
-* `properties`
+#### properties
 
     设置表属性。目前支持以下属性：
 
@@ -361,7 +373,7 @@ distribution_desc
         动态分区相关参数如下：
     
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
-        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），HOUR（时）。
+        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），YEAR（年），HOUR（时）。
         * `dynamic_partition.start`: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
         * `dynamic_partition.end`: 用于指定提前创建的分区数量。值必须大于0。
         * `dynamic_partition.prefix`: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108。
@@ -652,6 +664,19 @@ distribution_desc
             V1 VARCHAR(20)
         ) PARTITION BY RANGE (k1) (
             FROM ("2023-01-03 12") TO ("2023-01-14 22") INTERVAL 1 HOUR
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
+```
+        CREATE TABLE create_table_multi_partion_integer
+        (
+            k1 BIGINT,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM (1) TO (100) INTERVAL 10
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1
         PROPERTIES(
             "replication_num" = "1"

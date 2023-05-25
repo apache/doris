@@ -29,12 +29,16 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -44,6 +48,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,6 +67,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     private final HMSExternalTable hmsTable;
+    private HiveTransaction hiveTransaction = null;
 
     /**
      * * External file scan node for Query Hive table
@@ -89,10 +95,16 @@ public class HiveScanNode extends FileQueryScanNode {
             for (SlotDescriptor slot : desc.getSlots()) {
                 if (!slot.getType().isScalarType()) {
                     throw new UserException("For column `" + slot.getColumn().getName()
-                        + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
-                        + " for text input format of Hive. ");
+                            + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
+                            + " for text input format of Hive. ");
                 }
             }
+        }
+
+        if (hmsTable.isHiveTransactionalTable()) {
+            this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
+                    ConnectContext.get().getQualifiedUser(), hmsTable);
+            Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
     }
 
@@ -159,9 +171,13 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
                                           List<Split> allFiles, boolean useSelfSplitter) throws IOException {
-
-        for (HiveMetaStoreCache.FileCacheValue fileCacheValue :
-                cache.getFilesByPartitions(partitions, useSelfSplitter)) {
+        List<FileCacheValue> fileCaches;
+        if (hiveTransaction != null) {
+            fileCaches = getFileSplitByTransaction(cache, partitions);
+        } else {
+            fileCaches = cache.getFilesByPartitions(partitions, useSelfSplitter);
+        }
+        for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.
             if (fileCacheValue.getSplits() != null) {
                 allFiles.addAll(fileCacheValue.getSplits());
@@ -170,17 +186,30 @@ public class HiveScanNode extends FileQueryScanNode {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
-                            status.getBlockLocations(), status.getLength(),
+                            status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues()));
                 }
             }
         }
     }
 
+    private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {
+        for (HivePartition partition : partitions) {
+            if (partition.getPartitionValues() == null || partition.getPartitionValues().isEmpty()) {
+                // this is unpartitioned table.
+                continue;
+            }
+            hiveTransaction.addPartition(partition.getPartitionName(hmsTable.getPartitionColumns()));
+        }
+        ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
+                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
+        return cache.getFilesByTransaction(partitions, validWriteIds);
+    }
+
     @Override
     public List<String> getPathPartitionKeys() {
         return hmsTable.getRemoteTable().getPartitionKeys()
-            .stream().map(FieldSchema::getName).collect(Collectors.toList());
+                .stream().map(FieldSchema::getName).map(String::toLowerCase).collect(Collectors.toList());
     }
 
     @Override

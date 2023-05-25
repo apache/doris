@@ -166,7 +166,6 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
     _release_mem();
 
     return VJoinNodeBase::close(state);
@@ -181,14 +180,12 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(1)->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[1], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(1)->get_next_span(), eos);
+        RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                state, &block, &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[1], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         sink(state, &block, eos);
 
@@ -251,14 +248,12 @@ Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* 
 Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
     do {
         release_block_memory(_left_block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_left_block, &_left_side_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _left_side_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_left_block, &_left_side_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
     } while (_left_block.rows() == 0 && !_left_side_eos);
 
@@ -266,8 +261,6 @@ Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
 }
 
 Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VNestedLoopJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
@@ -657,7 +650,6 @@ Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 Status VNestedLoopJoinNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
