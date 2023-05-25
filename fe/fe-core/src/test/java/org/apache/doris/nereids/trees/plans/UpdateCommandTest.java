@@ -24,7 +24,6 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.amazonaws.services.dynamodbv2.xspec.S;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -67,7 +66,7 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
     }
-    
+
     @Test
     public void testSimpleUpdate() {
         String sql = "update t1 set v1 = v1 + 2, v2 = v1 * 2 where k1 = 3";

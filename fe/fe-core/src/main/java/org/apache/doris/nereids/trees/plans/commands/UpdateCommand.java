@@ -37,10 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.amazonaws.services.dynamodbv2.xspec.L;
-
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
