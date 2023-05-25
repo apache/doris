@@ -59,7 +59,7 @@ public class S3LoadStmt extends NativeInsertStmt {
     public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
         super(buildInsertTarget(dataDescList.get(0)),
-                label.getLabelName(), /*TODO(tsy): think about columns*/null,
+                label.getLabelName(), /*insert into all columns by default*/null,
                 buildInsertSource(dataDescList.get(0), brokerDesc), null);
         this.label = label;
         this.dataDescription = dataDescList.get(0);
@@ -77,7 +77,7 @@ public class S3LoadStmt extends NativeInsertStmt {
     private static InsertSource buildInsertSource(DataDescription dataDescription, BrokerDesc brokerDesc)
             throws DdlException {
         final SelectList selectList = new SelectList();
-        // TODO(tsy): think about columns, now use `select *` way
+        // use `select *` by default
         final SelectListItem item = new SelectListItem(SelectListItem.createStarItem(null));
         selectList.addItem(item);
 
