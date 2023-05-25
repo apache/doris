@@ -1321,7 +1321,7 @@ public class StmtRewriter {
 
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
-                    matchPolicy.getWherePredicate(),
+                    matchPolicy.getWherePredicate().clone(),
                     null,
                     null,
                     null,
