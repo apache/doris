@@ -31,11 +31,11 @@ class MinmaxFunctionTraits {
 public:
     using BasePtr = MinMaxFuncBase*;
     template <PrimitiveType type, size_t N>
-    static BasePtr get_function(int precision = 0) {
+    static BasePtr get_function() {
         return new MinMaxNumFunc<std::conditional_t<
                 type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I,
                 vectorized::Decimal<typename PrimitiveTypeTraits<type>::CppType>,
-                typename PrimitiveTypeTraits<type>::CppType>>(precision);
+                typename PrimitiveTypeTraits<type>::CppType>>();
     }
 };
 
@@ -43,7 +43,7 @@ class HybridSetTraits {
 public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
-    static BasePtr get_function(int /* precision */) {
+    static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
         if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
             using Set = std::conditional_t<
@@ -65,7 +65,7 @@ class BloomFilterTraits {
 public:
     using BasePtr = BloomFilterFuncBase*;
     template <PrimitiveType type, size_t N>
-    static BasePtr get_function(int /* precision */) {
+    static BasePtr get_function() {
         return new BloomFilterFunc<type>();
     }
 };
@@ -74,7 +74,7 @@ class BitmapFilterTraits {
 public:
     using BasePtr = BitmapFilterFuncBase*;
     template <PrimitiveType type, size_t N>
-    static BasePtr get_function(int /* precision */) {
+    static BasePtr get_function() {
         return new BitmapFilterFunc<type>();
     }
 };
@@ -83,8 +83,8 @@ template <class Traits>
 class PredicateFunctionCreator {
 public:
     template <PrimitiveType type, size_t N = 0>
-    static typename Traits::BasePtr create(int precision = 0) {
-        return Traits::template get_function<type, N>(precision);
+    static typename Traits::BasePtr create() {
+        return Traits::template get_function<type, N>();
     }
 };
 
@@ -108,7 +108,7 @@ public:
     M(TYPE_DECIMAL128I)
 
 template <class Traits, size_t N = 0>
-typename Traits::BasePtr create_predicate_function(PrimitiveType type, int precision = 0) {
+typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
@@ -118,9 +118,9 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type, int preci
     case TYPE_DECIMALV2: {
         return Creator::template create<TYPE_DECIMALV2, N>();
     }
-#define M(NAME)                                              \
-    case NAME: {                                             \
-        return Creator::template create<NAME, N>(precision); \
+#define M(NAME)                                     \
+    case NAME: {                                    \
+        return Creator::template create<NAME, N>(); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
@@ -151,8 +151,8 @@ typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
     return nullptr;
 }
 
-inline auto create_minmax_filter(PrimitiveType type, int precision = 0) {
-    return create_predicate_function<MinmaxFunctionTraits>(type, precision);
+inline auto create_minmax_filter(PrimitiveType type) {
+    return create_predicate_function<MinmaxFunctionTraits>(type);
 }
 
 template <size_t N = 0>
