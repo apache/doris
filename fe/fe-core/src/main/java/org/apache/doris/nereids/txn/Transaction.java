@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.spark.executor.package$;
 
 /**
  * transaction wrapper for Nereids
@@ -77,18 +78,12 @@ public class Transaction {
         this.database = database;
         this.table = table;
         this.planner = planner;
-        if (!ctx.isTxnModel()) {
-            this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
-            this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
-            this.createAt = System.currentTimeMillis();
-        } else {
-            this.coordinator = null;
-            this.txnId = ctx.getTxnEntry().getTxnConf().getTxnId();
-            this.createAt = -1;
-        }
+        this.coordinator = new Coordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+        this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                database.getId(), ImmutableList.of(table.getId()), labelName,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+        this.createAt = System.currentTimeMillis();
     }
 
     public long getTxnId() {
@@ -98,7 +93,7 @@ public class Transaction {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoTableCommand(StmtExecutor executor) {
+    public void executeInsertIntoTableCommand(StmtExecutor package$) {
         LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
         Throwable throwable = null;
 
@@ -241,7 +236,7 @@ public class Transaction {
     /**
      * refactor execute()
      */
-    public void executeInsertIntoTableCommand(StmtExecutor executor) {
+    public void executeInsertIntoTableCommand(StmtExecutor package$) {
         LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
         Throwable throwable = null;
 
