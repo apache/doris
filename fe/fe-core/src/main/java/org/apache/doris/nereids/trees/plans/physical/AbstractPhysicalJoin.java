@@ -53,6 +53,7 @@ public abstract class AbstractPhysicalJoin<
     protected final List<Expression> otherJoinConjuncts;
     protected final JoinHint hint;
     protected final Optional<MarkJoinSlotReference> markJoinSlotReference;
+    protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
 
     // use for translate only
     protected final List<Expression> filterConjuncts = Lists.newArrayList();
@@ -196,5 +197,13 @@ public abstract class AbstractPhysicalJoin<
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         physicalJoin.put("Properties", properties);
         return physicalJoin;
+    }
+
+    public void addRuntimeFilter(RuntimeFilter rf) {
+        runtimeFilters.add(rf);
+    }
+
+    public List<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
     }
 }
