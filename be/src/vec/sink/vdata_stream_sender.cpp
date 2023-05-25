@@ -135,11 +135,8 @@ Status Channel::send_local_block(bool eos) {
         if (eos) {
             _local_recvr->remove_sender(_parent->_sender_id, _be_number);
         }
-        return Status::OK();
-    } else {
-        _mutable_block.reset();
-        return receiver_status_;
     }
+    return Status::OK();
 }
 
 Status Channel::send_local_block(Block* block) {
@@ -149,10 +146,8 @@ Status Channel::send_local_block(Block* block) {
         COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         _local_recvr->add_block(block, _parent->_sender_id, false);
-        return Status::OK();
-    } else {
-        return receiver_status_;
     }
+    return Status::OK();
 }
 
 Status Channel::send_block(PBlock* block, bool eos) {
@@ -241,9 +236,7 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
 Status Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
-        if (st.is<ErrorCode::END_OF_FILE>()) {
-            st = Status::OK();
-        } else if (!st.ok()) {
+        if (!st.ok()) {
             state->log_error(st.to_string());
         }
         _need_close = false;
@@ -259,33 +252,18 @@ Status Channel::close_internal() {
     }
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
-             << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
-             << " receiver status: " << receiver_status_;
-    if (receiver_status_.is<ErrorCode::END_OF_FILE>()) {
-        _mutable_block.reset();
-        return Status::OK();
-    }
-    Status status;
+             << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows());
     if (_mutable_block != nullptr && _mutable_block->rows() > 0) {
-        status = send_current_block(true);
+        RETURN_IF_ERROR(send_current_block(true));
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        status = send_block((PBlock*)nullptr, true);
+        RETURN_IF_ERROR(send_block((PBlock*)nullptr, true));
     }
     // Don't wait for the last packet to finish, left it to close_wait.
-    if (status.is<ErrorCode::END_OF_FILE>()) {
-        return Status::OK();
-    } else {
-        return status;
-    }
+    return Status::OK();
 }
 
 Status Channel::close(RuntimeState* state) {
-    if (_closed) {
-        return Status::OK();
-    }
-    _closed = true;
-
     Status st = close_internal();
     if (!st.ok()) {
         state->log_error(st.to_string());
@@ -516,33 +494,15 @@ Status VDataStreamSender::open(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename ChannelPtrType>
-void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                            Status st) {
-    channel->set_receiver_eof(st);
-    channel->close(state);
-}
-
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     SCOPED_TIMER(_profile->total_time_counter());
-    for (auto channel : _channels) {
-        if (!channel->is_receiver_eof()) {
-            break;
-        }
-        return Status::EndOfFile("all data stream channels EOF");
-    }
-
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
         if (_only_local_exchange) {
-            Status status;
             for (auto channel : _channels) {
-                if (!channel->is_receiver_eof()) {
-                    status = channel->send_local_block(block);
-                    HANDLE_CHANNEL_STATUS(state, channel, status);
-                }
+                RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else if (_enable_pipeline_exec) {
             BroadcastPBlockHolder* block_holder = nullptr;
@@ -553,16 +513,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         serialize_block(block, block_holder->get_block(), _channels.size()));
             }
 
-            Status status;
             for (auto channel : _channels) {
-                if (!channel->is_receiver_eof()) {
-                    if (channel->is_local()) {
-                        status = channel->send_local_block(block);
-                    } else {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(block_holder, eos);
-                    }
-                    HANDLE_CHANNEL_STATUS(state, channel, status);
+                if (channel->is_local()) {
+                    RETURN_IF_ERROR(channel->send_local_block(block));
+                } else {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    RETURN_IF_ERROR(channel->send_block(block_holder, eos));
                 }
             }
         } else {
@@ -571,16 +527,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
             }
 
-            Status status;
             for (auto channel : _channels) {
-                if (!channel->is_receiver_eof()) {
-                    if (channel->is_local()) {
-                        status = channel->send_local_block(block);
-                    } else {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(_cur_pb_block, eos);
-                    }
-                    HANDLE_CHANNEL_STATUS(state, channel, status);
+                if (channel->is_local()) {
+                    RETURN_IF_ERROR(channel->send_local_block(block));
+                } else {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    RETURN_IF_ERROR(channel->send_block(_cur_pb_block, eos));
                 }
             }
             // rollover
@@ -589,18 +541,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
         Channel* current_channel = _channels[_current_channel_idx];
-        if (!current_channel->is_receiver_eof()) {
-            // 2. serialize, send and rollover block
-            if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
-                HANDLE_CHANNEL_STATUS(state, current_channel, status);
-            } else {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_block(current_channel->ch_cur_pb_block(), eos);
-                HANDLE_CHANNEL_STATUS(state, current_channel, status);
-                current_channel->ch_roll_pb_block();
-            }
+        // 2. serialize, send and rollover block
+        if (current_channel->is_local()) {
+            RETURN_IF_ERROR(current_channel->send_local_block(block));
+        } else {
+            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
+            RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block(), eos));
+            current_channel->ch_roll_pb_block();
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
@@ -652,7 +600,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 Block::erase_useless_column(block, column_to_keep);
             }
 
-            RETURN_IF_ERROR(channel_add_rows(state, _channels, element_size, hashes, rows, block));
+            RETURN_IF_ERROR(channel_add_rows(_channels, element_size, hashes, rows, block));
         } else {
             for (int j = 0; j < result_size; ++j) {
                 block->get_by_position(result[j]).column->update_crcs_with_value(
@@ -667,8 +615,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 Block::erase_useless_column(block, column_to_keep);
             }
-            RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, element_size, hashes,
-                                             rows, block));
+            RETURN_IF_ERROR(
+                    channel_add_rows(_channel_shared_ptrs, element_size, hashes, rows, block));
         }
     } else {
         // Range partition
