@@ -581,6 +581,7 @@ struct TStreamLoadPutRequest {
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
     45: optional bool partial_update
+    46: optional list<string> table_names  // only used for stream load multi table
 }
 
 struct TStreamLoadPutResult {
@@ -908,7 +909,7 @@ service FrontendService {
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
     
-    TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request, 2: list<string> table_names)
+    TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 

@@ -1263,14 +1263,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request,
-                                                                  List<String> tableNames) {
+    public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request) {
         List<OlapTable> olapTables;
         Database db;
         String fullDbName;
         TStreamLoadMultiTablePutResult result = new TStreamLoadMultiTablePutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+        List<String> tableNames = request.getTableNames();
         try {
             if (CollectionUtils.isEmpty(tableNames)) {
                 throw new MetaNotFoundException("table not found");
