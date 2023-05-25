@@ -54,6 +54,7 @@ class MaxComputeJniReader : public GenericReader {
 public:
     MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                         const std::vector<SlotDescriptor*>& file_slot_descs,
+                        const TFileRangeDesc& range,
                         RuntimeState* state, RuntimeProfile* profile);
 
     ~MaxComputeJniReader() override = default;
@@ -68,6 +69,7 @@ public:
 private:
     const MaxComputeTableDescriptor* _table_desc;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
+    const TFileRangeDesc& _range;
     RuntimeState* _state;
     RuntimeProfile* _profile;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;

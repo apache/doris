@@ -21,6 +21,8 @@ import org.apache.doris.jni.utils.OffHeap;
 import org.apache.doris.jni.utils.TypeNativeBytes;
 import org.apache.doris.jni.vec.ColumnType.Type;
 
+import org.apache.log4j.Logger;
+
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -32,6 +34,7 @@ import java.util.List;
  * see <a href="https://github.com/apache/spark/blob/master/sql/core/src/main/java/org/apache/spark/sql/execution/vectorized/WritableColumnVector.java">WritableColumnVector</a>
  */
 public class VectorColumn {
+    private static final Logger LOG = Logger.getLogger(VectorColumn.class);
     // String is stored as array<byte>
     // The default string length to initialize the capacity.
     private static final int DEFAULT_STRING_LENGTH = 4;
@@ -525,7 +528,7 @@ public class VectorColumn {
 
     public void appendValue(ColumnValue o) {
         ColumnType.Type typeValue = columnType.getType();
-        if (o == null) {
+        if (o == null || o.isNull()) {
             appendNull(typeValue);
             return;
         }
@@ -556,7 +559,8 @@ public class VectorColumn {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                appendDecimal(o.getDecimal());
+                BigDecimal v = o.getDecimal();
+                appendDecimal(v);
                 break;
             case DATEV2:
                 appendDate(o.getDate());

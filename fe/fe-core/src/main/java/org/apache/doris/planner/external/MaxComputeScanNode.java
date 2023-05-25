@@ -20,6 +20,7 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
@@ -81,31 +82,31 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         // TODO: use single max compute scan node rather than file scan node
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         try {
-            // List<Pair<Long, Long>> sliceRange = new ArrayList<>();
+            List<Pair<Long, Long>> sliceRange = new ArrayList<>();
             long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
-            //            if (odpsTable.getFileNum() > 1) {
-            //                long fileNum = odpsTable.getFileNum();
-            //                long splitSize = (long) Math.ceil((double) totalRows / fileNum);
-            //                long start = 0;
-            //                for (int i = 0; i < fileNum; i++) {
-            //                    if (start > totalRows) {
-            //                        break;
-            //                    }
-            //                    sliceRange.add(Pair.of(start, splitSize));
-            //                    start += splitSize;
-            //                }
-            //            }
+            if (odpsTable.getFileNum() > 1) {
+                long fileNum = odpsTable.getFileNum();
+                long splitSize = (long) Math.ceil((double) totalRows / fileNum);
+                long start = 0;
+                for (int i = 0; i < fileNum; i++) {
+                    if (start > totalRows) {
+                        break;
+                    }
+                    sliceRange.add(Pair.of(start, splitSize));
+                    start += splitSize;
+                }
+            }
             long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
-            // if (sliceRange.isEmpty()) {
-            result.add(new FileSplit(new Path("/virtual_path"), 0, totalRows, totalRows,
-                    modificationTime, new String[] {"172.21.0.101"}, Collections.emptyList()));
-            //            } else {
-            //                for (int i = 0; i < sliceRange.size(); i++) {
-            //                    Pair<Long, Long> range = sliceRange.get(i);
-            //                    result.add(new FileSplit(new Path("/virtual_slice_" + i), range.first, range.second,
-            //                    totalRows, modificationTime, new String[]{"172.21.0.101"}, Collections.emptyList()));
-            //                }
-            //            }
+            if (sliceRange.isEmpty()) {
+                result.add(new FileSplit(new Path("/virtual_path"), 0, totalRows, totalRows,
+                            modificationTime, null, Collections.emptyList()));
+            } else {
+                for (int i = 0; i < sliceRange.size(); i++) {
+                    Pair<Long, Long> range = sliceRange.get(i);
+                    result.add(new FileSplit(new Path("/virtual_slice_" + i), range.first, range.second,
+                                totalRows, modificationTime, null, Collections.emptyList()));
+                }
+            }
         } catch (TunnelException e) {
             throw new UserException("Max Compute tunnel SDK exception.", e);
 

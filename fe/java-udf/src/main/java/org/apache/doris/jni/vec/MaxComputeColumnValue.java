@@ -17,13 +17,20 @@
 
 package org.apache.doris.jni.vec;
 
-import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.DateDayVector;
 import org.apache.arrow.vector.DateMilliVector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.util.DecimalUtility;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,100 +41,119 @@ import java.util.List;
  * MaxCompute Column value in vector column
  */
 public class MaxComputeColumnValue implements ColumnValue {
-    private long offset;
+    private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
-    private ArrowBuf buffers;
     private FieldVector column;
 
     public MaxComputeColumnValue() {
-        offset = 0L;
         idx = 0;
     }
 
     public void reset(FieldVector column) {
         this.column = column;
-        this.buffers = column.getDataBuffer();
-        this.offset = 0L;
         this.idx = 0;
     }
 
     @Override
+    public boolean isNull() {
+        return column.isNull(idx);
+    }
+
+    private void skippedIfNull() {
+        // null has been process by appendValue with isNull()
+        if (column.isNull(idx)) {
+            idx++;
+        }
+    }
+
+    @Override
     public boolean getBoolean() {
-        byte v = buffers.getByte(offset);
-        offset += Byte.BYTES;
-        return v > 0;
+        skippedIfNull();
+        TinyIntVector tinyIntCol = (TinyIntVector) column;
+        return tinyIntCol.get(idx++) > 0;
+
     }
 
     @Override
     public byte getByte() {
-        byte v = buffers.getByte(offset);
-        offset += Byte.BYTES;
-        return v;
+        skippedIfNull();
+        TinyIntVector tinyIntCol = (TinyIntVector) column;
+        return tinyIntCol.get(idx++);
     }
 
     @Override
     public short getShort() {
-        short v = buffers.getShort(offset);
-        offset += Short.BYTES;
-        return v;
+        skippedIfNull();
+        SmallIntVector smallIntCol = (SmallIntVector) column;
+        return smallIntCol.get(idx++);
     }
 
     @Override
     public int getInt() {
-        int v = buffers.getInt(offset);
-        offset += Integer.BYTES;
-        return v;
+        skippedIfNull();
+        IntVector intCol = (IntVector) column;
+        return intCol.get(idx++);
     }
 
     @Override
     public float getFloat() {
-        float v = buffers.getFloat(offset);
-        offset += Float.BYTES;
-        return v;
+        skippedIfNull();
+        Float4Vector floatCol = (Float4Vector) column;
+        return floatCol.get(idx++);
     }
 
     @Override
     public long getLong() {
-        long v = buffers.getLong(offset);
-        offset += Long.BYTES;
-        return v;
+        skippedIfNull();
+        BigIntVector longCol = (BigIntVector) column;
+        return longCol.get(idx++);
     }
 
     @Override
     public double getDouble() {
-        double v = buffers.getDouble(offset);
-        offset += Double.BYTES;
-        return v;
+        skippedIfNull();
+        Float8Vector doubleCol = (Float8Vector) column;
+        return doubleCol.get(idx++);
     }
 
     @Override
     public BigDecimal getDecimal() {
+        skippedIfNull();
         DecimalVector decimalCol = (DecimalVector) column;
-        return decimalCol.getObject(idx++);
+        return DecimalUtility.getBigDecimalFromArrowBuf(column.getDataBuffer(), idx++,
+                    decimalCol.getScale(), DecimalVector.TYPE_WIDTH);
     }
 
     @Override
     public String getString() {
+        skippedIfNull();
         VarCharVector varcharCol = (VarCharVector) column;
-        return varcharCol.getObject(idx++).toString();
+        String v = varcharCol.getObject(idx++).toString();
+        return v == null ? new String(new byte[0]) : v;
     }
 
     @Override
     public LocalDate getDate() {
+        skippedIfNull();
         DateDayVector dateCol = (DateDayVector) column;
-        return LocalDate.ofEpochDay(dateCol.getObject(idx++));
+        Integer intVal = dateCol.getObject(idx++);
+        return LocalDate.ofEpochDay(intVal == null ? 0 : intVal);
     }
 
     @Override
     public LocalDateTime getDateTime() {
+        skippedIfNull();
         DateMilliVector datetimeCol = (DateMilliVector) column;
-        return datetimeCol.getObject(idx++);
+        LocalDateTime v = datetimeCol.getObject(idx++);
+        return v == null ? LocalDateTime.MIN : v;
     }
 
     @Override
     public byte[] getBytes() {
+        skippedIfNull();
         VarBinaryVector binaryCol = (VarBinaryVector) column;
-        return binaryCol.getObject(idx++);
+        byte[] v = binaryCol.getObject(idx++);
+        return v == null ? new byte[0] : v;
     }
 
     @Override

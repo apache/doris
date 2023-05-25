@@ -49,6 +49,11 @@ public class MockJniScanner extends JniScanner {
         }
 
         @Override
+        public boolean isNull() {
+            return false;
+        }
+
+        @Override
         public boolean getBoolean() {
             return (i + j) % 2 == 0;
         }

@@ -38,8 +38,9 @@ namespace doris::vectorized {
 
 MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc, 
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
+                                         const TFileRangeDesc& range,
                                          RuntimeState* state, RuntimeProfile* profile)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+        : _file_slot_descs(file_slot_descs), _range(range), _state(state), _profile(profile) {
     _table_desc = mc_desc;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
@@ -63,9 +64,10 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                        {"secret_key", _table_desc->secret_key()},
                                        {"project", _table_desc->project()},
                                        {"table", _table_desc->table()},
+                                       {"start_offset", std::to_string(_range.start_offset)},
+                                       {"split_size", std::to_string(_range.size)},
                                        {"required_fields", required_fields.str()},
                                        {"columns_types", columns_types.str()}};
-    LOG(WARNING) << "columns_types.str(): " << columns_types.str();
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MaxComputeJniScanner", params,
                                                     column_names);
 }

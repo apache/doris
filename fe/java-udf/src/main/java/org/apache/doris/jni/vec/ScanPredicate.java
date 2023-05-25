@@ -120,6 +120,11 @@ public class ScanPredicate {
         }
 
         @Override
+        public boolean isNull() {
+            return (boolean) inspectObject();
+        }
+
+        @Override
         public boolean getBoolean() {
             return (boolean) inspectObject();
         }
