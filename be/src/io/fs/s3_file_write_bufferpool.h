@@ -47,9 +47,7 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
         other->_buf.clear();
     }
 
-    void reserve_buffer(Slice s) {
-        _buf = s;
-    }
+    void reserve_buffer(Slice s) { _buf = s; }
 
     // apend data into the memory buffer inside or into the file cache
     // if the buffer has no memory buffer
