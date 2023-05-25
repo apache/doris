@@ -124,7 +124,7 @@ public class AlterTest {
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
                         + "    PARTITION p2 values less than('2020-03-01 00:00:00')\n" + ")\n"
-                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
 
         createTable("create external table test.odbc_table\n" + "(  `k1` bigint(20) COMMENT \"\",\n"
                 + "  `k2` datetime COMMENT \"\",\n" + "  `k3` varchar(20) COMMENT \"\",\n"
