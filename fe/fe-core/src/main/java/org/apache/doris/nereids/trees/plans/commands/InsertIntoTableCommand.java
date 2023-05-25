@@ -39,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.spark.executor.package$;
 
 import java.util.Optional;
 import java.util.Set;
@@ -101,12 +102,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             ctx.getMysqlChannel().reset();
         }
         String label = this.labelName;
-        if (!ctx.isTxnModel()) {
-            if (label == null) {
-                label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-            }
-        } else {
-            label = ctx.getTxnEntry().getLabel();
+        if (label == null) {
+            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
         Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
@@ -141,7 +138,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 
-        txn.executeInsertIntoTableCommand(executor);
+        txn.executeInsertIntoTableCommand(package$);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
