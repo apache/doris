@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -27,13 +28,28 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -42,19 +58,48 @@ import java.util.stream.Collectors;
 public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return unboundOlapTableSink()
+        return unboundOlapTableSink(logicalProject())
                 .thenApply(ctx -> {
-                    UnboundOlapTableSink<? extends Plan> sink = ctx.root;
+                    UnboundOlapTableSink<LogicalProject<Plan>> sink = ctx.root;
+                    LogicalProject<Plan> project = sink.child();
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
-                    return new LogicalOlapTableSink<>(
+                    
+                    LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
                             bindTargetColumns(table, sink.getColNames()),
                             bindPartitionIds(table, sink.getPartitions()),
-                            sink.child()
-                    );
+                            sink.child());
+
+                    // we need to insert all the columns of the target table although some columns are not mentions.
+                    // so we add a projects to supply the default value.
+                    
+                    Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
+                    Preconditions.checkArgument(boundSink.getCols().size() == project.getOutput().size());
+                    for (int i = 0; i < boundSink.getCols().size(); ++i) {
+                        columnToOutput.put(boundSink.getCols().get(i), project.getOutput().get(i));
+                    }
+                    
+                    List<NamedExpression> newOutput = Lists.newArrayList();
+                    for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                        if (columnToOutput.containsKey(column)) {
+                            newOutput.add(columnToOutput.get(column));
+                        } else if (column.getDefaultValue() == null) {
+                            newOutput.add(new Alias(
+                                    new NullLiteral(DataType.fromCatalogType(column.getType())),
+                                    column.getName()
+                            ));
+                        } else {
+                            newOutput.add(new Alias(
+                                    new StringLiteral(column.getDefaultValue()),
+                                    column.getName()
+                            ));
+                        }
+                    }
+                    return new LogicalProject<>(newOutput, boundSink);
+                    
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
 

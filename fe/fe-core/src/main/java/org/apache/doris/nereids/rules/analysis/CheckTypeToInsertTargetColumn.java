@@ -17,16 +17,20 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -35,23 +39,45 @@ import java.util.stream.Collectors;
 public class CheckTypeToInsertTargetColumn extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapTableSink().then(sink -> {
-            List<DataType> insertTargetTypes = sink.getCols().stream()
-                    .filter(Column::isVisible)
-                    .map(col -> DataType.fromCatalogType(col.getType()))
+        return logicalProject(logicalOlapTableSink()).then(project -> {
+            LogicalOlapTableSink<?> sink = project.child();
+            List<DataType> insertTargetTypes = sink.getTargetTable().getFullSchema()
+                    .stream().map(column -> DataType.fromCatalogType(column.getType()))
                     .collect(Collectors.toList());
-            List<Slot> outputs = sink.child().getOutput();
-            checkNeedCast(insertTargetTypes, outputs);
-            return sink;
+            Optional<List<NamedExpression>> newOutput = checkNeedCast(insertTargetTypes, project.getOutputs());
+            if (newOutput.isPresent()) {
+                return project.withProjects(newOutput.get());
+            } else {
+                return project;
+            }
         }).toRule(RuleType.CHECK_TYPE_TO_INSERT_TARGET_COLUMN);
     }
 
-    private void checkNeedCast(List<DataType> targetType, List<Slot> slots) {
+    private Optional<List<NamedExpression>> checkNeedCast(List<DataType> targetType, List<NamedExpression> slots) {
         Preconditions.checkArgument(targetType.size() == slots.size(),
                 String.format("insert target table contains %d slots, but source table contains %d slots",
                         targetType.size(), slots.size()));
-        for (int i = 0; i < targetType.size(); i++) {
-            TypeCoercionUtils.checkCanCastTo(slots.get(i).getDataType(), targetType.get(i));
+        boolean isNeedCast = false;
+        for (int i = 0; i < slots.size(); ++i) {
+            if (!targetType.get(i).equals(slots.get(i).getDataType())) {
+                isNeedCast = true;
+                break;
+            }
         }
+        if (!isNeedCast) {
+            return Optional.empty();
+        }
+        List<NamedExpression> newOutput = Lists.newArrayList();
+        for (int i = 0; i < slots.size(); ++i) {
+            Expression ne = slots.get(i);
+            if (ne instanceof Alias) {
+                ne = ((Alias) ne).child();
+            }
+            Expression castExpression = TypeCoercionUtils.castIfNotSameType(ne, targetType.get(i));
+            newOutput.add(castExpression instanceof NamedExpression
+                    ? ((NamedExpression) castExpression)
+                    : new Alias(castExpression, castExpression.toSql()));
+        }
+        return Optional.of(newOutput);
     }
 }

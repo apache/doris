@@ -140,35 +140,4 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     public List<Slot> computeOutput() {
         return child().getOutput();
     }
-
-    @Override
-    public List<Slot> getOutput() {
-        return computeOutput();
-    }
-
-    @Override
-    public Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
-
-    /**
-     * get output physical properties
-     */
-    public PhysicalProperties getOutputPhysicalProperties() {
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-        List<Column> distributedColumns = distributionInfo.getDistributionColumns();
-        List<Integer> columnIndexes = Lists.newArrayList();
-        int idx = 0;
-        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-            if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                columnIndexes.add(i);
-                idx++;
-                if (idx == distributedColumns.size()) {
-                    break;
-                }
-            }
-        }
-        return PhysicalProperties.createHash(columnIndexes.stream()
-                .map(colIdx -> getOutput().get(colIdx).getExprId()).collect(Collectors.toList()), ShuffleType.NATURAL);
-    }
 }

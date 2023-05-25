@@ -288,11 +288,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        if (!(physicalPlan instanceof PhysicalOlapTableSink) && isFragmentPartitioned(rootFragment)) {
+        if (!(physicalPlan.child(0) instanceof PhysicalOlapTableSink) && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (!(physicalPlan instanceof PhysicalOlapTableSink)) {
+        if (!(physicalPlan.child(0) instanceof PhysicalOlapTableSink)) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
@@ -328,39 +328,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
-        Map<Column, Slot> columnToSlots = Maps.newHashMap();
-        Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
-                "this is a bug in insert into command");
-        for (int i = 0; i < olapTableSink.getCols().size(); ++i) {
-            columnToSlots.put(olapTableSink.getCols().get(i), olapTableSink.getOutput().get(i));
-        }
-        List<Expr> outputExprs = Lists.newArrayList();
-        try {
-            for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
-                if (columnToSlots.containsKey(column)) {
-                    ExprId exprId = columnToSlots.get(column).getExprId();
-                    outputExprs.add(context.findSlotRef(exprId).checkTypeCompatibility(column.getType()));
-                } else if (column.getDefaultValue() == null) {
-                    outputExprs.add(NullLiteral.create(column.getType()));
-                } else {
-                    if (column.getDefaultValueExprDef() != null) {
-                        outputExprs.add(column.getDefaultValueExpr());
-                    } else {
-                        StringLiteral defaultValueExpr = new StringLiteral(column.getDefaultValue());
-                        outputExprs.add(defaultValueExpr.checkTypeCompatibility(column.getType()));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTableSink.getTargetTable()
-                .getDefaultDistributionInfo());
-        List<Expr> partitionExprs = distributionInfo.getDistributionColumns().stream()
-                .map(column -> context.findSlotRef(columnToSlots.get(column).getExprId()))
-                .collect(Collectors.toList());
-
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
             PlanFragment currentFragment = new PlanFragment(
@@ -373,11 +340,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         rootFragment.setSink(sink);
 
         rootFragment.finalize(null);
-        rootFragment.setOutputExprs(outputExprs);
         return rootFragment;
     }
 
@@ -1629,6 +1594,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
+        
+        if (project.child() instanceof PhysicalOlapTableSink) {
+            // other fields are already handled in visitPhysicalOlapTableSink
+            OlapTable olapTable = ((PhysicalOlapTableSink) project.child()).getTargetTable();
+            HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
+            List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
+                    .map(column -> olapTable.getFullSchema().indexOf(column))
+                    .collect(Collectors.toList());
+            
+            inputFragment.setDataPartition(DataPartition.hashPartitioned(
+                    colIdx.stream().map(execExprList::get).collect(Collectors.toList())
+            ));
+            inputFragment.setOutputExprs(execExprList);
+            return inputFragment;
+        }
 
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Slot> slotList = project.getProjects()
