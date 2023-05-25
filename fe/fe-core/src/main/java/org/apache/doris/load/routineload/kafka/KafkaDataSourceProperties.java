@@ -95,7 +95,12 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                     .add(KafkaConfiguration.KAFKA_TOPIC.getName())
                     .add(KafkaConfiguration.KAFKA_PARTITIONS.getName())
                     .add(KafkaConfiguration.KAFKA_OFFSETS.getName())
-                    .add(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName()).build();
+                    .add(KafkaConfiguration.KAFKA_DEFAULT_OFFSETS.getName())
+                    .add(KafkaConfiguration.KAFKA_TABLE_NAME_LOCATION.getName())
+                    .add(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName())
+                    .add(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName())
+                    .add(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName())
+                    .build();
 
     public KafkaDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
         super(dataSourceProperties, multiLoad);
@@ -183,18 +188,22 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
 
     }
 
-    private void checkAndSetMultiLoadProperties() {
+    private void checkAndSetMultiLoadProperties() throws AnalysisException {
         String tableNameFormat = KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getParameterValue(
                 originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName()));
+        if (!KafkaConfigType.TableNameFormat.TEXT.name().equalsIgnoreCase(tableNameFormat)) {
+            throw new AnalysisException("Multi load olay supported for table name format TEXT");
+        }
         String tableNameDelimiter = KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getParameterValue(
                 originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName()));
 
-        String tableNameIndex = KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getParameterValue(
+        Integer tableNameIndex = KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getParameterValue(
                 originalDataSourceProperties.get(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName()));
         tableNameProperties = new HashMap<>();
         tableNameProperties.put(KafkaConfiguration.KAFKA_TABLE_NAME_FORMAT.getName(), tableNameFormat);
         tableNameProperties.put(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER.getName(), tableNameDelimiter);
-        tableNameProperties.put(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName(), tableNameIndex);
+        tableNameProperties.put(KafkaConfiguration.KAFKA_TEXT_TABLE_NAME_FIELD_INDEX.getName(),
+                String.valueOf(tableNameIndex));
     }
 
     private static void setDefaultOffsetForPartition(List<Pair<Integer, Long>> kafkaPartitionOffsets,

@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -185,29 +186,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
         this.labelName = labelName;
+        if (StringUtils.isBlank(tableName)) {
+            this.isMultiTable = true;
+        }
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
                 .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
-        this.mergeType = mergeType;
-        if (comment != null) {
-            this.comment = comment;
-        }
-    }
-
-    public CreateRoutineLoadStmt(LabelName labelName, List<ParseNode> loadPropertyList,
-                                 Map<String, String> jobProperties, String typeName,
-                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
-                                 String comment) {
-        this.isMultiTable = true;
-        this.labelName = labelName;
-        this.loadPropertyList = loadPropertyList;
-        this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
-        this.typeName = typeName.toUpperCase();
-        this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(typeName, dataSourceProperties, true);
         this.mergeType = mergeType;
         if (comment != null) {
             this.comment = comment;
