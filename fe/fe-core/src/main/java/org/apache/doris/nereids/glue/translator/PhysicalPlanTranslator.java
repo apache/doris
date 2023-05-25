@@ -28,13 +28,11 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -1594,7 +1592,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
-        
+
         if (project.child() instanceof PhysicalOlapTableSink) {
             // other fields are already handled in visitPhysicalOlapTableSink
             OlapTable olapTable = ((PhysicalOlapTableSink) project.child()).getTargetTable();
@@ -1602,7 +1600,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
                     .map(column -> olapTable.getFullSchema().indexOf(column))
                     .collect(Collectors.toList());
-            
+
             inputFragment.setDataPartition(DataPartition.hashPartitioned(
                     colIdx.stream().map(execExprList::get).collect(Collectors.toList())
             ));
