@@ -99,6 +99,7 @@ set(VEC_FILES
   data_types/serde/data_type_quantilestate_serde.cpp
   data_types/serde/data_type_nullable_serde.cpp
   data_types/serde/data_type_time_serde.cpp
+  data_types/serde/data_type_jsonb_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp
