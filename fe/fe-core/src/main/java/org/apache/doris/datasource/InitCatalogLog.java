@@ -38,6 +38,7 @@ public class InitCatalogLog implements Writable {
         JDBC,
         ICEBERG,
         MAX_COMPUTE,
+        HUDI,
         TEST,
         UNKNOWN;
     }
