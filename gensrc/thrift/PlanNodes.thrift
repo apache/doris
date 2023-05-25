@@ -779,7 +779,10 @@ enum TopNAlgorithm {
    4: optional TopNAlgorithm top_n_algorithm
    5: optional i64 partition_inner_limit
  }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 53ae24912f18a73cea4d6d7fd2bef3586cb57d60
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
   RANGE,
