@@ -316,6 +316,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            Map properties = catalog.getProperties();
+            if (properties!=null){
+                System.out.println("老数据");
+                System.out.println(properties.get("hive.metastore.uris"));
+            }
+
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -543,11 +549,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             if (catalog instanceof ExternalCatalog) {
+
                 Map<String, String> newProps = log.getNewProps();
+                System.out.println(newProps.get("hive.metastore.uris"));
                 //要求检查全量而不是增量
-                //先把数据拿过来放进去
+                //先把数据拿过来放进去  getProps是null
                 Map<String, String> oldProps = log.getProps();
-                System.out.println("oldProps+" + oldProps.size());
+
+
+
+                if (oldProps!=null){
+                    System.out.println("oldProps+" + oldProps.size());
+                }else {
+                    System.out.println("oldProps is null");
+                }
+
                 //直接把老的放进去
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
