@@ -47,6 +47,7 @@ import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import org.apache.avro.Schema;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -70,6 +71,9 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -899,6 +903,28 @@ public class HiveMetaStoreClientHelper {
         hiveCatalog.initialize("hive", catalogProperties);
 
         return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
+    }
+
+    public static Schema getHudiTableSchema(HMSExternalTable table) {
+        HoodieTableMetaClient metaClient = getHudiClient(table);
+        TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
+        Schema hudiSchema;
+        try {
+            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
+        } catch (Exception e) {
+            throw new RuntimeException("Cannot get hudi table schema.");
+        }
+        return hudiSchema;
+    }
+
+    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
+        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
+
+        Configuration conf = getConfiguration(table);
+
+        HoodieTableMetaClient metaClient =
+                HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
+        return metaClient;
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
