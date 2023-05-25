@@ -1599,6 +1599,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void addSessionOriginValue(Field key, String value) {
+        if (sessionOriginValue.containsKey(key)) {
+            // If we already set the origin value, just skip the reset.
+            return;
+        }
         sessionOriginValue.put(key, value);
     }
 
