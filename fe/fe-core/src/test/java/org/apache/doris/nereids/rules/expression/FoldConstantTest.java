@@ -112,10 +112,14 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         assertRewriteAfterTypeCoercion("true and null", "null");
         assertRewriteAfterTypeCoercion("false and null", "false");
+        assertRewriteAfterTypeCoercion("null and IA is null", "null and IA is null");
         assertRewriteAfterTypeCoercion("true or null", "true");
         assertRewriteAfterTypeCoercion("false or null", "null");
+        assertRewriteAfterTypeCoercion("null or IA is null", "null or IA is null");
 
         assertRewriteAfterTypeCoercion("null and null", "null");
+        assertRewriteAfterTypeCoercion("null or null", "null");
+
     }
 
     @Test
