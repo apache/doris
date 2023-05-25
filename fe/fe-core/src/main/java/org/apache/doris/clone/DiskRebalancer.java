@@ -24,6 +24,7 @@ import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -171,7 +172,7 @@ public class DiskRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, TabletScheduler.BALANCE_SLOT_NUM_FOR_PATH);
+                remainingPaths.put(pathHash, Config.balance_slot_num_per_path);
             }
 
             if (remainingPaths.isEmpty()) {

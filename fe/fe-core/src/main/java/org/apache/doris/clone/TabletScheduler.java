@@ -104,9 +104,6 @@ public class TabletScheduler extends MasterDaemon {
 
     private static final long SCHEDULE_INTERVAL_MS = 1000; // 1s
 
-    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
-    public static final int BALANCE_SLOT_NUM_FOR_PATH = 1;
-
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -1861,7 +1858,7 @@ public class TabletScheduler extends MasterDaemon {
         public Slot(int total) {
             this.total = total;
             this.available = total;
-            this.balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            this.balanceSlot = Config.balance_slot_num_per_path;
         }
 
         public void rectify() {
@@ -1872,8 +1869,8 @@ public class TabletScheduler extends MasterDaemon {
                 available = total;
             }
 
-            if (balanceSlot > BALANCE_SLOT_NUM_FOR_PATH) {
-                balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            if (balanceSlot > Config.balance_slot_num_per_path) {
+                balanceSlot = Config.balance_slot_num_per_path;
             }
         }
 
