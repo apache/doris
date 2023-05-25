@@ -1965,6 +1965,16 @@ This configs can set to true to disable the automatic colocate tables's relocate
 2. Because once the balance is turned off, the unstable colocate table may not be restored
 3. Eventually the colocate plan cannot be used when querying.
 
+#### `balance_slot_num_per_path`
+
+Default: 1
+
+IsMutable：true
+
+MasterOnly：true
+
+Default number of slots per path during balance.
+
 #### `disable_tablet_scheduler`
 
 Default:false
