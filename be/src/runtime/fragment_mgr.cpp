@@ -900,6 +900,8 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg) {
+    bool find_the_fragment = false;
+
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -909,6 +911,7 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
         }
     }
     if (exec_state) {
+        find_the_fragment = true;
         exec_state->cancel(reason, msg);
     }
 
@@ -921,7 +924,12 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
         }
     }
     if (pipeline_fragment_ctx) {
+        find_the_fragment = true;
         pipeline_fragment_ctx->cancel(reason, msg);
+    }
+
+    if (!find_the_fragment) {
+        LOG(WARNING) << "Do not find the fragment instance id:" << fragment_id << " to cancel";
     }
 }
 

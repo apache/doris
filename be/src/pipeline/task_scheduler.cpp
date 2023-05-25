@@ -118,6 +118,15 @@ void BlockedTaskScheduler::_schedule() {
                                    PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->fragment_context()->is_canceled()) {
+                std::string task_ds;
+#ifndef NDEBUG
+                task_ds = task->debug_string();
+#endif
+                LOG(WARNING) << "Canceled, query_id=" << print_id(task->query_context()->query_id)
+                             << ", instance_id="
+                             << print_id(task->fragment_context()->get_fragment_instance_id())
+                             << (task_ds.empty() ? "" : task_ds);
+
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);
                     iter++;
