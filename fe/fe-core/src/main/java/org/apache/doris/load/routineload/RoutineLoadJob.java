@@ -447,6 +447,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public String getTableName() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        if (isMultiTable) {
+            return "It's a multi-table load job.";
+        }
         return database.getTableOrMetaException(tableId).getName();
     }
 
@@ -1273,7 +1276,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         // check table belong to database
         Table table = database.getTableNullable(tableId);
-        if (table == null) {
+        if (table == null && !isMultiTable) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
                     .add("table_id", tableId)
                     .add("msg", "The table has been deleted change job state to cancelled").build());
