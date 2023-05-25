@@ -631,7 +631,6 @@ visible_functions = [
     [['array_popfront'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], ''],
     [['array_popfront'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], ''],
     [['array_popfront'], 'ARRAY_STRING', ['ARRAY_STRING'], ''],
-    [['array_map'], 'ARRAY', ['LAMBDA_FUNCTION', 'ARRAY<K>', '...'], '', ['K']],
     [['array_filter'], 'ARRAY_BOOLEAN',['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_TINYINT',['ARRAY_TINYINT', 'ARRAY_BOOLEAN'], ''],
     [['array_filter'], 'ARRAY_SMALLINT',['ARRAY_SMALLINT', 'ARRAY_BOOLEAN'], ''],

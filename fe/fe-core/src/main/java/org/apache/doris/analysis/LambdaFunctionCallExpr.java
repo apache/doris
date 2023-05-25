@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -30,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
@@ -99,14 +101,13 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 this.setChild(0, lastChild);
             }
 
-            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             Expr lambda = this.children.get(0);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            if (!(lambda instanceof LambdaFunctionExpr)) {
+                throw new AnalysisException("array_map must use lambda as first input params, now is"
+                        + lambda.debugString());
             }
-            fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
+            fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
+                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_count")) {
@@ -138,10 +139,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() != 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have two params");
@@ -170,11 +167,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
-            fn.setReturnType(getChild(0).getType());
         } else if (fnName.getFunction().equalsIgnoreCase("array_sortby")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
@@ -202,11 +194,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
-            fn.setReturnType(getChild(0).getType());
         } else if (fnName.getFunction().equalsIgnoreCase("array_last")) {
             // array_last(lambda,array)--->array_last(array,lambda)--->element_at(array_filter,-1)
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
@@ -227,17 +214,12 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fnName = new FunctionName(null, "element_at");
             fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                LOG.warn("fn element_at not exists");
-                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
-            }
-            fn.setReturnType(((ArrayType) argTypes[0]).getItemType());
         }
-        LOG.info("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
+        LOG.debug("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         this.type = fn.getReturnType();
     }
 
