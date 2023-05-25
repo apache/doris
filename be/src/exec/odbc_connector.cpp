@@ -61,6 +61,7 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _tuple_desc(param.tuple_desc),
           _output_expr_ctxs(param.output_expr_ctxs),
           _is_open(false),
+          _is_in_transaction(false),
           _field_num(0),
           _env(nullptr),
           _dbc(nullptr),
