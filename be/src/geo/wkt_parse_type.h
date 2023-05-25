@@ -25,21 +25,47 @@ namespace doris {
 struct GeoCoordinate {
     double x;
     double y;
+
+    bool operator==(const GeoCoordinate& other) const {
+        return x == other.x && y == other.y;
+    }
 };
 
-struct GeoCoordinateList {
-    void add(const GeoCoordinate& coordinate) { list.push_back(coordinate); }
-    std::vector<GeoCoordinate> list;
+struct GeoCoordinates {
+    void add(const GeoCoordinate& coordinate) { coords.push_back(coordinate); }
+    std::vector<GeoCoordinate> coords;
 };
 
-struct GeoCoordinateListList {
-    ~GeoCoordinateListList() {
-        for (auto item : list) {
+struct GeoCoordinateLists {
+    ~GeoCoordinateLists() {
+        for (auto item : coords_list) {
             delete item;
         }
     }
-    void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
-    std::vector<GeoCoordinateList*> list;
+    void add(GeoCoordinates* coordinates) { coords_list.push_back(coordinates); }
+    std::vector<GeoCoordinates*> coords_list;
+};
+
+struct GeoCoordinateListCollections {
+    ~GeoCoordinateListCollections() {
+        for (auto item : coords_list_collections) {
+            delete item;
+        }
+    }
+    void add(GeoCoordinateLists* coordinatelists) { coords_list_collections.push_back(coordinatelists); }
+    std::vector<GeoCoordinateLists*> coords_list_collections;
+};
+
+struct CompareA {
+    bool operator()(const GeoCoordinate& a1, const GeoCoordinate& a2) const {
+        if (a1.x < a2.x) {
+            return true;
+        } else if (a1.x > a2.x) {
+            return false;
+        } else {
+            return a1.y < a2.y;
+        }
+    }
 };
 
 } // namespace doris

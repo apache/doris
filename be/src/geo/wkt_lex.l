@@ -23,6 +23,10 @@
 
 namespace doris {
 class GeoShape;
+class GeoCollection;
+class GeoMultiPoint;
+class GeoMultiLineString;
+class GeoMultiPolygon;
 }
 
 #include <stdlib.h>
@@ -52,13 +56,21 @@ class GeoShape;
     return NUMERIC;
 }
 
+GEOMETRYCOLLECTION { return KW_GEOMETRY_COLLECTION; }
+GEOMETRYCOLLECTION\040EMPTY { return KW_GEOMETRY_COLLECTION_EMPTY; }
 MULTIPOLYGON { return KW_MULTI_POLYGON; }
+MULTIPOLYGON\040EMPTY {  return KW_MULTI_POLYGON_EMPTY; }
 MULTILINESTRING { return KW_MULTI_LINESTRING; }
+MULTILINESTRING\040EMPTY {  return KW_MULTI_LINESTRING_EMPTY; }
 MULTIPOINT { return KW_MULTI_POINT; }
+MULTIPOINT\040EMPTY {  return KW_MULTI_POINT_EMPTY; }
 POLYGON { return KW_POLYGON; }
+POLYGON\040EMPTY {  return KW_POLYGON_EMPTY; }
 LINESTRING { return KW_LINESTRING; }
-POINT { 
-    return KW_POINT; }
+LINESTRING\040EMPTY {  return KW_LINESTRING_EMPTY; }
+POINT {  return KW_POINT; }
+POINT\040EMPTY {  return KW_POINT_EMPTY; }
+EMPTY {  return KW_EMPTY; }
 
 \( |
 \) |

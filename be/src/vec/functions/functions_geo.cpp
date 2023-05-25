@@ -24,7 +24,11 @@
 #include <utility>
 
 #include "geo/geo_common.h"
-#include "geo/geo_types.h"
+#include "geo/util/GeoShape.h"
+#include "geo/util/GeoPoint.h"
+#include "geo/util/GeoLineString.h"
+#include "geo/util/GeoPolygon.h"
+#include "geo/util/GeoCircle.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -58,9 +62,9 @@ struct StPoint {
         for (int row = 0; row < size; ++row) {
             auto cur_res = point.from_coord(column_x->operator[](row).get<Float64>(),
                                             column_y->operator[](row).get<Float64>());
+
             if (cur_res != GEO_PARSE_OK) {
-                res->insert_data(nullptr, 0);
-                continue;
+                return Status::InvalidArgument(to_string(cur_res));
             }
 
             buf.clear();
@@ -434,7 +438,7 @@ struct StCircle {
             auto lat_value = center_lat->get_float64(row);
             auto radius_value = radius->get_float64(row);
 
-            auto value = circle.init(lng_value, lat_value, radius_value);
+            auto value = circle.to_s2cap(lng_value, lat_value, radius_value);
             if (value != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -501,7 +505,56 @@ struct StContains {
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-}; // namespace doris::vectorized
+};
+
+struct StWithin {
+
+    static constexpr auto NEED_CONTEXT = true;
+    static constexpr auto NAME = "st_within";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        auto shape1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        const auto size = shape1->size();
+        MutableColumnPtr res = return_type->create_column();
+
+        int i;
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = shape1->get_data_at(row);
+            auto rhs_value = shape2->get_data_at(row);
+            StringRef* strs[2] = {&lhs_value, &rhs_value};
+            for (i = 0; i < 2; ++i) {
+                shapes[i] = std::shared_ptr<GeoShape>(
+                        GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+                if (shapes[i] == nullptr) {
+                    res->insert_data(nullptr, 0);
+                    break;
+                }
+            }
+
+            if (i == 2) {
+                auto contains_value = shapes[1]->contains(shapes[0].get());
+                res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+
+    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+};
+
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -557,7 +610,12 @@ struct StGeoFromText {
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(value.data, value.size, &status));
-            if (shape == nullptr || status != GEO_PARSE_OK ||
+
+            if (status != GEO_PARSE_OK) {
+                return Status::InvalidArgument(to_string(status));
+            }
+
+            if (shape == nullptr ||
                 (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -608,7 +666,12 @@ struct StGeoFromWkb {
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
             std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
-            if (shape == nullptr || status != GEO_PARSE_OK) {
+
+            if (status != GEO_PARSE_OK) {
+                return Status::InvalidArgument(to_string(status));
+            }
+
+            if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -673,6 +736,841 @@ struct StAsBinary {
     }
 };
 
+struct StAsGeoJson {
+    static constexpr auto NEED_CONTEXT = true;
+    static constexpr auto NAME = "st_asgeojson";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+
+        std::unique_ptr<GeoShape> shape;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            std::string geojson;
+            if (shape->as_geojson(geojson) && geojson.empty()) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            res->insert_data(geojson.data(), geojson.size());
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+
+    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+};
+
+struct StGeometryFromGeoJson {
+    static constexpr auto NAME = "st_geometryfromgeojson";
+    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+};
+
+struct StGeomFromGeoJson {
+    static constexpr auto NAME = "st_geomfromgeojson";
+    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
+};
+template <typename Impl>
+struct StGeoFromGeoJson {
+    static constexpr auto NEED_CONTEXT = true;
+    static constexpr auto NAME = Impl::NAME;
+    static const size_t NUM_ARGS = 1;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        auto& geo = block.get_by_position(arguments[0]).column;
+
+        const auto size = geo->size();
+        MutableColumnPtr res = return_type->create_column();
+
+        GeoParseStatus status;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto value = geo->get_data_at(row);
+            std::unique_ptr<GeoShape> shape(GeoShape::from_geojson(value.data, value.size, &status));
+
+            if (status != GEO_PARSE_OK) {
+                return Status::InvalidArgument(to_string(status));
+            }
+
+            if(shape == nullptr){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            buf.clear();
+            shape->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+
+    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+};
+
+struct StPointN {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_pointn";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto index_arg = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = line_arg->size();
+
+        GeoLineString line;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = line_arg->get_data_at(row);
+            auto pt = line.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            GeoPoint point;
+
+
+            int index = index_arg->get_int(row);
+            if(index > 0 && index <= line.num_point()){
+                index--;
+            } else if(index < 0 && -index <= line.num_point()){
+                index = line.num_point() + index + 1;
+            } else {
+                return Status::InvalidArgument("The vertex index " + std::to_string(index) + " is out of bounds; input LINESTRING has " + std::to_string(line.num_point()) + " points.");
+            }
+
+            if(point.from_s2point(line.get_point(index)) != GEO_PARSE_OK){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto wkt = point.as_wkt();
+
+            res->insert_data(wkt.data(), wkt.size());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_STARTPOINT
+struct StStartPoint {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_startpoint";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = line_arg->size();
+
+        GeoLineString line;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = line_arg->get_data_at(row);
+            auto pt = line.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            GeoPoint point;
+
+            if(point.from_s2point(line.get_point(0)) != GEO_PARSE_OK){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto wkt = point.as_wkt();
+
+            res->insert_data(wkt.data(), wkt.size());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_ENDPOINT
+struct StEndPoint {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_endpoint";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = line_arg->size();
+
+        GeoLineString line;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = line_arg->get_data_at(row);
+            auto pt = line.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            GeoPoint point;
+
+            if(point.from_s2point(line.get_point(line.num_point()-1)) != GEO_PARSE_OK){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto wkt = point.as_wkt();
+
+            res->insert_data(wkt.data(), wkt.size());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_DIMENSION
+struct StDimension {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_dimension";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto dimension = shape->get_dimension();
+            res->insert_data(const_cast<const char*>((char*)(&dimension)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_ISEMPTY
+struct StIsEmpty {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_isempty";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto is_empty = shape->is_empty();
+            res->insert_data(const_cast<const char*>((char*)(&is_empty)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+
+};
+
+//ST_LENGTH
+struct StLength {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_length";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto length = shape->get_length();
+            res->insert_data(const_cast<const char*>((char*)(&length)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+
+};
+
+//ST_ISCLOSED
+struct StIsClosed {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_isclosed";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto is_closed = shape->is_closed();
+            res->insert_data(const_cast<const char*>((char*)(&is_closed)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+
+};
+
+//ST_ISCOLLECTION
+struct StIsCollection {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_iscollection";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto is_collection = shape->is_collection();
+            res->insert_data(const_cast<const char*>((char*)(&is_collection)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+
+};
+
+//ST_ISRING
+struct StIsRing {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_isring";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto is_ring = shape->is_ring();
+            res->insert_data(const_cast<const char*>((char*)(&is_ring)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+
+};
+
+//ST_NUMGEOMETRIES
+struct StNumGeometries {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_numgeometries";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto num_geometries = shape->get_num_geometries();
+            res->insert_data(const_cast<const char*>((char*)(&num_geometries)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_NumPoints
+struct StNumPoints {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_numpoints";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            auto num_point = shape->get_num_point();
+            res->insert_data(const_cast<const char*>((char*)(&num_point)), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_GEOMETRYTYPE
+struct StGeometryType {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_geometrytype";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        std::string type;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            type.clear();
+            if(shape->get_type_string(type)){
+                res->insert_data(type.data(), type.size());
+            } else {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_CENTROID
+struct StCentroid {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_centroid";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+
+        auto input_shape = block.get_by_position(arguments[0]).column;
+
+        auto size = input_shape->size();
+
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        std::string buf;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = input_shape->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            std::unique_ptr<GeoShape> shape_res = shape->get_centroid();
+            //std::unique_ptr<GeoShape> shape_res = shape->boundary();
+
+            if(shape_res == nullptr){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            buf.clear();
+            shape_res->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+//ST_LINELOCATEPOINT
+struct StLineLocatePoint {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_linelocatepoint";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto point_arg = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = line_arg->size();
+
+        GeoLineString line;
+        GeoPoint point;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = line_arg->get_data_at(row);
+            auto pt1 = line.decode_from(shape_value1.data, shape_value1.size);
+            if (!pt1) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = point_arg->get_data_at(row);
+            auto pt2 = point.decode_from(shape_value2.data, shape_value2.size);
+            if (!pt2) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            double percentage = line.line_locate_point(&point);
+
+            res->insert_data(const_cast<const char*>((char*)&percentage), 0);
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_BOUNDARY
+struct StBoundary {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_boundary";
+    static const size_t NUM_ARGS = 1;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+
+        std::unique_ptr<GeoShape> shape;
+        std::string buf;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            std::unique_ptr<GeoShape> shape_res = shape->boundary();
+
+            if(shape_res == nullptr){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            buf.clear();
+            shape_res->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_CLOSESTPOINT
+struct StClosestPoint {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_closestpoint";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = shape_arg1->size();
+
+        std::unique_ptr<GeoShape> shape1;
+        std::unique_ptr<GeoShape> shape2;
+
+        std::string buf;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = shape_arg1->get_data_at(row);
+            shape1.reset(GeoShape::from_encoded(shape_value1.data, shape_value1.size));
+            if (shape1 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = shape_arg2->get_data_at(row);
+            shape2.reset(GeoShape::from_encoded(shape_value2.data, shape_value2.size));
+            if (shape2 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            std::unique_ptr<GeoShape> res_point = shape1->find_closest_point(shape2.get());
+
+            buf.clear();
+            res_point->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+};
+
+//ST_INTERSECTS
+struct StIntersects {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_intersects";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = shape_arg1->size();
+
+        std::unique_ptr<GeoShape> shape1;
+        std::unique_ptr<GeoShape> shape2;
+
+        std::string buf;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = shape_arg1->get_data_at(row);
+            shape1.reset(GeoShape::from_encoded(shape_value1.data, shape_value1.size));
+            if (shape1 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = shape_arg2->get_data_at(row);
+            shape2.reset(GeoShape::from_encoded(shape_value2.data, shape_value2.size));
+            if (shape2 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto intersects_value = shape1->intersects(shape2.get());
+
+            res->insert_data(const_cast<const char*>((char*)&intersects_value), 0);
+
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_DWITHIN
+struct StDwithin {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_dwithin";
+    static const size_t NUM_ARGS = 3;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 3);
+        auto return_type = block.get_data_type(result);
+        MutableColumnPtr res = return_type->create_column();
+
+        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto distance = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        const auto size = shape_arg1->size();
+
+        std::unique_ptr<GeoShape> shape1;
+        std::unique_ptr<GeoShape> shape2;
+
+        std::string buf;
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value1 = shape_arg1->get_data_at(row);
+            shape1.reset(GeoShape::from_encoded(shape_value1.data, shape_value1.size));
+            if (shape1 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto shape_value2 = shape_arg2->get_data_at(row);
+            shape2.reset(GeoShape::from_encoded(shape_value2.data, shape_value2.size));
+            if (shape2 == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            auto dwithin_value = shape1->dwithin(shape2.get(),distance->operator[](row).get<Float64>());
+
+            res->insert_data(const_cast<const char*>((char*)&dwithin_value), 0);
+
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+//ST_BUFFER
+struct StBuffer {
+    static constexpr auto NEED_CONTEXT = false;
+    static constexpr auto NAME = "st_buffer";
+    static const size_t NUM_ARGS = 2;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+
+        auto shape_input = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto buffer_radius = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto size = shape_input->size();
+        MutableColumnPtr res = return_type->create_column();
+
+        std::unique_ptr<GeoShape> shape;
+        std::string buf;
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = shape_input->get_data_at(row);
+            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+
+            if (shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+            GeoShape* res_shape = shape->buffer(buffer_radius->operator[](row).get<Float64>()).release();
+
+            buf.clear();
+            res_shape->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+        block.replace_by_position(result, std::move(res));
+
+        return Status::OK();
+    }
+};
+
+
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
     factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
@@ -684,6 +1582,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAngle, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StAzimuth, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StContains, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StWithin, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();
@@ -697,6 +1596,28 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
+    factory.register_function<GeoFunction<StGeoFromGeoJson<StGeometryFromGeoJson>>>();
+    factory.register_function<GeoFunction<StGeoFromGeoJson<StGeomFromGeoJson>>>();
+    factory.register_function<GeoFunction<StAsGeoJson>>();
+    factory.register_function<GeoFunction<StPointN>>();
+    factory.register_function<GeoFunction<StStartPoint>>();
+    factory.register_function<GeoFunction<StEndPoint>>();
+    factory.register_function<GeoFunction<StLineLocatePoint,DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StBoundary>>();
+    factory.register_function<GeoFunction<StClosestPoint>>();
+    factory.register_function<GeoFunction<StIntersects, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StBuffer>>();
+    factory.register_function<GeoFunction<StDwithin, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StDimension,DataTypeInt32>>();
+    factory.register_function<GeoFunction<StIsEmpty, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StLength, DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StIsClosed, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StIsCollection, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StIsRing, DataTypeUInt8>>();
+    factory.register_function<GeoFunction<StNumGeometries, DataTypeInt64>>();
+    factory.register_function<GeoFunction<StNumPoints, DataTypeInt64>>();
+    factory.register_function<GeoFunction<StGeometryType>>();
+    factory.register_function<GeoFunction<StCentroid>>();
 }
 
 } // namespace doris::vectorized

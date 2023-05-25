@@ -21,6 +21,7 @@
 
 namespace doris {
 class GeoShape;
+class GeoCollection;
 }
 
 typedef void* yyscan_t;

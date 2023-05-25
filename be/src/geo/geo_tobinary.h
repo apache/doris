@@ -17,8 +17,6 @@
 
 #pragma once
 
-//#include "geo_types.h"
-
 #include <string>
 
 struct ToBinaryContext;
@@ -27,10 +25,11 @@ namespace doris {
 
 class GeoShape;
 class GeoPoint;
-class GeoLine;
+class GeoLineString;
 class GeoPolygon;
+class GeoCollection;
 struct GeoCoordinate;
-struct GeoCoordinateList;
+struct GeoCoordinates;
 
 class toBinary {
 public:
@@ -41,9 +40,11 @@ public:
 private:
     static bool writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx);
 
-    static bool writeGeoLine(GeoLine* line, ToBinaryContext* ctx);
+    static bool writeGeoLine(GeoLineString* line, ToBinaryContext* ctx);
 
     static bool writeGeoPolygon(GeoPolygon* polygon, ToBinaryContext* ctx);
+
+    static bool writeGeoCollection(GeoCollection* collection, int wkbtype, ToBinaryContext* ctx);
 
     static void writeByteOrder(ToBinaryContext* ctx);
 
@@ -51,7 +52,7 @@ private:
 
     static void writeInt(int intValue, ToBinaryContext* ctx);
 
-    static void writeCoordinateList(const GeoCoordinateList& coords, bool sized,
+    static void writeCoordinateList(const GeoCoordinates& coords, bool sized,
                                     ToBinaryContext* ctx);
 
     static void writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx);

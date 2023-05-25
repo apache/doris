@@ -41,6 +41,10 @@ std::string to_string(GeoParseStatus status) {
         return "Circle invalid";
     case GEO_PARSE_WKT_SYNTAX_ERROR:
         return "WKT syntax error";
+    case GEO_PARSE_WKB_SYNTAX_ERROR:
+        return "WKB syntax error";
+    case GEO_PARSE_GEOJSON_SYNTAX_ERROR:
+        return "GeoJson is invalid";
     default:
         return "Unknown";
     }

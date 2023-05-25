@@ -14,6 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+//
+// this file is copied from
+// https://github.com/libgeos/geos/blob/main/include/geos/io/ByteOrderDataInStream.h
+// and modified by Doris
 
 #pragma once
 
