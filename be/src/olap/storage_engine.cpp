@@ -140,7 +140,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    _clear();
 
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
@@ -155,6 +154,7 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _clear();
     _s_instance = nullptr;
 }
 
