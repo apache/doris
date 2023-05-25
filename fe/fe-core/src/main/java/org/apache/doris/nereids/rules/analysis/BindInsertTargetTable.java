@@ -60,7 +60,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
-                    
+
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
@@ -70,13 +70,13 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
 
                     // we need to insert all the columns of the target table although some columns are not mentions.
                     // so we add a projects to supply the default value.
-                    
+
                     Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
                     Preconditions.checkArgument(boundSink.getCols().size() == project.getOutput().size());
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
                         columnToOutput.put(boundSink.getCols().get(i), project.getOutput().get(i));
                     }
-                    
+
                     List<NamedExpression> newOutput = Lists.newArrayList();
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
                         if (columnToOutput.containsKey(column)) {
@@ -94,7 +94,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         }
                     }
                     return new LogicalProject<>(newOutput, boundSink);
-                    
+
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
 
