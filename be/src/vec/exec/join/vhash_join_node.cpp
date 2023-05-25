@@ -791,10 +791,11 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
+        RETURN_IF_ERROR(child(1)->close(state));
     } else {
+        RETURN_IF_ERROR(child(1)->close(state));
         RETURN_IF_ERROR(sink(state, nullptr, true));
     }
-    RETURN_IF_ERROR(child(1)->close(state));
     return Status::OK();
 }
 
