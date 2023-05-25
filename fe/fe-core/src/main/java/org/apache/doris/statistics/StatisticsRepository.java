@@ -93,13 +93,21 @@ public class StatisticsRepository {
     private static final String DROP_TABLE_STATISTICS_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + "${tblName}" + " WHERE ${condition}";
 
-    private static final String FIND_EXPIRED_JOBS = "SELECT job_id FROM "
+    private static final String FIND_EXPIRED_ONCE_JOBS = "SELECT job_id FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
             + " WHERE task_id = -1 AND ${now} - last_exec_time_in_ms  > "
             + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
             + " AND schedule_type = 'ONCE'"
             + " ORDER BY last_exec_time_in_ms"
             + " LIMIT ${limit} OFFSET ${offset}";
+
+    private static final String FIND_EXPIRED_AUTO_JOBS = "SELECT DISTINCT(job_id) FROM (SELECT job_id FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + "WHERE task_id != -1 AND ${now} - last_exec_time_in_ms  > "
+            + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
+            + " AND schedule_type = 'PERIOD' OR schedule_type = 'AUTOMATIC'"
+            + " ORDER BY last_exec_time_in_ms"
+            + " LIMIT ${limit} OFFSET ${offset}) t";
 
     private static final String FETCH_RECENT_STATS_UPDATED_COL =
             "SELECT * FROM "
@@ -382,12 +390,20 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 
-    public static List<ResultRow> fetchExpiredJobs(long limit, long offset) {
+    public static List<ResultRow> fetchExpiredOnceJobs(long limit, long offset) {
         Map<String, String> params = new HashMap<>();
         params.put("limit", String.valueOf(limit));
         params.put("offset", String.valueOf(offset));
         params.put("now", String.valueOf(System.currentTimeMillis()));
-        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_JOBS));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_ONCE_JOBS));
+    }
+
+    public static List<ResultRow> fetchExpiredAutoJob(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        params.put("now", String.valueOf(System.currentTimeMillis()));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_AUTO_JOBS));
     }
 
     public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
