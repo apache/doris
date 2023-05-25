@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -1848,54 +1849,67 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 true);
         Function f = Env.getCurrentEnv().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
-            if (this.children.size() == 1
-                    && !(this.children.get(0) instanceof LiteralExpr)) {
+            if (this.children.size() == 1 && !(this.children.get(0) instanceof LiteralExpr)) {
                 throw new AnalysisException("The param of rand function must be literal");
             }
         }
         if (f != null) {
-            if (name.toLowerCase().endsWith(AGG_STATE_SUFFIX)) {
-                f.setBinaryType(TFunctionBinaryType.AGG_STATE);
-            }
             return f;
         }
 
         boolean isUnion = name.toLowerCase().endsWith(AGG_UNION_SUFFIX);
         boolean isMerge = name.toLowerCase().endsWith(AGG_MERGE_SUFFIX);
-        if (isUnion || isMerge) {
+        boolean isState = name.toLowerCase().endsWith(AGG_STATE_SUFFIX);
+        if (isUnion || isMerge || isState) {
             if (isUnion) {
                 name = name.substring(0, name.length() - AGG_UNION_SUFFIX.length());
-            } else {
+            }
+            if (isMerge) {
                 name = name.substring(0, name.length() - AGG_MERGE_SUFFIX.length());
+            }
+            if (isState) {
+                name = name.substring(0, name.length() - AGG_STATE_SUFFIX.length());
             }
 
             List<Type> argList = Arrays.asList(getActualArgTypes(argTypes));
-            if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
-                throw new AnalysisException("merge/union function must input one agg_state");
-            }
-            ScalarType aggState = (ScalarType) argList.get(0);
-            if (aggState.getSubTypes() == null) {
-                throw new AnalysisException("agg_state's subTypes is null");
+            List<Type> nestedArgList;
+            if (isState) {
+                nestedArgList = argList;
+            } else {
+                if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
+                    throw new AnalysisException("merge/union function must input one agg_state");
+                }
+                ScalarType aggState = (ScalarType) argList.get(0);
+                if (aggState.getSubTypes() == null) {
+                    throw new AnalysisException("agg_state's subTypes is null");
+                }
+                nestedArgList = aggState.getSubTypes();
             }
 
-            searchDesc = new Function(new FunctionName(name), aggState.getSubTypes(), Type.INVALID, false,
-                    true);
+            searchDesc = new Function(new FunctionName(name), nestedArgList, Type.INVALID, false, true);
 
             f = Env.getCurrentEnv().getFunction(searchDesc, mode);
             if (f == null || !(f instanceof AggregateFunction)) {
                 return null;
             }
 
-            f = ((AggregateFunction) f).clone();
-            f.setArgs(argList);
-            f.setBinaryType(TFunctionBinaryType.AGG_STATE);
-            if (isUnion) {
-                f.setName(new FunctionName(name + AGG_UNION_SUFFIX));
-                f.setReturnType(aggState);
+            if (isState) {
+                f = new ScalarFunction(new FunctionName(name + AGG_STATE_SUFFIX), Arrays.asList(f.getArgs()),
+                        Type.AGG_STATE, f.hasVarArgs(), f.isUserVisible());
                 f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
             } else {
-                f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
+                f = ((AggregateFunction) f).clone();
+                f.setArgs(argList);
+                if (isUnion) {
+                    f.setName(new FunctionName(name + AGG_UNION_SUFFIX));
+                    f.setReturnType((ScalarType) argList.get(0));
+                    f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+                }
+                if (isMerge) {
+                    f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
+                }
             }
+            f.setBinaryType(TFunctionBinaryType.AGG_STATE);
         }
 
         return f;

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
@@ -102,16 +101,6 @@ public class ScalarFunction extends Function {
             boolean userVisible) {
         return createBuiltin(name, retType, NullableMode.DEPEND_ON_ARGUMENT, argTypes, hasVarArgs,
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible);
-    }
-
-    public static ScalarFunction convertAggStateFunction(
-            AggregateFunction aggFunction) {
-        ScalarFunction fn = new ScalarFunction(
-                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX),
-                Arrays.asList(aggFunction.getArgs()),
-                Type.AGG_STATE, aggFunction.hasVarArgs(), aggFunction.isUserVisible());
-        fn.nullableMode = NullableMode.ALWAYS_NOT_NULLABLE;
-        return fn;
     }
 
     public static ScalarFunction createBuiltin(
