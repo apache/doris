@@ -30,6 +30,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -1111,6 +1112,12 @@ public class ScalarType extends Type {
             return getAssignmentCompatibleDecimalV2Type(t1, t2);
         }
 
+        if ((t1.isDecimalV3() && t2.isDecimalV2()) || (t2.isDecimalV3() && t1.isDecimalV2())) {
+            int scale = Math.max(t1.scale, t2.scale);
+            int integerPart = Math.max(t1.precision - t1.scale, t2.precision - t2.scale);
+            return ScalarType.createDecimalV3Type(integerPart + scale, scale);
+        }
+
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
                 return MAX_DECIMALV2_TYPE;
@@ -1118,8 +1125,42 @@ public class ScalarType extends Type {
             return t1.isDecimalV2() ? t1 : t2;
         }
 
-        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            return t1.isDecimalV3() ? t1 : t2;
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return t1.isFloatingPointType() ? t1 : t2;
+            } else if (t1.isBoolean() || t2.isBoolean()) {
+                return t1.isDecimalV3() ? t1 : t2;
+            }
+        }
+
+        if ((t1.isDecimalV3() && t2.isFixedPointType())
+                || (t2.isDecimalV3() && t1.isFixedPointType())) {
+            int precision;
+            int scale;
+            ScalarType intType;
+            if (t1.isDecimalV3()) {
+                precision = t1.precision;
+                scale = t1.scale;
+                intType = t2;
+            } else {
+                precision = t2.precision;
+                scale = t2.scale;
+                intType = t1;
+            }
+            int integerPart = precision - scale;
+            if (intType.isScalarType(PrimitiveType.TINYINT)
+                    || intType.isScalarType(PrimitiveType.SMALLINT)) {
+                integerPart = Math.max(integerPart, new BigDecimal(Short.MAX_VALUE).precision());
+            } else if (intType.isScalarType(PrimitiveType.INT)) {
+                integerPart = Math.max(integerPart, new BigDecimal(Integer.MAX_VALUE).precision());
+            } else {
+                integerPart = ScalarType.MAX_DECIMAL128_PRECISION - scale;
+            }
+            if (scale + integerPart <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                return ScalarType.createDecimalV3Type(scale + integerPart, scale);
+            } else {
+                return Type.DOUBLE;
+            }
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {

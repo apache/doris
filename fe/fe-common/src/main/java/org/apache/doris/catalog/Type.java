@@ -1813,8 +1813,12 @@ public abstract class Type {
             } else {
                 resultDecimalType = PrimitiveType.DECIMAL128;
             }
-            return ScalarType.createDecimalType(resultDecimalType, resultPrecision,
-                    Math.max(((ScalarType) t1).getScalarScale(), ((ScalarType) t2).getScalarScale()));
+            if (resultPrecision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+                return ScalarType.createDecimalType(resultDecimalType, resultPrecision, Math.max(
+                        ((ScalarType) t1).getScalarScale(), ((ScalarType) t2).getScalarScale()));
+            } else {
+                return Type.DOUBLE;
+            }
         }
         if (t1ResultType.isDecimalV3Type() || t2ResultType.isDecimalV3Type()) {
             return getAssignmentCompatibleType(t1, t2, false);
