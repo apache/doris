@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -73,6 +76,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -113,6 +117,11 @@ public abstract class PlanVisitor<R, C> {
         return visitCommand(explain, context);
     }
 
+    public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
+            C context) {
+        return visit(insertIntoSelectCommand, context);
+    }
+
     // *******************************
     // Logical plans
     // *******************************
@@ -127,6 +136,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitUnboundOneRowRelation(UnboundOneRowRelation oneRowRelation, C context) {
         return visit(oneRowRelation, context);
+    }
+
+    public R visitUnboundOlapTableSink(UnboundOlapTableSink<? extends Plan> unboundOlapTableSink, C context) {
+        return visit(unboundOlapTableSink, context);
     }
 
     public R visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, C context) {
@@ -257,6 +270,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(window, context);
     }
 
+    public R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visit(olapTableSink, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -372,6 +389,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, C context) {
         return visit(generate, context);
+    }
+
+    public R visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, C context) {
+        return visit(olapTableSink, context);
     }
 
     // *******************************

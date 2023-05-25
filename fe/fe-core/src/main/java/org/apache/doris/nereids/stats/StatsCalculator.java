@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -82,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -188,6 +190,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
+    }
+
+    @Override
+    public Statistics visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -315,6 +322,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     public Statistics visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
         return computeWindow(window);
+    }
+
+    @Override
+    public Statistics visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override

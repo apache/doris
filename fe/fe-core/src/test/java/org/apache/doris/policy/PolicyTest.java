@@ -105,6 +105,33 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
+    public void testAliasSql() throws Exception {
+        createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
+        String queryStr = "EXPLAIN select * from test.table1 a";
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assertions.assertTrue(explainString.contains("`a`.`k1` = 1"));
+        queryStr = "EXPLAIN select * from test.table1 b";
+        explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assertions.assertTrue(explainString.contains("`b`.`k1` = 1"));
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
+    }
+
+    @Test
+    public void testAliasSqlNereidsPlanner() throws Exception {
+        boolean beforeConfig = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+        createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
+        String queryStr = "EXPLAIN select * from test.table1 a";
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assertions.assertTrue(explainString.contains("`a`.`k1` = 1"));
+        queryStr = "EXPLAIN select * from test.table1 b";
+        explainString = getSQLPlanOrErrorMsg(queryStr);
+        Assertions.assertTrue(explainString.contains("`b`.`k1` = 1"));
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
+        connectContext.getSessionVariable().setEnableNereidsPlanner(beforeConfig);
+    }
+
+    @Test
     public void testUnionSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
         String queryStr = "EXPLAIN select * from test.table1 union all select * from test.table1";

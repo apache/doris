@@ -46,8 +46,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -95,6 +93,7 @@ public class NereidsPlanner extends Planner {
     private Plan analyzedPlan;
     private Plan rewrittenPlan;
     private Plan optimizedPlan;
+    private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
 
@@ -118,13 +117,13 @@ public class NereidsPlanner extends Planner {
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
-        PhysicalProperties requireProperties = buildInitRequireProperties(parsedPlan);
+        PhysicalProperties requireProperties = buildInitRequireProperties();
         Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
         }
-        PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
+        physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
@@ -514,9 +513,8 @@ public class NereidsPlanner extends Planner {
         return cascadesContext;
     }
 
-    public static PhysicalProperties buildInitRequireProperties(Plan initPlan) {
-        boolean isQuery = !(initPlan instanceof Command) || (initPlan instanceof ExplainCommand);
-        return isQuery ? PhysicalProperties.GATHER : PhysicalProperties.ANY;
+    public static PhysicalProperties buildInitRequireProperties() {
+        return PhysicalProperties.GATHER;
     }
 
     private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
@@ -555,5 +553,9 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public Plan getOptimizedPlan() {
         return optimizedPlan;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
     }
 }
