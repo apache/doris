@@ -356,7 +356,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Database db : this.fullNameToDb.values()) {
             long dbId = db.getId();
             for (Table table : db.getTables()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!(table instanceof OlapTable)) {
                     continue;
                 }
 
@@ -1228,7 +1228,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (!Env.isCheckpointThread()) {
             // add to inverted index
-            if (table.getType() == TableType.OLAP) {
+            if (table instanceof OlapTable) {
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 OlapTable olapTable = (OlapTable) table;
                 long dbId = db.getId();
