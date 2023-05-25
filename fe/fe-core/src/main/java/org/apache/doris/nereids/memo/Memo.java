@@ -111,7 +111,8 @@ public class Memo {
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
-        if (plan instanceof LogicalProject) {
+        // Some top project can't be eliminated
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
             LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
             if (targetGroup != root) {
                 if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
@@ -121,6 +122,17 @@ public class Memo {
                 if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
                     return skipProject(logicalProject.child(), targetGroup);
                 }
+            }
+        }
+        return plan;
+    }
+
+    private Plan skipProjectGetChild(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            Plan child = logicalProject.child();
+            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
+                return skipProjectGetChild(child);
             }
         }
         return plan;
@@ -196,10 +208,6 @@ public class Memo {
 
     public Plan copyOut() {
         return copyOut(root, false);
-    }
-
-    public Plan copyOut(boolean includeGroupExpression) {
-        return copyOut(root, includeGroupExpression);
     }
 
     /**
@@ -333,17 +341,6 @@ public class Memo {
             // case 4 or case 5
             return rewriteByExistedGroupExpression(targetGroup, plan, existedExpression, newGroupExpression);
         }
-    }
-
-    private Plan skipProjectGetChild(Plan plan) {
-        if (plan instanceof LogicalProject) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
-            Plan child = logicalProject.child();
-            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
-                return skipProjectGetChild(child);
-            }
-        }
-        return plan;
     }
 
     /**
