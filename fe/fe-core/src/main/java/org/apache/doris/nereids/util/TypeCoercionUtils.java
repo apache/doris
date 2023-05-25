@@ -580,12 +580,13 @@ public class TypeCoercionUtils {
                 return castChildren(binaryArithmetic, left, right, DoubleType.INSTANCE);
             }
 
-            // add, subtract should cast children to exactly same type as return type
+            // add, subtract and mod should cast children to exactly same type as return type
             if (binaryArithmetic instanceof Add
-                    || binaryArithmetic instanceof Subtract) {
+                    || binaryArithmetic instanceof Subtract
+                    || binaryArithmetic instanceof Mod) {
                 return castChildren(binaryArithmetic, left, right, retType);
             }
-            // multiply and mode do not need to cast children to same type
+            // multiply do not need to cast children to same type
             return binaryArithmetic.withChildren(castIfNotSameType(left, dt1), castIfNotSameType(right, dt2));
         }
 
