@@ -397,14 +397,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitUpdate(UpdateContext ctx) {
-        LogicalPlan query = null;
+        LogicalPlan query = withCheckPolicy(new UnboundRelation(
+                RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         if (ctx.fromClause() != null) {
-            query = visitFromClause(ctx.fromClause());
-        } else {
-            query = new UnboundRelation(RelationUtil.newRelationId(), );
+            query = new LogicalJoin<>(
+                    JoinType.INNER_JOIN,
+                    query,
+                    visitFromClause(ctx.fromClause())
+            );
         }
-        return new UpdateCommand(ctx.table.getText(), visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()),
-                visitFromClause(ctx.fromClause()));
+        query = withFilter(query, Optional.of(ctx.whereClause()));
+        String tableAlias = ctx.tableAlias() == null ? null : ctx.tableAlias().getText();
+        return new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query);
     }
 
     @Override
