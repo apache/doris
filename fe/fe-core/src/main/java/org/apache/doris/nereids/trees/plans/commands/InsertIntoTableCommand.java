@@ -39,7 +39,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.executor.package$;
 
 import java.util.Optional;
 import java.util.Set;
@@ -138,7 +137,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
         LOG.info("Nereids start to execute the insert command, query id: {}, txn id: {}",
                 ctx.queryId(), txn.getTxnId());
 
-        txn.executeInsertIntoTableCommand(package$);
+        txn.executeInsertIntoTableCommand(executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());

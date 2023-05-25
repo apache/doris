@@ -93,7 +93,7 @@ public class Transaction {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeInsertIntoTableCommand(StmtExecutor package$) {
+    public void executeInsertIntoTableCommand(StmtExecutor executor) {
         LOG.info("Do insert [{}] with query id: {}", labelName, DebugUtil.printId(ctx.queryId()));
         Throwable throwable = null;
 
