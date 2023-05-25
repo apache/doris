@@ -179,24 +179,6 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     /**
-     * Check if the properties are correct when altering catalog
-     */
-    public void checkAlterProperties(Map<String, String> properties) throws DdlException {
-        // check refresh parameter of catalog
-        if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
-            try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(
-                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
-                if (metadataRefreshIntervalSec < 0) {
-                    throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
-                }
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
-            }
-        }
-    }
-
-    /**
      * eg:
      * (
      * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",

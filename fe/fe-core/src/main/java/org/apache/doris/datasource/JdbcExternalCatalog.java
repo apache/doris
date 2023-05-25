@@ -67,20 +67,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void checkAlterProperties(Map<String, String> properties) throws DdlException {
-        super.checkAlterProperties(properties);
-        for (String requiredProperty : REQUIRED_PROPERTIES) {
-            //If this requiredProperty is contained , check it
-            if (properties.containsKey(requiredProperty)) {
-                String alterProperties = properties.get(requiredProperty);
-                if (Strings.isNullOrEmpty(alterProperties)) {
-                    throw new DdlException("Required property '" + requiredProperty + "' is missing");
-                }
-            }
-        }
-    }
-
-    @Override
     public void onClose() {
         super.onClose();
         if (jdbcClient != null) {

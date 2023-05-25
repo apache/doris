@@ -79,12 +79,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        System.out.println("开始检查checkProperties");
         super.checkProperties();
         // check file.meta.cache.ttl-second parameter
         // CatalogProperty oriProperty = this.catalogProperty;
 
-        //当前属性
+
         for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
             System.out.println(entry.getKey() + ": " + entry.getValue());
         }
@@ -129,67 +128,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
         }
-        System.out.println("结束检查");
-
-    }
-
-    @Override
-    public void checkAlterProperties(Map<String, String> properties) throws DdlException {
-        super.checkAlterProperties(properties);
-        // check file.meta.cache.ttl-second parameter
-        if (properties.containsKey(FILE_META_CACHE_TTL_SECOND)) {
-            String fileMetaCacheTtlSecond = properties.get(FILE_META_CACHE_TTL_SECOND);
-            if (Objects.nonNull(fileMetaCacheTtlSecond)
-                    && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
-                    < FILE_META_CACHE_TTL_DISABLE_CACHE) {
-                throw new DdlException(
-                        "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is "
-                                + fileMetaCacheTtlSecond);
-            }
-        }
-        String dfsNameservices;
-        if (properties.containsKey(HdfsResource.DSF_NAMESERVICES)) {
-            dfsNameservices = properties.get(HdfsResource.DSF_NAMESERVICES);
-        } else {
-            //    use old dfs.nameservices
-            dfsNameservices = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
-            if (Strings.isNullOrEmpty(dfsNameservices)) {
-                String namenodes = properties.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
-                properties.remove(HdfsResource.DSF_NAMENODES + dfsNameservices);
-                if (!Strings.isNullOrEmpty(namenodes)) {
-                    String[] names = namenodes.split(",");
-                    for (String name : names) {
-                        properties.remove(HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name);
-                    }
-                }
-                properties.remove(HdfsResource.DSF_PROXY + dfsNameservices);
-                return;
-            }
-        }
-        if (Strings.isNullOrEmpty(dfsNameservices)) {
-            throw new DdlException("Missing " + HdfsResource.DSF_NAMESERVICES + " property");
-        }
-        //if contains dfs.nameservices,others are also required to have
-        String namenodes = properties.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
-        if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
-        }
-        String[] names = namenodes.split(",");
-        for (String name : names) {
-            String address = properties.getOrDefault(HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
-                    "");
-            if (Strings.isNullOrEmpty(address)) {
-                throw new DdlException(
-                        "Missing" + HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
-            }
-        }
-        String failoverProvider = properties.getOrDefault(HdfsResource.DSF_PROXY + dfsNameservices,
-                "");
-        if (Strings.isNullOrEmpty(failoverProvider)) {
-            throw new DdlException(
-                    "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
-        }
-
     }
 
     public String getHiveMetastoreUris() {

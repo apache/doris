@@ -324,14 +324,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
-            System.out.println("old data");
-            for (Map.Entry<String, String> entry : oldProperties.entrySet()) {
-                System.out.println(entry);
-            }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
-            System.out.println("replayAlterCatalogProps(log)之前");
             replayAlterCatalogProps(log, oldProperties);
-            System.out.println("replayAlterCatalogProps(log)之后");
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
@@ -543,26 +537,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for alter catalog props event.
      */
-    public void replayAlterCatalogProps(CatalogLog log, Map oldProperties) throws DdlException {
+    public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties) throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
             if (catalog instanceof ExternalCatalog) {
-
                 Map<String, String> newProps = log.getNewProps();
-
-                //直接把老的放进去
                 ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
                 try {
                     ((ExternalCatalog) catalog).checkProperties();
                 } catch (DdlException ddlException) {
-                    //把数据回退回去
                     if (oldProperties != null) {
                         ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
                     }
-                    throw new DdlException("props error" + ddlException.getMessage());
+                    throw ddlException;
                 }
-
                 if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                     long catalogId = catalog.getId();
                     Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
