@@ -32,6 +32,7 @@ import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -85,12 +87,18 @@ public class S3LoadStmt extends NativeInsertStmt {
         final FromClause fromClause = new FromClause(
                 Collections.singletonList(buildTvfRef(dataDescription, brokerDesc))
         );
+
         // build order by
-        final TableName tableName = new TableName(null, null, dataDescription.getTableName());
-        final OrderByElement orderByElement = new OrderByElement(
-                new SlotRef(tableName, dataDescription.getSequenceCol()),
-                true, null
-        );
+        final String sequenceCol = dataDescription.getSequenceCol();
+        final ArrayList<OrderByElement> orderByElementList = Lists.newArrayList();
+        if (!Strings.isNullOrEmpty(sequenceCol)) {
+            final OrderByElement orderByElement = new OrderByElement(
+                    new SlotRef(null, sequenceCol),
+                    true, null
+            );
+            orderByElementList.add(orderByElement);
+        }
+
 
         // merge preceding filter and where expr
         final Expr whereExpr = dataDescription.getWhereExpr();
@@ -100,7 +108,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final SelectStmt selectStmt = new SelectStmt(
                 selectList, fromClause, compoundPredicate,
                 null, null,
-                Lists.newArrayList(orderByElement), LimitElement.NO_LIMIT
+                orderByElementList, LimitElement.NO_LIMIT
         );
         return new InsertSource(selectStmt);
     }
@@ -139,9 +147,10 @@ public class S3LoadStmt extends NativeInsertStmt {
     // --------------------------------------------------------------------------------------
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void convertSemantic(Analyzer analyzer) throws UserException {
+        label.analyze(analyzer);
+        initTargetTable(analyzer);
         analyzeColumns(analyzer);
-        super.analyze(analyzer);
     }
 
     // ------------------------------------ columns mapping ------------------------------------
@@ -172,6 +181,9 @@ public class S3LoadStmt extends NativeInsertStmt {
                     final Expr expr = desc.getExpr();
                     if (expr instanceof SlotRef) {
                         final String columnName = ((SlotRef) expr).getColumnName();
+                        if (derivativeColumns.containsKey(columnName)) {
+                            desc.setExpr(derivativeColumns.get(columnName));
+                        }
                         derivativeColumns.computeIfPresent(columnName, (n, e) -> {
                             desc.setExpr(e);
                             return e;
@@ -216,9 +228,10 @@ public class S3LoadStmt extends NativeInsertStmt {
             fillWithSchemaCols(columnExprList);
         }
         Map<String, Expr> columnExprMap = columnExprList.stream()
-                .collect(Collectors.toMap(ImportColumnDesc::getColumnName, ImportColumnDesc::getExpr,
-                        (expr1, expr2) -> expr1, () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
-        checkUnspecifiedCols(columnExprList, columnExprMap);
+                // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
+                .collect(() -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER),
+                        (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
+        checkUnspecifiedCols(columnExprMap);
         addSchemaChangeShadowCols(columnExprList, columnExprMap);
     }
 
@@ -243,7 +256,7 @@ public class S3LoadStmt extends NativeInsertStmt {
     /**
      * unspecified columns must have default val
      */
-    private void checkUnspecifiedCols(List<ImportColumnDesc> columnExprList, Map<String, Expr> columnExprMap)
+    private void checkUnspecifiedCols(Map<String, Expr> columnExprMap)
             throws AnalysisException {
 
         final Optional<Column> colWithoutDefaultVal = targetTable.getBaseSchema()
@@ -269,7 +282,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         List<ImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
         targetTable.getFullSchema()
                 .stream()
-                .filter(column -> !column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX))
+                .filter(column -> column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX))
                 .forEach(column -> {
                     String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
                     if (columnExprMap.containsKey(originCol)) {
@@ -315,7 +328,6 @@ public class S3LoadStmt extends NativeInsertStmt {
                 .stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());
-
         targetColumnNames = columnExprList
                 .stream()
                 .map(ImportColumnDesc::getColumnName)

@@ -96,7 +96,7 @@ public class NativeInsertStmt extends InsertStmt {
     private static final String SHUFFLE_HINT = "SHUFFLE";
     private static final String NOSHUFFLE_HINT = "NOSHUFFLE";
 
-    private final TableName tblName;
+    protected final TableName tblName;
     private final PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames.
     private List<Long> targetPartitionIds;
@@ -252,8 +252,7 @@ public class NativeInsertStmt extends InsertStmt {
         return isTransactionBegin;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (targetTable == null) {
@@ -277,6 +276,20 @@ public class NativeInsertStmt extends InsertStmt {
         if (targetPartitionNames != null) {
             targetPartitionNames.analyze(analyzer);
         }
+    }
+
+    /**
+     * translate load related stmt to`insert into xx select xx from tvf` semantic
+     */
+    protected void convertSemantic(Analyzer analyzer) throws UserException {
+        // do nothing
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        preCheckAnalyze(analyzer);
+
+        convertSemantic(analyzer);
 
         // set target table and
         analyzeTargetTable(analyzer);
@@ -319,8 +332,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
-        // Get table
+    protected void initTargetTable(Analyzer analyzer) throws AnalysisException {
         if (targetTable == null) {
             DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                     .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
@@ -333,6 +345,11 @@ public class NativeInsertStmt extends InsertStmt {
                 throw new AnalysisException("Not support insert target table.");
             }
         }
+    }
+
+    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
+        // Get table
+        initTargetTable(analyzer);
 
         if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
