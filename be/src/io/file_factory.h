@@ -78,6 +78,8 @@ public:
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);
 
+    static Status create_stream_tvf_pipe_reader(io::FileReaderSPtr *file_reader);
+
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                      io::FileReaderSPtr* reader,
@@ -111,6 +113,7 @@ public:
         }
         __builtin_unreachable();
     }
+
 };
 
 } // namespace doris

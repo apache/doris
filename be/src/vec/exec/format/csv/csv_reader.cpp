@@ -177,8 +177,8 @@ Status CsvReader::init_reader(bool is_load) {
                 io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
-    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
-        _params.file_type != TFileType::FILE_BROKER) {
+    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM
+        &&_params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("init reader failed, empty csv file: " + _range.path);
     }
 
@@ -656,7 +656,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     }
 
     if (_system_properties.system_type== TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_stream_tvf_pipe_reader(&_file_reader));
     } else {
         _file_description.start_offset = start_offset;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
@@ -665,7 +665,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
                                                         &_file_system, &_file_reader, reader_options));
     }
-    if (_file_reader->size() == 0  && _params.file_type != TFileType::FILE_BROKER) {
+    if (_file_reader->size() == 0  && _params.file_type != TFileType::FILE_STREAM &&_params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
     }
 

@@ -153,6 +153,12 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     return Status::OK();
 }
 
+Status FileFactory::create_stream_tvf_pipe_reader(io::FileReaderSPtr * file_reader){
+    *file_reader = std::make_shared<io::StreamLoadPipe>(io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                                                     0/* total_length */);
+    return Status::OK();
+}
+
 Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader,
