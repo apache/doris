@@ -34,4 +34,5 @@ add_library(Rowset STATIC
     rowset_tree.cpp
 )
 
-pch_reuse(Rowset)
+# include_pch(Rowset olap_pch)
+include_pch(Rowset thirdparty_pch)

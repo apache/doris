@@ -112,4 +112,5 @@ add_library(Util STATIC
 )
 target_link_libraries(Util cityhash)
 
-pch_reuse(Util)
+include_pch(Util thirdparty_pch)
+# include_pch(Util util_pch)

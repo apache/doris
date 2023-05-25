@@ -30,14 +30,15 @@ add_library(Service
     internal_service.cpp
 )
 
-pch_reuse(Service)
+include_pch(Service thirdparty_pch)
+# include_pch(Service service_pch)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp
     )
 
-    pch_reuse(doris_be)
+    include_pch(doris_be thirdparty_pch)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)

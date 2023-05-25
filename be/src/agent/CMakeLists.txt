@@ -36,4 +36,5 @@ endif()
 
 add_library(Agent STATIC ${AGENT_SOURCES})
 
-pch_reuse(Agent)
+# include_pch(Agent thirdparty_pch)
+include_pch(Agent agent_pch)

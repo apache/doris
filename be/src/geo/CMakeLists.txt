@@ -33,7 +33,8 @@ add_library(Geo STATIC
     ByteOrderValues.cpp
     machine.h
 )
-pch_reuse(Geo)
+
+include_pch(Geo thirdparty_pch)
 
 target_link_libraries(Geo geo_type)
 include(CheckCXXCompilerFlag)
