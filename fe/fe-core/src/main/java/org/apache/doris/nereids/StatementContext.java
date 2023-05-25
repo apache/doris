@@ -155,8 +155,4 @@ public class StatementContext {
     public StatementBase getParsedStatement() {
         return parsedStatement;
     }
-
-    public StatementBase getParsedStatement() {
-        return parsedStatement;
-    }
 }

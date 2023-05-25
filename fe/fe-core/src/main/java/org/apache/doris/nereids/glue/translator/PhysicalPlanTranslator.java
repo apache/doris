@@ -375,32 +375,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         rootFragment.setSink(sink);
 
-        Map<Column, Slot> columnToSlots = Maps.newHashMap();
-        Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
-                "this is a bug in insert into command");
-        for (int i = 0; i < olapTableSink.getCols().size(); ++i) {
-            columnToSlots.put(olapTableSink.getCols().get(i), olapTableSink.getOutput().get(i));
-        }
-        List<Expr> outputExprs = Lists.newArrayList();
-        try {
-            for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
-                if (columnToSlots.containsKey(column)) {
-                    ExprId exprId = columnToSlots.get(column).getExprId();
-                    outputExprs.add(context.findSlotRef(exprId).checkTypeCompatibility(column.getType()));
-                } else if (column.getDefaultValue() == null) {
-                    outputExprs.add(NullLiteral.create(column.getType()));
-                } else {
-                    if (column.getDefaultValueExprDef() != null) {
-                        outputExprs.add(column.getDefaultValueExpr());
-                    } else {
-                        StringLiteral defaultValueExpr = new StringLiteral(column.getDefaultValue());
-                        outputExprs.add(defaultValueExpr.checkTypeCompatibility(column.getType()));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
         rootFragment.finalize(null);
         rootFragment.setOutputExprs(outputExprs);
         return rootFragment;
