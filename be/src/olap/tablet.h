@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <functional>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -32,6 +33,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -39,6 +41,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/base_tablet.h"
+#include "olap/binlog_config.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -240,8 +243,6 @@ public:
 
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
-
-    Status set_partition_id(int64_t partition_id);
 
     TabletInfo get_tablet_info() const;
 
@@ -475,6 +476,14 @@ public:
         }
     }
 
+    std::vector<std::string> get_binlog_filepath(std::string_view binlog_version) const;
+    std::pair<std::string, int64_t> get_binlog_info(std::string_view binlog_version) const;
+    std::string get_binlog_rowset_meta(std::string_view binlog_version,
+                                       std::string_view rowset_id) const;
+    std::string get_segment_filepath(std::string_view rowset_id,
+                                     std::string_view segment_index) const;
+    bool can_add_binlog(uint64_t total_binlog_size) const;
+
     inline void increase_io_error_times() { ++_io_error_times; }
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
@@ -484,6 +493,14 @@ public:
     }
 
     int64_t get_table_id() { return _tablet_meta->table_id(); }
+
+    // binlog releated functions
+    bool is_enable_binlog();
+    bool is_binlog_enabled() { return _tablet_meta->binlog_config().is_enable(); }
+    int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
+    int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
+
+    void set_binlog_config(BinlogConfig binlog_config);
 
 private:
     Status _init_once_action();

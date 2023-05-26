@@ -215,6 +215,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveResourceGroups", CountingDataOutputStream.class, long.class);
                 break;
+            case "binlogs":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadBinlogs", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveBinlogs", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
