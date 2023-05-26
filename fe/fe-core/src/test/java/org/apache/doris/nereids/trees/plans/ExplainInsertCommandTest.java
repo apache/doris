@@ -101,7 +101,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
     }
-    
+
     @Test
     public void testAnalysisException() {
         String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
