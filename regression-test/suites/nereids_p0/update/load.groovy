@@ -23,12 +23,13 @@ suite("load") {
     sql '''
         create table t1 (
             id int,
+            id1 int,
             c1 bigint,
             c2 string,
             c3 double,
             c4 date
-        ) unique key (id)
-        distributed by hash(id)
+        ) unique key (id, id1)
+        distributed by hash(id, id1)
         properties(
             'replication_num'='1',
             "function_column.sequence_col" = "c4"
@@ -60,9 +61,9 @@ suite("load") {
 
     sql '''
         INSERT INTO t1 VALUES
-            (1, 1, '1', 1.0, '2000-01-01'),
-            (2, 2, '2', 2.0, '2000-01-02'),
-            (3, 3, '3', 3.0, '2000-01-03');
+            (1, 10, 1, '1', 1.0, '2000-01-01'),
+            (2, 20, 2, '2', 2.0, '2000-01-02'),
+            (3, 30, 3, '3', 3.0, '2000-01-03');
     '''
 
     sql '''
