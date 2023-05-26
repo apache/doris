@@ -1265,6 +1265,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request) {
+        LOG.warn("receive stream load multi table put request: {}", request);
+        LOG.warn("receive stream load multi table put request table names: {}", request.getTableNames());
         List<OlapTable> olapTables;
         Database db;
         String fullDbName;
@@ -1315,13 +1317,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TExecPlanFragmentParams> planFragmentParamsList = new ArrayList<>(tableNames.size());
         // todo: if is multi table, we need consider the lock time and the timeout
         try {
-            int index = 0;
             for (OlapTable table : olapTables) {
-                request.setLoadId(new TUniqueId(request.loadId.hi, request.loadId.lo + index));
                 TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
                         table, timeoutMs);
                 planFragmentParamsList.add(planFragmentParams);
-                index++;
+                request.setLoadId(new TUniqueId(request.loadId.hi, request.loadId.lo + 1));
             }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -1329,6 +1329,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
         }
+        result.setParams(planFragmentParamsList);
         return result;
     }
 
