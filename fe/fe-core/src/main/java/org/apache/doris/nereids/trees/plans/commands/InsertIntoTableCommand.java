@@ -23,6 +23,7 @@ import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -38,6 +39,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * insert into select command implementation
@@ -101,8 +105,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner
-                .getPhysicalPlan().child(0));
+        Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
+                .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+        Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
+        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) plan.get());
+
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
 
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
