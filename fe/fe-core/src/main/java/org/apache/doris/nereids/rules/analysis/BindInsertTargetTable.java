@@ -60,8 +60,8 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     Database database = pair.first;
                     OlapTable table = pair.second;
 
-                    List<NamedExpression> newProjects = Lists.newArrayList(project.getProjects());
-                    newProjects.addAll(project.child().getOutput());
+                    List<NamedExpression> newProjects = Lists.newArrayList(project.child().getOutput());
+                    newProjects.addAll(project.getProjects());
                     LogicalProject<?> newProject = new LogicalProject<>(newProjects, project.child());
 
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
@@ -85,7 +85,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         columnToOutput.put(boundSink.getCols().get(i), project.getOutput().get(i));
                     }
 
-                    List<NamedExpression> newOutput = Lists.newArrayList(project.child().getOutput());
+                    List<NamedExpression> newOutput = Lists.newArrayList();
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
                         if (columnToOutput.containsKey(column)) {
                             newOutput.add(columnToOutput.get(column));
@@ -101,6 +101,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             ));
                         }
                     }
+                    newOutput.addAll(project.child().getOutput());
                     return new LogicalProject<>(newOutput, boundSink);
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
