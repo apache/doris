@@ -92,7 +92,7 @@ Status HeapSorter::append_block(Block* block) {
     if (_heap_size == _heap->size()) {
         {
             SCOPED_TIMER(_topn_filter_timer);
-            RETURN_IF_CATCH_EXCEPTION(_do_filter(block_view->value(), num_rows));
+            _do_filter(block_view->value(), num_rows);
         }
         size_t remain_rows = block_view->value().block.rows();
         _topn_filter_rows += (num_rows - remain_rows);
