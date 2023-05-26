@@ -641,8 +641,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
         query_ctx->coord_addr = params.coord;
-        LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id.hi, query_ctx->query_id.lo)
-                  << " coord_addr " << query_ctx->coord_addr
+        LOG(INFO) << "[add log for test]query_id: "
+                  << UniqueId(query_ctx->query_id.hi, query_ctx->query_id.lo) << " coord_addr "
+                  << query_ctx->coord_addr
                   << " total fragment num on current host: " << params.fragment_num_on_host;
         query_ctx->query_globals = params.query_globals;
 
