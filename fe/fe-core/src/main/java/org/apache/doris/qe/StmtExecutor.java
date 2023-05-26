@@ -325,6 +325,10 @@ public class StmtExecutor {
         return planner;
     }
 
+    public void setPlanner(Planner planner) {
+        this.planner = planner;
+    }
+
     public boolean isForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
             return false;
