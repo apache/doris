@@ -38,6 +38,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vmatch_predicate.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -46,6 +47,8 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+
+struct InvertedIndexCtx;
 
 class FunctionMatchBase : public IFunction {
 public:
@@ -69,9 +72,7 @@ public:
                         ColumnUInt8::Container& result) = 0;
 
 protected:
-    std::vector<std::string> vectors_intersection(std::vector<std::string>& v1, std::vector<std::string>& v2);
-    bool is_equal_vectors(std::vector<std::string>& v1, std::vector<std::string>& v2);
-    bool is_subset_vectors(std::vector<std::string>& v1, std::vector<std::string>& v2);
+    bool is_equal(std::set<std::string>& v1, std::set<std::string>& v2);
 };
 
 class FunctionMatchAny : public FunctionMatchBase {

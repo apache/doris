@@ -20,18 +20,22 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.thrift.TMatchPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -145,6 +149,7 @@ public class MatchPredicate extends Predicate {
     }
 
     private final Operator op;
+    private String invertedIndexParser;
 
     public MatchPredicate(Operator op, Expr e1, Expr e2) {
         super();
@@ -155,6 +160,7 @@ public class MatchPredicate extends Predicate {
         children.add(e2);
         // TODO: Calculate selectivity
         selectivity = Expr.DEFAULT_SELECTIVITY;
+        invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
     }
 
     public Boolean isMatchElement(Operator op) {
@@ -168,6 +174,7 @@ public class MatchPredicate extends Predicate {
     protected MatchPredicate(MatchPredicate other) {
         super(other);
         op = other.op;
+        invertedIndexParser = other.invertedIndexParser;
     }
 
     @Override
@@ -196,6 +203,7 @@ public class MatchPredicate extends Predicate {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MATCH_PRED;
         msg.setOpcode(op.getOpcode());
+        msg.match_predicate = new TMatchPredicate(invertedIndexParser);
     }
 
     @Override
@@ -234,6 +242,25 @@ public class MatchPredicate extends Predicate {
                 setChild(1, e2.castTo(itemType));
             } catch (NumberFormatException nfe) {
                 throw new AnalysisException("Invalid number format literal: " + e2.getStringValue());
+            }
+        }
+
+        if (e1 instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) e1;
+            SlotDescriptor slotDesc = slotRef.getDesc();
+            if (slotDesc != null && slotDesc.isScanSlot()) {
+                TupleDescriptor slotParent = slotDesc.getParent();
+                OlapTable olapTbl = (OlapTable) slotParent.getTable();
+                List<Index> indexes = olapTbl.getIndexes();
+                for (Index index : indexes) {
+                    if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                        List<String> columns = index.getColumns();
+                        if (slotRef.getColumnName().equals(columns.get(0))) {
+                            invertedIndexParser = index.getInvertedIndexParser();
+                            break;
+                        }
+                    }
+                }
             }
         }
     }

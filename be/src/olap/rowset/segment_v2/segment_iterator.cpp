@@ -991,7 +991,6 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _schema.unique_id(cid);
-        auto column_name = _schema.column(cid)->name();
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),

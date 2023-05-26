@@ -17,31 +17,9 @@
 
 #include "olap/inverted_index_parser.h"
 
-#include <mutex>
-
 #include "util/string_util.h"
 
 namespace doris {
-
-void InvertedIndexParserMgr::add_inverted_index_parser(
-                const std::string& column_name, InvertedIndexParserType parser_type) {
-    std::lock_guard<SpinLock> l(_lock);
-    auto it = _inverted_index_parsers.find(column_name);
-    if (it != _inverted_index_parsers.end()) {
-        it->second = parser_type;
-    } else {
-        _inverted_index_parsers.insert(std::make_pair(column_name, parser_type));
-    }
-}
-
-InvertedIndexParserType InvertedIndexParserMgr::get_inverted_index_parser(const std::string& column_name) {
-    std::lock_guard<SpinLock> l(_lock);
-    if (_inverted_index_parsers.count(column_name) < 1) {
-        return InvertedIndexParserType::PARSER_UNKNOWN;
-    }
-
-    return _inverted_index_parsers[column_name];
-}
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type) {
     switch (parser_type) {

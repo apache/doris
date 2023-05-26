@@ -19,29 +19,8 @@
 
 #include <map>
 #include <string>
-#include <unordered_map>
-
-#include "util/spinlock.h"
 
 namespace doris {
-
-enum class InvertedIndexParserType;
-// column_name -> InvertedIndexParserType
-using ParserTypeMap = std::unordered_map<std::string, InvertedIndexParserType>;
-
-class InvertedIndexParserMgr {
-public:
-    InvertedIndexParserMgr() = default;
-    ~InvertedIndexParserMgr() = default;
-
-    void add_inverted_index_parser(const std::string& column_name, InvertedIndexParserType parser_type);
-
-    InvertedIndexParserType get_inverted_index_parser(const std::string& column_name);
-
-private:
-    ParserTypeMap _inverted_index_parsers;
-    SpinLock _lock;
-};
 
 enum class InvertedIndexParserType {
     PARSER_UNKNOWN = 0,

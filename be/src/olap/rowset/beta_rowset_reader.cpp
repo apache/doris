@@ -43,7 +43,6 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "runtime/query_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
@@ -237,15 +236,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context,
     _context->rowset_id = _rowset->rowset_id();
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_context, &iterators, segment_offset));
-    for (auto& column : _context->tablet_schema->columns()) {
-        auto column_name = column.name();
-        const TabletIndex* index_meta = _context->tablet_schema->get_inverted_index(column.unique_id());
-        if (index_meta && _read_options.runtime_state && _read_options.runtime_state->get_query_ctx()) {
-            InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
-                    get_parser_string_from_properties(index_meta->properties()));
-            _read_options.runtime_state->get_query_ctx()->inverted_index_parser_mgr()->add_inverted_index_parser(column_name, parser_type);
-        }
-    }
+
     // merge or union segment iterator
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
         auto sequence_loc = -1;

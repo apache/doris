@@ -54,8 +54,7 @@ public:
               timeout_second(-1),
               _exec_env(exec_env),
               _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
-              _query_options(query_options),
-              _inverted_index_parser_mgr(new InvertedIndexParserMgr()) {
+              _query_options(query_options) {
         _start_time = vectorized::VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
@@ -174,8 +173,6 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
-    InvertedIndexParserMgr* inverted_index_parser_mgr() { return _inverted_index_parser_mgr.get(); }
-
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -221,13 +218,10 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
-    // column_name -> InvertedIndexParserType
-    std::unordered_map<std::string, InvertedIndexParserType> _inverted_index_parsers;
 
     taskgroup::TaskGroupPtr _task_group;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
-    std::unique_ptr<InvertedIndexParserMgr> _inverted_index_parser_mgr;
 };
 
 } // namespace doris

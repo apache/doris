@@ -139,6 +139,10 @@ struct TLikePredicate {
   1: required string escape_char;
 }
 
+struct TMatchPredicate {
+  1: required string parser_type;
+}
+
 struct TLiteralPredicate {
   1: required bool value
   2: required bool is_null
@@ -235,6 +239,7 @@ struct TExprNode {
   31: optional TSchemaChangeExpr schema_change_expr 
 
   32: optional TColumnRef column_ref 
+  33: optional TMatchPredicate match_predicate
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
