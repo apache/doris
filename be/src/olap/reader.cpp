@@ -65,7 +65,7 @@ void TabletReader::ReaderParams::check_validation() const {
 
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
-    ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
+    ss << "tablet=" << tablet->full_name() << " reader_type=" << int(reader_type)
        << " aggregation=" << aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
@@ -121,7 +121,7 @@ Status TabletReader::init(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader type:" << read_params.reader_type
+                     << ", reader type:" << int(read_params.reader_type)
                      << ", version:" << read_params.version;
     }
     return res;
@@ -194,7 +194,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -302,7 +302,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {
@@ -322,11 +322,11 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
-    } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-                read_params.reader_type == READER_SEGMENT_COMPACTION ||
-                read_params.reader_type == READER_BASE_COMPACTION ||
-                read_params.reader_type == READER_COLD_DATA_COMPACTION ||
-                read_params.reader_type == READER_ALTER_TABLE) &&
+    } else if ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -336,7 +336,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(id);
             }
         }
-    } else if (read_params.reader_type == READER_CHECKSUM) {
+    } else if (read_params.reader_type == ReaderType::READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
             if (_tablet_schema->column(id).is_key()) {
@@ -346,7 +346,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else {
-        LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
+        LOG(WARNING) << "fail to init return columns. [reader_type=" << int(read_params.reader_type)
                      << " return_columns_size=" << read_params.return_columns.size() << "]";
         return Status::Error<INVALID_ARGUMENT>();
     }
@@ -603,17 +603,17 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-        read_params.reader_type == READER_SEGMENT_COMPACTION) {
+    if (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
         return Status::OK();
     }
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION ||
-        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
-        read_params.reader_type == READER_CHECKSUM) {
+    if (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_CHECKSUM) {
         _filter_delete = true;
     }
 

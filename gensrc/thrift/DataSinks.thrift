@@ -166,6 +166,8 @@ struct TFetchOption {
     2: optional Descriptors.TPaloNodesInfo nodes_info;
     // Whether fetch row store
     3: optional bool fetch_row_store;
+    // Fetch schema
+    4: optional list<Descriptors.TColumn> column_desc;
 }
 
 struct TResultSink {
