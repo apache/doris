@@ -33,7 +33,7 @@
 namespace doris {
 namespace io {
 
-// TODO(AlexYue): 1. support write into cache 2. unify write buffer and read buffer 3. decouple reserved memory and Callbacks
+// TODO(AlexYue): 1. support write into cache 2. unify write buffer and read buffer
 struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     using Callback = std::function<void()>;
 
@@ -41,14 +41,13 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     ~S3FileBuffer() = default;
 
     void rob_buffer(std::shared_ptr<S3FileBuffer>& other) {
-        _buf = std::move(other->_buf);
-        other->_buf = nullptr;
+        _buf = other->_buf;
+        // we should clear other's memory buffer in case it woule be reclaimed twice
+        // when calling on_finished
+        other->_buf.clear();
     }
 
-    void reserve_buffer() {
-        _buf = std::make_unique<std::string>();
-        _buf->resize(config::s3_write_buffer_size);
-    }
+    void reserve_buffer(Slice s) { _buf = s; }
 
     // apend data into the memory buffer inside or into the file cache
     // if the buffer has no memory buffer
@@ -109,7 +108,7 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     size_t _size;
     std::shared_ptr<std::iostream> _stream_ptr;
     // only served as one reserved buffer
-    std::unique_ptr<std::string> _buf;
+    Slice _buf;
     size_t _append_offset {0};
 };
 
@@ -123,9 +122,9 @@ public:
         return &_pool;
     }
 
-    void reclaim(std::shared_ptr<S3FileBuffer> buf) {
+    void reclaim(Slice buf) {
         std::unique_lock<std::mutex> lck {_lock};
-        _free_buffers.emplace_front(std::move(buf));
+        _free_raw_buffers.emplace_front(buf);
         _cv.notify_all();
     }
 
@@ -134,7 +133,8 @@ public:
 private:
     std::mutex _lock;
     std::condition_variable _cv;
-    std::list<std::shared_ptr<S3FileBuffer>> _free_buffers;
+    std::unique_ptr<char[]> _whole_mem_buffer;
+    std::list<Slice> _free_raw_buffers;
 };
 } // namespace io
 } // namespace doris
