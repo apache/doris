@@ -535,11 +535,9 @@ if (COMPILER_CLANG)
                         -Wunused-property-ivar
                         -Wunused-member-function
                         -Wunused-macros)
-    add_compile_options(-Wno-zero-length-array
-                        -Wno-variadic-macros
+    add_compile_options(-Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
-                        -Wno-vla-extension
-                        -Wno-embedded-directive)
+                        -Wno-vla-extension)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)

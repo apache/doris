@@ -182,12 +182,6 @@ Status NewOlapScanNode::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 
-    // for the purpose of debugging or profiling
-    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
-        char name[64];
-        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
-        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
-    }
     return Status::OK();
 }
 
