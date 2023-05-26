@@ -975,7 +975,7 @@ public class TabletScheduler extends MasterDaemon {
                 eqOrNewVersionCount++;
             }
         }
-        if (eqOrNewVersionCount < 2) {
+        if (eqOrNewVersionCount == 1) {
             return false;
         }
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
