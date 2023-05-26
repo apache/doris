@@ -31,8 +31,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -95,10 +95,8 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                                     column.getName()
                             ));
                         } else {
-                            newOutput.add(new Alias(
-                                    new StringLiteral(column.getDefaultValue()),
-                                    column.getName()
-                            ));
+                            newOutput.add(new Alias(Literal.of(column.getDefaultValue())
+                                    .checkedCastTo(DataType.fromCatalogType(column.getType())), column.getName()));
                         }
                     }
                     newOutput.addAll(project.child().getOutput());
