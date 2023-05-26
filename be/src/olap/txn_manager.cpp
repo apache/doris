@@ -438,7 +438,9 @@ Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> table
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
-    context.tablet_schema = rowset_ptr->tablet_schema();
+    context.tablet_schema = std::make_shared<TabletSchema>();
+    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
+    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = tablet->table_id();
     context.tablet = tablet;
