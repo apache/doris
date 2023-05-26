@@ -128,7 +128,7 @@ int64_t TaskGroup::memory_used() {
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (const auto& tracker : mem_tracker_group.trackers) {
-            used_memory += tracker->consumption();
+            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
         }
     }
     return used_memory;

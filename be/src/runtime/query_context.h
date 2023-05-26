@@ -109,6 +109,9 @@ public:
             _is_cancelled = is_cancelled;
             _ready_to_execute = true;
         }
+        if (query_mem_tracker && is_cancelled) {
+            query_mem_tracker->set_is_query_cancelled(is_cancelled);
+        }
         _start_cond.notify_all();
     }
     void set_ready_to_execute_only() {

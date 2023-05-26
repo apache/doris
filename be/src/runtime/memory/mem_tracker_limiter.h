@@ -138,6 +138,10 @@ public:
     // this tracker limiter.
     int64_t spare_capacity() const { return _limit - consumption(); }
 
+    bool is_query_cancelled() { return _is_query_cancelled; }
+
+    void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
+
     static void disable_oom_avoidance() { _oom_avoidance = false; }
 
 public:
@@ -253,6 +257,9 @@ private:
     // Consume size smaller than mem_tracker_consume_min_size_bytes will continue to accumulate
     // to avoid frequent calls to consume/release of MemTracker.
     std::atomic<int64_t> _untracked_mem = 0;
+
+    // query or load
+    std::atomic<bool> _is_query_cancelled = false;
 
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
