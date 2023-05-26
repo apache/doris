@@ -60,7 +60,11 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
-
+struct PredicateFilterInfo {
+    int type = 0;
+    uint64_t input_row = 0;
+    uint64_t filtered_row = 0;
+};
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
@@ -316,6 +320,8 @@ struct OlapReaderStatistics {
     int64_t short_cond_ns = 0;
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
+
+    std::map<int, PredicateFilterInfo> filter_info;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
