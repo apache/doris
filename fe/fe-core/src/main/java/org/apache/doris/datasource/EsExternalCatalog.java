@@ -49,7 +49,6 @@ public class EsExternalCatalog extends ExternalCatalog {
      */
     public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.ES);
-        this.type = "es";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 

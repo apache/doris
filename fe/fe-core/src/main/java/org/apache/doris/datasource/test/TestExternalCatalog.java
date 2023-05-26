@@ -43,7 +43,6 @@ public class TestExternalCatalog extends ExternalCatalog {
 
     public TestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.TEST);
-        this.type = "test";
         this.catalogProperty = new CatalogProperty(resource, props);
         Class<?> providerClazz = null;
         try {

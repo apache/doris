@@ -38,7 +38,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
-        this.type = "max_compute";
         catalogProperty = new CatalogProperty(resource, props);
     }
 

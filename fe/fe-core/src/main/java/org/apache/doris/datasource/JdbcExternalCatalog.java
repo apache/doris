@@ -50,7 +50,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
             throws DdlException {
         super(catalogId, name, InitCatalogLog.Type.JDBC);
-        this.type = "jdbc";
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 
