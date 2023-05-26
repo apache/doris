@@ -38,6 +38,7 @@ public enum StatisticalType {
     MYSQL_SCAN_NODE,
     ODBC_SCAN_NODE,
     OLAP_SCAN_NODE,
+    PARTITION_TOPN_NODE,
     REPEAT_NODE,
     SELECT_NODE,
     SET_OPERATION_NODE,
