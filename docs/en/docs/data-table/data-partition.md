@@ -294,7 +294,6 @@ Range partitioning also supports batch partitioning. For example, you can create
     ```
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
-    p_jp: ("Tokyo")
     p_uk: ("London")
     ```
 
