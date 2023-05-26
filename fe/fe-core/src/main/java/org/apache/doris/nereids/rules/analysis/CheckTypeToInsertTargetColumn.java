@@ -39,8 +39,8 @@ import java.util.stream.Collectors;
 public class CheckTypeToInsertTargetColumn extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalOlapTableSink()).then(project -> {
-            LogicalOlapTableSink<?> sink = project.child();
+        return logicalProject(logicalProject(logicalOlapTableSink())).then(project -> {
+            LogicalOlapTableSink<?> sink = project.child().child();
             List<DataType> insertTargetTypes = sink.getTargetTable().getFullSchema()
                     .stream().map(column -> DataType.fromCatalogType(column.getType()))
                     .collect(Collectors.toList());

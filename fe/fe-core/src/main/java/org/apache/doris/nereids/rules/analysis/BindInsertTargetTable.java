@@ -66,7 +66,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             table,
                             bindTargetColumns(table, sink.getColNames()),
                             bindPartitionIds(table, sink.getPartitions()),
-                            sink.child());
+                            sink.child().child());
 
                     // we need to insert all the columns of the target table although some columns are not mentions.
                     // so we add a projects to supply the default value.
@@ -93,7 +93,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             ));
                         }
                     }
-                    return new LogicalProject<>(newOutput, boundSink);
+                    return new LogicalProject<>(newOutput, project.withChildren(boundSink));
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
