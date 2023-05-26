@@ -870,8 +870,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
             inputFragment.setOutputPartition(outputPartition);
             inputFragment.setPlanRoot(exchangeNode.getChild(0));
+            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, outputPartition);
             inputFragment.setDestination(exchangeNode);
-            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, DataPartition.UNPARTITIONED);
             context.addPlanFragment(currentFragment);
         }
 
