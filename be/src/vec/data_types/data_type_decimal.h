@@ -256,7 +256,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>();
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale);
     };
 
     /// Decimal specific
