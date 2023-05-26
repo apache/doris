@@ -280,7 +280,7 @@ Status ExecEnv::_init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
-    SchemaCache::create_global_instance(config::schema_cache_cacity);
+    SchemaCache::create_global_instance(config::schema_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =

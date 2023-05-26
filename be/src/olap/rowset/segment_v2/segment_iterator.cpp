@@ -1010,9 +1010,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         int32_t unique_id = _schema->unique_id(cid);
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid),
-                    _opts.tablet_schema->get_inverted_index(cid), _opts.stats,
-                    &_inverted_index_iterators[unique_id]));
+                    _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
+                    _opts.stats, &_inverted_index_iterators[unique_id]));
         }
     }
     return Status::OK();
@@ -1244,8 +1243,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     //  but runtime predicate will filter some rows and read more than N rows.
     // should add add for order by none-key column, since none-key column is not sorted and
     //  all rows should be read, so runtime predicate will reduce rows for topn node
-    if (_opts.use_topn_opt && !(_opts.read_orderby_key_columns != nullptr &&
-                                 !_opts.read_orderby_key_columns->empty())) {
+    if (_opts.use_topn_opt &&
+        !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
         auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();
         if (_runtime_predicate) {
@@ -1664,7 +1663,7 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     // evaluate delete condition
     original_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
-                                                                 vec_sel_rowid_idx, selected_size);
+                                                                vec_sel_rowid_idx, selected_size);
     _opts.stats->rows_vec_del_cond_filtered += original_size - selected_size;
     return selected_size;
 }

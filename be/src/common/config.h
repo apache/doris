@@ -1016,7 +1016,7 @@ DECLARE_mInt32(s3_write_buffer_whole_size);
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
-DECLARE_mInt32(schema_cache_cacity);
+DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // enable binlog

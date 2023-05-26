@@ -1298,7 +1298,7 @@ public class OlapScanNode extends ScanNode {
             TColumn tColumn = new TColumn();
             tColumn.setColumnName(Column.ROWID_COL);
             tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-            tColumn.setAggregationType(AggregateType.NONE.toThrift());
+            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
             tColumn.setIsKey(false);
             tColumn.setIsAllowNull(false);
             // keep compatibility
@@ -1316,6 +1316,9 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
+        }
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }

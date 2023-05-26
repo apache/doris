@@ -128,9 +128,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    std::string schema_key =
-            SchemaCache::get_schema_key(_read_options.tablet_id, _context->tablet_schema,
-                                        read_columns, SchemaCache::Type::SCHEMA);
+    std::string schema_key = SchemaCache::get_schema_key(
+            _read_options.tablet_id, _context->tablet_schema, read_columns,
+            _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
     if ((_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
         SchemaCache::instance()->insert_schema(schema_key, _input_schema);

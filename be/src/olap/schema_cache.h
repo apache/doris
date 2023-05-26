@@ -24,6 +24,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/logging.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/schema.h"
@@ -53,14 +54,15 @@ public:
 
     // get cache schema key, delimiter with SCHEMA_DELIMITER
     static std::string get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
-                                      const std::vector<uint32_t>& column_ids, Type type);
-    static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
+                                      const std::vector<uint32_t>& column_ids, int32_t version,
                                       Type type);
+    static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
+                                      int32_t version, Type type);
 
     // Get a shared cached Schema from resource pool, schema_key is a subset of column unique ids
     template <typename SchemaType>
     SchemaType get_schema(const std::string& schema_key) {
-        if (!_s_instance) {
+        if (!_s_instance || schema_key.empty()) {
             return {};
         }
         auto lru_handle = _schema_cache->lookup(schema_key);
@@ -69,6 +71,7 @@ public:
                     [cache = _schema_cache.get(), lru_handle] { cache->release(lru_handle); });
             auto value = (CacheValue*)_schema_cache->value(lru_handle);
             value->last_visit_time = UnixMillis();
+            VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
                 return value->tablet_schema;
             }
@@ -82,8 +85,8 @@ public:
     // Get a shared cached tablet Schema from resource pool, schema_key is full column unique ids
     template <typename SchemaType>
     void insert_schema(const std::string& key, SchemaType schema) {
-        if (!_s_instance) {
-            return; 
+        if (!_s_instance || key.empty()) {
+            return;
         }
         CacheValue* value = new CacheValue;
         value->last_visit_time = UnixMillis();
