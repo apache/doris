@@ -72,6 +72,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         if (ctx.isTxnModel()) {
             // in original planner, if is in txn model, insert into select command and tableRef >= 1 will be refused.
             // we can just run select a one-row-relation like select 1, 2, 3
