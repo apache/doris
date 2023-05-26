@@ -291,7 +291,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (!context.isInsert()) {
+        if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
