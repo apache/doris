@@ -466,11 +466,13 @@ private:
 class ORCFileInputStream : public orc::InputStream {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
-                       OrcReader::Statistics* statistics, const io::IOContext* io_ctx)
+                       OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
+                       RuntimeProfile* profile)
             : _file_name(file_name),
               _file_reader(file_reader),
               _statistics(statistics),
-              _io_ctx(io_ctx) {}
+              _io_ctx(io_ctx),
+              _profile(profile) {}
 
     ~ORCFileInputStream() override = default;
 
@@ -482,12 +484,16 @@ public:
 
     const std::string& getName() const override { return _file_name; }
 
+    void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
+                          std::vector<bool> selected_columns) override;
+
 private:
     const std::string& _file_name;
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;
     const io::IOContext* _io_ctx;
+    RuntimeProfile* _profile;
 };
 
 } // namespace doris::vectorized
