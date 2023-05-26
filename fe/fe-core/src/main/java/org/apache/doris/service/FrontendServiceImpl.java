@@ -136,6 +136,7 @@ import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -1314,10 +1315,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TExecPlanFragmentParams> planFragmentParamsList = new ArrayList<>(tableNames.size());
         // todo: if is multi table, we need consider the lock time and the timeout
         try {
+            int index = 0;
             for (OlapTable table : olapTables) {
+                request.setLoadId(new TUniqueId(request.loadId.hi, request.loadId.lo + index));
                 TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
                         table, timeoutMs);
                 planFragmentParamsList.add(planFragmentParams);
+                index++;
             }
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
