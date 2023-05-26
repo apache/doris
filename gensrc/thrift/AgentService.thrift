@@ -39,10 +39,10 @@ struct TTabletSchema {
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
-    14: optional bool enable_single_replica_compaction
-    15: optional i32 version_col_idx = -1
-    16: optional bool is_dynamic_schema = false
-    17: optional bool store_row_column = false
+    14: optional i32 version_col_idx = -1
+    15: optional bool is_dynamic_schema = false
+    16: optional bool store_row_column = false
+    17: optional bool enable_single_replica_compaction
 }
 
 // this enum stands for different storage format in src_backends

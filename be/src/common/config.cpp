@@ -372,7 +372,7 @@ DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
 
 // sleep interval in second after update replica infos
-DEFINE_mInt32(update_replica_infos_interval_seconds, "10");
+DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.

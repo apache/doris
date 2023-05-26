@@ -412,9 +412,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
             }
-            bool is_compaction_clone =
+            bool is_single_rowset_clone =
                     (request.__isset.start_version && request.__isset.end_version);
-            if (is_compaction_clone) {
+            if (is_single_rowset_clone) {
                 LOG(INFO) << "handle compaction clone make snapshot, tablet_id: "
                           << ref_tablet->tablet_id();
                 Version version(request.start_version, request.end_version);
@@ -433,7 +433,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             }
             // be would definitely set it as true no matter has missed version or not
             // but it would take no effets on the following range loop
-            if (!is_compaction_clone && request.__isset.missing_version) {
+            if (!is_single_rowset_clone && request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
                     // find rowset in both rs_meta and stale_rs_meta
@@ -461,7 +461,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             // be would definitely set it as true no matter has missed version or not, we could
             // just check whether the missed version is empty or not
             int64_t version = -1;
-            if (!is_compaction_clone && (!res.ok() || request.missing_version.empty())) {
+            if (!is_single_rowset_clone && (!res.ok() || request.missing_version.empty())) {
                 if (!request.__isset.missing_version &&
                     ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
                     LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
