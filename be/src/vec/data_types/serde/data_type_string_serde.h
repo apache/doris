@@ -59,8 +59,8 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,int row_idx,
-                                  int start, int end, bool col_const) const;
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
+                                  int row_idx, int start, int end, bool col_const) const;
 
 };
 } // namespace vectorized
