@@ -197,8 +197,8 @@ void Daemon::memory_maintenance_thread() {
         doris::MemInfo::refresh_proc_meminfo();
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
 
-        // Update and print memory stat when the memory changes by 100M.
-        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 104857600) {
+        // Update and print memory stat when the memory changes by 256M.
+        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
@@ -213,7 +213,7 @@ void Daemon::memory_maintenance_thread() {
             }
 #endif
             LOG(INFO) << MemTrackerLimiter::
-                            process_mem_log_str(); // print mem log when memory state by 100M
+                            process_mem_log_str(); // print mem log when memory state by 256M
         }
     }
 }
@@ -230,7 +230,8 @@ void Daemon::memory_gc_thread() {
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
         auto proc_mem_no_allocator_cache = doris::MemInfo::proc_mem_no_allocator_cache();
 
-        auto tg_free_mem = taskgroup::TaskGroupManager::instance()->memory_limit_gc();
+        // GC excess memory for resource groups that not enable overcommit
+        auto tg_free_mem = doris::MemInfo::tg_hard_memory_limit_gc();
         sys_mem_available += tg_free_mem;
         proc_mem_no_allocator_cache -= tg_free_mem;
 

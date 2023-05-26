@@ -85,7 +85,9 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     _create_tablet_workers.reset(
             new CreateTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
     _create_tablet_workers->start();
-    CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
+    _drop_tablet_workers.reset(
+            new DropTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
+    _drop_tablet_workers->start();
 
     // Both PUSH and REALTIME_PUSH type use _push_workers
     CREATE_AND_START_POOL(PUSH, _push_workers);

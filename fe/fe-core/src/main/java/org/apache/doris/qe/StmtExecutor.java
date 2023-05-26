@@ -115,6 +115,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -194,8 +195,8 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
-    private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
-    private static final String NULL_VALUE_FOR_LOAD = "\\N";
+    public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
+    public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -406,16 +407,17 @@ public class StmtExecutor {
                     || (parsedStmt == null && sessionVariable.isEnableNereidsPlanner())) {
                 try {
                     executeByNereids(queryId);
-                } catch (NereidsException e) {
+                } catch (NereidsException | ParseException e) {
                     if (context.getMinidump() != null) {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                     }
                     // try to fall back to legacy planner
                     LOG.warn("nereids cannot process statement\n" + originStmt.originStmt
                             + "\n because of " + e.getMessage(), e);
-                    if (!context.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    if (e instanceof NereidsException
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                        throw e.getException();
+                        throw ((NereidsException) e).getException();
                     }
                     LOG.info("fall back to legacy planner");
                     parsedStmt = null;
@@ -536,14 +538,11 @@ public class StmtExecutor {
         try {
             statements = new NereidsParser().parseSQL(originStmt.originStmt);
         } catch (Exception e) {
-            throw new NereidsException(
-                    new AnalysisException("Nereids parse failed. " + e.getMessage(), e)
-            );
+            throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
         if (statements.size() <= originStmt.idx) {
-            throw new NereidsException(
-                    new AnalysisException("Nereids parse failed. Parser get " + statements.size() + " statements,"
-                            + " but we need at least " + originStmt.idx + " statements."));
+            throw new ParseException("Nereids parse failed. Parser get " + statements.size() + " statements,"
+                            + " but we need at least " + originStmt.idx + " statements.");
         }
         parsedStmt = statements.get(originStmt.idx);
     }
@@ -1827,8 +1826,11 @@ public class StmtExecutor {
                 throw new DdlException("Unknown load job type");
             }
             LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
-            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
-            context.getState().setOk();
+            loadManagerAdapter.submitLoadFromInsertStmt(context, insertStmt);
+            // when complete
+            if (loadManagerAdapter.getMysqlLoadId() != null) {
+                this.mysqlLoadId = loadManagerAdapter.getMysqlLoadId();
+            }
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
@@ -2461,6 +2463,14 @@ public class StmtExecutor {
 
     public SummaryProfile getSummaryProfile() {
         return profile.getSummaryProfile();
+    }
+
+    public Profile getProfile() {
+        return profile;
+    }
+
+    public void setProfileType(ProfileType profileType) {
+        this.profileType = profileType;
     }
 }
 

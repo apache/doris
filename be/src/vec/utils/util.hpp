@@ -120,6 +120,15 @@ public:
             return left_child != nullptr ? left_child : right_child;
         }
     }
+
+    static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
+        for (const auto& arg : args) {
+            if (!is_column_const(*block.get_by_position(arg).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 } // namespace doris::vectorized

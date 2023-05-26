@@ -30,7 +30,7 @@ import java.util.Collections;
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("ReplicaMissingTablets").add("VersionIncompleteTablets").add("ReplicaRelocatingTablets")
-            .add("RedundantTablets").add("ReplicaMissingInClusterTablets").add("ReplicaMissingForTagTablets")
+            .add("RedundantTablets").add("ReplicaMissingForTagTablets")
             .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
             .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
             .add("InconsistentTablets").add("OversizeTablets")
@@ -51,7 +51,6 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
                 JOINER.join(statistic.versionIncompleteTabletIds),
                 JOINER.join(statistic.replicaRelocatingTabletIds),
                 JOINER.join(statistic.redundantTabletIds),
-                JOINER.join(statistic.replicaMissingInClusterTabletIds),
                 JOINER.join(statistic.replicaMissingForTagTabletIds),
                 JOINER.join(statistic.forceRedundantTabletIds),
                 JOINER.join(statistic.colocateMismatchTabletIds),

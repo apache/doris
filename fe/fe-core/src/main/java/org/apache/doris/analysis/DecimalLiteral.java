@@ -286,8 +286,10 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     protected void compactForLiteral(Type type) throws AnalysisException {
         if (type.isDecimalV3()) {
-            this.type = ScalarType.createDecimalV3Type(Math.max(this.value.precision(), type.getPrecision()),
-                    Math.max(this.value.scale(), ((ScalarType) type).decimalScale()));
+            int scale = Math.max(this.value.scale(), ((ScalarType) type).decimalScale());
+            int integerPart = Math.max(this.value.precision() - this.value.scale(),
+                    type.getPrecision() - ((ScalarType) type).decimalScale());
+            this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
         }
     }
 

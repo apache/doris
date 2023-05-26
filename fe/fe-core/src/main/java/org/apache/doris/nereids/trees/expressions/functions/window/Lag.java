@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -48,19 +47,11 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
 
     private static final List<FunctionSignature> SIGNATURES;
 
-    public Lag(Expression child) {
-        this(child, Literal.of(1), Literal.of(null));
-    }
-
-    public Lag(Expression child, Expression offset) {
-        this(child, offset, Literal.of(null));
-    }
-
     public Lag(Expression child, Expression offset, Expression defaultValue) {
         super("lag", child, offset, defaultValue);
     }
 
-    public Lag(List<Expression> children) {
+    private Lag(List<Expression> children) {
         super("lag", children);
     }
 

@@ -513,7 +513,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>io.opentelemetry</groupId>
-            <artifactId>opentelemetry-exporter-otlp-http-trace</artifactId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
         <dependency>
             <groupId>io.opentelemetry</groupId>
@@ -621,6 +621,20 @@ under the License.
                 <exclusion>
                     <groupId>com.aliyun</groupId>
                     <artifactId>tea-util</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- for fe recognize files stored on gcs -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <version>hadoop2-2.2.8</version>
+            <classifier>shaded</classifier>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>

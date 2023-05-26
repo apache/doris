@@ -438,6 +438,8 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
+            //case HUDI:
+                //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             default:

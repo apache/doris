@@ -293,7 +293,7 @@ under the License.
         <zookeeper.version>3.4.14</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ojdbc6.version>11.2.0.4</ojdbc6.version>
-        <opentelemetry.version>1.14.0</opentelemetry.version>
+        <opentelemetry.version>1.26.0</opentelemetry.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
@@ -353,10 +353,9 @@ under the License.
                 <version>${opentelemetry.version}</version>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-exporter-otlp-http-trace -->
             <dependency>
                 <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-exporter-otlp-http-trace</artifactId>
+                <artifactId>opentelemetry-exporter-otlp</artifactId>
                 <version>${opentelemetry.version}</version>
             </dependency>
             <dependency>
@@ -815,6 +814,11 @@ under the License.
                 <artifactId>grpc-stub</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
                 <groupId>com.google.protobuf</groupId>
@@ -1000,7 +1004,7 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-launcher_2.12</artifactId>
                 <version>${spark.version}</version>
-                <scope>provided</scope>
+                <!-- <scope>provided</scope> -->
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>

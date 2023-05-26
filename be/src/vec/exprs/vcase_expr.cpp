@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -54,8 +55,7 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
     }
 }
 
-Status VCaseExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) {
+Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
@@ -92,14 +92,12 @@ void VCaseExpr::close(RuntimeState* state, VExprContext* context,
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     ColumnNumbers arguments(_children.size());
-
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;
-
-        block->replace_by_position_if_const(column_id);
     }
+    RETURN_IF_ERROR(check_constant(*block, arguments));
 
     size_t num_columns_without_result = block->columns();
     block->insert({nullptr, _data_type, _expr_name});

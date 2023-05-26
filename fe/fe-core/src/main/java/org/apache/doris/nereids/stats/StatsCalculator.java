@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -80,6 +81,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -98,6 +100,7 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -173,9 +176,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
             groupExpression.getOwnerGroup().setStatistics(stats);
+        } else {
+            if (originStats.getRowCount() > stats.getRowCount()) {
+                stats.updateNdv(originStats);
+                groupExpression.getOwnerGroup().setStatistics(stats);
+            } else {
+                originStats.updateNdv(stats);
+            }
         }
         groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
+    }
+
+    @Override
+    public Statistics visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -298,6 +313,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     public Statistics visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
         return computeWindow(window);
+    }
+
+    @Override
+    public Statistics visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -493,8 +513,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache == ColumnStatistic.UNKNOWN) {
                 if (forbidUnknownColStats) {
-                    throw new AnalysisException("column stats for " + colName
-                            + " is unknown, `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
+                    if (StatisticsUtil.statsTblAvailable()) {
+                        throw new AnalysisException("column stats for " + colName
+                                + " is unknown,"
+                                + " `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
+                    } else {
+                        throw new AnalysisException("BE is not available!");
+                    }
                 }
                 columnStatisticMap.put(slotReference, cache);
                 continue;

@@ -38,10 +38,10 @@
 #include <math.h>
 #include <string.h>
 
-#include <CLucene/util/croaring/roaring.hh>
 #include <algorithm>
 #include <filesystem>
 #include <ostream>
+#include <roaring/roaring.hh>
 #include <set>
 
 #include "common/config.h"
@@ -521,8 +521,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
             if (st.code() == ErrorCode::END_OF_FILE) {
                 return Status::OK();
             }
-            LOG(WARNING) << "bkd_query for column " << column_name
-                         << " failed: " << st.code_as_string();
+            LOG(WARNING) << "bkd_query for column " << column_name << " failed: " << st;
             return st;
         }
         *count = r->estimate_point_count(visitor.get());
@@ -571,8 +570,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
             if (st.code() == ErrorCode::END_OF_FILE) {
                 return Status::OK();
             }
-            LOG(WARNING) << "bkd_query for column " << column_name
-                         << " failed: " << st.code_as_string();
+            LOG(WARNING) << "bkd_query for column " << column_name << " failed: " << st;
             return st;
         }
         r->intersect(visitor.get());
@@ -687,7 +685,7 @@ void InvertedIndexVisitor::visit(std::vector<char>& doc_id, std::vector<uint8_t>
     visit(roaring::Roaring::read(doc_id.data(), false));
 }
 
-void InvertedIndexVisitor::visit(Roaring* doc_id, std::vector<uint8_t>& packed_value) {
+void InvertedIndexVisitor::visit(roaring::Roaring* doc_id, std::vector<uint8_t>& packed_value) {
     if (!matches(packed_value.data())) {
         return;
     }

@@ -402,12 +402,10 @@ public class DeployManager extends MasterDaemon {
                 List<Frontend> localObserverFeAddrs = env.getFrontends(FrontendNodeType.OBSERVER);
                 return this.convertFesToHostInfos(localObserverFeAddrs);
             case BACKEND:
-                List<Backend> localBackends = Env.getCurrentSystemInfo()
-                        .getClusterMixBackends(SystemInfoService.DEFAULT_CLUSTER);
+                List<Backend> localBackends = Env.getCurrentSystemInfo().getMixBackends();
                 return this.convertBesToHostInfos(localBackends);
             case BACKEND_CN:
-                List<Backend> localCns = Env.getCurrentSystemInfo()
-                        .getClusterCnBackends(SystemInfoService.DEFAULT_CLUSTER);
+                List<Backend> localCns = Env.getCurrentSystemInfo().getCnBackends();
                 return this.convertBesToHostInfos(localCns);
             case BROKER:
                 List<FsBroker> localBrokers = env.getBrokerMgr().getBrokerListMap().get(getBrokerName());
@@ -604,7 +602,7 @@ public class DeployManager extends MasterDaemon {
     }
 
     private HostInfo convertToHostInfo(FsBroker broker) {
-        return new HostInfo(broker.ip, broker.port);
+        return new HostInfo(broker.host, broker.port);
     }
 
     private HostInfo convertToHostInfo(Backend backend) {

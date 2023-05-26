@@ -23,6 +23,7 @@ import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
+import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.GlueProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
@@ -96,6 +97,8 @@ public class PropertyConverter {
             return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(ObsProperties.ENDPOINT)) {
             return convertToOBSProperties(props, ObsProperties.getCredential(props));
+        } else if (props.containsKey(GCSProperties.ENDPOINT)) {
+            return convertToGCSProperties(props, GCSProperties.getCredential(props));
         } else if (props.containsKey(OssProperties.ENDPOINT)) {
             return convertToOSSProperties(props, OssProperties.getCredential(props));
         } else if (props.containsKey(CosProperties.ENDPOINT)) {
@@ -213,6 +216,11 @@ public class PropertyConverter {
                 s3Properties.put(entry.getKey(), entry.getValue());
             }
         }
+    }
+
+    private static Map<String, String> convertToGCSProperties(Map<String, String> props, CloudCredential credential) {
+        // Now we use s3 client to access
+        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 
     private static Map<String, String> convertToOSSProperties(Map<String, String> props, CloudCredential credential) {
