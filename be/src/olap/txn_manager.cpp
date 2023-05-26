@@ -362,8 +362,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        _create_transient_rowset_writer(tablet, rowset->rowset_id(), rowset->num_segments(),
-                                        &rowset_writer);
+        _create_transient_rowset_writer(tablet, rowset, &rowset_writer);
 
         RETURN_IF_ERROR(
                 tablet->update_delete_bitmap(rowset, &tablet_txn_info, rowset_writer.get()));
@@ -434,19 +433,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
 // create a rowset writer with rowset_id and seg_id
 // after writer, merge this transient rowset with original rowset
 Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> tablet,
-                                                   const RowsetId& rowset_id,
-                                                   int32_t num_segments_ori,
+                                                   RowsetSharedPtr rowset_ptr,
                                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
-    context.tablet_schema = tablet->tablet_schema();
+    context.tablet_schema = rowset_ptr->tablet_schema();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = tablet->table_id();
     context.tablet = tablet;
     context.is_direct_write = true;
-    RETURN_IF_ERROR(tablet->create_transient_rowset_writer(context, rowset_id, rowset_writer));
-    (*rowset_writer)->set_segment_start_id(num_segments_ori);
+    RETURN_IF_ERROR(tablet->create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
+    (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
     return Status::OK();
 }
 
