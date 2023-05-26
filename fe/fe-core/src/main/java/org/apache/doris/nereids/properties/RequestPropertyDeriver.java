@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -112,6 +113,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 

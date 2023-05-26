@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -145,6 +146,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 childStatistics.getRowCount(),
                 statistics.getRowCount(),
                 childStatistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
+        return CostV1.of(
+            childStatistics.getRowCount(),
+            statistics.getRowCount(),
+            childStatistics.getRowCount());
     }
 
     @Override
