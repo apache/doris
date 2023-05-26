@@ -277,8 +277,12 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         return Status::InvalidArgument("Invalid type!");
     }
 
-    *reinterpret_cast<vectorized::VExpr**>(expr) =
-            pool->add(vectorized::VLiteral::create_unique(node).release());
+    try {
+        *reinterpret_cast<vectorized::VExpr**>(expr) =
+                pool->add(vectorized::VLiteral::create_unique(node).release());
+    } catch (const Exception& e) {
+        return Status::Error(e.code(), e.to_string());
+    }
 
     return Status::OK();
 }
