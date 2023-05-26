@@ -69,6 +69,9 @@ public class JdbcClient {
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerDBToRealDB = Maps.newHashMap();
+
     private String oceanbaseMode = "";
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
@@ -221,7 +224,12 @@ public class JdbcClient {
             }
             List<String> tempDatabaseNames = Lists.newArrayList();
             while (rs.next()) {
-                tempDatabaseNames.add(rs.getString(1));
+                String databaseName = rs.getString(1);
+                if (isLowerCaseTableNames) {
+                    lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
+                    databaseName = databaseName.toLowerCase();
+                }
+                tempDatabaseNames.add(databaseName);
             }
             if (isOnlySpecifiedDatabase) {
                 for (String db : tempDatabaseNames) {
@@ -280,6 +288,9 @@ public class JdbcClient {
     public List<String> getTablesNameList(String dbName) {
         Connection conn = getConnection();
         ResultSet rs = null;
+        if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
+        }
         List<String> tablesName = Lists.newArrayList();
         String[] types = {"TABLE", "VIEW"};
         String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
@@ -327,6 +338,10 @@ public class JdbcClient {
     public boolean isTableExist(String dbName, String tableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
+        if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         String[] types = {"TABLE", "VIEW"};
         String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
@@ -398,6 +413,7 @@ public class JdbcClient {
         // if isLowerCaseTableNames == true, tableName is lower case
         // but databaseMetaData.getColumns() is case sensitive
         if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
             tableName = lowerTableToRealTable.get(tableName);
         }
         try {
