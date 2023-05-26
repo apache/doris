@@ -318,15 +318,20 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
-            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
-        } else {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
             //if is ORACLE and date type, insert into need convert
             if (is_date) {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
             } else {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd hh24:mi:ss')", str);
             }
+        } else if (table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "'{}'::date", str);
+        } else if (table_type == TOdbcTableType::SQLSERVER) {
+            // Values in sqlserver should be enclosed by single quotes
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }
     };
     const vectorized::IColumn* column = column_ptr;
