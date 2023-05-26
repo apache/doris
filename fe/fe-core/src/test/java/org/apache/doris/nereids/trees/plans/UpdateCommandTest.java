@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -68,12 +69,12 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testSimpleUpdate() {
+    public void testSimpleUpdate() throws AnalysisException {
         String sql = "update t1 set v1 = v1 + 2, v2 = v1 * 2 where k1 = 3";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.getQueryPlan();
+        command.getQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
                 .matches(
@@ -90,13 +91,13 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testFromClauseUpdate() {
+    public void testFromClauseUpdate() throws AnalysisException {
         String sql = "update t1 set v1 = t2.v1 + 2, v2 = t1.v1 * 2 "
                 + "from src join t2 on src.k1 = t2.k1 where t2.k1 = t1.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.getQueryPlan();
+        command.getQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
                 .matches(
