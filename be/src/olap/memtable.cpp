@@ -32,6 +32,7 @@
 #include "common/consts.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
+#include "olap/pdqsort.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -290,7 +291,7 @@ int MemTable::_sort() {
     // sort extra round by _row_pos to make the sort stable
     TieIterator iter = TieIterator(tie);
     while (iter.next()) {
-        std::sort(_row_in_blocks.begin() + iter.range_first, _row_in_blocks.begin() + iter.range_last,
+        ::pdqsort(_row_in_blocks.begin() + iter.range_first, _row_in_blocks.begin() + iter.range_last,
                   [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
                       return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
                   });
@@ -303,7 +304,7 @@ void MemTable::_inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                          std::function<int (const RowInBlock*, const RowInBlock*)> cmp) {
     TieIterator iter = TieIterator(tie);
     while (iter.next()) {
-        std::sort(row_in_blocks.begin() + iter.range_first, row_in_blocks.begin() + iter.range_last,
+        ::pdqsort(row_in_blocks.begin() + iter.range_first, row_in_blocks.begin() + iter.range_last,
               [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
         tie[iter.range_first] = 0;
         for (int i = iter.range_first + 1; i < iter.range_last; i++) {
