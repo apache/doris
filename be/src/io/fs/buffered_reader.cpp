@@ -416,7 +416,8 @@ void PrefetchBuffer::prefetch_buffer() {
         // which seems to be a violation of the S3 protocol since our request range was valid.
         // We currently consider this situation a bug and will treat this task as a failure.
         s = Status::InternalError("Data size returned by S3 is smaller than requested");
-        LOG(WARNING) << "Data size returned by S3 is smaller than requested" << _reader->path();
+        LOG(WARNING) << "Data size returned by S3 is smaller than requested" << _reader->path()
+                     << " request bytes " << buf_size << " returned size " << _len;
     }
     g_bytes_downloaded << _len;
     _statis.prefetch_request_io += 1;
