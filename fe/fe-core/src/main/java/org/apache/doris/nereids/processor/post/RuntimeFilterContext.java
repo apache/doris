@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -192,5 +193,13 @@ public class RuntimeFilterContext {
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
         return joinToTargetExprId.get(join);
+    }
+
+    public SlotReference getCorrespondingOlapSlotReference(SlotReference slot) {
+        SlotReference olapSlot = slot;
+        if (aliasTransferMap.containsKey(olapSlot)) {
+            olapSlot = (SlotReference) aliasTransferMap.get(olapSlot).second;
+        }
+        return olapSlot;
     }
 }
