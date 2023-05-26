@@ -2556,7 +2556,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(column -> olapTable.getFullSchema().indexOf(column))
                 .collect(Collectors.toList());
 
-        List<Expr> partitionExprs = colIdx.stream().map(execExprList::get).collect(Collectors.toList());
+        List<Expr> partitionExprs = colIdx.stream()
+                .map(idx -> execExprList.get(idx + olapTable.getFullSchema().size()))
+                .collect(Collectors.toList());
 
         inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         inputFragment.setOutputExprs(execExprList.subList(0, olapTable.getFullSchema().size()));
