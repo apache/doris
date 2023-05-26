@@ -481,7 +481,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << request->cancel_reason();
+                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);

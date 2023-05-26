@@ -137,7 +137,7 @@ public class ResultReceiver {
             }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
-            status.setStatus("query timeout");
+            status.setStatus(new Status(TStatusCode.TIMEOUT, "query timeout"));
         } finally {
             synchronized (this) {
                 currentThread = null;
