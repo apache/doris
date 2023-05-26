@@ -27,6 +27,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -174,15 +175,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default T getTableOrMetaException(String tableName, TableIf.TableType... tableTypes)
             throws MetaNotFoundException {
-        T table = getTableOrMetaException(tableName);
-        for (TableIf.TableType tableType : tableTypes) {
-            if (table.getType() == tableType) {
-                return table;
-            }
-        }
-        throw new MetaNotFoundException(
-                "Tye type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
-
+        return getTableOrMetaException(tableName, Arrays.asList(tableTypes));
     }
 
     default T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException {
