@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
@@ -41,10 +42,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class InternalSchemaInitializer extends Thread {
 
@@ -54,6 +57,12 @@ public class InternalSchemaInitializer extends Thread {
      * If internal table creation failed, will retry after below seconds.
      */
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
+
+    /**
+     * Used when an internal table schema changes.
+     * TODO remove this code after the table structure is stable
+     */
+    private boolean isSchemaChanged = false;
 
     public void run() {
         if (FeConstants.disableInternalSchemaDb) {
@@ -79,6 +88,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     private void createTbl() throws UserException {
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisJobTblStmt());
@@ -99,6 +109,40 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     @VisibleForTesting
+    public CreateTableStmt buildAnalysisTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_TBL_NAME);
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
+        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
+        partId.setAllowNull(true);
+        columnDefs.add(partId);
+        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("last_analyze_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        String engineName = "olap";
+        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
+                "db_id", "tbl_id", "idx_id", "part_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
+        DistributionDesc distributionDesc = new HashDistributionDesc(
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+            }
+        };
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                properties, null, "Doris internal statistics table, don't modify it", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
+    }
+
+    @VisibleForTesting
     public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
@@ -115,8 +159,8 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
-        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
+        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
@@ -183,15 +227,30 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("col_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("index_id", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("col_partitions", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("job_type", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("analysis_type", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("message", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("last_exec_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("state", TypeDef.createVarchar(32)));
+        columnDefs.add(new ColumnDef("analysis_mode", TypeDef.createVarchar(32)));
+        columnDefs.add(new ColumnDef("analysis_method", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("schedule_type", TypeDef.createVarchar(32)));
+        columnDefs.add(new ColumnDef("state", TypeDef.createVarchar(32)));
+        columnDefs.add(new ColumnDef("sample_percent", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("sample_rows", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("max_bucket_num", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("period_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("last_exec_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("message", TypeDef.createVarchar(1024)));
+        // TODO remove this code after the table structure is stable
+        if (!isSchemaChanged && isTableChanged(tableName, columnDefs)) {
+            isSchemaChanged = true;
+            DropTableStmt dropTableStmt = new DropTableStmt(true, tableName, true);
+            StatisticsUtil.analyze(dropTableStmt);
+            Env.getCurrentEnv().getInternalCatalog().dropTable(dropTableStmt);
+        }
         String engineName = "olap";
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
-                Lists.newArrayList("job_id", "task_id"));
+        ArrayList<String> uniqueKeys = Lists.newArrayList("job_id", "task_id",
+                "catalog_name", "db_name", "tbl_name", "col_name", "index_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
 
         DistributionDesc distributionDesc = new HashDistributionDesc(
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
@@ -217,8 +276,51 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Database db = optionalDatabase.get();
-        return db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
+        // TODO remove this code after the table structure is stable
+        try {
+            buildAnalysisJobTblStmt();
+        } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
+        }
+        return !isSchemaChanged
+                && db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
+                && db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
+                && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.ANALYSIS_JOB_TABLE).isPresent();
+    }
+
+    /**
+     * Compare whether the current internal table schema meets expectations,
+     * delete and rebuild if it does not meet the table schema.
+     * TODO remove this code after the table structure is stable
+     */
+    private boolean isTableChanged(TableName tableName, List<ColumnDef> columnDefs) {
+        try {
+            String catalogName = Env.getCurrentEnv().getInternalCatalog().getName();
+            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + tableName.getDb();
+            TableIf table = StatisticsUtil.findTable(catalogName, dbName, tableName.getTbl());
+            List<Column> existColumns = table.getBaseSchema(false);
+            existColumns.sort(Comparator.comparing(Column::getName));
+            List<Column> columns = columnDefs.stream()
+                    .map(ColumnDef::toColumn)
+                    .sorted(Comparator.comparing(Column::getName))
+                    .collect(Collectors.toList());
+            if (columns.size() != existColumns.size()) {
+                return true;
+            }
+            for (int i = 0; i < columns.size(); i++) {
+                Column c1 = columns.get(i);
+                Column c2 = existColumns.get(i);
+                if (!c1.getName().equals(c2.getName())
+                        || c1.getDataType() != c2.getDataType()) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("Failed to check table schema", t);
+            return false;
+        }
     }
 
 }

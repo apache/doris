@@ -61,7 +61,7 @@ CELLARS=(
     wget
     pcre
     maven
-    llvm@15
+    llvm@16
 )
 for cellar in "\${CELLARS[@]}"; do
     EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
@@ -117,7 +117,7 @@ fi
 if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     # set GCC HOME
     if [[ -z "${DORIS_GCC_HOME}" ]]; then
-        DORIS_GCC_HOME="$(dirname "$(which gcc)")"/..
+        DORIS_GCC_HOME="$(dirname "$(command -v gcc)")"/..
         export DORIS_GCC_HOME
     fi
 
@@ -132,10 +132,11 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
     if test -x "${DORIS_GCC_HOME}/bin/ld"; then
         export DORIS_BIN_UTILS="${DORIS_GCC_HOME}/bin/"
     fi
+    ENABLE_PCH='OFF'
 elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     # set CLANG HOME
     if [[ -z "${DORIS_CLANG_HOME}" ]]; then
-        DORIS_CLANG_HOME="$(dirname "$(which clang)")"/..
+        DORIS_CLANG_HOME="$(dirname "$(command -v clang)")"/..
         export DORIS_CLANG_HOME
     fi
 
@@ -153,6 +154,11 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
         export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
     fi
+    if [[ -z "${ENABLE_PCH}" ]]; then
+        ENABLE_PCH='ON'
+    else
+        ENABLE_PCH='OFF'
+    fi
 else
     echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
     exit 1
@@ -163,7 +169,7 @@ if [[ -z "${DORIS_BIN_UTILS}" ]]; then
 fi
 
 if [[ -z "${DORIS_GCC_HOME}" ]]; then
-    DORIS_GCC_HOME="$(dirname "$(which gcc)")/.."
+    DORIS_GCC_HOME="$(dirname "$(command -v gcc)")/.."
     export DORIS_GCC_HOME
 fi
 
@@ -191,8 +197,8 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
 
     # check java home
     if [[ -z "${JAVA_HOME}" ]]; then
-        JAVA="$(which java)"
-        JAVAP="$(which javap)"
+        JAVA="$(command -v java)"
+        JAVAP="$(command -v javap)"
     else
         JAVA="${JAVA_HOME}/bin/java"
         JAVAP="${JAVA_HOME}/bin/javap"
@@ -243,12 +249,14 @@ export CMAKE_CMD
 
 GENERATOR="Unix Makefiles"
 BUILD_SYSTEM="make"
-if ninja --version 2>/dev/null; then
+if NINJA_VERSION="$(ninja --version 2>/dev/null)"; then
+    echo "ninja ${NINJA_VERSION}"
     GENERATOR="Ninja"
     BUILD_SYSTEM="ninja"
 fi
 
-if ccache --version >/dev/null; then
+if CCACHE_VERSION="$(ccache --version 2>/dev/null)"; then
+    echo "${CCACHE_VERSION}" | head -n 1
     # shellcheck disable=2034
     CMAKE_USE_CCACHE="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 fi
@@ -257,3 +265,4 @@ export GENERATOR
 export BUILD_SYSTEM
 
 export PKG_CONFIG_PATH="${DORIS_HOME}/thirdparty/installed/lib64/pkgconfig:${PKG_CONFIG_PATH}"
+export CCACHE_SLOPPINESS="time_macros pch_defines"

@@ -17,6 +17,19 @@
 
 #include "olap/cumulative_compaction.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <mutex>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
@@ -48,7 +61,7 @@ Status CumulativeCompaction::prepare_compact() {
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact
-    RETURN_NOT_OK(pick_rowsets_to_compact());
+    RETURN_IF_ERROR(pick_rowsets_to_compact());
     TRACE("rowsets picked");
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
@@ -75,7 +88,7 @@ Status CumulativeCompaction::execute_compact_impl() {
 
     // 3. do cumulative compaction, merge rowsets
     int64_t permits = get_compaction_permits();
-    RETURN_NOT_OK(do_compaction(permits));
+    RETURN_IF_ERROR(do_compaction(permits));
     TRACE("compaction finished");
 
     // 4. set state to success
@@ -104,7 +117,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     // candidate_rowsets may not be continuous
     // So we need to choose the longest continuous path from it.
     std::vector<Version> missing_versions;
-    RETURN_NOT_OK(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
+    RETURN_IF_ERROR(find_longest_consecutive_version(&candidate_rowsets, &missing_versions));
     if (!missing_versions.empty()) {
         DCHECK(missing_versions.size() == 2);
         LOG(WARNING) << "There are missed versions among rowsets. "
@@ -140,7 +153,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold = 86400 * 1000;
+            int64_t interval_threshold = config::pick_rowset_to_compact_interval_sec * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {

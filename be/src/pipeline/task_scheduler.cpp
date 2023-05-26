@@ -17,9 +17,30 @@
 
 #include "task_scheduler.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <sched.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <functional>
+#include <ostream>
+#include <string>
+#include <thread>
+
 #include "common/signal_handler.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/query_context.h"
+#include "util/sse_util.hpp"
 #include "util/thread.h"
+#include "util/threadpool.h"
+#include "util/uid_util.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
 
@@ -97,15 +118,23 @@ void BlockedTaskScheduler::_schedule() {
                                    PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->fragment_context()->is_canceled()) {
+                std::string task_ds;
+#ifndef NDEBUG
+                task_ds = task->debug_string();
+#endif
+                LOG(WARNING) << "Canceled, query_id=" << print_id(task->query_context()->query_id)
+                             << ", instance_id="
+                             << print_id(task->fragment_context()->get_fragment_instance_id())
+                             << (task_ds.empty() ? "" : task_ds);
+
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);
                     iter++;
                 } else {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
                 }
-            } else if (task->query_fragments_context()->is_timeout(now)) {
-                LOG(WARNING) << "Timeout, query_id="
-                             << print_id(task->query_fragments_context()->query_id)
+            } else if (task->query_context()->is_timeout(now)) {
+                LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id)
                              << ", instance_id="
                              << print_id(task->fragment_context()->get_fragment_instance_id());
 
@@ -334,12 +363,9 @@ void TaskScheduler::shutdown() {
     }
 }
 
-void TaskScheduler::try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                          taskgroup::TaskGroupPtr& task_group) {
-    if (!task_group->check_version(task_group_info._version)) {
-        return;
-    }
-    _task_queue->update_task_group(task_group_info, task_group);
+void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                        taskgroup::TaskGroupPtr task_group) {
+    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

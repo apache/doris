@@ -30,6 +30,7 @@
 namespace doris {
 
 // only use in runtime filter and segment v2
+
 template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
 public:
@@ -40,7 +41,7 @@ public:
                                int be_exec_version)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())),
+              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())),
               _be_exec_version(be_exec_version) {}
     ~BloomFilterColumnPredicate() override = default;
 
@@ -65,17 +66,31 @@ private:
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
             auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = sel[i];
-                sel[new_size] = idx;
-                if constexpr (is_nullable) {
-                    new_size += !null_map[idx] &&
-                                _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                } else {
-                    new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+            if (_be_exec_version >= 2) {
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    sel[new_size] = idx;
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] && _specific_filter->find_uint32_t(
+                                                              dict_col->get_crc32_hash_value(idx));
+                    } else {
+                        new_size += _specific_filter->find_uint32_t(
+                                dict_col->get_crc32_hash_value(idx));
+                    }
+                }
+            } else {
+                for (uint16_t i = 0; i < size; i++) {
+                    uint16_t idx = sel[i];
+                    sel[new_size] = idx;
+                    if constexpr (is_nullable) {
+                        new_size += !null_map[idx] &&
+                                    _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                    } else {
+                        new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                    }
                 }
             }
-        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
+        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, T)) {
             const auto& data =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
@@ -118,10 +133,10 @@ private:
         return info;
     }
 
+    int get_filter_id() const override { return _filter->get_filter_id(); }
+
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
     mutable bool _always_true = false;
     mutable bool _has_calculate_filter = false;
     int _be_exec_version;

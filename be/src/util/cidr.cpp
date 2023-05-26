@@ -18,9 +18,15 @@
 #include "util/cidr.h"
 
 #include <arpa/inet.h>
+#include <sys/socket.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <exception>
+#include <iterator>
+#include <ostream>
 
 #include "common/logging.h"
-#include "gutil/strings/split.h"
 
 namespace doris {
 

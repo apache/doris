@@ -20,6 +20,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_count.h"
 
+#include <string>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 

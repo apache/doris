@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -33,8 +35,11 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical hash join plan.
@@ -76,13 +81,7 @@ public class PhysicalHashJoin<
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
-    /**
-     * Constructor of PhysicalHashJoinNode.
-     *
-     * @param joinType Which join type, left semi join, inner join...
-     * @param hashJoinConjuncts conjunct list could use for build hash table in hash join
-     */
-    public PhysicalHashJoin(
+    private PhysicalHashJoin(
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
@@ -96,6 +95,31 @@ public class PhysicalHashJoin<
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_HASH_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
                 groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
+    }
+
+    /**
+     * Get all used slots from hashJoinConjuncts of join.
+     * Return pair of left used slots and right used slots.
+     */
+    public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
+        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+
+        Set<ExprId> leftExprIds = left().getOutputExprIdSet();
+        Set<ExprId> rightExprIds = right().getOutputExprIdSet();
+
+        for (Expression expr : hashJoinConjuncts) {
+            expr.getInputSlotExprIds().forEach(exprId -> {
+                if (leftExprIds.contains(exprId)) {
+                    exprIds1.add(exprId);
+                } else if (rightExprIds.contains(exprId)) {
+                    exprIds2.add(exprId);
+                } else {
+                    throw new RuntimeException("Could not generate valid equal on clause slot pairs for join");
+                }
+            });
+        }
+        return Pair.of(exprIds1, exprIds2);
     }
 
     @Override
@@ -153,14 +177,41 @@ public class PhysicalHashJoin<
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
     }
 
+    private class ExprComparator implements Comparator<Expression> {
+        @Override
+        public int compare(Expression e1, Expression e2) {
+            List<ExprId> ids1 = e1.getInputSlotExprIds()
+                    .stream().sorted(Comparator.comparing(ExprId::asInt))
+                    .collect(Collectors.toList());
+            List<ExprId> ids2 = e2.getInputSlotExprIds()
+                    .stream().sorted(Comparator.comparing(ExprId::asInt))
+                    .collect(Collectors.toList());
+            if (ids1.size() > ids2.size()) {
+                return 1;
+            } else if (ids1.size() < ids2.size()) {
+                return -1;
+            } else {
+                for (int i = 0; i < ids1.size(); i++) {
+                    if (ids1.get(i).asInt() > ids2.get(i).asInt()) {
+                        return 1;
+                    } else if (ids1.get(i).asInt() < ids2.get(i).asInt()) {
+                        return -1;
+                    }
+                }
+                return 0;
+            }
+        }
+    }
+
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
         builder.append("hashJoin[").append(joinType).append("]");
-        hashJoinConjuncts.forEach(expr -> {
+        // print sorted hash conjuncts for plan check
+        hashJoinConjuncts.stream().sorted(new ExprComparator()).forEach(expr -> {
             builder.append(expr.shapeInfo());
         });
-        otherJoinConjuncts.forEach(expr -> {
+        otherJoinConjuncts.stream().sorted(new ExprComparator()).forEach(expr -> {
             builder.append(expr.shapeInfo());
         });
         return builder.toString();

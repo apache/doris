@@ -16,12 +16,48 @@
 // under the License.
 #pragma once
 #include <common/status.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "exec/text_converter.h"
-#include "io/fs/file_reader.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/columns/column.h"
+#include "vec/common/allocator.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class Block;
+class FieldDescriptor;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace tparquet {
+class ColumnMetaData;
+class OffsetIndex;
+class RowGroup;
+} // namespace tparquet
 
 namespace doris::vectorized {
 
@@ -142,8 +178,8 @@ private:
             const std::unordered_map<std::string, VExprContext*>& missing_columns);
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
-                         const vector<uint32_t>& columns_to_filter);
-    Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter,
+                         const std::vector<uint32_t>& columns_to_filter);
+    Status _filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter);
 
     bool _can_filter_by_dict(int slot_id, const tparquet::ColumnMetaData& column_metadata);
@@ -151,14 +187,6 @@ private:
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
-    Status _execute_conjuncts(const std::vector<VExprContext*>& ctxs,
-                              const std::vector<IColumn::Filter*>& filters, Block* block,
-                              IColumn::Filter* result_filter, bool* can_filter_all);
-    Status _execute_conjuncts_and_filter_block(const std::vector<VExprContext*>& ctxs,
-                                               const std::vector<IColumn::Filter*>& filters,
-                                               Block* block,
-                                               std::vector<uint32_t>& columns_to_filter,
-                                               int column_to_keep);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;

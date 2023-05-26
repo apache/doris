@@ -189,7 +189,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     for (int i = 0; i < size; i++) {
                         hashEqExpr.add(new EqualTo(leftSlots.get(i), rightSlots.get(i)));
                     }
-                    return lj.withHashJoinConjuncts(hashEqExpr);
+                    return lj.withJoinConjuncts(hashEqExpr, lj.getOtherJoinConjuncts());
                 })
             ),
             RuleType.BINDING_JOIN_SLOT.build(

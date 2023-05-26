@@ -17,7 +17,23 @@
 
 #include "vec/exec/vselect_node.h"
 
+#include <opentelemetry/nostd/shared_ptr.h>
+
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+
 namespace vectorized {
 
 VSelectNode::VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -32,26 +48,22 @@ Status VSelectNode::prepare(RuntimeState* state) {
 }
 
 Status VSelectNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::open");
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
 
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         if (_child_eos) {
             *eos = true;
             break;
@@ -62,7 +74,6 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::pull");
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
@@ -75,7 +86,6 @@ Status VSelectNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::close");
     return ExecNode::close(state);
 }
 

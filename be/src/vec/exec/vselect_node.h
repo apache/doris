@@ -16,10 +16,17 @@
 // under the License.
 
 #pragma once
+#include "common/status.h"
 #include "exec/exec_node.h"
 
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+
 namespace vectorized {
+class Block;
 
 class VSelectNode final : public ExecNode {
 public:

@@ -17,9 +17,17 @@
 
 #include "olap/primary_key_index.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "io/fs/file_reader.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/types.h"
 
 namespace doris {
 
@@ -73,6 +81,7 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
                                           const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
+    _index_reader->set_is_pk_index(true);
     RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
 
     _index_parsed = true;

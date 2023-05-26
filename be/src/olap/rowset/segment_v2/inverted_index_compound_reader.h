@@ -17,13 +17,28 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/SharedHeader.h>
+#include <CLucene/store/Directory.h>
+#include <CLucene/store/IndexInput.h>
+#include <CLucene/store/IndexOutput.h>
+#include <CLucene/util/Equators.h>
+#include <CLucene/util/VoidMap.h>
+#include <stdint.h>
 
-#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
+
+class CLuceneError;
+
+namespace lucene {
+namespace store {
+class RAMDirectory;
+} // namespace store
+} // namespace lucene
 
 namespace doris {
 
@@ -32,6 +47,7 @@ namespace segment_v2 {
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
     class ReaderFileEntry;
+
     friend class DorisCompoundReader::ReaderFileEntry;
 
     int32_t readBufferSize;
@@ -67,6 +83,8 @@ public:
     int64_t fileLength(const char* name) const override;
     bool openInput(const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
                    int32_t bufferSize = -1) override;
+    bool openInput(const char* name, std::unique_ptr<lucene::store::IndexInput>& ret,
+                   CLuceneError& err, int32_t bufferSize = -1);
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;

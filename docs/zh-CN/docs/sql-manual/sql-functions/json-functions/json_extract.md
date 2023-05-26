@@ -13,7 +13,9 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
+
   http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -23,15 +25,49 @@ under the License.
 -->
 
 ## json_extract
-### description
 
+<version since="dev"></version>
+
+### description
 #### Syntax
 
-`VARCHAR json_extract(VARCHAR json_str, VARCHAR path[, VARCHAR path] ...))`
+```sql
+VARCHAR json_extract(VARCHAR json_str, VARCHAR path[, VARCHAR path] ...)
+JSON jsonb_extract(JSON j, VARCHAR json_path)
+BOOLEAN json_extract_isnull(JSON j, VARCHAR json_path)
+BOOLEAN json_extract_bool(JSON j, VARCHAR json_path)
+INT json_extract_int(JSON j, VARCHAR json_path)
+BIGINT json_extract_bigint(JSON j, VARCHAR json_path)
+DOUBLE json_extract_double(JSON j, VARCHAR json_path)
+STRING json_extract_string(JSON j, VARCHAR json_path)
+```
 
-json_extract函数从 JSON 文档中返回数据，这些数据是从与 `path` 参数所匹配的文档部分中选择的。如果任何参数为 NULL 或者 `json_str` 参数不是有效的 JSON 文档，则返回 NULL。如果 `path` 参数不是一个有效的路径(即这个路径没有出现在JSON文档中)，则返回的数组中对应的项为 NULL(见下面例子)。
+
+
+json_extract是一系列函数，从JSON类型的数据中提取json_path指定的字段，根据要提取的字段类型不同提供不同的系列函数。
+- json_extract对VARCHAR类型的json string返回VARCHAR类型
+- jsonb_extract返回JSON类型
+- json_extract_isnull返回是否为json null的BOOLEAN类型
+- json_extract_bool返回BOOLEAN类型
+- json_extract_int返回INT类型
+- json_extract_bigint返回BIGINT类型
+- json_extract_double返回DOUBLE类型
+- json_extract_STRING返回STRING类型
+
+json path的语法如下
+- '$' 代表json root
+- '.k1' 代表json object中key为'k1'的元素
+  - 如果 key 列值包含 ".", json_path 中需要用双引号，例如 SELECT json_extract('{"k1.a":"abc","k2":300}', '$."k1.a"'); 
+- '[i]' 代表json array中下标为i的元素
+  - 获取 json_array 的最后一个元素可以用'$[last]'，倒数第二个元素可以用'$[last-1]'，以此类推
+
+特殊情况处理如下：
+- 如果 json_path 指定的字段在JSON中不存在，返回NULL
+- 如果 json_path 指定的字段在JSON中的实际类型和json_extract_t指定的类型不一致，如果能无损转换成指定类型返回指定类型t，如果不能则返回NULL
 
 ### example
+
+参考 [json tutorial](../../sql-reference/Data-Types/JSON.md) 中的示例
 
 ```
 mysql> SELECT json_extract('{"id": 123, "name": "doris"}', '$.id');
@@ -68,4 +104,4 @@ mysql> SELECT json_extract('{"id": 123, "name": "doris"}', '$.aaa', '$.name');
 ```
 
 ### keywords
-JSON, EXTRACT, JSON_EXTRACT
+JSONB, JSON, json_extract, json_extract_isnull, json_extract_bool, json_extract_int, json_extract_bigint, json_extract_double, json_extract_string

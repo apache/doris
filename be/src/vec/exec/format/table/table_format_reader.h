@@ -17,17 +17,30 @@
 
 #pragma once
 
-#include <string>
+#include <stddef.h>
 
-#include "runtime/runtime_state.h"
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+
+#include "common/status.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace doris {
+class TFileRangeDesc;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
 class TableFormatReader : public GenericReader {
 public:
-    TableFormatReader(GenericReader* file_format_reader);
+    TableFormatReader(std::unique_ptr<GenericReader> file_format_reader);
     ~TableFormatReader() override = default;
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
         return _file_format_reader->get_next_block(block, read_rows, eof);

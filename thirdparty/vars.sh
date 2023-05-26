@@ -54,12 +54,6 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
-#clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.9.tar.gz"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.9.tar.gz"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.9"
-CLUCENE_MD5SUM="2d5c48bd24b0757d0fecb74111b9b2ed"
-
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -203,10 +197,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
-BRPC_NAME="brpc-1.4.0.tar.gz"
-BRPC_SOURCE="brpc-1.4.0"
-BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.5.0.tar.gz"
+BRPC_NAME="brpc-1.5.0.tar.gz"
+BRPC_SOURCE="brpc-1.5.0"
+BRPC_MD5SUM="d1b6d9b615292dfa5cefa227822c5996"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -417,16 +411,16 @@ NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
 # opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
-OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.19.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.19.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.19.0
+OPENTELEMETRY_PROTO_MD5SUM="8a5fb1ba721341994a5e7cae8b38bcc6"
 
 # opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
-OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
-OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.8.3.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.8.3.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.8.3
+OPENTELEMETRY_MD5SUM="a051dbbced2b7eb7a7227bdf5b3b9a10"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -459,14 +453,13 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
-HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.2-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.2-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.2-for-doris"
+HADOOP_LIBS_MD5SUM="88a09261810a4e3a18d4101600234202"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
-    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -531,7 +524,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS_X86'
+    'HADOOP_LIBS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

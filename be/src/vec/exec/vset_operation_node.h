@@ -17,18 +17,37 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <functional>
+#include <iosfwd>
+#include <memory>
+#include <unordered_map>
+#include <variant>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/exec_node.h"
-#include "runtime/runtime_state.h"
-#include "vec/core/materialize_block.h"
-#include "vec/exec/join/join_op.h"
-#include "vec/exec/join/vacquire_list.hpp"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/common/arena.h"
+#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
-#include "vec/functions/function.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
 
 namespace vectorized {
+class VExprContext;
+struct RowRefListWithFlags;
 
 template <bool is_intersect>
 class VSetOperationNode final : public ExecNode {
@@ -60,7 +79,7 @@ private:
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block, uint8_t offset);
+    Status process_build_block(Block& block, uint8_t offset, RuntimeState* state);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     void refresh_hash_table();

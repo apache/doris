@@ -17,24 +17,28 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/options.h"
+#include "vec/core/block_spill_reader.h"
+#include "vec/core/block_spill_writer.h"
 
 namespace doris {
 class RuntimeProfile;
 
 namespace vectorized {
-class BlockSpillWriter;
-class BlockSpillReader;
+
 using BlockSpillWriterUPtr = std::unique_ptr<BlockSpillWriter>;
 using BlockSpillReaderUPtr = std::unique_ptr<BlockSpillReader>;
 } // namespace vectorized
 
-class ExecEnv;
 class BlockSpillManager {
 public:
     BlockSpillManager(const std::vector<StorePath>& paths);

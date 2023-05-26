@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -148,6 +149,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     }
 
     @Override
+    public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
+        return CostV1.of(
+            childStatistics.getRowCount(),
+            statistics.getRowCount(),
+            childStatistics.getRowCount());
+    }
+
+    @Override
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
         Statistics childStatistics = context.getChildStatistics(0);
@@ -162,7 +173,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
+            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getAllBackendIds(true).size();
+            if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
+                beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+            }
             int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
             beNumber = Math.max(1, beNumber);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
@@ -174,10 +188,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
+            // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
+            // - sender number and receiver number is not available at RBO stage now, so we use beNumber
+            // - senders and receivers work in parallel, that why we use square of beNumber
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount() * beNumber);
+                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
 
         }
 

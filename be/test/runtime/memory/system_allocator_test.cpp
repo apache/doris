@@ -17,9 +17,12 @@
 
 #include "runtime/memory/system_allocator.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "common/config.h"
+#include <memory>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 
@@ -28,13 +31,13 @@ void test_normal() {
         auto ptr = SystemAllocator::allocate(4096);
         EXPECT_NE(nullptr, ptr);
         EXPECT_EQ(0, (uint64_t)ptr % 4096);
-        SystemAllocator::free(ptr, 4096);
+        SystemAllocator::free(ptr);
     }
     {
         auto ptr = SystemAllocator::allocate(100);
         EXPECT_NE(nullptr, ptr);
         EXPECT_EQ(0, (uint64_t)ptr % 4096);
-        SystemAllocator::free(ptr, 100);
+        SystemAllocator::free(ptr);
     }
 }
 

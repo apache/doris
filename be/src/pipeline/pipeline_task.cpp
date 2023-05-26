@@ -17,10 +17,38 @@
 
 #include "pipeline_task.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <ostream>
+
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
+#include "runtime/descriptors.h"
+#include "runtime/query_context.h"
+#include "runtime/thread_context.h"
 #include "task_queue.h"
+#include "util/defer_op.h"
+
+namespace doris {
+class RuntimeState;
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
+
+void PipelineTask::_fresh_profile_counter() {
+    COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
+    COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
+    COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
+    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+}
 
 void PipelineTask::_init_profile() {
     std::stringstream ss;
@@ -78,7 +106,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block.reset(new doris::vectorized::Block());
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -98,7 +126,7 @@ bool PipelineTask::has_dependency() {
         return true;
     }
 
-    if (!query_fragments_context()->is_ready_to_execute()) {
+    if (!query_context()->is_ready_to_execute()) {
         return true;
     }
 
@@ -235,18 +263,14 @@ Status PipelineTask::close() {
         }
     }
     if (_opened) {
-        COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
-        COUNTER_UPDATE(_schedule_counts, _schedule_time);
-        COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
-        COUNTER_UPDATE(_close_timer, close_ns);
+        _fresh_profile_counter();
+        COUNTER_SET(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
 }
 
-QueryFragmentsCtx* PipelineTask::query_fragments_context() {
+QueryContext* PipelineTask::query_context() {
     return _fragment_context->get_query_context();
 }
 
@@ -276,8 +300,13 @@ void PipelineTask::set_state(PipelineTaskState state) {
     _cur_state = state;
 }
 
-std::string PipelineTask::debug_string() const {
+std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    std::stringstream profile_ss;
+    _fresh_profile_counter();
+    _task_profile->pretty_print(&profile_ss, "");
+
+    fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {

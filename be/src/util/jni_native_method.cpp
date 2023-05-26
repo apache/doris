@@ -17,6 +17,9 @@
 
 #include "jni_native_method.h"
 
+#include <stdlib.h>
+
+#include "jni.h"
 #include "vec/columns/column_string.h"
 
 namespace doris {

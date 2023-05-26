@@ -40,6 +40,11 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | explain? INSERT INTO tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?  // partition define
+        (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
+        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
+        query                                                          #insertIntoQuery
     ;
 
 // -----------------Command accessories-----------------
@@ -177,7 +182,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
 lateralView
@@ -281,8 +286,8 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
     ;
 
@@ -579,6 +584,7 @@ nonReserved
     | IS
     | ITEMS
     | KEYS
+    | LABEL
     | LAST
     | LAZY
     | LEADING

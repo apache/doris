@@ -17,14 +17,30 @@
 
 #include "vec/data_types/data_type_time_v2.h"
 
+#include <gen_cpp/data.pb.h>
+
+#include <memory>
+#include <ostream>
 #include <string>
+#include <typeinfo>
+#include <utility>
 
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {

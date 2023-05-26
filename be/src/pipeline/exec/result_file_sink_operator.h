@@ -17,12 +17,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
+#include "vec/sink/vresult_file_sink.h"
 
 namespace doris {
-namespace vectorized {
-class VResultFileSink;
-}
+class DataSink;
 
 namespace pipeline {
 

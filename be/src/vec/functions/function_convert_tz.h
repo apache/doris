@@ -17,13 +17,50 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+#include "common/status.h"
+#include "udf/udf.h"
+#include "util/binary_cast.hpp"
+#include "util/timezone_utils.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/utils/util.hpp"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/functions/function.h"
+
+namespace doris {
+namespace vectorized {
+class DataTypeDate;
+class VecDateTimeValue;
+struct DateTimeV2ValueType;
+struct DateV2ValueType;
+template <typename T>
+class DateV2Value;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -162,7 +199,6 @@ public:
         return Transform::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -194,7 +230,7 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column);
+            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
         }
 
         if (col_const[1] && col_const[2]) {

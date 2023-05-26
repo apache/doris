@@ -17,17 +17,15 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/result_queue_mgr.h"
-#include "util/blocking_queue.hpp"
 
 namespace arrow {
 
-class MemoryPool;
-class RecordBatch;
 class Schema;
 
 } // namespace arrow
@@ -35,14 +33,15 @@ class Schema;
 namespace doris {
 
 class ObjectPool;
-class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
-class BufferControlBlock;
-class ResultWriter;
+class RowDescriptor;
+class TExpr;
+class TMemoryScratchSink;
 
 namespace vectorized {
 class VExprContext;
+class Block;
 
 // used to push data to blocking queue
 class MemoryScratchSink final : public DataSink {

@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -34,8 +35,7 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,7 +56,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
 
 
     @Override
-    protected void getColumnStatsByMeta() throws Exception {
+    protected void getStatsByMeta() throws Exception {
         Table icebergTable = getIcebergTable();
         TableScan tableScan = icebergTable.newScan().includeColumnStats();
         for (FileScanTask task : tableScan.planFiles()) {
@@ -107,8 +107,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         params.put("numRows", String.valueOf(numRows));
         params.put("nulls", String.valueOf(numNulls));
         params.put("dataSize", String.valueOf(dataSize));
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        params.put("update_time", sdf.format(new Date()));
+        params.put("update_time", TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
 
         // Update table level stats info of this column.
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);

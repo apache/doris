@@ -17,21 +17,40 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
 #include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "exprs/bitmapfilter_predicate.h"
-#include "exprs/hybrid_set.h"
-#include "gen_cpp/Exprs_types.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/function.h"
 
 namespace doris {
+class BitmapFilterFuncBase;
+class BloomFilterFuncBase;
+class HybridSetBase;
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+
 namespace vectorized {
+class VExprContext;
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -41,6 +60,9 @@ namespace vectorized {
         RETURN_IF_ERROR(stmt);            \
     }
 
+// VExpr should be used as shared pointer because it will be passed between classes
+// like runtime filter to scan node, or from scannode to scanner. We could not make sure
+// the relatioinship between threads and classes.
 class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows()
@@ -127,9 +149,8 @@ public:
 
     static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr);
 
-    static Status create_tree_from_thrift(doris::ObjectPool* pool,
-                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
-                                          VExpr** root_expr, VExprContext** ctx);
+    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
+                                          int* node_idx, VExpr** root_expr, VExprContext** ctx);
     virtual const std::vector<VExpr*>& children() const { return _children; }
     void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
@@ -156,7 +177,7 @@ public:
     int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
@@ -189,9 +210,11 @@ protected:
         return out.str();
     }
 
+    Status check_constant(const Block& block, ColumnNumbers arguments) const;
+
     /// Helper function that calls ctx->register(), sets fn_context_index_, and returns the
     /// registered FunctionContext
-    void register_function_context(doris::RuntimeState* state, VExprContext* context);
+    void register_function_context(RuntimeState* state, VExprContext* context);
 
     /// Helper function to initialize function context, called in `open` phase of VExpr:
     /// 1. Set constant columns result of function arguments.
@@ -223,6 +246,9 @@ protected:
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared;
 };
+
+using VExprSPtr = std::shared_ptr<VExpr>;
+using VExprUPtr = std::unique_ptr<VExpr>;
 
 } // namespace vectorized
 } // namespace doris

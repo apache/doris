@@ -19,32 +19,29 @@
 // and modified by Doris
 
 #pragma once
-#include <mutex>
-#include <string>
-#include <type_traits>
+#include <gen_cpp/Types_types.h>
 
-#include "arrow/type.h"
-#include "common/consts.h"
-#include "gen_cpp/data.pb.h"
-#include "olap/field.h"
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "olap/tablet_schema.h"
 #include "runtime/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_jsonb.h"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_quantilestate.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+
+namespace arrow {
+class DataType;
+} // namespace arrow
+namespace doris {
+class Field;
+class PColumnMeta;
+enum class FieldType;
+
+namespace vectorized {
+enum class TypeIndex;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

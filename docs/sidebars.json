@@ -18,25 +18,25 @@
             "type": "category",
             "label": "Install And Deploy",
             "items": [
-                "install/install-deploy",
+                "install/standard-deployment",
                 {
                     "type": "category",
-                    "label": "Compile",
+                    "label": "Docker Deployment",
                     "items": [
-                        "install/source-install/compilation",
+                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/run-docker-cluster"
+                    ]
+                },
+                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Source Code Compilation",
+                    "items": [
+                        "install/source-install/compilation-general",
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm",
                         "install/source-install/compilation-win",
                         "install/source-install/compilation-mac"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "Construct Docker",
-                    "items": [
-                        "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/run-docker-cluster",
-                        "install/construct-docker/k8s-deploy"
                     ]
                 }
             ]
@@ -91,7 +91,6 @@
                             "type": "category",
                             "label": "Import Way",
                             "items": [
-                                "data-operate/import/import-way/binlog-load-manual",
                                 "data-operate/import/import-way/broker-load-manual",
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
@@ -152,19 +151,7 @@
                         "advanced/cache/partition-cache"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "Join Optimization",
-                    "items": [
-                        "advanced/join-optimization/bucket-shuffle-join",
-                        "advanced/join-optimization/colocation-join",
-                        "advanced/join-optimization/runtime-filter",
-                        "advanced/join-optimization/doris-join-optimization"
-                    ]
-                },
-                "advanced/pipeline-execution-engine",
                 "advanced/autobucket",
-                "advanced/materialized-view",
                 "advanced/broker",
                 {
                     "type": "category",
@@ -184,9 +171,28 @@
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
                 "advanced/compute_node",
-                "advanced/hight-concurrent-point-query",
-                "advanced/nereids",
                 "advanced/lateral-view"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Query Acceleration",
+            "items": [
+                "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/nereids",
+                "query-acceleration/hight-concurrent-point-query",
+                "query-acceleration/materialized-view",
+                "query-acceleration/statistics",
+                {
+                    "type": "category",
+                    "label": "Join Optimization",
+                    "items": [
+                        "query-acceleration/join-optimization/bucket-shuffle-join",
+                        "query-acceleration/join-optimization/colocation-join",
+                        "query-acceleration/join-optimization/runtime-filter",
+                        "query-acceleration/join-optimization/doris-join-optimization"
+                    ]
+                }
             ]
         },
         {
@@ -301,9 +307,12 @@
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
                                 "sql-manual/sql-functions/array-functions/array_shuffle",
+                                "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
+                                "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
+                                "sql-manual/sql-functions/array-functions/array_count",
                                 "sql-manual/sql-functions/array-functions/countequal",
                                 "sql-manual/sql-functions/array-functions/element_at"
                             ]
@@ -398,9 +407,7 @@
                                 "sql-manual/sql-functions/spatial-functions/st_geometryfromtext",
                                 "sql-manual/sql-functions/spatial-functions/st_linefromtext",
                                 "sql-manual/sql-functions/spatial-functions/st_asbinary",
-                                "sql-manual/sql-functions/spatial-functions/st_asewkb",
-                                "sql-manual/sql-functions/spatial-functions/st_geometryfromwkb",
-                                "sql-manual/sql-functions/spatial-functions/st_geometryfromewkb"
+                                "sql-manual/sql-functions/spatial-functions/st_geometryfromwkb"
                             ]
                         },
                         {
@@ -422,6 +429,7 @@
                                 "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
+                                "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat_ws",
                                 "sql-manual/sql-functions/string-functions/substr",
@@ -483,6 +491,14 @@
                                         "sql-manual/sql-functions/string-functions/regexp/not_regexp"
                                     ]
                                 }
+                            ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Struct Functions",
+                            "items": [
+                                "sql-manual/sql-functions/struct-functions/struct",
+                                "sql-manual/sql-functions/struct-functions/named_struct"
                             ]
                         },
                         {
@@ -591,16 +607,18 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
-                                "sql-manual/sql-functions/json-functions/jsonb_parse",
-                                "sql-manual/sql-functions/json-functions/jsonb_extract",
-                                "sql-manual/sql-functions/json-functions/get_json_double",
-                                "sql-manual/sql-functions/json-functions/get_json_int",
-                                "sql-manual/sql-functions/json-functions/get_json_string",
+                                "sql-manual/sql-functions/json-functions/json_parse",
+                                "sql-manual/sql-functions/json-functions/json_extract",
+                                "sql-manual/sql-functions/json-functions/json_exists_path",
+                                "sql-manual/sql-functions/json-functions/json_type",
                                 "sql-manual/sql-functions/json-functions/json_array",
                                 "sql-manual/sql-functions/json-functions/json_object",
                                 "sql-manual/sql-functions/json-functions/json_quote",
+                                "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
-                                "sql-manual/sql-functions/json-functions/json_extract"
+                                "sql-manual/sql-functions/json-functions/get_json_double",
+                                "sql-manual/sql-functions/json-functions/get_json_int",
+                                "sql-manual/sql-functions/json-functions/get_json_string"
                             ]
                         },
                         {
@@ -768,6 +786,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
@@ -803,6 +822,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
@@ -818,6 +838,7 @@
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
@@ -940,7 +961,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-MIGRATIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITION-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SNAPSHOT",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-ROLLUP",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB",
@@ -961,6 +981,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCE-GROUPS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
@@ -975,7 +996,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-STATS"
                             ]
                         },
                         {
@@ -1003,7 +1025,9 @@
                                 "sql-manual/sql-reference/Data-Types/BITMAP",
                                 "sql-manual/sql-reference/Data-Types/QUANTILE_STATE",
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
-                                "sql-manual/sql-reference/Data-Types/JSONB"
+                                "sql-manual/sql-reference/Data-Types/MAP",
+                                "sql-manual/sql-reference/Data-Types/STRUCT",
+                                "sql-manual/sql-reference/Data-Types/JSON"
                             ]
                         },
                         {
@@ -1021,7 +1045,9 @@
                                 "sql-manual/sql-reference/Utility-Statements/USE",
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
-                                "sql-manual/sql-reference/Utility-Statements/REFRESH"
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH",
+                                "sql-manual/sql-reference/Utility-Statements/SYNC",
+                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
                             ]
                         }
                     ]
@@ -1054,7 +1080,6 @@
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
                 "admin-manual/tracing",
-                "admin-manual/optimization",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {
@@ -1113,6 +1138,7 @@
                         "admin-manual/system-table/rowsets"
                     ]
                 },
+                "admin-manual/resource-group",
                 "admin-manual/multi-tenant",
                 {
                     "type": "category",
@@ -1157,6 +1183,7 @@
                                 "admin-manual/http-actions/fe/profile-action",
                                 "admin-manual/http-actions/fe/query-detail-action",
                                 "admin-manual/http-actions/fe/query-schema-action",
+                                "admin-manual/http-actions/fe/query-stats-action",
                                 "admin-manual/http-actions/fe/row-count-action",
                                 "admin-manual/http-actions/fe/set-config-action",
                                 "admin-manual/http-actions/fe/show-data-action",
@@ -1213,6 +1240,8 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

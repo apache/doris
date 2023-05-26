@@ -49,6 +49,28 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
 
+    // bug fix
+    sql """ insert into ${tableName} values 
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03"),
+                ("2019-08-01 13:21:03");
+    """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+
     sql """ truncate table ${tableName} """
 
     def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
@@ -306,6 +328,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
+    qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3) """
     qt_sql """ SELECT WEEK_CEIL('2020-02-02 13:09:20', '2020-01-06') """
@@ -611,7 +634,7 @@ suite("test_date_function") {
 
     explain {
         sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-        contains "`birth` < '2022-01-01 00:00:00'"
+        contains "`birth` < '2022-01-01'"
     }
 
     explain {

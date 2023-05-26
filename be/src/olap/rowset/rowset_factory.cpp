@@ -17,12 +17,15 @@
 
 #include "olap/rowset/rowset_factory.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 
 #include "beta_rowset.h"
-#include "gen_cpp/olap_file.pb.h"
+#include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
 namespace doris {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -29,8 +30,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -64,7 +66,9 @@ public class GroupExpressionMatchingTest {
                 new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION));
 
         Plan leaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test"));
-        LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
+        LogicalProject root = new LogicalProject(ImmutableList
+                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                leaf);
         Memo memo = new Memo(root);
 
         Plan anotherLeaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test2"));
@@ -93,7 +97,9 @@ public class GroupExpressionMatchingTest {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_PROJECT, Pattern.GROUP);
 
         Plan leaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test"));
-        LogicalProject root = new LogicalProject(Lists.newArrayList(), leaf);
+        LogicalProject root = new LogicalProject(ImmutableList
+                .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
+                leaf);
         Memo memo = new Memo(root);
 
         Plan anotherLeaf = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test2"));
@@ -130,7 +136,9 @@ public class GroupExpressionMatchingTest {
 
     @Test
     public void testAnyWithChild() {
-        Plan root = new LogicalProject(Lists.newArrayList(),
+        Plan root = new LogicalProject(
+                ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true,
+                        ImmutableList.of("test"))),
                 new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("test")));
         Memo memo = new Memo(root);
 

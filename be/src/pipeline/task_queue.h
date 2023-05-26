@@ -16,14 +16,23 @@
 // under the License.
 #pragma once
 
-#include <queue>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <queue>
+#include <set>
+
+#include "common/status.h"
 #include "pipeline_task.h"
+#include "runtime/task_group/task_group.h"
 
 namespace doris {
-namespace taskgroup {
-class TaskGroup;
-}
 
 namespace pipeline {
 
@@ -44,8 +53,8 @@ public:
 
     virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
 
-    virtual void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                   taskgroup::TaskGroupPtr& task_group) = 0;
+    virtual void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                     taskgroup::TaskGroupPtr task_group) = 0;
 
     int cores() const { return _core_size; }
 
@@ -145,9 +154,9 @@ public:
                                                                          time_spent);
     }
 
-    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                           taskgroup::TaskGroupPtr& task_group) override {
-        LOG(FATAL) << "update_task_group not implemented";
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TaskGroupPtr task_group) override {
+        LOG(FATAL) << "update_tg_cpu_share not implemented";
     }
 
 private:
@@ -175,8 +184,8 @@ public:
 
     void update_statistics(PipelineTask* task, int64_t time_spent) override;
 
-    void update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                           taskgroup::TaskGroupPtr& task_group) override;
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TaskGroupPtr task_group) override;
 
 private:
     template <bool from_executor>

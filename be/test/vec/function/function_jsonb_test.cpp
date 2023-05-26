@@ -15,10 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <stdint.h>
 
+#include <iomanip>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "function_test_util.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -26,7 +35,7 @@ namespace doris::vectorized {
 using namespace ut_type;
 
 TEST(FunctionJsonbTEST, JsonbParseTest) {
-    std::string func_name = "jsonb_parse";
+    std::string func_name = "json_parse";
     InputTypeSet input_types = {Nullable {TypeIndex::String}};
 
     DataSet data_set_valid = {
@@ -85,7 +94,7 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
-    std::string func_name = "jsonb_parse_error_to_null";
+    std::string func_name = "json_parse_error_to_null";
     InputTypeSet input_types = {Nullable {TypeIndex::String}};
 
     DataSet data_set = {
@@ -120,7 +129,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
-    std::string func_name = "jsonb_parse_error_to_value";
+    std::string func_name = "json_parse_error_to_value";
     InputTypeSet input_types = {Nullable {TypeIndex::String}, TypeIndex::String};
 
     DataSet data_set = {
@@ -158,7 +167,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
-    std::string func_name = "jsonb_parse_error_to_invalid";
+    std::string func_name = "json_parse_error_to_invalid";
     InputTypeSet input_types = {Nullable {TypeIndex::String}};
 
     DataSet data_set = {
@@ -193,7 +202,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
-    std::string func_name = "jsonb_parse_nullable";
+    std::string func_name = "json_parse_nullable";
     InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set_valid = {
@@ -252,7 +261,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
-    std::string func_name = "jsonb_parse_nullable_error_to_null";
+    std::string func_name = "json_parse_nullable_error_to_null";
     InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set = {
@@ -287,7 +296,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
-    std::string func_name = "jsonb_parse_nullable_error_to_value";
+    std::string func_name = "json_parse_nullable_error_to_value";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
     DataSet data_set = {
@@ -325,7 +334,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
-    std::string func_name = "jsonb_parse_nullable_error_to_invalid";
+    std::string func_name = "json_parse_nullable_error_to_invalid";
     InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set = {
@@ -360,7 +369,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
-    std::string func_name = "jsonb_parse_notnull";
+    std::string func_name = "json_parse_notnull";
     InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set_valid = {
@@ -418,7 +427,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
-    std::string func_name = "jsonb_parse_notnull_error_to_value";
+    std::string func_name = "json_parse_notnull_error_to_value";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
 
     DataSet data_set = {
@@ -455,7 +464,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
-    std::string func_name = "jsonb_parse_notnull_error_to_invalid";
+    std::string func_name = "json_parse_notnull_error_to_invalid";
     InputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set = {
@@ -492,7 +501,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
     std::string func_name = "jsonb_extract";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // jsonb_extract root
+    // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, STRING("null")},
@@ -519,7 +528,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
 
     check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
-    // jsonb_extract obejct
+    // json_extract obejct
     data_set = {
             {{Null(), STRING("$.k1")}, Null()},
             {{STRING("null"), STRING("$.k1")}, Null()},
@@ -544,7 +553,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
 
     check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
-    // jsonb_extract array
+    // json_extract array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
@@ -605,7 +614,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
 
     check_function<DataTypeJsonb, true>(func_name, input_types, data_set);
 
-    // jsonb_extract $[0].k1
+    // json_extract $[0].k1
     data_set = {
             {{Null(), STRING("$[0].k1")}, Null()},
             {{STRING("null"), STRING("$[0].k1")}, Null()},
@@ -632,10 +641,10 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
-    std::string func_name = "jsonb_extract_string";
+    std::string func_name = "json_extract_string";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // jsonb_extract root
+    // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, STRING("null")},
@@ -662,7 +671,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // jsonb_extract obejct
+    // json_extract obejct
     data_set = {
             {{Null(), STRING("$.k1")}, Null()},
             {{STRING("null"), STRING("$.k1")}, Null()},
@@ -687,7 +696,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // jsonb_extract array
+    // json_extract array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
@@ -748,7 +757,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 
-    // jsonb_extract $[0].k1
+    // json_extract $[0].k1
     data_set = {
             {{Null(), STRING("$[0].k1")}, Null()},
             {{STRING("null"), STRING("$[0].k1")}, Null()},
@@ -775,10 +784,10 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
-    std::string func_name = "jsonb_extract_int";
+    std::string func_name = "json_extract_int";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // jsonb_extract root
+    // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, Null()},
@@ -803,7 +812,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
-    // jsonb_extract obejct
+    // json_extract obejct
     data_set = {
             {{Null(), STRING("$.k1")}, Null()},
             {{STRING("null"), STRING("$.k1")}, Null()},
@@ -828,7 +837,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
-    // jsonb_extract array
+    // json_extract array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
@@ -889,7 +898,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
-    // jsonb_extract $[0].k1
+    // json_extract $[0].k1
     data_set = {
             {{Null(), STRING("$[0].k1")}, Null()},
             {{STRING("null"), STRING("$[0].k1")}, Null()},
@@ -918,10 +927,10 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
-    std::string func_name = "jsonb_extract_bigint";
+    std::string func_name = "json_extract_bigint";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // jsonb_extract root
+    // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, Null()},
@@ -946,7 +955,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract obejct
+    // json_extract obejct
     data_set = {
             {{Null(), STRING("$.k1")}, Null()},
             {{STRING("null"), STRING("$.k1")}, Null()},
@@ -971,7 +980,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract array
+    // json_extract array
     data_set = {
             {{Null(), STRING("$[0]")}, Null()},
             {{STRING("null"), STRING("$[0]")}, Null()},
@@ -1032,7 +1041,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract $[0].k1
+    // json_extract $[0].k1
     data_set = {
             {{Null(), STRING("$[0].k1")}, Null()},
             {{STRING("null"), STRING("$[0].k1")}, Null()},
@@ -1061,10 +1070,10 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
-    std::string func_name = "jsonb_extract_double";
+    std::string func_name = "json_extract_double";
     InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
 
-    // jsonb_extract root
+    // json_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
             {{STRING("null"), STRING("$")}, Null()},
@@ -1089,7 +1098,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
 
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract obejct
+    // json_extract obejct
     data_set = {
             {{STRING("null"), STRING("$.k1")}, Null()},
             {{STRING("true"), STRING("$.k1")}, Null()},
@@ -1113,7 +1122,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
 
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract array
+    // json_extract array
     data_set = {
             {{STRING("null"), STRING("$[0]")}, Null()},
             {{STRING("true"), STRING("$[0]")}, Null()},
@@ -1173,7 +1182,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
 
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 
-    // jsonb_extract $[0].k1
+    // json_extract $[0].k1
     data_set = {
             {{STRING("null"), STRING("$[0].k1")}, Null()},
             {{STRING("true"), STRING("$[0].k1")}, Null()},

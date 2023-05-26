@@ -20,13 +20,33 @@
 
 #pragma once
 
-#include <ostream>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_string_serde.h"
+#include "vec/columns/column_string.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class DataTypeString final : public IDataType {
+class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
@@ -50,6 +70,12 @@ public:
 
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
+        DCHECK(node.__isset.string_literal);
+        return node.string_literal.value;
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return false; }
@@ -65,6 +91,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeStringSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

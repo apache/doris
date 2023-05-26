@@ -17,43 +17,115 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include <brpc/http_header.h>
+#include <brpc/http_method.h>
+#include <brpc/uri.h>
+#include <bthread/bthread.h>
+#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <google/protobuf/stubs/common.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <sys/param.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <iterator>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/brpc.h"
+#include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/network_util.h"
 #include "util/proto_util.h"
+#include "util/ref_count_closure.h"
+#include "util/telemetry/telemetry.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+class TExpr;
+
 namespace stream_load {
+
+class OpenPartitionClosure : public google::protobuf::Closure {
+public:
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
+                         int64_t partition_id)
+            : vnode_channel(vnode_channel),
+              index_channel(index_channel),
+              partition_id(partition_id) {};
+
+    ~OpenPartitionClosure() = default;
+
+    void Run() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        if (cntl.Failed()) {
+            std::stringstream ss;
+            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+               << ", error_text=" << this->cntl.ErrorText();
+            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+            vnode_channel->cancel("Open partition error");
+            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                          fmt::format("{}, open failed, err: {}",
+                                                      vnode_channel->channel_info(), ss.str()),
+                                          -1);
+        }
+    }
+
+    void join() { brpc::Join(cntl.call_id()); }
+
+    brpc::Controller cntl;
+    OpenPartitionResult result;
+    VNodeChannel* vnode_channel;
+    IndexChannel* index_channel;
+    int64_t partition_id;
+};
 
 IndexChannel::~IndexChannel() {
     if (_where_clause != nullptr) {
@@ -286,6 +358,7 @@ void VNodeChannel::open() {
     request.set_is_high_priority(_parent->_is_high_priority);
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(true);
+    request.set_backend_id(_node_id);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -316,9 +389,14 @@ Status VNodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str() << " " << channel_info();
+        auto error_code = _open_closure->cntl.ErrorCode();
+        auto error_text = _open_closure->cntl.ErrorText();
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(_open_closure->cntl.ErrorCode()),
-                                     _open_closure->cntl.ErrorText());
+                                     berror(error_code), error_text);
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -420,8 +498,51 @@ Status VNodeChannel::open_wait() {
             _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
             _add_batch_counter.add_batch_num++;
         }
+        if (result.has_load_channel_profile()) {
+            TRuntimeProfileTree tprofile;
+            const uint8_t* buf = (const uint8_t*)result.load_channel_profile().data();
+            uint32_t len = result.load_channel_profile().size();
+            auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
+            if (st.ok()) {
+                _state->load_channel_profile()->update(tprofile);
+            } else {
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                             << st;
+            }
+        }
     });
     return status;
+}
+
+void VNodeChannel::open_partition(int64_t partition_id) {
+    _timeout_watch.reset();
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    OpenPartitionRequest request;
+    auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
+    request.set_allocated_id(load_id.get());
+    request.set_index_id(_index_channel->_index_id);
+    for (auto& tablet : _all_tablets) {
+        if (partition_id == tablet.partition_id) {
+            auto ptablet = request.add_tablets();
+            ptablet->set_partition_id(tablet.partition_id);
+            ptablet->set_tablet_id(tablet.tablet_id);
+        }
+    }
+
+    auto open_partition_closure =
+            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
+
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        remain_ms = config::min_load_rpc_timeout_ms;
+    }
+    open_partition_closure->cntl.set_timeout_ms(remain_ms);
+    _stub->open_partition(&open_partition_closure.get()->cntl, &request,
+                          &open_partition_closure.get()->result, open_partition_closure.get());
+
+    _open_partition_closures.insert(std::move(open_partition_closure));
+
+    request.release_id();
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -452,7 +573,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     }
 
     if (UNLIKELY(!_cur_mutable_block)) {
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     }
 
     std::unique_ptr<Payload> temp_payload = nullptr;
@@ -536,7 +657,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -760,6 +881,9 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -824,7 +948,7 @@ void VNodeChannel::mark_close() {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) {
             // add a dummy block
-            _cur_mutable_block.reset(new vectorized::MutableBlock());
+            _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;
@@ -839,10 +963,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool),
-          _input_row_desc(row_desc),
-          _filter_bitmap(1024),
-          _stop_background_threads_latch(1) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -973,18 +1094,26 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
+static void* periodic_send_batch(void* sink) {
+    VOlapTableSink* vsink = (VOlapTableSink*)sink;
+    vsink->_send_batch_process();
+    return nullptr;
+}
+
 Status VOlapTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
+    fmt::memory_buffer buf;
     for (auto index_channel : _channels) {
+        fmt::format_to(buf, "index id:{}", index_channel->_index_id);
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
     }
+    LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
 
     for (auto index_channel : _channels) {
         index_channel->for_each_node_channel([&index_channel](
@@ -1007,24 +1136,43 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process",
-            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
+    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+    }
 
     return Status::OK();
 }
 
-void VOlapTableSink::_send_batch_process(RuntimeState* state) {
+void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
+    const auto& id = partition->id;
+    auto it = _opened_partitions.find(id);
+    if (it == _opened_partitions.end()) {
+        _opened_partitions.insert(id);
+        fmt::memory_buffer buf;
+        for (int j = 0; j < partition->indexes.size(); ++j) {
+            fmt::format_to(buf, "index id:{}", partition->indexes[j].index_id);
+            for (const auto& tid : partition->indexes[j].tablets) {
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                for (const auto& channel : it->second) {
+                    channel->open_partition(partition->id);
+                }
+            }
+        }
+        LOG(INFO) << "list of lazy open index id = " << fmt::to_string(buf);
+    }
+}
+
+void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
-    SCOPED_ATTACH_TASK(state);
+    SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    do {
+    while (true) {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this,
-                                                  state](const std::shared_ptr<VNodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num,
+                                                  this](const std::shared_ptr<VNodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
         }
 
@@ -1034,8 +1182,8 @@ void VOlapTableSink::_send_batch_process(RuntimeState* state) {
                       << print_id(_load_id);
             return;
         }
-    } while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::olap_table_sink_send_interval_ms)));
+        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
+    }
 }
 
 size_t VOlapTableSink::get_pending_bytes() const {
@@ -1115,7 +1263,6 @@ void VOlapTableSink::_generate_row_distribution_payload(
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1136,11 +1283,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     vectorized::Block block(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
-        block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, status);
-        if (UNLIKELY(block.rows() == 0)) {
-            return status;
-        }
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _output_vexpr_ctxs, *input_block, &block));
     }
 
     auto num_rows = block.rows();
@@ -1183,6 +1327,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         }
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+        // open partition
+        if (config::enable_lazy_open_partition) {
+            // aysnc open operation,don't block send operation
+            _open_partition(partition);
+        }
     }
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
@@ -1201,7 +1350,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             for (size_t i = 0; i < filter_col.size(); ++i) {
                 filter_data[i] = !_filter_bitmap.Get(i);
             }
-            vectorized::Block::filter_block_internal(&block, filter_col, block.columns());
+            RETURN_IF_CATCH_EXCEPTION(
+                    vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
         }
     }
     // Add block to node channel
@@ -1230,7 +1380,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
@@ -1336,9 +1485,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    _stop_background_threads_latch.count_down();
     if (_sender_thread) {
-        _sender_thread->join();
+        bthread_join(_sender_thread, nullptr);
         // We have to wait all task in _send_batch_thread_pool_token finished,
         // because it is difficult to handle concurrent problem if we just
         // shutdown it.
@@ -1584,26 +1732,45 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
         DCHECK(type.children.size() == 1);
         auto nested_type = type.children[0];
-        if (nested_type.type == TYPE_ARRAY || nested_type.type == TYPE_CHAR ||
-            nested_type.type == TYPE_VARCHAR || nested_type.type == TYPE_STRING) {
-            const auto& offsets = column_array->get_offsets();
-            vectorized::IColumn::Permutation permutation(offsets.back());
-            for (size_t r = 0; r < offsets.size(); ++r) {
-                for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
-                    permutation[c] = rows ? (*rows)[r] : r;
-                }
+        const auto& offsets = column_array->get_offsets();
+        vectorized::IColumn::Permutation permutation(offsets.back());
+        for (size_t r = 0; r < offsets.size(); ++r) {
+            for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                permutation[c] = rows ? (*rows)[r] : r;
             }
-            fmt::format_to(error_prefix, "ARRAY type failed: ");
-            RETURN_IF_ERROR(_validate_column(
-                    state, nested_type, type.contains_nulls[0], column_array->get_data_ptr(),
-                    slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
         }
+        fmt::format_to(error_prefix, "ARRAY type failed: ");
+        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
+                                         column_array->get_data_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
+        DCHECK(type.children.size() == 2);
+        auto key_type = type.children[0];
+        auto val_type = type.children[1];
+        const auto& offsets = column_map->get_offsets();
+        vectorized::IColumn::Permutation permutation(offsets.back());
+        for (size_t r = 0; r < offsets.size(); ++r) {
+            for (size_t c = offsets[r - 1]; c < offsets[r]; ++c) {
+                permutation[c] = rows ? (*rows)[r] : r;
+            }
+        }
+        fmt::format_to(error_prefix, "MAP type failed: ");
+        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
+                                         column_map->get_keys_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
+        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
+                                         column_map->get_values_ptr(), slot_index, filter_bitmap,
+                                         stop_processing, error_prefix, &permutation));
         break;
     }
     case TYPE_STRUCT: {
         const auto column_struct =
                 assert_cast<const vectorized::ColumnStruct*>(real_column_ptr.get());
         DCHECK(type.children.size() == column_struct->tuple_size());
+        fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
             RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
                                              column_struct->get_column_ptr(sc), slot_index,

@@ -15,21 +15,56 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <brpc/controller.h>
+#include <bthread/id.h>
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/global_types.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "google/protobuf/descriptor.h"
 #include "google/protobuf/service.h"
+#include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "service/brpc.h"
+#include "runtime/query_statistics.h"
+#include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
+#include "util/runtime_profile.h"
+#include "util/uid_util.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 #include "vec/sink/vdata_stream_sender.h"
+
+namespace google {
+namespace protobuf {
+class Closure;
+class Message;
+class MethodDescriptor;
+} // namespace protobuf
+} // namespace google
 
 namespace doris::vectorized {
 

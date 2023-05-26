@@ -68,6 +68,23 @@ suite("test_array_map_function") {
         qt_select_21 "select array_filter(x->abs(x), [1,2]);"
         qt_select_22 "select *,array_filter(x->x%2=0,c_array1) from array_test2 order by id;"
         qt_select_23 "select *,array_filter(x->x%2=0,c_array2) from array_test2 order by id;"
+
+        qt_select_24 "select * from array_test2 order by array_max(array_map(x->x,c_array1));"
         
+        // Array not equal
+        sql """INSERT INTO ${tableName} values
+            (11, [6,7,8],[10,12,13]),
+            (12, [1,2,3], [10,20]),
+            (13, [2,3,4], [10,20,30,40])            
+        """
+        
+        test {
+            sql"""select array_map((x,y)->x+y, c_array1, c_array2) from array_test2 where id > 10 order by id;"""
+            check{result, exception, startTime, endTime ->
+                assertTrue(exception != null)
+                logger.info(exception.message)
+            }
+        }        
+
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

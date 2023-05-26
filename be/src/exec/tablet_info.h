@@ -32,12 +32,9 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class MemTracker;
@@ -90,6 +87,11 @@ public:
 
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
 
+    bool is_partial_update() const { return _is_partial_update; }
+    std::set<std::string> partial_update_input_columns() const {
+        return _partial_update_input_columns;
+    }
+
     std::string debug_string() const;
 
 private:
@@ -102,6 +104,8 @@ private:
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
     bool _is_dynamic_schema = false;
+    bool _is_partial_update = false;
+    std::set<std::string> _partial_update_input_columns;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -259,7 +263,14 @@ struct NodeInfo {
 
 class DorisNodesInfo {
 public:
+    DorisNodesInfo() = default;
     DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
+        for (auto& node : t_nodes.nodes) {
+            _nodes.emplace(node.id, node);
+        }
+    }
+    void setNodes(const TPaloNodesInfo& t_nodes) {
+        _nodes.clear();
         for (auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }

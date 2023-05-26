@@ -20,18 +20,40 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
 #include <cassert>
 #include <cstring>
+#include <typeinfo>
+#include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
+#include "util/hash_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
-#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/common/sip_hash.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -73,7 +95,6 @@ private:
 
     template <bool positive>
     struct less;
-
     template <bool positive>
     struct lessWithCollation;
 
@@ -201,8 +222,13 @@ public:
             if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
                 continue;
             }
-            memcpy(data, ptr, length);
-            data += length;
+
+            if (length != 0) {
+                DCHECK(ptr != nullptr);
+                memcpy(data, ptr, length);
+                data += length;
+            }
+
             if (LIKELY(i != num - 1)) {
                 ptr = strings[i + 1].data;
                 length = 0;
@@ -283,7 +309,6 @@ public:
         }
     }
 
-#define MAX_STRINGS_OVERFLOW_SIZE 128
     template <typename T, size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
             __attribute__((noinline));

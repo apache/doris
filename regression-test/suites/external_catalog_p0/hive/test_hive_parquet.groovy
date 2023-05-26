@@ -18,7 +18,7 @@
 suite("test_hive_parquet", "p0") {
     def q01 = {
         qt_q01 """
-        select * from partition_table order by l_orderkey;
+        select * from partition_table order by l_orderkey, l_partkey, l_suppkey;
     """
     }
 

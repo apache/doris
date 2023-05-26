@@ -17,15 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+
 #include <atomic>
 #include <cstdint>
-#include <cstdlib>
-#include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
 #include <unordered_map>
 
+#include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"

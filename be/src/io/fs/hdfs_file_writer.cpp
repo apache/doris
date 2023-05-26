@@ -17,7 +17,13 @@
 
 #include "io/fs/hdfs_file_writer.h"
 
+#include <fcntl.h>
+#include <stdint.h>
+
 #include <filesystem>
+#include <ostream>
+#include <string>
+#include <utility>
 
 #include "common/logging.h"
 #include "io/fs/err_utils.h"

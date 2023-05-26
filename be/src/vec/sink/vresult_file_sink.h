@@ -17,12 +17,33 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/data_sink.h"
+#include "runtime/descriptors.h"
+#include "vec/core/block.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vresult_sink.h"
 
 namespace doris {
+class BufferControlBlock;
+class ObjectPool;
+class QueryStatistics;
+class RuntimeProfile;
+class RuntimeState;
+class TDataSink;
+class TExpr;
+class TPlanFragmentDestination;
+class TResultFileSink;
+
 namespace vectorized {
 class VResultWriter;
+class VExprContext;
 
 class VResultFileSink : public DataSink {
 public:

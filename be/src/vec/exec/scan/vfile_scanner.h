@@ -17,21 +17,52 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/function_filter.h"
-#include "io/file_factory.h"
+#include "io/io_common.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRange;
+class TFileScanRangeParams;
+
+namespace vectorized {
+class ShardedKVCache;
+class VExpr;
+class VExprContext;
+} // namespace vectorized
+struct TypeDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
 class NewFileScanNode;
 
 class VFileScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(VFileScanner);
+
 public:
+    static constexpr const char* NAME = "VFileScanner";
+
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
@@ -40,10 +71,11 @@ public:
 
     Status close(RuntimeState* state) override;
 
-public:
-    Status prepare(VExprContext** vconjunct_ctx_ptr,
+    Status prepare(VExprContext* vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
+
+    std::string get_name() override { return VFileScanner::NAME; }
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -96,7 +128,7 @@ protected:
     std::unordered_set<std::string> _missing_cols;
 
     // For load task
-    std::unique_ptr<doris::vectorized::VExprContext*> _pre_conjunct_ctx_ptr;
+    doris::vectorized::VExprContext* _pre_conjunct_ctx_ptr = nullptr;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;

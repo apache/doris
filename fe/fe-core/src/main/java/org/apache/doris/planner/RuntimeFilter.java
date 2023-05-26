@@ -86,6 +86,7 @@ public final class RuntimeFilter {
     private long ndvEstimate = -1;
     // Size of the filter (in Bytes). Should be greater than zero for bloom filters.
     private long filterSizeBytes = 0;
+    public long expectFilterSizeBytes = 0;
     // If true, the filter is produced by a broadcast join and there is at least one
     // destination scan node which is in the same fragment as the join; set in
     // DistributedPlanner.createHashJoinFragment().
@@ -192,8 +193,12 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
+        boolean optRemoteRf = true;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            // TODO: now only support SlotRef
+            optRemoteRf = optRemoteRf && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -201,6 +206,7 @@ public final class RuntimeFilter {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
+        tFilter.setOptRemoteRf(optRemoteRf);
         return tFilter;
     }
 
@@ -548,6 +554,7 @@ public final class RuntimeFilter {
         double fpp = FeConstants.default_bloom_filter_fpp;
         int logFilterSize = getMinLogSpaceForBloomFilter(ndvEstimate, fpp);
         filterSizeBytes = 1L << logFilterSize;
+        expectFilterSizeBytes = filterSizeBytes;
         filterSizeBytes = Math.max(filterSizeBytes, filterSizeLimits.minVal);
         filterSizeBytes = Math.min(filterSizeBytes, filterSizeLimits.maxVal);
     }
@@ -595,6 +602,14 @@ public final class RuntimeFilter {
         }
         assignToPlanNodes();
         analyzer.putAssignedRuntimeFilter(this);
+    }
+
+    public long getFilterSizeBytes() {
+        return filterSizeBytes;
+    }
+
+    public long getEstimateNdv() {
+        return ndvEstimate;
     }
 
     public String debugString() {

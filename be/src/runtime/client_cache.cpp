@@ -17,13 +17,10 @@
 
 #include "runtime/client_cache.h"
 
-#include <thrift/protocol/TBinaryProtocol.h>
-
 #include <memory>
-#include <sstream>
+#include <utility>
 
 #include "common/logging.h"
-#include "gen_cpp/FrontendService.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
 

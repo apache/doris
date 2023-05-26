@@ -17,22 +17,28 @@
 
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
+#include <bthread/types.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "common/factory_creator.h"
 #include "common/status.h"
-#include "runtime/descriptors.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
-#include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 
-class PriorityThreadPool;
-class ThreadPool;
 class ThreadPoolToken;
+class RuntimeState;
+class TupleDescriptor;
 
 namespace vectorized {
 
@@ -49,10 +55,13 @@ class ScannerScheduler;
 // ScannerScheduler schedules a ScannerContext at a time,
 // and submits the Scanners to the scanner thread pool for data scanning.
 class ScannerContext {
+    ENABLE_FACTORY_CREATOR(ScannerContext);
+
 public:
     ScannerContext(RuntimeState* state_, VScanNode* parent, const TupleDescriptor* input_tuple_desc,
-                   const TupleDescriptor* output_tuple_desc, const std::list<VScanner*>& scanners_,
-                   int64_t limit_, int64_t max_bytes_in_blocks_queue_);
+                   const TupleDescriptor* output_tuple_desc,
+                   const std::list<VScannerSPtr>& scanners_, int64_t limit_,
+                   int64_t max_bytes_in_blocks_queue_);
 
     virtual ~ScannerContext() = default;
     Status init();
@@ -70,7 +79,7 @@ public:
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
-    void push_back_scanner_and_reschedule(VScanner* scanner);
+    void push_back_scanner_and_reschedule(VScannerSPtr scanner);
 
     bool set_status_on_error(const Status& status);
 
@@ -106,7 +115,7 @@ public:
 
     int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
 
-    void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
+    void get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run);
 
     void clear_and_join(VScanNode* node, RuntimeState* state);
 
@@ -185,9 +194,13 @@ protected:
     std::atomic_bool _should_stop = false;
     std::atomic_bool _is_finished = false;
 
-    // Pre-allocated blocks for all scanners to share, for memory reuse.
+    // Lazy-allocated blocks for all scanners to share, for memory reuse.
     doris::Mutex _free_blocks_lock;
     std::vector<vectorized::BlockUPtr> _free_blocks;
+    // The current number of free blocks available to the scanners.
+    // Used to limit the memory usage of the scanner.
+    // NOTE: this is NOT the size of `_free_blocks`.
+    int32_t _free_blocks_capacity = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause
@@ -219,7 +232,7 @@ protected:
     // and then if the scanner is not finished, will be pushed back to this list.
     // Not need to protect by lock, because only one scheduler thread will access to it.
     doris::Mutex _scanners_lock;
-    std::list<VScanner*> _scanners;
+    std::list<VScannerSPtr> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
 

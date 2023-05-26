@@ -17,19 +17,29 @@
 
 #include "vec/exprs/table_function/table_function_factory.h"
 
+#include <utility>
+
 #include "common/object_pool.h"
+#include "vec/exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/vexplode.h"
+#include "vec/exprs/table_function/vexplode_bitmap.h"
+#include "vec/exprs/table_function/vexplode_json_array.h"
+#include "vec/exprs/table_function/vexplode_numbers.h"
+#include "vec/exprs/table_function/vexplode_split.h"
 
 namespace doris::vectorized {
 
 template <typename TableFunctionType>
 struct TableFunctionCreator {
-    TableFunction* operator()() { return new TableFunctionType(); }
+    std::unique_ptr<TableFunction> operator()() { return TableFunctionType::create_unique(); }
 };
 
 template <>
 struct TableFunctionCreator<VExplodeJsonArrayTableFunction> {
     ExplodeJsonArrayType type;
-    TableFunction* operator()() const { return new VExplodeJsonArrayTableFunction(type); }
+    std::unique_ptr<TableFunction> operator()() const {
+        return VExplodeJsonArrayTableFunction::create_unique(type);
+    }
 };
 
 inline auto VExplodeJsonArrayIntCreator =
@@ -39,7 +49,7 @@ inline auto VExplodeJsonArrayDoubleCreator =
 inline auto VExplodeJsonArrayStringCreator =
         TableFunctionCreator<VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
 
-const std::unordered_map<std::string, std::function<TableFunction*()>>
+const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
                 {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
@@ -68,7 +78,7 @@ Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* 
 
     auto fn_iterator = _function_map.find(fn_name_real);
     if (fn_iterator != _function_map.end()) {
-        *fn = pool->add(fn_iterator->second());
+        *fn = pool->add(fn_iterator->second().release());
         if (is_outer) {
             (*fn)->set_outer();
         }

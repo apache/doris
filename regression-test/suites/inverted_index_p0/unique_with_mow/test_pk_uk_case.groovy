@@ -102,14 +102,13 @@ suite("test_pk_uk_case", "inverted_index") {
     def part_key = rd.nextInt(1000)
     def sub_key = 13
     def line_num = 29
-    def decimal = rd.nextFloat()
+    def decimal = rd.nextInt(1000) + 0.11
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
     for (int idx = 0; idx < 10; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -123,7 +122,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -137,7 +135,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -151,7 +148,6 @@ suite("test_pk_uk_case", "inverted_index") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -165,7 +161,6 @@ suite("test_pk_uk_case", "inverted_index") {
         
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -180,7 +175,6 @@ suite("test_pk_uk_case", "inverted_index") {
         // insert batch key 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES

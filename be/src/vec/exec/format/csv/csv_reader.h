@@ -17,9 +17,21 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
 #include "io/file_factory.h"
-#include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/slice.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -28,11 +40,23 @@ class LineReader;
 class TextConverter;
 class Decompressor;
 class SlotDescriptor;
+class RuntimeProfile;
+class RuntimeState;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+struct TypeDescriptor;
 
 namespace vectorized {
 
 struct ScannerCounter;
+class Block;
+
 class CsvReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(CsvReader);
+
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,

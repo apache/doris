@@ -431,6 +431,10 @@ struct TReportExecStatusParams {
   19: optional i32 fragment_id
 
   20: optional PaloInternalService.TQueryType query_type
+
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+
+  22: optional i32 finished_scan_ranges
 }
 
 struct TFeResult {
@@ -442,6 +446,7 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
+    // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options
@@ -461,6 +466,8 @@ struct TMasterOpRequest {
     19: optional map<string, string> session_variables
     20: optional bool foldConstantByBe
     21: optional map<string, string> trace_carrier
+    22: optional string clientNodeHost
+    23: optional i32 clientNodePort
 }
 
 struct TColumnDefinition {
@@ -573,6 +580,7 @@ struct TStreamLoadPutRequest {
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
+    45: optional bool partial_update
 }
 
 struct TStreamLoadPutResult {
@@ -727,6 +735,7 @@ struct TMetadataTableRequestParams {
   1: optional Types.TMetadataType metadata_type
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
   3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
+  4: optional list<string> columns_name
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -795,6 +804,7 @@ struct TPrivilegeCtrl {
 }
 
 enum TPrivilegeType {
+  NONE = -1,
   SHOW = 0,
   SHOW_RESOURCES = 1,
   GRANT = 2,
@@ -822,6 +832,44 @@ struct TCheckAuthResult {
     1: required Status.TStatus status
 }
 
+enum TQueryStatsType {
+    CATALOG = 0,
+    DATABASE = 1,
+    TABLE = 2,
+    TABLE_ALL = 3,
+    TABLE_ALL_VERBOSE = 4,
+    TABLET = 5,
+    TABLETS = 6
+}
+
+struct TGetQueryStatsRequest {
+    1: optional TQueryStatsType type
+    2: optional string catalog
+    3: optional string db
+    4: optional string tbl
+    5: optional i64 replica_id
+    6: optional list<i64> replica_ids
+}
+
+struct TTableQueryStats {
+    1: optional string field
+    2: optional i64 query_stats
+    3: optional i64 filter_stats
+}
+
+struct TTableIndexQueryStats {
+    1: optional string index_name
+    2: optional list<TTableQueryStats> table_stats
+}
+
+struct TQueryStatsResult {
+    1: optional Status.TStatus status
+    2: optional map<string, i64> simple_result
+    3: optional list<TTableQueryStats> table_stats
+    4: optional list<TTableIndexQueryStats> table_verbos_stats
+    5: optional map<i64, i64> tablet_stats
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -832,6 +880,7 @@ service FrontendService {
 
     MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1: MasterService.TReportRequest request)
+    // Deprecated
     MasterService.TFetchResourceResult fetchResource()
 
     TMasterOpResult forward(1: TMasterOpRequest params)
@@ -868,4 +917,6 @@ service FrontendService {
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
+
+    TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 }

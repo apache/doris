@@ -17,12 +17,33 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
+#include <memory>
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class BitmapFilterFuncBase;
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 // used for bitmap runtime filter
 class VBitmapPredicate final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VBitmapPredicate);
+
 public:
     VBitmapPredicate(const TExprNode& node);
 
@@ -41,7 +62,7 @@ public:
                FunctionContext::FunctionStateScope scope) override;
 
     VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VBitmapPredicate(*this));
+        return pool->add(VBitmapPredicate::create_unique(*this).release());
     }
 
     const std::string& expr_name() const override;

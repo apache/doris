@@ -17,19 +17,37 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
+
 #include "util/bitmap_expr_calculation.h"
 #include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class ColumnString;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -39,8 +57,8 @@ public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = static_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = static_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
 
         if constexpr (IsNumber<T>) {
@@ -57,7 +75,7 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             for (int idx = 2; idx < argument_size; ++idx) {
-                const auto& col = static_cast<const ColVecData&>(*columns[idx]);
+                const auto& col = assert_cast<const ColVecData&>(*columns[idx]);
                 if constexpr (IsNumber<T>) {
                     bitmap.add_key(col.get_element(row_num));
                 }
@@ -101,7 +119,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&>(to);
         column.get_data().emplace_back(result);
     }
 
@@ -139,7 +157,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnVector<Int64>&>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
@@ -170,7 +188,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnVector<Int64>&>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -185,8 +203,8 @@ public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = static_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = static_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
         std::string update_key = data_col.get_data_at(row_num).to_string();
         bitmap_expr_cal.update(update_key, bitmap_value);
@@ -195,7 +213,7 @@ public:
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
             DCHECK(argument_size > 1);
-            const auto& col = static_cast<const ColVecData&>(*columns[2]);
+            const auto& col = assert_cast<const ColVecData&>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;
@@ -233,7 +251,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnBitmap&>(to);
+        auto& column = assert_cast<ColumnBitmap&>(to);
         column.get_data().emplace_back(result);
     }
 
@@ -267,7 +285,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnVector<Int64>&>(to);
         column.get_data().emplace_back(result);
     }
 
@@ -284,7 +302,7 @@ struct OrthBitmapUnionCountData {
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {}
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& column = static_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& column = assert_cast<const ColumnBitmap&>(*columns[0]);
         value |= column.get_data()[row_num];
     }
     void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }
@@ -297,7 +315,7 @@ struct OrthBitmapUnionCountData {
     void read(BufferReadable& buf) { read_binary(result, buf); }
 
     void get(IColumn& to) const {
-        auto& column = static_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnVector<Int64>&>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 

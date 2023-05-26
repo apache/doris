@@ -17,10 +17,16 @@
 
 #include "vec/data_types/data_type_hll.h"
 
+#include <string.h>
+
+#include <utility>
+
+#include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {

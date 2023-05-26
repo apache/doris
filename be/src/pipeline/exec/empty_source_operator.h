@@ -17,11 +17,21 @@
 
 #pragma once
 
-#include "operator.h"
+#include <stdint.h>
 
-namespace doris::vectorized {
-class VExchangeNode;
-}
+#include <memory>
+
+#include "common/status.h"
+#include "operator.h"
+#include "runtime/descriptors.h"
+
+namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::pipeline {
 

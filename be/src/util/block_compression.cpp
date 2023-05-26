@@ -17,15 +17,25 @@
 
 #include "util/block_compression.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
+#include <stdint.h>
+#include <zconf.h>
 #include <zlib.h>
 #include <zstd.h>
 #include <zstd_errors.h>
 
+#include <algorithm>
 #include <limits>
+#include <mutex>
+#include <new>
+#include <ostream>
 
 #include "gutil/strings/substitute.h"
 #include "util/defer_op.h"
@@ -35,6 +45,7 @@ namespace doris {
 
 using strings::Substitute;
 
+// exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                                        faststring* output) {
     faststring buf;
@@ -219,7 +230,7 @@ public:
 private:
     Status _compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                      faststring* output) {
-        CContext* context;
+        CContext* context = nullptr;
         RETURN_IF_ERROR(_acquire_compression_ctx(&context));
         bool compress_failed = false;
         Defer defer {[&] {

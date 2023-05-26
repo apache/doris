@@ -17,12 +17,15 @@
 
 #include "new_plain_binary_line_reader.h"
 
-#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 
 #include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
 
 namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
 
 NewPlainBinaryLineReader::NewPlainBinaryLineReader(io::FileReaderSPtr file_reader)
         : _file_reader(file_reader) {}

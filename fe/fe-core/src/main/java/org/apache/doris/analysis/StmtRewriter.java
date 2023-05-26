@@ -21,7 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -822,11 +822,13 @@ public class StmtRewriter {
             if (expr instanceof ExistsPredicate) {
                 joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN :
                         JoinOperator.LEFT_SEMI_JOIN;
-            } else if (expr instanceof InPredicate && joinConjunct instanceof FunctionCallExpr
-                    && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
-                    .equalsIgnoreCase(BITMAP_CONTAINS))) {
+            } else if (expr instanceof InPredicate && !(joinConjunct instanceof BitmapFilterPredicate)) {
                 joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
-                isInBitmap = true;
+                if ((joinConjunct instanceof FunctionCallExpr
+                        && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
+                        .equalsIgnoreCase(BITMAP_CONTAINS)))) {
+                    isInBitmap = true;
+                }
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -882,7 +884,8 @@ public class StmtRewriter {
                     }
                 }
             } else {
-                joinOp = JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = expr instanceof InPredicate ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                        : JoinOperator.LEFT_ANTI_JOIN;
             }
         }
 
@@ -1319,7 +1322,8 @@ public class StmtRewriter {
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
             }
-            Database db = currentEnv.getInternalCatalog().getDbOrAnalysisException(dbName);
+            DatabaseIf db = currentEnv.getCatalogMgr().getCatalogOrAnalysisException(tableRef.getName().getCtl())
+                    .getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
             RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
@@ -1331,7 +1335,7 @@ public class StmtRewriter {
 
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
-                    matchPolicy.getWherePredicate(),
+                    matchPolicy.getWherePredicate().clone(),
                     null,
                     null,
                     null,

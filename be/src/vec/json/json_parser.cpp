@@ -20,6 +20,14 @@
 
 #include "vec/json/json_parser.h"
 
+#include <assert.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <string_view>
+
+#include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {

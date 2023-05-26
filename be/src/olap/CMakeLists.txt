@@ -65,6 +65,7 @@ add_library(Olap STATIC
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
+    tablet_schema_cache.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp
@@ -78,6 +79,7 @@ add_library(Olap STATIC
     rowset/segment_v2/inverted_index_desc.cpp
     rowset/segment_v2/inverted_index_compound_directory.cpp
     rowset/segment_v2/inverted_index_compound_reader.cpp
+    rowset/segment_v2/inverted_index_compaction.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp
@@ -113,3 +115,5 @@ add_library(Olap STATIC
 if (NOT USE_MEM_TRACKER)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
 endif()
+
+pch_reuse(Olap)

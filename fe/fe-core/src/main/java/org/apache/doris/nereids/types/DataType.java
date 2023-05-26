@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -180,7 +181,7 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return fromCatalogType(ScalarType.createDateType());
+                return DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -306,6 +307,10 @@ public abstract class DataType implements AbstractDataType {
             // TODO: support array type really
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isAggStateType()) {
+            List<DataType> types = ((ScalarType) type).getSubTypes().stream().map(t -> fromCatalogType(t))
+                    .collect(Collectors.toList());
+            return new AggStateType(types, ((ScalarType) type).getSubTypeNullables());
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
@@ -365,6 +370,10 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isIntegerLikeType() {
         return this instanceof IntegralType && !(this instanceof LargeIntType);
+    }
+
+    public boolean isFloatLikeType() {
+        return this.isFloatType() || isDoubleType() || isDecimalLikeType();
     }
 
     public boolean isTinyIntType() {
@@ -487,6 +496,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof QuantileStateType;
     }
 
+    public boolean isAggStateType() {
+        return this instanceof AggStateType;
+    }
+
     public boolean isHllType() {
         return this instanceof HllType;
     }
@@ -557,6 +570,13 @@ public abstract class DataType implements AbstractDataType {
         } else {
             throw new AnalysisException("Illegal array type: " + type);
         }
+    }
+
+    public static List<DataType> trivialTypes() {
+        return Type.getTrivialTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static List<DataType> supportedTypes() {

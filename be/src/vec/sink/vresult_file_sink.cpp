@@ -17,14 +17,32 @@
 
 #include "vec/sink/vresult_file_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <time.h>
+
+#include <new>
+#include <ostream>
+
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vfile_result_writer.h"
+#include "vec/sink/vresult_writer.h"
+
+namespace doris {
+class QueryStatistics;
+class TExpr;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -109,7 +127,8 @@ Status VResultFileSink::prepare(RuntimeState* state) {
                 _output_row_descriptor));
     } else {
         // init channel
-        _output_block.reset(new Block(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1));
+        _output_block =
+                Block::create_unique(_output_row_descriptor.tuple_descriptors()[0]->slots(), 1);
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
                 _profile, nullptr, _output_block.get(), state->return_object_data_as_binary(),
@@ -123,7 +142,6 @@ Status VResultFileSink::prepare(RuntimeState* state) {
 }
 
 Status VResultFileSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultFileSink::open");
     if (!_is_top_sink) {
         RETURN_IF_ERROR(_stream_sender->open(state));
     }
@@ -131,7 +149,6 @@ Status VResultFileSink::open(RuntimeState* state) {
 }
 
 Status VResultFileSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultFileSink::send");
     RETURN_IF_ERROR(_writer->append_block(*block));
     return Status::OK();
 }
@@ -141,7 +158,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultFileSink::close");
     Status final_status = exec_status;
     // close the writer
     if (_writer) {
@@ -162,7 +178,10 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(_stream_sender->send(state, _output_block.get(), true));
+            auto st = _stream_sender->send(state, _output_block.get(), true);
+            if (!st.template is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(st);
+            }
         }
         RETURN_IF_ERROR(_stream_sender->close(state, final_status));
         _output_block->clear();

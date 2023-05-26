@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <cstdint>
 #include <roaring/roaring.hh>
 
@@ -27,6 +25,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
@@ -90,9 +89,9 @@ public:
                         const ConvertFunc& convert, bool is_opposite = false,
                         const TabletColumn* col = nullptr, vectorized::Arena* arena = nullptr)
             : ColumnPredicate(column_id, is_opposite),
-              _values(new HybridSetType()),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
+        _values = std::make_shared<HybridSetType>();
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
@@ -116,8 +115,7 @@ public:
         CHECK(hybrid_set != nullptr);
 
         if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
-            _values = new HybridSetType();
-
+            _values = std::make_shared<HybridSetType>();
             if constexpr (is_string_type(Type)) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
@@ -169,7 +167,8 @@ public:
                 CHECK(Type == TYPE_DATETIMEV2 || Type == TYPE_DATEV2);
             }
         } else {
-            _values = reinterpret_cast<HybridSetType*>(hybrid_set.get());
+            // shared from the caller, so it needs to be shared ptr
+            _values = hybrid_set;
         }
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -179,11 +178,7 @@ public:
         }
     }
 
-    ~InListPredicateBase() override {
-        if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
-            delete _values;
-        }
-    }
+    ~InListPredicateBase() override = default;
 
     PredicateType type() const override { return PT; }
 
@@ -250,7 +245,7 @@ public:
         // keep it after query, since query will try to read null_bitmap and put it to cache
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
             *result -= *null_bitmap;
         }
@@ -424,7 +419,7 @@ private:
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
                 auto& value_in_dict_flags = _segment_id_to_value_in_dict_flags[segid];
                 if (value_in_dict_flags.empty()) {
-                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                    nested_col_ptr->find_codes(_values.get(), value_in_dict_flags);
                 }
 
                 CHECK(value_in_dict_flags.size() == nested_col_ptr->dict_size())
@@ -489,7 +484,7 @@ private:
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
                 if (value_in_dict_flags.empty()) {
-                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                    nested_col_ptr->find_codes(_values.get(), value_in_dict_flags);
                 }
 
                 for (uint16_t i = 0; i < size; i++) {
@@ -571,7 +566,7 @@ private:
         }
     }
 
-    HybridSetType* _values;
+    std::shared_ptr<HybridSetBase> _values;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;

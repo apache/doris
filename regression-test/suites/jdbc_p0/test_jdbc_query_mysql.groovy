@@ -46,7 +46,7 @@ suite("test_jdbc_query_mysql", "p0") {
         sql """drop table if exists $jdbcMysql57Table1"""
         sql """
             CREATE EXTERNAL TABLE `$jdbcMysql57Table1` (
-                k1 tinyint,
+                k1 boolean,
                 k2 char(100),
                 k3 varchar(128),
                 k4 date,
@@ -126,7 +126,7 @@ suite("test_jdbc_query_mysql", "p0") {
                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "in_memory" = "true",
+                "in_memory" = "false",
                 "storage_format" = "V2"
                 );
         """
@@ -222,7 +222,7 @@ suite("test_jdbc_query_mysql", "p0") {
                 DISTRIBUTED BY HASH(`game_code`, `plat_code`, `sid`, `name`) BUCKETS 4
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
-                "in_memory" = "true",
+                "in_memory" = "false",
                 "storage_format" = "V2"
                 );
         """
@@ -541,7 +541,7 @@ suite("test_jdbc_query_mysql", "p0") {
                  birthday DATETIME,
                  country varchar(128),
                  gender varchar(128),
-                 covid tinyint
+                 covid boolean
                ) ENGINE=JDBC
                COMMENT "JDBC Mysql 外部表"
                PROPERTIES (

@@ -53,7 +53,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,7 +68,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
     private static final Logger LOG = LogManager.getLogger(FoldConstantRuleOnBE.class);
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final IdGenerator<ExprId> idGenerator = ExprId.createGenerator();
 
     @Override
@@ -150,16 +148,16 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
 
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new UserException("No alive backends");
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            TNetworkAddress brpcAddress = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(DATE_FORMAT.format(LocalDateTime.now()));
+            queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
@@ -192,9 +190,9 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
                             DataType t1 = DataType.convertFromString(staleExpr.getType().getPrimitiveType().toString());
                             ret = Literal.of(staleExpr.getStringValue()).castTo(t1);
                         } else {
-                            ret = constMap.get(e.getKey());
+                            ret = constMap.get(e1.getKey());
                         }
-                        resultMap.put(e.getKey(), ret);
+                        resultMap.put(e1.getKey(), ret);
                     }
                 }
 

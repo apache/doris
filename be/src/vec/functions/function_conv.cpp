@@ -15,14 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+#include <stdlib.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <algorithm>
+#include <cmath> // IWYU pragma: keep
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
 #include "exprs/math_functions.h"
+#include "util/string_parser.hpp"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -45,7 +73,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -65,7 +92,7 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column);
+            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
         }
 
         if (col_const[1] && col_const[2]) {

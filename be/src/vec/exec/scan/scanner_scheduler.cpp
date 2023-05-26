@@ -17,17 +17,35 @@
 
 #include "scanner_scheduler.h"
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <functional>
+#include <list>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "util/async_io.h"
+#include "common/logging.h"
+#include "olap/tablet.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/async_io.h" // IWYU pragma: keep
+#include "util/blocking_queue.hpp"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vec/exprs/vexpr.h"
 #include "vfile_scanner.h"
 
 namespace doris::vectorized {
@@ -141,7 +159,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         return;
     }
 
-    std::list<VScanner*> this_run;
+    std::list<VScannerSPtr> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
         // There will be 2 cases when this_run is empty:
@@ -242,16 +260,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 }
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
-                                     VScanner* scanner) {
-    auto tracker_config = [&] {
-        SCOPED_ATTACH_TASK(scanner->runtime_state());
-        Thread::set_self_name("_scanner_scan");
-    };
+                                     VScannerSPtr scanner) {
+    SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
-    tracker_config();
+    Thread::set_self_name("_scanner_scan");
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
-        tracker_config();
+        Thread::set_self_name("_scanner_scan");
     }
 #endif
     scanner->update_wait_worker_timer();
@@ -316,8 +331,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         // Because FE file cache for external table may out of date.
         // So, NOT_FOUND for VFileScanner is not a fail case.
         // Will remove this after file reader refactor.
-        if (!status.ok() && (typeid(*scanner) != typeid(doris::vectorized::VFileScanner) ||
-                             (typeid(*scanner) == typeid(doris::vectorized::VFileScanner) &&
+        if (!status.ok() && (scanner->get_name() != doris::vectorized::VFileScanner::NAME ||
+                             (scanner->get_name() == doris::vectorized::VFileScanner::NAME &&
                               !status.is<ErrorCode::NOT_FOUND>()))) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
@@ -335,7 +350,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
-                vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                if (!status.ok()) {
+                    break;
+                }
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));

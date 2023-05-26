@@ -20,14 +20,36 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <string.h>
+
+#include <memory>
+#include <vector>
+
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_decimal.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/bit_helpers.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+template <typename T>
+class ColumnDecimal;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -69,7 +91,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -187,7 +209,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         read_binary(has_value, buf);
         if (has()) {
             read_binary(value, buf);
@@ -286,7 +308,7 @@ private:
     char small_data[MAX_SMALL_STRING_SIZE]; /// Including the terminating zero.
 
 public:
-    ~SingleValueDataString() { delete[] large_data; }
+    ~SingleValueDataString() = default;
 
     constexpr static bool IsFixedLength = false;
 
@@ -318,7 +340,7 @@ public:
         }
     }
 
-    void read(BufferReadable& buf) {
+    void read(BufferReadable& buf, Arena* arena) {
         Int32 rhs_size;
         read_binary(rhs_size, buf);
 
@@ -333,9 +355,8 @@ public:
                 }
             } else {
                 if (capacity < rhs_size) {
-                    capacity = static_cast<UInt32>(round_up_to_power_of_two_or_zero(rhs_size));
-                    delete[] large_data;
-                    large_data = new char[capacity];
+                    capacity = round_up_to_power_of_two_or_zero(rhs_size);
+                    large_data = arena->alloc(capacity);
                 }
 
                 size = rhs_size;
@@ -364,8 +385,7 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = round_up_to_power_of_two_or_zero(value_size);
-                delete[] large_data;
-                large_data = new char[capacity];
+                large_data = arena->alloc(capacity);
             }
 
             size = value_size;
@@ -524,8 +544,8 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
+                     Arena* arena) const override {
+        this->data(place).read(buf, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -535,7 +555,7 @@ public:
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
-            const auto& col = static_cast<const ColumnFixedLengthObject&>(column);
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
             Data* data = reinterpret_cast<Data*>(places);
             for (size_t i = 0; i != num_rows; ++i) {
@@ -549,7 +569,7 @@ public:
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& dst_column = static_cast<ColumnFixedLengthObject&>(*dst);
+            auto& dst_column = assert_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
@@ -563,7 +583,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& dst_column = static_cast<ColumnFixedLengthObject&>(*dst);
+            auto& dst_column = assert_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
@@ -577,7 +597,7 @@ public:
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            const auto& col = static_cast<const ColumnFixedLengthObject&>(column);
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
             const size_t num_rows = column.size();
             for (size_t i = 0; i != num_rows; ++i) {

@@ -17,12 +17,25 @@
 
 #include "io/cache/file_cache.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <list>
+#include <ostream>
+#include <set>
+#include <utility>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/util.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/local_file_writer.h"
-#include "olap/iterators.h"
+#include "runtime/exec_env.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;

@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -143,6 +144,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public Set<ExprId> getConditionExprId() {
         return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
+    }
+
+    public Set<Slot> getLeftConditionSlot() {
+        Set<Slot> leftOutputSet = this.left().getOutputSet();
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .filter(leftOutputSet::contains)
+                .collect(ImmutableSet.toImmutableSet());
     }
 
     public Optional<Expression> getOnClauseCondition() {
@@ -258,14 +267,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
     }
 
-    public LogicalJoin withChildrenNoContext(Plan left, Plan right) {
+    public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, left, right);
-    }
-
-    public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, this.otherJoinConjuncts, hint, markJoinSlotReference,
-                left(), right());
     }
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(
@@ -300,5 +304,18 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, left(), right());
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalJoin = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("JoinType", joinType.toString());
+        properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
+        properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
+        properties.put("JoinHint", hint.toString());
+        properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
+        logicalJoin.put("Properties", properties);
+        return logicalJoin;
     }
 }

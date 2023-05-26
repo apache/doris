@@ -159,8 +159,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
@@ -273,16 +275,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -495,6 +494,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
+            scalar(JsonUnQuote.class, "json_unquote"),
+            scalar(JsonExtract.class, "json_extract"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
             scalar(JsonbExtract.class, "jsonb_extract"),
             scalar(JsonbExtractBigint.class, "jsonb_extract_bigint"),
@@ -544,7 +545,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthCeil.class, "month_ceil"),
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
-            scalar(MonthsAdd.class, "months_add"),
+            scalar(MonthsAdd.class, "months_add", "add_months"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),
@@ -603,7 +604,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SplitPart.class, "split_part"),
             scalar(Sqrt.class, "sqrt"),
             scalar(StAsBinary.class, "st_asbinary"),
-            scalar(StAsEWKB.class, "st_asewkb"),
             scalar(StAstext.class, "st_astext"),
             scalar(StAswkt.class, "st_aswkt"),
             scalar(StCircle.class, "st_circle"),
@@ -614,10 +614,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StAzimuth.class, "st_azimuth"),
             scalar(StAreaSquareMeters.class, "st_area_square_meters"),
             scalar(StAreaSquareKm.class, "st_area_square_km"),
-            scalar(StGeometryFromEWKB.class, "st_geometryfromewkb"),
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),
             scalar(StGeometryFromWKB.class, "st_geometryfromwkb"),
-            scalar(StGeomFromEWKB.class, "st_geomfromewkb"),
             scalar(StGeomfromtext.class, "st_geomfromtext"),
             scalar(StGeomFromWKB.class, "st_geomfromwkb"),
             scalar(StLinefromtext.class, "st_linefromtext"),

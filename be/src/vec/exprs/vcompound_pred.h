@@ -39,6 +39,8 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
 }
 
 class VcompoundPred : public VectorizedFnCall {
+    ENABLE_FACTORY_CREATOR(VcompoundPred);
+
 public:
     VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
@@ -46,13 +48,19 @@ public:
         _expr_name = "VCompoundPredicate (" + _fn.name.function_name + ")";
     }
 
-    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VcompoundPred(*this)); }
+    VExpr* clone(ObjectPool* pool) const override {
+        return pool->add(VcompoundPred::create_unique(*this).release());
+    }
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute(VExprContext* context, doris::vectorized::Block* block,
+    Status execute(VExprContext* context, vectorized::Block* block,
                    int* result_column_id) override {
-        if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
+        if (children().size() == 1 || !_all_child_is_compound_and_not_const() ||
+            _children[0]->is_nullable() || _children[1]->is_nullable()) {
+            // TODO:
+            // When the child is nullable, make the optimization also take effect, and the processing of this piece may be more complicated
+            // https://dev.mysql.com/doc/refman/8.0/en/logical-operators.html
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
 
@@ -61,15 +69,14 @@ public:
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
         ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
 
-        ColumnPtr rhs_column = nullptr;
-
         size_t size = lhs_column->size();
         uint8* __restrict data = _get_raw_data(lhs_column);
         int filted = simd::count_zero_num((int8_t*)data, size);
         bool full = filted == 0;
         bool empty = filted == size;
 
-        const uint8* __restrict data_rhs = nullptr;
+        ColumnPtr rhs_column = nullptr;
+        uint8* __restrict data_rhs = nullptr;
         bool full_rhs = false;
         bool empty_rhs = false;
 
@@ -78,15 +85,6 @@ public:
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
                 rhs_column = block->get_by_position(rhs_id).column;
                 data_rhs = _get_raw_data(rhs_column);
-                if (!empty) {
-                    if (const uint8* null_map =
-                                _get_null_map(block->get_by_position(rhs_id).column);
-                        null_map != nullptr) {
-                        for (size_t i = 0; i < size; i++) {
-                            data[i] &= !null_map[i];
-                        }
-                    }
-                }
                 int filted = simd::count_zero_num((int8_t*)data_rhs, size);
                 full_rhs = filted == 0;
                 empty_rhs = filted == size;
@@ -95,34 +93,54 @@ public:
         };
 
         if (_op == TExprOpcode::COMPOUND_AND) {
-            if (!empty) { // empty and any = empty, so lhs should not empty
+            if (empty) {
+                // empty and any = empty, return lhs
+                *result_column_id = lhs_id;
+            } else {
                 RETURN_IF_ERROR(get_rhs_colum());
-                if (empty_rhs) { // any and empty = empty
+
+                if (full) {
+                    // full and any = any, return rhs
                     *result_column_id = rhs_id;
-                    return Status::OK();
-                } else if (!full_rhs) { // any and full = any, so rhs should not full.
+                } else if (empty_rhs) {
+                    // any and empty = empty, return rhs
+                    *result_column_id = rhs_id;
+                } else if (full_rhs) {
+                    // any and full = any, return lhs
+                    *result_column_id = lhs_id;
+                } else {
+                    *result_column_id = lhs_id;
                     for (size_t i = 0; i < size; i++) {
                         data[i] &= data_rhs[i];
                     }
                 }
             }
         } else if (_op == TExprOpcode::COMPOUND_OR) {
-            if (!full) { // full or any = full, so lhs should not full
+            if (full) {
+                // full or any = full, return lhs
+                *result_column_id = lhs_id;
+            } else {
                 RETURN_IF_ERROR(get_rhs_colum());
-                if (full_rhs) { // any or full = full
+                if (empty) {
+                    // empty or any = any, return rhs
                     *result_column_id = rhs_id;
-                    return Status::OK();
-                } else if (!empty_rhs) { // any or empty = any, so rhs should not empty
+                } else if (full_rhs) {
+                    // any or full = full, return rhs
+                    *result_column_id = rhs_id;
+                } else if (empty_rhs) {
+                    // any or empty = any, return lhs
+                    *result_column_id = lhs_id;
+                } else {
+                    *result_column_id = lhs_id;
                     for (size_t i = 0; i < size; i++) {
                         data[i] |= data_rhs[i];
                     }
                 }
             }
         } else {
-            LOG(FATAL) << "Compound operator must be AND or OR.";
+            return Status::InternalError("Compound operator must be AND or OR.");
         }
 
-        *result_column_id = lhs_id;
         return Status::OK();
     }
 
@@ -147,28 +165,26 @@ private:
                 return false;
             }
         }
-        return false;
+        return true;
     }
 
     uint8* _get_raw_data(ColumnPtr column) const {
         if (column->is_nullable()) {
-            return reinterpret_cast<ColumnUInt8*>(
+            return assert_cast<ColumnUInt8*>(
                            assert_cast<ColumnNullable*>(column->assume_mutable().get())
                                    ->get_nested_column_ptr()
                                    .get())
                     ->get_data()
                     .data();
         } else {
-            return reinterpret_cast<ColumnUInt8*>(column->assume_mutable().get())
-                    ->get_data()
-                    .data();
+            return assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
         }
     }
 
     uint8* _get_null_map(ColumnPtr column) const {
         if (column->is_nullable()) {
-            return reinterpret_cast<ColumnUInt8*>(
-                           reinterpret_cast<ColumnNullable*>(column->assume_mutable().get())
+            return assert_cast<ColumnUInt8*>(
+                           assert_cast<ColumnNullable*>(column->assume_mutable().get())
                                    ->get_null_map_column_ptr()
                                    .get())
                     ->get_data()

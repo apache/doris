@@ -160,8 +160,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
@@ -275,16 +277,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -946,8 +945,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonObject, context);
     }
 
+    default R visitJsonExtract(JsonExtract jsonExtract, C context) {
+        return visitScalarFunction(jsonExtract, context);
+    }
+
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
         return visitScalarFunction(jsonQuote, context);
+    }
+
+    default R visitJsonUnQuote(JsonUnQuote jsonUnQuote, C context) {
+        return visitScalarFunction(jsonUnQuote, context);
     }
 
     default R visitJsonbExistsPath(JsonbExistsPath jsonbExistsPath, C context) {
@@ -1446,24 +1453,12 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stGeometryfromwkb, context);
     }
 
-    default R visitStGeometryfromewkb(StGeometryFromEWKB stGeometryfromewkb, C context) {
-        return visitScalarFunction(stGeometryfromewkb, context);
-    }
-
     default R visitStGeomfromwkb(StGeomFromWKB stGeomfromwkb, C context) {
         return visitScalarFunction(stGeomfromwkb, context);
     }
 
-    default R visitStGeomfromewkb(StGeomFromEWKB stGeomfromewkb, C context) {
-        return visitScalarFunction(stGeomfromewkb, context);
-    }
-
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {
         return visitScalarFunction(stAsBinary, context);
-    }
-
-    default R visitStAsEWKB(StAsEWKB stAsEWKB, C context) {
-        return visitScalarFunction(stAsEWKB, context);
     }
 
     default R visitStartsWith(StartsWith startsWith, C context) {

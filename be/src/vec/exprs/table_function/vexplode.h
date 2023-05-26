@@ -17,16 +17,24 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/string_ref.h"
+#include <stddef.h>
+
+#include "common/status.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VExplodeTableFunction : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeTableFunction);
+
 public:
     VExplodeTableFunction();
 

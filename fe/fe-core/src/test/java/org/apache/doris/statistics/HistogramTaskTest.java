@@ -18,15 +18,16 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -67,6 +68,7 @@ public class HistogramTaskTest extends TestWithFeService {
                         + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n"
                         + ")");
+        FeConstants.runningUnitTest = true;
     }
 
     @Tested
@@ -76,23 +78,22 @@ public class HistogramTaskTest extends TestWithFeService {
 
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         StmtExecutor executor = getSqlStmtExecutor(
-                "ANALYZE TABLE t1 UPDATE HISTOGRAM ON col1 PARTITION (p_201701)");
+                "ANALYZE TABLE t1(col1) UPDATE HISTOGRAM");
         Assertions.assertNotNull(executor);
 
-        ConcurrentMap<Long, Map<Long, AnalysisTaskInfo>> taskMap =
+        ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> taskMap =
                 Deencapsulation.getField(analysisManager, "analysisJobIdToTaskMap");
         Assertions.assertEquals(1, taskMap.size());
 
-        for (Entry<Long, Map<Long, AnalysisTaskInfo>> infoMap : taskMap.entrySet()) {
-            Map<Long, AnalysisTaskInfo> taskInfo = infoMap.getValue();
+        for (Entry<Long, Map<Long, BaseAnalysisTask>> infoMap : taskMap.entrySet()) {
+            Map<Long, BaseAnalysisTask> taskInfo = infoMap.getValue();
             Assertions.assertEquals(1, taskInfo.size());
 
-            for (Entry<Long, AnalysisTaskInfo> infoEntry : taskInfo.entrySet()) {
-                AnalysisTaskInfo info = infoEntry.getValue();
-                Assertions.assertEquals(AnalysisType.HISTOGRAM, info.analysisType);
-                Assertions.assertEquals("t1", info.tblName);
-                Assertions.assertEquals("col1", info.colName);
-                Assertions.assertEquals("p_201701", info.partitionNames.iterator().next());
+            for (Entry<Long, BaseAnalysisTask> infoEntry : taskInfo.entrySet()) {
+                BaseAnalysisTask task = infoEntry.getValue();
+                Assertions.assertEquals(AnalysisType.HISTOGRAM, task.info.analysisType);
+                Assertions.assertEquals("t1", task.info.tblName);
+                Assertions.assertEquals("col1", task.info.colName);
             }
         }
     }
@@ -103,9 +104,10 @@ public class HistogramTaskTest extends TestWithFeService {
         AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder()
                 .setJobId(0).setTaskId(0).setCatalogName("internal")
                 .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL)
+                .setColName("col1").setJobType(JobType.MANUAL)
+                .setAnalysisMode(AnalysisMode.FULL)
+                .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.HISTOGRAM)
-                 .setPartitionNames(Sets.newHashSet("t"))
                 .build();
         HistogramTask task = new HistogramTask(analysisTaskInfo);
 

@@ -19,16 +19,11 @@
 
 #include <stddef.h>
 
-#include <map>
-#include <string>
-
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
-#include "io/hdfs_builder.h"
 #include "util/slice.h"
 
 namespace doris {

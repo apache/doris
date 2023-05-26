@@ -15,22 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
 #include <re2/re2.h>
+#include <re2/stringpiece.h>
+#include <stddef.h>
 
-#include <random>
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
+#include "common/status.h"
 #include "exprs/string_functions.h"
 #include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
 namespace doris::vectorized {
 
 struct RegexpReplaceImpl {
@@ -362,8 +380,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
     bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override {
@@ -429,7 +445,7 @@ public:
                                                  arguments);
         }
         for (int i = 0; i < argument_size; i++) {
-            check_set_nullable(argument_columns[i], result_null_map);
+            check_set_nullable(argument_columns[i], result_null_map, col_const[i]);
         }
 
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {

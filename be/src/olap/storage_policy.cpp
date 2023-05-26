@@ -17,6 +17,10 @@
 
 #include "olap/storage_policy.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <cstdlib>
 #include <mutex>
 #include <unordered_map>
 

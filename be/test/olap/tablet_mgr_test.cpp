@@ -15,17 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gmock/gmock-actions.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
-#include "olap/txn_manager.h"
+#include "util/uid_util.h"
 
 using ::testing::_;
 using ::testing::Return;

@@ -15,11 +15,59 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <type_traits>
+#include <utility>
+
+#include "common/status.h"
+#include "util/binary_cast.hpp"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+struct DayCeil;
+struct DayFloor;
+struct HourCeil;
+struct HourFloor;
+struct MinuteCeil;
+struct MinuteFloor;
+struct MonthCeil;
+struct MonthFloor;
+struct SecondCeil;
+struct SecondFloor;
+struct WeekCeil;
+struct WeekFloor;
+struct YearCeil;
+struct YearFloor;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -41,8 +89,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeFloorCeil>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 0; }
 

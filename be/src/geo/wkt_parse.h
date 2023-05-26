@@ -19,8 +19,6 @@
 
 #include <stddef.h>
 
-#include <memory>
-
 #include "geo/geo_common.h"
 
 namespace doris {

@@ -38,6 +38,8 @@ suite("test_string_function_like") {
             ("ab"),
             ("accb");
         """
+
+    // LIKE as predicate
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \" \" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"a\" ORDER BY k;"
@@ -62,6 +64,30 @@ suite("test_string_function_like") {
 
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"%\" ORDER BY k;"
+
+
+    // LIKE as function
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \" \") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"%a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"a%\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"%a%\") ORDER BY k;"
+
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"_a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"a_\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"_a_\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"a__b\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"%a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"a%\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"%a%\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"_a\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"a_\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"_a_\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"a__b\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE LIKE(k, \"%\") ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE NOT LIKE(k, \"%\") ORDER BY k;"
 
     // sql "DROP TABLE ${tbName};"
 }

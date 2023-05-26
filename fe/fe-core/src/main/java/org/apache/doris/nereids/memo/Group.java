@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -297,7 +298,7 @@ public class Group {
      */
     public void mergeTo(Group target) {
         // move parentExpressions Ownership
-        parentExpressions.keySet().forEach(target::addParentExpression);
+        parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
         // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
         // So we need to manually replace the children of PhysicalEnforcer in here.
         // TODO: SortEnforcer?
@@ -368,8 +369,11 @@ public class Group {
     public boolean isInnerJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
         if (plan instanceof LogicalJoin) {
-            // Right now, we only support inner join
-            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN;
+            // Right now, we only support inner join with some join conditions
+            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN
+                    && (((LogicalJoin) plan).getOtherJoinConjuncts().isEmpty()
+                            || !(((LogicalJoin) plan).getOtherJoinConjuncts()
+                                    .get(0) instanceof Literal));
         }
         return false;
     }

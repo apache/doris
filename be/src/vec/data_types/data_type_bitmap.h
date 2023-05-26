@@ -17,12 +17,31 @@
 
 #pragma once
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_bitmap_serde.h"
 #include "util/bitmap_value.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 class DataTypeBitMap : public IDataType {
@@ -84,9 +103,17 @@ public:
         __builtin_unreachable();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for BitMap";
+    }
+
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeBitMapSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

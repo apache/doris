@@ -90,14 +90,16 @@ docker build -t doris .
 
 run image
 
-note! [problems with mounting](../../docs/install/source-install/compilation.md)
+note! [problems with mounting](../../docs/install/source-install/compilation-general.md)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 
 if you are developing on windows, mounting may cause cross-filesystem access problems, please consider setting it manually
 
+`--cap-add SYS_PTRACE` parameter allows dockers to use ptrace, making it easier for us to use ptrace and gdb remote debugging functions.
+
 ```bash
-docker run -it doris:latest /bin/bash
+docker run -it --cap-add SYS_PTRACE doris:latest /bin/bash
 ```
 
 if you installed zsh, replace plugins in ~/.zshrc after running the container

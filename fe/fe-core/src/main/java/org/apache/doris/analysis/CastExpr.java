@@ -181,51 +181,16 @@ public class CastExpr extends Expr {
         return targetTypeDef;
     }
 
-    private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
-        // Disable casting from boolean to decimal or datetime or date
-        if (fromType.isBoolean() && toType.isDateType()) {
-            return true;
-        }
-
-        // Disable casting operation of hll/bitmap/quantile_state
-        if (fromType.isObjectStored() || toType.isObjectStored()) {
-            return true;
-        }
-        // Disable no-op casting
-        return fromType.equals(toType) && !fromType.isDecimalV3() && !fromType.isDatetimeV2();
-    }
-
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type fromType : Type.getSupportedTypes()) {
+        for (Type fromType : Type.getTrivialTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
-            for (Type toType : Type.getSupportedTypes()) {
-                if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
-                    continue;
-                }
-                String beClass = toType.isDecimalV2() || fromType.isDecimalV2()
-                        ? "DecimalV2Operators" : "CastFunctions";
-                if (fromType.isTime()) {
-                    beClass = "TimeOperators";
-                }
-                String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
-                // only refactor date/datetime for vectorized engine.
-                if (toType.getPrimitiveType() == PrimitiveType.DATE) {
-                    typeName = "date_val";
-                }
-                if (toType.getPrimitiveType() == PrimitiveType.DATEV2) {
-                    typeName = "datev2_val";
-                }
-                if (toType.getPrimitiveType() == PrimitiveType.DATETIMEV2) {
-                    typeName = "datetimev2_val";
-                }
-                String beSymbol = "doris::" + beClass + "::cast_to_"
-                        + typeName;
+            for (Type toType : Type.getTrivialTypes()) {
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
                         toType, TYPE_NULLABLE_MODE.get(Pair.of(fromType, toType)),
                         Lists.newArrayList(fromType), false,
-                        beSymbol, null, null, true));
+                        null, null, null, true));
             }
         }
     }
@@ -453,6 +418,11 @@ public class CastExpr extends Expr {
         Expr targetExpr;
         try {
             targetExpr = castTo((LiteralExpr) value);
+            if (targetTypeDef != null) {
+                targetExpr.setType(targetTypeDef.getType());
+            } else {
+                targetExpr.setType(type);
+            }
         } catch (AnalysisException ae) {
             targetExpr = this;
         } catch (NumberFormatException nfe) {

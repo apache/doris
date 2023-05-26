@@ -17,21 +17,47 @@
 
 #include "olap/rowid_conversion.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <memory>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+
+#include "common/status.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
+#include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -332,11 +358,11 @@ protected:
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                               input_rs_readers, output_rs_writer.get(), 10000000,
-                                               &stats);
+            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                               tablet_schema, input_rs_readers,
+                                               output_rs_writer.get(), 10000000, &stats);
         } else {
-            s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+            s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);
         }
         EXPECT_TRUE(s.ok());

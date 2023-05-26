@@ -98,8 +98,7 @@ public class DataTypeTest {
         Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
         Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
         // date
-        Assertions.assertEquals(Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE,
-                DataType.convertFromString("date"));
+        Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
         // time

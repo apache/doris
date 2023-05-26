@@ -17,14 +17,42 @@
 
 #include "vmeta_scanner.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include "gen_cpp/FrontendService.h"
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/scan/vmeta_scan_node.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class VExprContext;
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -42,7 +70,7 @@ Status VMetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status VMetaScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -115,6 +143,12 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
                 col_ptr = &nullable_column->get_nested_column();
             }
             switch (slot_desc->type().type) {
+            case TYPE_BOOLEAN: {
+                bool data = _batch_data[_row_idx].column_value[col_idx].boolVal;
+                reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
+                        ->insert_value((uint8_t)data);
+                break;
+            }
             case TYPE_INT: {
                 int64_t data = _batch_data[_row_idx].column_value[col_idx].intVal;
                 reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
@@ -183,6 +217,13 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         _meta_eos = true;
         return Status::OK();
     }
+
+    // set filter columns
+    std::vector<std::string> filter_columns;
+    for (const auto& slot : _tuple_desc->slots()) {
+        filter_columns.emplace_back(slot->col_name_lower_case());
+    }
+    request.metada_table_params.__set_columns_name(filter_columns);
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;

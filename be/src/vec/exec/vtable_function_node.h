@@ -17,9 +17,33 @@
 
 #pragma once
 
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/vexpr.h"
+
+namespace doris {
+class ObjectPool;
+class TPlanNode;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -31,7 +55,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
         RETURN_IF_ERROR(alloc_resource(state));
         return _children[0]->open(state);
     }

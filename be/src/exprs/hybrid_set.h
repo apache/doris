@@ -17,14 +17,13 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "common/object_pool.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -61,7 +60,7 @@ public:
     }
 
     // Use '|' instead of '||' has better performance by test.
-    bool find(const T& value) const {
+    ALWAYS_INLINE bool find(const T& value) const {
         if constexpr (N == 1) {
             return (value == _data[0]);
         }
@@ -149,7 +148,7 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename phmap::flat_hash_set<T>::iterator;
+    using Iterator = typename vectorized::flat_hash_set<T>::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -168,7 +167,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    phmap::flat_hash_set<T> _set;
+    vectorized::flat_hash_set<T> _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.
@@ -586,21 +585,26 @@ public:
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
         auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const uint32_t* __restrict offset = col.get_offsets().data();
+        const uint8_t* __restrict data = col.get_chars().data();
+        uint8_t* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
         }
         auto* __restrict result_data = results.data();
         for (size_t i = 0; i < rows; ++i) {
+            uint32_t len = offset[i] - offset[i - 1];
             if constexpr (!is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i));
+                result_data[i] = _set.find(StringRef(cursor, len));
             } else if constexpr (!is_nullable && is_negative) {
-                result_data[i] = !_set.find(col.get_data_at(i));
+                result_data[i] = !_set.find(StringRef(cursor, len));
             } else if constexpr (is_nullable && !is_negative) {
-                result_data[i] = _set.find(col.get_data_at(i)) & (!null_map_data[i]);
+                result_data[i] = (!null_map_data[i]) & _set.find(StringRef(cursor, len));
             } else { // (is_nullable && is_negative)
-                result_data[i] = !(_set.find(col.get_data_at(i)) & (!null_map_data[i]));
+                result_data[i] = !((!null_map_data[i]) & _set.find(StringRef(cursor, len)));
             }
+            cursor += len;
         }
     }
 

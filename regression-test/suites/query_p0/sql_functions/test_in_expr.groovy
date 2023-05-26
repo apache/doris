@@ -113,4 +113,21 @@ suite("test_in_expr", "query") {
     sql """DROP TABLE IF EXISTS ${nullTableName}"""
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""
 
+    // from https://github.com/apache/doris/issues/19374
+    sql """DROP TABLE IF EXISTS t11"""
+    sql """
+            CREATE TABLE t11(c0 CHAR(109) NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 13 PROPERTIES ("replication_num" = "1");
+        """
+    sql """
+        insert into t11 values ('1'), ('1'), ('2'), ('2'), ('3'), ('4');
+        """
+    
+    qt_select "select t11.c0 from t11 group by t11.c0 having not ('1' in (t11.c0)) order by t11.c0;"
+    qt_select "select t11.c0 from t11 group by t11.c0 having ('1' not in (t11.c0)) order by t11.c0;"
+
+    qt_select "SELECT  (abs(1)=1) IN (null) FROM t11;"
+
+    qt_select """
+    SELECT CASE (TIMESTAMP '1970-12-04 03:51:34' NOT BETWEEN TIMESTAMP '1970-11-11 16:41:26' AND TIMESTAMP 'CURRENT_TIMESTAMP')  WHEN (0.7532032132148743 BETWEEN 0.7817240953445435 AND CAST('.' AS FLOAT) ) THEN (- (- 2093562249))  WHEN CAST((true IN (false)) AS BOOLEAN)  THEN (+ 1351956476) END  FROM t11 WHERE (NULL IN (CASE CAST('-658171195' AS BOOLEAN)   WHEN ((TIMESTAMP '1970-02-25 22:11:59') IS NOT NULL) THEN NULL  WHEN ((true) IS NULL) THEN NULL END )) GROUP BY t11.c0 ORDER BY 1;
+    """
 }

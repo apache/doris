@@ -28,12 +28,19 @@ under the License.
 
 <version since="2.0">
 
-array_shuffle(array1, [seed])
-shuffle(array1, [seed])
+array_shuffle
+shuffle
 
 </version>
 
 ### description
+
+#### Syntax
+
+```sql
+ARRAY<T> array_shuffle(ARRAY<T> array1, [INT seed])
+ARRAY<T> shuffle(ARRAY<T> array1, [INT seed])
+```
 
 Randomly arrange the elements in the array. Among them, the parameter array1 is the array to be randomly arranged, and the optional parameter seed is to set the initial value used by the pseudo-random number generator to generate pseudo-random numbers.
 Shuffle has the same function as array_shuffle.

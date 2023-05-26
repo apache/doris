@@ -17,16 +17,24 @@
 
 #include "util/mysql_row_buffer.h"
 
+#include <assert.h>
 #include <fmt/format.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <new>
+#include <ostream>
+#include <string>
 
 #include "common/logging.h"
 #include "date_func.h"
 #include "gutil/strings/numbers.h"
+#include "olap/olap_common.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -235,7 +243,7 @@ int MysqlRowBuffer<is_binary_format>::append_var_string(const char* data, int64_
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_tinyint(int8_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[1];
         _field_pos++;
         int1store(buff, data);
@@ -255,7 +263,7 @@ int MysqlRowBuffer<is_binary_format>::push_tinyint(int8_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_smallint(int16_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[2];
         _field_pos++;
         int2store(buff, data);
@@ -275,7 +283,7 @@ int MysqlRowBuffer<is_binary_format>::push_smallint(int16_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_int(int32_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[4];
         _field_pos++;
         int4store(buff, data);
@@ -295,7 +303,7 @@ int MysqlRowBuffer<is_binary_format>::push_int(int32_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_bigint(int64_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;
         int8store(buff, data);
@@ -315,7 +323,7 @@ int MysqlRowBuffer<is_binary_format>::push_bigint(int64_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_unsigned_bigint(uint64_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;
         int8store(buff, data);
@@ -335,7 +343,7 @@ int MysqlRowBuffer<is_binary_format>::push_unsigned_bigint(uint64_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_largeint(int128_t data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         // large int as type string
         std::string value = LargeIntValue::to_string(data);
         _field_pos++;
@@ -355,7 +363,7 @@ int MysqlRowBuffer<is_binary_format>::push_largeint(int128_t data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_float(float data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[4];
         _field_pos++;
         float4store(buff, data);
@@ -375,7 +383,7 @@ int MysqlRowBuffer<is_binary_format>::push_float(float data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_double(double data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;
         float8store(buff, data);
@@ -395,7 +403,7 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_time(double data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;
         float8store(buff, data);
@@ -416,7 +424,7 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
 template <bool is_binary_format>
 template <typename DateType>
 int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         return push_datetime(data);
     }
 
@@ -428,7 +436,7 @@ int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {
 template <bool is_binary_format>
 template <typename DateType>
 int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         char buff[12], *pos;
         size_t length;
         _field_pos++;
@@ -476,7 +484,7 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, int round_scale) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         ++_field_pos;
     }
     // 1 for string trail, 1 for length, other for decimal str
@@ -493,7 +501,7 @@ int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, i
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_string(const char* str, int64_t length) {
-    if constexpr (is_binary_format) {
+    if (is_binary_format && !_dynamic_mode) {
         ++_field_pos;
     }
     // 9 for length pack max, 1 for sign, other for digits
@@ -520,7 +528,7 @@ int MysqlRowBuffer<is_binary_format>::push_string(const char* str, int64_t lengt
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_null() {
     if (_dynamic_mode) {
-        // dynamic mode not write
+        // for nested type
         return 0;
     }
 

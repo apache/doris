@@ -173,7 +173,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics updateLessThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
             double val, EstimationContext context, boolean contains) {
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateLessThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         //rightRange.distinctValues should not be used
@@ -186,7 +186,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics updateGreaterThanLiteral(Expression leftExpr, ColumnStatistic statsForLeft,
             double val, EstimationContext context, boolean contains) {
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateGreaterThanLiteralWithHistogram(leftExpr, statsForLeft, val, context, contains);
         }
         //rightRange.distinctValues should not be used
@@ -228,7 +228,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         } else {
             selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
         }
-        if (statsForLeft.histogram != null) {
+        if (statsForLeft.hasHistogram()) {
             return estimateEqualToWithHistogram(cp.left(), statsForLeft, val, context);
         }
 

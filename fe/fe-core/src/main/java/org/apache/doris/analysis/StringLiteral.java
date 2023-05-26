@@ -227,7 +227,14 @@ public class StringLiteral extends LiteralExpr {
                             throw new AnalysisException(e.getMessage());
                         }
                     }
-                    return new IntLiteral(value, targetType);
+                    // MySQL will try to parse string as bigint, if failed, will cast string as 0.
+                    long longValue;
+                    try {
+                        longValue = Long.parseLong(value);
+                    } catch (NumberFormatException e) {
+                        longValue = 0L;
+                    }
+                    return new IntLiteral(longValue, targetType);
                 case LARGEINT:
                     if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
@@ -250,9 +257,14 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                    res.setType(targetType);
-                    return res;
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(
+                                String.format("input value can't parse to decimal, value=%s, reason=%s", value));
+                    }
                 default:
                     break;
             }

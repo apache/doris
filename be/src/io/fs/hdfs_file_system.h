@@ -17,15 +17,27 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
 #include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <string>
+#include <vector>
 
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/hdfs.h"
+#include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 
 namespace doris {
+class THdfsParams;
+
 namespace io {
+struct FileInfo;
 
 class HdfsFileSystemHandle {
 public:

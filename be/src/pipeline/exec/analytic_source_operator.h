@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include "common/status.h"
 #include "operator.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
-
-namespace vectorized {
-class VAnalyticEvalNode;
-}
+class ExecNode;
+class RuntimeState;
 
 namespace pipeline {
 

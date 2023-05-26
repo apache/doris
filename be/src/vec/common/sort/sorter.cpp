@@ -17,10 +17,32 @@
 
 #include "vec/common/sort/sorter.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <functional>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/object_pool.h"
 #include "runtime/block_spill_manager.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class RowDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -291,8 +313,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(std::unique_ptr<MergeSorterState>(
-                  new MergeSorterState(row_desc, offset, limit, state, profile))) {}
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
 
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
@@ -305,13 +326,9 @@ Status FullSorter::append_block(Block* block) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name();
-            try {
-                //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-                RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
-                        *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
-            } catch (const doris::Exception& e) {
-                return Status::Error(e.code(), e.to_string());
-            }
+            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
+            RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
         }
         block->clear_column_data();
     }

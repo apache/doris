@@ -29,6 +29,9 @@ import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
+import com.vesoft.nebula.client.graph.data.DateWrapper;
+import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
@@ -535,6 +538,12 @@ public class UdfUtils {
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
+    public static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
     public static long convertToDateTimeV2(Object obj, Class clz) {
         if (LocalDateTime.class.equals(clz)) {
             LocalDateTime date = (LocalDateTime) obj;
@@ -543,11 +552,11 @@ public class UdfUtils {
         } else if (org.joda.time.DateTime.class.equals(clz)) {
             org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
             return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute());
+                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
         } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
             org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
             return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute());
+                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
         } else {
             return 0;
         }
@@ -583,5 +592,57 @@ public class UdfUtils {
             bytes[length - 1 - i] = temp;
         }
         return bytes;
+    }
+
+    // only used by nebula-graph
+    // transfer to an object that can copy to the block
+    public static Object convertObject(ValueWrapper value) {
+        try {
+            if (value.isLong()) {
+                return value.asLong();
+            }
+            if (value.isBoolean()) {
+                return value.asBoolean();
+            }
+            if (value.isDouble()) {
+                return value.asDouble();
+            }
+            if (value.isString()) {
+                return value.asString();
+            }
+            if (value.isTime()) {
+                return value.asTime().toString();
+            }
+            if (value.isDate()) {
+                DateWrapper date = value.asDate();
+                return LocalDate.of(date.getYear(), date.getMonth(), date.getDay());
+            }
+            if (value.isDateTime()) {
+                DateTimeWrapper dateTime = value.asDateTime();
+                return LocalDateTime.of(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay(),
+                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), dateTime.getMicrosec() * 1000);
+            }
+            if (value.isVertex()) {
+                return value.asNode().toString();
+            }
+            if (value.isEdge()) {
+                return value.asRelationship().toString();
+            }
+            if (value.isPath()) {
+                return value.asPath().toString();
+            }
+            if (value.isList()) {
+                return value.asList().toString();
+            }
+            if (value.isSet()) {
+                return value.asSet().toString();
+            }
+            if (value.isMap()) {
+                return value.asMap().toString();
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

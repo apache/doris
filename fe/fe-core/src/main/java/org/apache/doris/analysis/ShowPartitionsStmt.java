@@ -18,10 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -32,7 +33,8 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -57,6 +59,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     private static final String FILTER_REPLICATION_NUM = "ReplicationNum";
     private static final String FILTER_LAST_CONSISTENCY_CHECK_TIME = "LastConsistencyCheckTime";
 
+    private CatalogIf catalog;
     private TableName tableName;
     private Expr whereClause;
     private List<OrderByElement> orderByElements;
@@ -78,6 +81,14 @@ public class ShowPartitionsStmt extends ShowStmt {
             this.filterMap = new HashMap<>();
         }
         this.isTempPartition = isTempPartition;
+    }
+
+    public CatalogIf getCatalog() {
+        return catalog;
+    }
+
+    public TableName getTableName() {
+        return tableName;
     }
 
     public List<OrderByPair> getOrderByPairs() {
@@ -102,15 +113,19 @@ public class ShowPartitionsStmt extends ShowStmt {
         // check access
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                                                                PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), catalog.getName(), dbName,
+                tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tblName);
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        Table table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+        if (!catalog.isInternalCatalog()) {
+            return;
+        }
+
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
         table.readLock();
         try {
             // build proc path
@@ -137,8 +152,16 @@ public class ShowPartitionsStmt extends ShowStmt {
     public void analyzeImpl(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        if (catalog == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FOR_CATALOG);
+        }
+
+        // disallow unsupported catalog
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog)) {
+            throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
+                catalog.getType()));
+        }
 
         // analyze where clause if not null
         if (whereClause != null) {
@@ -222,15 +245,19 @@ public class ShowPartitionsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        ProcResult result = null;
-        try {
-            result = node.fetchResult();
-        } catch (AnalysisException e) {
-            return builder.build();
-        }
+        if (catalog.isInternalCatalog()) {
+            ProcResult result = null;
+            try {
+                result = node.fetchResult();
+            } catch (AnalysisException e) {
+                return builder.build();
+            }
 
-        for (String col : result.getColumnNames()) {
-            builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            for (String col : result.getColumnNames()) {
+                builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            }
+        } else {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }
         return builder.build();
     }

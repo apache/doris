@@ -17,61 +17,49 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Status;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.Version;
-import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
-import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TBrokerOperationStatus;
-import org.apache.doris.thrift.TBrokerOperationStatusCode;
-import org.apache.doris.thrift.TBrokerRenamePathRequest;
-import org.apache.doris.thrift.TBrokerVersion;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPaloBrokerService;
-import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.load.ExportJob.JobState;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
-    private static final int RETRY_NUM = 2;
 
     protected final ExportJob job;
-
-    private boolean isCancelled = false;
-    private Status failStatus = Status.OK;
-    private ExportFailMsg.CancelType cancelType = ExportFailMsg.CancelType.UNKNOWN;
-
-    private RuntimeProfile profile = new RuntimeProfile("Export");
-    private List<RuntimeProfile> fragmentProfiles = Lists.newArrayList();
+    private StmtExecutor stmtExecutor;
 
     public ExportExportingTask(ExportJob job) {
         this.job = job;
         this.signature = job.getId();
     }
 
+    public StmtExecutor getStmtExecutor() {
+        return stmtExecutor;
+    }
+
     @Override
     protected void exec() {
+        if (job.getState() == JobState.IN_QUEUE) {
+            handleInQueueState();
+        }
+
         if (job.getState() != ExportJob.JobState.EXPORTING) {
             return;
         }
@@ -85,93 +73,63 @@ public class ExportExportingTask extends MasterTask {
             job.setDoExportingThread(Thread.currentThread());
         }
 
-        if (job.isReplayed()) {
-            // If the job is created from replay thread, all plan info will be lost.
-            // so the job has to be cancelled.
-            String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-            return;
-        }
-
-        // if one instance finished, we send request to BE to exec next instance
-        List<Coordinator> coords = job.getCoordList();
-        int coordSize = coords.size();
-        for (int i = 0; i < coordSize; i++) {
-            if (isCancelled) {
+        List<QueryStmt> selectStmtList = job.getSelectStmtList();
+        boolean isFailed = false;
+        ExportFailMsg errorMsg = null;
+        int completeTaskNum = 0;
+        List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
+        // begin exporting
+        for (int i = 0; i < selectStmtList.size(); ++i) {
+            // maybe user cancelled this job
+            if (job.getState() != JobState.EXPORTING) {
+                isFailed = true;
                 break;
             }
-            Coordinator coord = coords.get(i);
-            for (int j = 0; j < RETRY_NUM; ++j) {
-                execOneCoord(coord);
-                if (coord.getExecStatus().ok()) {
+            try (AutoCloseConnectContext r = buildConnectContext()) {
+                this.stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(i));
+                this.stmtExecutor.execute();
+                if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
+                    errorMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
+                            r.connectContext.getState().getErrorMessage());
+                    isFailed = true;
                     break;
                 }
-                if (j < RETRY_NUM - 1) {
-                    TUniqueId queryId = coord.getQueryId();
-                    coord.clearExportStatus();
-
-                    // generate one new queryId here, to avoid being rejected by BE,
-                    // because the request is considered as a repeat request.
-                    // we make the high part of query id unchanged to facilitate tracing problem by log.
-                    UUID uuid = UUID.randomUUID();
-                    TUniqueId newQueryId = new TUniqueId(queryId.hi, uuid.getLeastSignificantBits());
-                    coord.setQueryId(newQueryId);
-                    LOG.warn("export exporting job fail. err: {}. query_id: {}, job: {}. retry. {}, new query id: {}",
-                            coord.getExecStatus().getErrorMsg(), DebugUtil.printId(queryId), job.getId(), j,
-                            DebugUtil.printId(newQueryId));
-                }
+                ExportJob.OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
+                outfileInfoList.add(outfileInfo);
+                ++completeTaskNum;
+            } catch (Exception e) {
+                errorMsg = new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                isFailed = true;
+                break;
+            } finally {
+                this.stmtExecutor.addProfileToSpan();
             }
-
-            if (!coord.getExecStatus().ok()) {
-                onFailed(coord);
-            } else {
-                int progress = (int) (i + 1) * 100 / coordSize;
-                if (progress >= 100) {
-                    progress = 99;
-                }
-                job.setProgress(progress);
-                LOG.info("finish coordinator with query id {}, export job: {}. progress: {}",
-                        DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
-            }
-
-            RuntimeProfile queryProfile = coord.getQueryProfile();
-            if (queryProfile != null) {
-                queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
-            }
-            coord.endProfile();
-            fragmentProfiles.add(coord.getQueryProfile());
         }
 
-        if (isCancelled) {
-            job.cancel(cancelType, null /* error msg is already set */);
-            registerProfile();
+        int progress = completeTaskNum * 100 / selectStmtList.size();
+        if (progress >= 100) {
+            progress = 99;
+        }
+        job.setProgress(progress);
+        LOG.info("Exporting task progress is {}%, export job: {}", progress, job.getId());
+
+        if (isFailed) {
+            job.cancel(errorMsg.getCancelType(), errorMsg.getMsg());
+            LOG.warn("Exporting task failed because Exception: {}", errorMsg.getMsg());
             return;
         }
 
-        if (job.getBrokerDesc().getStorageType() == StorageBackend.StorageType.BROKER) {
-            // move tmp file to final destination
-            Status mvStatus = moveTmpFiles();
-            if (!mvStatus.ok()) {
-                String failMsg = "move tmp file to final destination fail.";
-                failMsg += mvStatus.getErrorMsg();
-                job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
-                LOG.warn("move tmp file to final destination fail. job:{}", job);
-                registerProfile();
-                return;
-            }
-        }
-
-        if (job.updateState(ExportJob.JobState.FINISHED)) {
-            LOG.warn("export job success. job: {}", job);
-            registerProfile();
+        if (job.finish(outfileInfoList)) {
+            LOG.info("export job success. job: {}", job);
+            // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
             // release snapshot
-            Status releaseSnapshotStatus = job.releaseSnapshotPaths();
-            if (!releaseSnapshotStatus.ok()) {
-                // even if release snapshot failed, do not cancel this job.
-                // snapshot will be removed by GC thread on BE, finally.
-                LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
-                        releaseSnapshotStatus.getErrorMsg());
-            }
+            // Status releaseSnapshotStatus = job.releaseSnapshotPaths();
+            // if (!releaseSnapshotStatus.ok()) {
+            //     // even if release snapshot failed, do not cancel this job.
+            //     // snapshot will be removed by GC thread on BE, finally.
+            //     LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
+            //             releaseSnapshotStatus.getErrorMsg());
+            // }
         }
 
         synchronized (this) {
@@ -179,169 +137,47 @@ public class ExportExportingTask extends MasterTask {
         }
     }
 
-    private Status execOneCoord(Coordinator coord) {
-        TUniqueId queryId = coord.getQueryId();
-        boolean needUnregister = false;
-        try {
-            QeProcessorImpl.INSTANCE.registerQuery(queryId, coord);
-            needUnregister = true;
-            actualExecCoord(queryId, coord);
-        } catch (UserException e) {
-            LOG.warn("export exporting internal error, job: {}", job.getId(), e);
-            return new Status(TStatusCode.INTERNAL_ERROR, e.getMessage());
-        } finally {
-            if (needUnregister) {
-                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            }
-        }
-        return Status.OK;
+    private AutoCloseConnectContext buildConnectContext() {
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setSessionVariable(job.getSessionVariables());
+        connectContext.setEnv(Env.getCurrentEnv());
+        connectContext.setDatabase(job.getTableName().getDb());
+        connectContext.setQualifiedUser(job.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(job.getUserIdentity());
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        connectContext.setQueryId(queryId);
+        connectContext.setStartTime();
+        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        return new AutoCloseConnectContext(connectContext);
     }
 
-    private void actualExecCoord(TUniqueId queryId, Coordinator coord) {
-        int leftTimeSecond = getLeftTimeSecond();
-        if (leftTimeSecond <= 0) {
-            onTimeout();
+    private ExportJob.OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
+        ExportJob.OutfileInfo outfileInfo = new ExportJob.OutfileInfo();
+        outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
+        outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
+        outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
+        outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
+        return outfileInfo;
+    }
+
+    private void handleInQueueState() {
+        long dbId = job.getDbId();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
         }
 
-        try {
-            coord.setTimeout(leftTimeSecond);
-            coord.exec();
-        } catch (Exception e) {
-            LOG.warn("export Coordinator execute failed. job: {}", job.getId(), e);
+        // TODO(ftw): when we implement exporting tablet one by one, we should makeSnapshots here
+        // Status snapshotStatus = job.makeSnapshots();
+        // if (!snapshotStatus.ok()) {
+        //     job.cancel(ExportFailMsg.CancelType.RUN_FAIL, snapshotStatus.getErrorMsg());
+        //     return;
+        // }
+
+        if (job.updateState(ExportJob.JobState.EXPORTING)) {
+            LOG.info("Exchange pending status to exporting status success. job: {}", job);
         }
-
-        if (coord.join(leftTimeSecond)) {
-            Status status = coord.getExecStatus();
-            if (status.ok()) {
-                onSubTaskFinished(coord.getExportFiles());
-            }
-        } else {
-            coord.cancel();
-        }
-    }
-
-    private int getLeftTimeSecond() {
-        return (int) (job.getTimeoutSecond() - (System.currentTimeMillis() - job.getCreateTimeMs()) / 1000);
-    }
-
-    private synchronized void onSubTaskFinished(List<String> exportFiles) {
-        job.addExportedFiles(exportFiles);
-    }
-
-    private synchronized void onFailed(Coordinator coordinator) {
-        isCancelled = true;
-        this.failStatus = coordinator.getExecStatus();
-        cancelType = ExportFailMsg.CancelType.RUN_FAIL;
-        String failMsg = "export exporting job fail. query id: " + DebugUtil.printId(coordinator.getQueryId())
-                + ", ";
-        failMsg += failStatus.getErrorMsg();
-        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
-        LOG.warn("export exporting job fail. err: {}. job: {}", failMsg, job);
-    }
-
-    public synchronized void onTimeout() {
-        isCancelled = true;
-        this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
-        cancelType = ExportFailMsg.CancelType.TIMEOUT;
-        String failMsg = "export exporting job timeout.";
-        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
-        LOG.warn("export exporting job timeout. job: {}", job);
-    }
-
-    private void initProfile() {
-        profile = new RuntimeProfile("ExportJob");
-        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(job.getId()));
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, job.getQueryId());
-        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
-
-        long currentTimestamp = System.currentTimeMillis();
-        long totalTimeMs = currentTimestamp - job.getStartTimeMs();
-        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
-        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-        summaryProfile.addInfoString(ProfileManager.USER, job.getUser());
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
-        profile.addChild(summaryProfile);
-    }
-
-    private void registerProfile() {
-        if (!job.getEnableProfile()) {
-            return;
-        }
-        initProfile();
-        for (RuntimeProfile p : fragmentProfiles) {
-            profile.addChild(p);
-        }
-        ProfileManager.getInstance().pushProfile(profile);
-    }
-
-    private Status moveTmpFiles() {
-        FsBroker broker = null;
-        try {
-            String localIP = FrontendOptions.getLocalHostAddress();
-            broker = Env.getCurrentEnv().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
-        } catch (AnalysisException e) {
-            String failMsg = "get broker failed. export job: " + job.getId() + ". msg: " + e.getMessage();
-            LOG.warn(failMsg);
-            return new Status(TStatusCode.CANCELLED, failMsg);
-        }
-        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
-        TPaloBrokerService.Client client = null;
-        try {
-            client = ClientPool.brokerPool.borrowObject(address);
-        } catch (Exception e) {
-            try {
-                client = ClientPool.brokerPool.borrowObject(address);
-            } catch (Exception e1) {
-                String failMsg = "create connection to broker(" + address + ") failed";
-                LOG.warn(failMsg);
-                return new Status(TStatusCode.CANCELLED, failMsg);
-            }
-        }
-        boolean failed = false;
-        Set<String> exportedFiles = job.getExportedFiles();
-        List<String> newFiles = Lists.newArrayList();
-        String exportPath = job.getExportPath();
-        for (String exportedFile : exportedFiles) {
-            // move exportPath/__doris_tmp/file to exportPath/file
-            String file = exportedFile.substring(exportedFile.lastIndexOf("/") + 1);
-            String destPath = exportPath + "/" + file;
-            LOG.debug("rename {} to {}, export job: {}", exportedFile, destPath, job.getId());
-            String failMsg = "";
-            try {
-                TBrokerRenamePathRequest request = new TBrokerRenamePathRequest(
-                        TBrokerVersion.VERSION_ONE, exportedFile, destPath, job.getBrokerDesc().getProperties());
-                TBrokerOperationStatus tBrokerOperationStatus = null;
-                tBrokerOperationStatus = client.renamePath(request);
-                if (tBrokerOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    failed = true;
-                    failMsg = "Broker renamePath failed. srcPath=" + exportedFile + ", destPath=" + destPath
-                            + ", broker=" + address  + ", msg=" + tBrokerOperationStatus.getMessage();
-                    return new Status(TStatusCode.CANCELLED, failMsg);
-                } else {
-                    newFiles.add(destPath);
-                }
-            } catch (TException e) {
-                failed = true;
-                failMsg = "Broker renamePath failed. srcPath=" + exportedFile + ", destPath=" + destPath
-                        + ", broker=" + address  + ", msg=" + e.getMessage();
-                return new Status(TStatusCode.CANCELLED, failMsg);
-            } finally {
-                if (failed) {
-                    ClientPool.brokerPool.invalidateObject(address, client);
-                }
-            }
-        }
-
-        exportedFiles.clear();
-        job.addExportedFiles(newFiles);
-        ClientPool.brokerPool.returnObject(address, client);
-        return Status.OK;
     }
 }

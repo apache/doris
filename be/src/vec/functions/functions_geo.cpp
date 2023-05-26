@@ -17,9 +17,21 @@
 
 #include "vec/functions/functions_geo.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <utility>
+
+#include "geo/geo_common.h"
 #include "geo/geo_types.h"
-#include "gutil/strings/substitute.h"
-#include "vec/columns/column_const.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -617,56 +629,6 @@ struct StGeoFromWkb {
     }
 };
 
-struct StGeometryFromEWKB {
-    static constexpr auto NAME = "st_geometryfromewkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
-};
-
-struct StGeomFromEWKB {
-    static constexpr auto NAME = "st_geomfromewkb";
-    static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
-};
-
-template <typename Impl>
-struct StGeoFromEwkb {
-    static constexpr auto NEED_CONTEXT = true;
-    static constexpr auto NAME = Impl::NAME;
-    static const size_t NUM_ARGS = 1;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
-        auto& geo = block.get_by_position(arguments[0]).column;
-
-        const auto size = geo->size();
-        MutableColumnPtr res = return_type->create_column();
-
-        GeoParseStatus status;
-        std::string buf;
-        for (int row = 0; row < size; ++row) {
-            auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_ewkb(value.data, value.size, &status));
-            if (shape == nullptr || status != GEO_PARSE_OK) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-            buf.clear();
-            shape->encode_to(&buf);
-            res->insert_data(buf.data(), buf.size());
-        }
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-};
-
 struct StAsBinary {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_asbinary";
@@ -711,50 +673,6 @@ struct StAsBinary {
     }
 };
 
-struct StAsEwkb {
-    static constexpr auto NEED_CONTEXT = true;
-    static constexpr auto NAME = "st_asewkb";
-    static const size_t NUM_ARGS = 1;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
-        MutableColumnPtr res = return_type->create_column();
-
-        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto size = col->size();
-
-        std::unique_ptr<GeoShape> shape;
-
-        for (int row = 0; row < size; ++row) {
-            auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
-            if (shape == nullptr) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-
-            std::string binary = GeoShape::as_ewkb(shape.get());
-            if (binary.empty()) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-            res->insert_data(binary.data(), binary.size());
-        }
-
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-};
-
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
     factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
@@ -778,10 +696,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAreaSquareKm, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
-    factory.register_function<GeoFunction<StGeoFromEwkb<StGeometryFromEWKB>>>();
-    factory.register_function<GeoFunction<StGeoFromEwkb<StGeomFromEWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
-    factory.register_function<GeoFunction<StAsEwkb>>();
 }
 
 } // namespace doris::vectorized

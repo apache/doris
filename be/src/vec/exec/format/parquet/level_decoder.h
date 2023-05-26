@@ -17,13 +17,16 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+
 #include <cstdint>
 
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "parquet_common.h"
 #include "util/bit_stream_utils.h"
 #include "util/rle_encoding.h"
+#include "util/slice.h"
 
 namespace doris::vectorized {
 

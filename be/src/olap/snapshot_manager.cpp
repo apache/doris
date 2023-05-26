@@ -17,27 +17,44 @@
 
 #include "olap/snapshot_manager.h"
 
-#include <ctype.h>
-#include <errno.h>
-#include <stdio.h>
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_constants.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
-#include <iterator>
+#include <list>
 #include <map>
+#include <new>
+#include <ostream>
 #include <set>
+#include <shared_mutex>
+#include <unordered_map>
+#include <utility>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/Types_constants.h"
 #include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/tablet_schema_cache.h"
+#include "olap/utils.h"
 #include "runtime/thread_context.h"
+#include "util/uid_util.h"
 
 using std::filesystem::path;
 using std::map;
@@ -146,6 +163,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
+    *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
@@ -160,8 +178,8 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         if (!visible_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_NOT_OK(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
-                                            rowset_meta));
+            RETURN_IF_ERROR(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
+                                              rowset_meta));
             RowsetId src_rs_id;
             if (visible_rowset.rowset_id() > 0) {
                 src_rs_id.init(visible_rowset.rowset_id());
@@ -188,8 +206,8 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         if (!stale_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_NOT_OK(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
-                                            rowset_meta));
+            RETURN_IF_ERROR(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
+                                              rowset_meta));
             RowsetId src_rs_id;
             if (stale_rowset.rowset_id() > 0) {
                 src_rs_id.init(stale_rowset.rowset_id());
@@ -235,12 +253,12 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
-    RETURN_NOT_OK(
+    RETURN_IF_ERROR(
             RowsetFactory::create_rowset(tablet_schema, new_tablet_path, rowset_meta, &org_rowset));
     // do not use cache to load index
     // because the index file may conflict
     // and the cached fd may be invalid
-    RETURN_NOT_OK(org_rowset->load(false));
+    RETURN_IF_ERROR(org_rowset->load(false));
     RowsetMetaSharedPtr org_rowset_meta = org_rowset->rowset_meta();
     RowsetWriterContext context;
     context.rowset_id = rowset_id;
@@ -258,7 +276,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.segments_overlap = rowset_meta->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rs_writer;
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, false, &rs_writer));
+    RETURN_IF_ERROR(RowsetFactory::create_rowset_writer(context, false, &rs_writer));
 
     res = rs_writer->add_rowset(org_rowset);
     if (!res.ok()) {
@@ -271,7 +289,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
         LOG(WARNING) << "failed to build rowset when rename rowset id";
         return Status::Error<MEM_ALLOC_FAILED>();
     }
-    RETURN_NOT_OK(new_rowset->load(false));
+    RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     org_rowset->remove();
     return Status::OK();
@@ -324,7 +342,7 @@ Status SnapshotManager::_link_index_and_data_files(
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     Status res = Status::OK();
     for (auto& rs : consistent_rowsets) {
-        RETURN_NOT_OK(rs->link_files_to(schema_hash_path, rs->rowset_id()));
+        RETURN_IF_ERROR(rs->link_files_to(schema_hash_path, rs->rowset_id()));
     }
     return res;
 }

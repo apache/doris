@@ -17,16 +17,28 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/operator.h"
+#include "util/runtime_profile.h"
+
+namespace doris {
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+} // namespace doris
 
 namespace doris::pipeline {
 
 class Pipeline;
+
 using PipelinePtr = std::shared_ptr<Pipeline>;
 using Pipelines = std::vector<PipelinePtr>;
 using PipelineId = uint32_t;

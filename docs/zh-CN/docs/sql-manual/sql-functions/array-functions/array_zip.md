@@ -36,9 +36,7 @@ array_zip
 
 #### Syntax
 
-```sql
-Array<Struct<T1, T2,...>> array_zip(Array<T1>, Array<T2>, ...)
-```
+`Array<Struct<T1, T2,...>> array_zip(Array<T1>, Array<T2>, ...)`
 
 #### Returned value
 

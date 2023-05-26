@@ -17,24 +17,46 @@
 
 #include "vec/exec/vjdbc_connector.h"
 
-#include <cstring>
+#include <gen_cpp/Types_types.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+// IWYU pragma: no_include <bits/std_abs.h>
+#include <cmath> // IWYU pragma: keep
+#include <cstring>
+#include <memory>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
+#include "jni_md.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/column_array.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/data_types/data_type_factory.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/jni_connector.h"
-#include "vec/exec/scan/new_jdbc_scanner.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -180,7 +202,9 @@ Status JdbcConnector::query() {
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
-    RETURN_IF_ERROR(_check_column_type());
+    if (_conn_param.table_type != TOdbcTableType::NEBULA) {
+        RETURN_IF_ERROR(_check_column_type());
+    }
     return Status::OK();
 }
 
@@ -255,7 +279,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" &&
+            type_str != "java.math.BigInteger" && type_str != "java.lang.String" &&
             type_str != "com.clickhouse.data.value.UnsignedInteger" &&
             type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
@@ -648,13 +672,8 @@ Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Blo
                                             int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
-    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeInt16>();
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(
-            1, static_cast<int16_t>(_target_data_type->is_nullable()
-                                            ? ((DataTypeNullable*)(_target_data_type.get()))
-                                                      ->get_nested_type()
-                                                      ->get_type_id()
-                                            : _target_data_type->get_type_id()));
+    DataTypePtr _cast_param_data_type = _target_data_type;
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);

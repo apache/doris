@@ -17,7 +17,38 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stdint.h>
+
+#include <cstdint>
+#include <list>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/olap_common.h"
+#include "exec/olap_utils.h"
+#include "olap/olap_common.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/scan/vscan_node.h"
+
+namespace doris {
+class DescriptorTbl;
+class FunctionContext;
+class ObjectPool;
+class QueryStatistics;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+class VScanner;
+class VectorizedFnCall;
+} // namespace vectorized
+struct StringRef;
+} // namespace doris
 
 namespace doris::pipeline {
 class OlapScanOperator;
@@ -25,7 +56,6 @@ class OlapScanOperator;
 
 namespace doris::vectorized {
 
-class NewOlapScanner;
 class NewOlapScanNode : public VScanNode {
 public:
     NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -57,7 +87,9 @@ protected:
 
     bool _should_push_down_common_expr() override;
 
-    Status _init_scanners(std::list<VScanner*>* scanners) override;
+    Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
+
+    void add_filter_info(int id, const PredicateFilterInfo& info);
 
 private:
     Status _build_key_ranges_and_filters();
@@ -99,6 +131,7 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
+    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;

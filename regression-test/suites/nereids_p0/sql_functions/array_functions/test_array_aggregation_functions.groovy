@@ -29,7 +29,7 @@ suite("test_array_aggregation_functions") {
               `a3` array<int(11)> NULL COMMENT "",
               `a4` array<bigint(20)> NULL COMMENT "",
               `a5` array<largeint(40)> NULL COMMENT "",
-              `a6` array<decimal(27, 7)> NULL COMMENT "",
+              `a6` array<decimal(25, 7)> NULL COMMENT "",
               `a7` array<float> NULL COMMENT "",
               `a8` array<double> NULL COMMENT "",
               `a9` array<date> NULL COMMENT "",

@@ -17,11 +17,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
-#include "pipeline.h"
+#include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "task_queue.h"
-#include "util/threadpool.h"
+#include "runtime/task_group/task_group.h"
+#include "util/thread.h"
+
+namespace doris {
+class ExecEnv;
+class ThreadPool;
+
+namespace pipeline {
+class TaskQueue;
+} // namespace pipeline
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -72,8 +91,8 @@ public:
 
     void shutdown();
 
-    void try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                               taskgroup::TaskGroupPtr& task_group);
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TaskGroupPtr task_group);
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

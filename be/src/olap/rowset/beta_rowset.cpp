@@ -17,16 +17,23 @@
 
 #include "olap/rowset/beta_rowset.h"
 
-#include <fmt/core.h>
-#include <glog/logging.h>
-#include <stdio.h>  // for remove()
-#include <unistd.h> // for link()
+#include <ctype.h>
+#include <fmt/format.h>
 
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/cache/file_cache_manager.h"
-#include "io/fs/fs_utils.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "io/fs/remote_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
@@ -140,8 +147,8 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
         std::shared_ptr<segment_v2::Segment> segment;
         io::SegmentCachePathPolicy cache_policy;
         cache_policy.set_cache_path(segment_cache_path(seg_id));
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                             cache_policy);
+        auto type = config::enable_file_cache ? config::file_cache_type : "";
+        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {
@@ -373,8 +380,8 @@ bool BetaRowset::check_current_rowset_segment() {
         std::shared_ptr<segment_v2::Segment> segment;
         io::SegmentCachePathPolicy cache_policy;
         cache_policy.set_cache_path(segment_cache_path(seg_id));
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                             cache_policy);
+        auto type = config::enable_file_cache ? config::file_cache_type : "";
+        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {

@@ -26,8 +26,9 @@
 
 #pragma once
 
-#include <common/logging.h>
+#include "common/logging.h"
 #include <stdint.h>
+#include <ostream>
 
 #define BASE_HAS_ATOMIC64 1 // Use only in tests and base/atomic*
 

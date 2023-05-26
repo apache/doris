@@ -15,8 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <features.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "jemalloc/jemalloc.h"
 #include "runtime/thread_context.h"
+#include "util/sse_util.hpp"
 
 #ifndef __THROW
 #if __cplusplus

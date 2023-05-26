@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"

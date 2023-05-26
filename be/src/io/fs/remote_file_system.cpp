@@ -17,11 +17,18 @@
 
 #include "io/fs/remote_file_system.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "common/config.h"
 #include "gutil/strings/stringpiece.h"
 #include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/file_cache.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {
@@ -87,7 +94,15 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
         StringPiece str(raw_reader->path().native());
         std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
-        *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path);
+        if (reader_options.has_cache_base_path) {
+            // from query session variable: file_cache_base_path
+            *reader = std::make_shared<CachedRemoteFileReader>(
+                    std::move(raw_reader), reader_options.cache_base_path, cache_path,
+                    reader_options.modification_time);
+        } else {
+            *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path,
+                                                               reader_options.modification_time);
+        }
         break;
     }
     default: {

@@ -17,12 +17,20 @@
 
 #include "runtime/result_buffer_mgr.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <memory>
+#include <ostream>
+#include <utility>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
+#include "util/thread.h"
 
 namespace doris {
 

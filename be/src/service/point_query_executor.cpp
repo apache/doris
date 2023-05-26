@@ -23,6 +23,10 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <stdlib.h>
 
+#include <unordered_map>
+#include <vector>
+
+#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -33,6 +37,7 @@
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/jsonb/serialize.h"
@@ -49,12 +54,12 @@ Reusable::~Reusable() {
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
-    _runtime_state.reset(new RuntimeState());
+    _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = std::make_unique<vectorized::Block>(tuple_desc()->slots(), 10);
+        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 10);
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_runtime_state->obj_pool(), output_exprs,
@@ -63,13 +68,17 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     _create_timestamp = butil::gettimeofday_ms();
+    _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
+    for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
+        _col_uid_to_idx[tuple_desc()->slots()[i]->col_unique_id()] = i;
+    }
     return Status::OK();
 }
 
 std::unique_ptr<vectorized::Block> Reusable::get_block() {
     std::lock_guard lock(_block_mutex);
     if (_block_pool.empty()) {
-        return std::make_unique<vectorized::Block>(tuple_desc()->slots(), 4);
+        return vectorized::Block::create_unique(tuple_desc()->slots(), 4);
     }
     auto block = std::move(_block_pool.back());
     CHECK(block != nullptr);
@@ -255,7 +264,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, &location,
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, nullptr, &location,
                                       INT32_MAX /*rethink?*/, rowset_ptr.get()));
         if (st.is_not_found()) {
             continue;
@@ -277,18 +286,25 @@ Status PointQueryExecutor::_lookup_row_data() {
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
             vectorized::JsonbSerializeUtil::jsonb_to_block(
-                    *_reusable->tuple_desc(), _row_read_ctxs[i]._cached_row_data.data().data,
-                    _row_read_ctxs[i]._cached_row_data.data().size, *_result_block);
+                    _reusable->get_data_type_serdes(),
+                    _row_read_ctxs[i]._cached_row_data.data().data,
+                    _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
+                    *_result_block);
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
             continue;
         }
+        std::string value;
         RETURN_IF_ERROR(_tablet->lookup_row_data(
                 _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                 *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
-                _profile_metrics.read_stats, _result_block.get(),
+                _profile_metrics.read_stats, value,
                 !config::disable_storage_row_cache /*whether write row cache*/));
+        // serilize value to block, currently only jsonb row formt
+        vectorized::JsonbSerializeUtil::jsonb_to_block(
+                _reusable->get_data_type_serdes(), value.data(), value.size(),
+                _reusable->get_col_uid_to_idx(), *_result_block);
     }
     return Status::OK();
 }

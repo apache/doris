@@ -18,15 +18,26 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 
-#include "agent/utils.h"
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/MasterService_types.h"
-#include "olap/olap_define.h"
+#include "gutil/strings/substitute.h"
+#include "olap/tablet_meta.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
+class DataDir;
+class MemTrackerLimiter;
+class TCloneReq;
+class TMasterInfo;
+class TTabletInfo;
+class Tablet;
+struct Version;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task

@@ -18,13 +18,8 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
-#include <gen_cpp/DorisExternalService_types.h>
-#include <gen_cpp/TDorisExternalService.h>
 #include <stdint.h>
-#include <thrift/protocol/TDebugProtocol.h>
-#include <time.h>
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,23 +34,10 @@ class ThriftServer;
 class TAgentResult;
 class TAgentTaskRequest;
 class TAgentPublishRequest;
-class TPlanExecRequest;
-class TPlanExecParams;
 class TExecPlanFragmentParams;
 class TExecPlanFragmentResult;
-class TInsertResult;
-class TReportExecStatusArgs;
-class TReportExecStatusParams;
-class TReportExecStatusResult;
-class TCancelPlanFragmentArgs;
 class TCancelPlanFragmentResult;
-class TTransmitDataArgs;
 class TTransmitDataResult;
-class TNetworkAddress;
-class TClientRequest;
-class TExecRequest;
-class TSessionState;
-class TQueryOptions;
 class TExportTaskRequest;
 class TExportStatusResult;
 class TStreamLoadRecordResult;

@@ -27,8 +27,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TAgentServiceVersion;
-import org.apache.doris.thrift.TFetchResourceResult;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -51,40 +49,18 @@ public class UserPropertyMgr implements Writable {
     public static final String LDAP_RESOURCE_USER = "ldap";
 
     private static final UserProperty LDAP_PROPERTY = new UserProperty(LDAP_RESOURCE_USER);
-
-    static {
-        try {
-            setNormalUserDefaultResource(LDAP_PROPERTY);
-        } catch (DdlException e) {
-            LOG.error("init DEFAULT_PROPERTY error.", e);
-            throw new RuntimeException(e);
-        }
-    }
-
     private AtomicLong resourceVersion = new AtomicLong(0);
 
     public UserPropertyMgr() {
     }
 
-    public void addUserResource(String qualifiedUser, boolean isSystemUser) {
+    public void addUserResource(String qualifiedUser) {
         UserProperty property = propertyMap.get(qualifiedUser);
         if (property != null) {
             return;
         }
 
         property = new UserProperty(qualifiedUser);
-
-        // set user properties
-        try {
-            if (isSystemUser) {
-                setSystemUserDefaultResource(property);
-            } else {
-                setNormalUserDefaultResource(property);
-            }
-        } catch (DdlException e) {
-            // this should not happen, because the value is set by us!!
-        }
-
         propertyMap.put(qualifiedUser, property);
         resourceVersion.incrementAndGet();
     }
@@ -147,42 +123,6 @@ public class UserPropertyMgr implements Writable {
             return UserProperty.INVALID_RESOURCE_TAGS;
         }
         return existProperty.getCopiedResourceTags();
-    }
-
-    public int getPropertyMapSize() {
-        return propertyMap.size();
-    }
-
-    private void setSystemUserDefaultResource(UserProperty user) throws DdlException {
-        UserResource userResource = user.getResource();
-        userResource.updateResource("CPU_SHARE", 100);
-        userResource.updateResource("IO_SHARE", 100);
-        userResource.updateResource("SSD_READ_MBPS", 30);
-        userResource.updateResource("SSD_WRITE_MBPS", 30);
-        userResource.updateResource("HDD_READ_MBPS", 30);
-        userResource.updateResource("HDD_WRITE_MBPS", 30);
-    }
-
-    private static void setNormalUserDefaultResource(UserProperty user) throws DdlException {
-        UserResource userResource = user.getResource();
-        userResource.updateResource("CPU_SHARE", 1000);
-        userResource.updateResource("IO_SHARE", 1000);
-        userResource.updateResource("SSD_READ_IOPS", 1000);
-        userResource.updateResource("HDD_READ_IOPS", 80);
-        userResource.updateResource("SSD_READ_MBPS", 30);
-        userResource.updateResource("HDD_READ_MBPS", 30);
-    }
-
-    public TFetchResourceResult toResourceThrift() {
-        TFetchResourceResult tResult = new TFetchResourceResult();
-        tResult.setProtocolVersion(TAgentServiceVersion.V1);
-        tResult.setResourceVersion(resourceVersion.get());
-
-        for (Map.Entry<String, UserProperty> entry : propertyMap.entrySet()) {
-            tResult.putToResourceByUser(entry.getKey(), entry.getValue().getResource().toThrift());
-        }
-
-        return tResult;
     }
 
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {

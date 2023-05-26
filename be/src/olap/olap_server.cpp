@@ -15,28 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gperftools/profiler.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
-#include <boost/algorithm/string.hpp>
+#include <algorithm>
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <cmath>
+#include <condition_variable>
 #include <ctime>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <random>
 #include <string>
+#include <type_traits>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
+#include "gutil/ref_counted.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_writer.h" // IWYU pragma: keep
+#include "io/fs/path.h"
 #include "olap/cold_data_compaction.h"
-#include "olap/cumulative_compaction.h"
+#include "olap/compaction_permit_limiter.h"
+#include "olap/cumulative_compaction_policy.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/segcompaction.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "service/point_query_executor.h"
+#include "util/countdown_latch.h"
+#include "util/doris_metrics.h"
+#include "util/priority_thread_pool.hpp"
+#include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 
 using std::string;
 
@@ -492,7 +519,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                Status st = _submit_compaction_task(tablet, compaction_type);
+                Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
                                  << tablet->tablet_id() << ", err: " << st;
@@ -637,7 +664,7 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
-                                              CompactionType compaction_type) {
+                                              CompactionType compaction_type, bool force) {
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist(
@@ -646,7 +673,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
-    if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
+    if (st.ok() && permits > 0) {
+        if (!force) {
+            _permit_limiter.request(permits);
+        }
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
@@ -685,14 +715,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
 }
 
-Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
-                                             CompactionType compaction_type) {
+Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                             bool force) {
     _update_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
     tablet->set_skip_compaction(false);
-    return _submit_compaction_task(tablet, compaction_type);
+    return _submit_compaction_task(tablet, compaction_type, force);
 }
 
 Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,

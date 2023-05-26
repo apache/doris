@@ -34,14 +34,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -81,10 +80,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -319,6 +318,11 @@ public class Analyzer {
         // True if at least one of the analyzers belongs to a subquery.
         public boolean containsSubquery = false;
 
+        // When parsing a ddl of hive view, it does not contains any catalog info,
+        // so we need to record it in Analyzer
+        // otherwise some error will occurs when resolving TableRef later.
+        public String externalCtl;
+
         // all registered conjuncts (map from id to Predicate)
         private final Map<ExprId, Expr> conjuncts = Maps.newHashMap();
 
@@ -541,6 +545,14 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState, new InferPredicateState());
     }
 
+    public void setExternalCtl(String externalCtl) {
+        globalState.externalCtl = externalCtl;
+    }
+
+    public String getExternalCtl() {
+        return globalState.externalCtl;
+    }
+
     public void setIsExplain() {
         globalState.isExplain = true;
     }
@@ -620,10 +632,11 @@ public class Analyzer {
      * Create query global parameters to be set in each TPlanExecRequest.
      */
     public static TQueryGlobals createQueryGlobals() {
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSSSSSSS");
         TQueryGlobals queryGlobals = new TQueryGlobals();
         Calendar currentDate = Calendar.getInstance();
-        String nowStr = formatter.format(currentDate.getTime());
+        LocalDateTime localDateTime = LocalDateTime.ofInstant(currentDate.toInstant(),
+                currentDate.getTimeZone().toZoneId());
+        String nowStr = localDateTime.format(TimeUtils.DATETIME_NS_FORMAT);
         queryGlobals.setNowString(nowStr);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         return queryGlobals;
@@ -757,6 +770,10 @@ public class Analyzer {
         }
         // Try to find a matching local view.
         TableName tableName = tableRef.getName();
+        if (StringUtils.isNotEmpty(this.globalState.externalCtl)
+                && StringUtils.isEmpty(tableName.getCtl())) {
+            tableName.setCtl(this.globalState.externalCtl);
+        }
         if (!tableName.isFullyQualified()) {
             // Searches the hierarchy of analyzers bottom-up for a registered local view with
             // a matching alias.
@@ -794,18 +811,28 @@ public class Analyzer {
             }
         }
 
-        if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
-            // resolve hudi table's schema when table schema is empty from doris meta
-            table = HudiUtils.resolveHudiTable((HudiTable) table);
-        }
-
         // Now hms table only support a bit of table kinds in the whole hive system.
         // So Add this strong checker here to avoid some undefine behaviour in doris.
-        if (table.getType() == TableType.HMS_EXTERNAL_TABLE && !((HMSExternalTable) table).isSupportedHmsTable()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
-                    table.getName(),
-                    ((HMSExternalTable) table).getDbName(),
-                    tableName.getCtl());
+        if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
+            if (!((HMSExternalTable) table).isSupportedHmsTable()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
+                        table.getName(),
+                        ((HMSExternalTable) table).getDbName(),
+                        tableName.getCtl());
+            }
+            if (Config.enable_query_hive_views) {
+                if (((HMSExternalTable) table).isView()
+                        && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
+                    View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
+                    hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
+                            ConnectContext.get().getSessionVariable().getSqlMode());
+                    InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
+                    if (StringUtils.isNotEmpty(tableName.getCtl())) {
+                        inlineViewRef.setExternalCtl(tableName.getCtl());
+                    }
+                    return inlineViewRef;
+                }
+            }
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
@@ -1387,10 +1414,10 @@ public class Analyzer {
             }
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
-                    && !globalState.assignedConjuncts.contains(e.getId())
+                    && (!globalState.assignedConjuncts.contains(e.getId()) || e.isConstant())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
-                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
+                            || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -2417,7 +2444,14 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        return getUnassignedConjuncts(node.getTblRefIds());
+        // constant conjuncts should be push down to all leaf node.
+        // so we need remove constant conjuncts when expr is not a leaf node.
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()) {
+            unassigned = unassigned.stream()
+                    .filter(e -> !e.isConstant()).collect(Collectors.toList());
+        }
+        return unassigned;
     }
 
     /**

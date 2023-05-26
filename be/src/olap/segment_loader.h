@@ -17,20 +17,28 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <atomic>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
+#include "common/status.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h" // for rowset id
-#include "olap/rowset/beta_rowset.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "util/time.h"
 
 namespace doris {
 
 class SegmentCacheHandle;
+class BetaRowset;
 
 // SegmentLoader is used to load the Segment of BetaRowset.
 // An LRUCache is encapsulated inside it, which is used to cache the opened segments.
@@ -38,7 +46,7 @@ class SegmentCacheHandle;
 // the segments of a specified rowset:
 //
 //  SegmentCacheHandle cache_handle;
-//  RETURN_NOT_OK(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
+//  RETURN_IF_ERROR(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
 //  for (auto& seg_ptr : cache_handle.value()->segments) {
 //      ... visit segment ...
 //  }
@@ -84,6 +92,8 @@ public:
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
+
+    void erase_segment(const SegmentLoader::CacheKey& key);
 
     // Try to prune the segment cache if expired.
     Status prune();

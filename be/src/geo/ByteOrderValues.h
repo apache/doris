@@ -19,8 +19,6 @@
 
 #include <sys/types.h>
 
-#include <ctime>
-
 using int64_t = __int64_t;
 using int32_t = __int32_t;
 using uint32_t = __uint32_t;

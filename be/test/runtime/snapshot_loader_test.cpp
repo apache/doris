@@ -17,11 +17,12 @@
 
 #include "runtime/snapshot_loader.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <filesystem>
 
-#include "runtime/exec_env.h"
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

@@ -4,18 +4,22 @@
 
 #pragma once
 
+#include <assert.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
 #include <gtest/gtest_prod.h>
-#include <rapidjson/document.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
 #include <functional>
-#include <queue>
+#include <memory>
+#include <set>
 #include <string>
-#include <vector>
+#include <utility>
 
-#include "olap/olap_common.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/lock.h"
@@ -49,7 +53,6 @@ namespace doris {
     } while (0)
 
 class Cache;
-class CacheKey;
 
 enum LRUCacheType {
     SIZE,  // The capacity of cache is based on the size of cache entry.
@@ -236,12 +239,12 @@ private:
 
 // An entry is a variable length heap-allocated structure.  Entries
 // are kept in a circular doubly linked list ordered by access time.
-typedef struct LRUHandle {
+struct LRUHandle {
     void* value;
     void (*deleter)(const CacheKey&, void* value);
-    LRUHandle* next_hash = nullptr; // next entry in hash table
-    LRUHandle* next = nullptr;      // next entry in lru list
-    LRUHandle* prev = nullptr;      // previous entry in lru list
+    struct LRUHandle* next_hash = nullptr; // next entry in hash table
+    struct LRUHandle* next = nullptr;      // next entry in lru list
+    struct LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
@@ -270,8 +273,7 @@ typedef struct LRUHandle {
         DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
         ::free(this);
     }
-
-} LRUHandle;
+};
 
 // We provide our own simple hash tablet since it removes a whole bunch
 // of porting hacks and is also faster than some of the built-in hash

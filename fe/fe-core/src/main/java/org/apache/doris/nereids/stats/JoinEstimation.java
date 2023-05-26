@@ -19,18 +19,23 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -51,7 +56,32 @@ public class JoinEstimation {
         }
     }
 
+    private static boolean hashJoinConditionContainsUnknownColumnStats(Statistics leftStats,
+            Statistics rightStats, Join join) {
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            for (Slot slot : expr.getInputSlots()) {
+                ColumnStatistic colStats = leftStats.findColumnStatistics(slot);
+                if (colStats == null) {
+                    colStats = rightStats.findColumnStatistics(slot);
+                }
+                if (colStats == null || colStats.isUnKnown) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            rowCount = Math.max(1, rowCount);
+            return new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
+        }
         /*
          * When we estimate filter A=B,
          * if any side of equation, A or B, is almost unique, the confidence level of estimation is high.
@@ -71,15 +101,19 @@ public class JoinEstimation {
                         EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
                         ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
                         ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
-                        boolean trustable = eqRightColStats.ndv / rightStats.getRowCount() > almostUniqueThreshold
-                                || eqLeftColStats.ndv / leftStats.getRowCount() > almostUniqueThreshold;
+                        double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
+                        double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
+                        boolean trustable = eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
+                                || eqLeftColStats.ndv / leftStatsRowCount > almostUniqueThreshold;
                         if (!trustable) {
+                            double rNdv = StatsMathUtil.nonZeroDivisor(eqRightColStats.ndv);
+                            double lNdv = StatsMathUtil.nonZeroDivisor(eqLeftColStats.ndv);
                             if (leftBigger) {
-                                unTrustEqualRatio.add((rightStats.getRowCount() / eqRightColStats.ndv)
-                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqLeftColStats.ndv);
+                                unTrustEqualRatio.add((rightStatsRowCount / rNdv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / lNdv);
                             } else {
-                                unTrustEqualRatio.add((leftStats.getRowCount() / eqLeftColStats.ndv)
-                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / eqRightColStats.ndv);
+                                unTrustEqualRatio.add((leftStatsRowCount / lNdv)
+                                        * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / rNdv);
                             }
                         }
                         return trustable;
@@ -88,10 +122,12 @@ public class JoinEstimation {
 
         Statistics innerJoinStats;
         Statistics crossJoinStats = new StatisticsBuilder()
-                .setRowCount(leftStats.getRowCount() * rightStats.getRowCount())
+                .setRowCount(Math.max(1, leftStats.getRowCount() * rightStats.getRowCount()))
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
+
+        double outputRowCount = 1;
         if (!trustableConditions.isEmpty()) {
             List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
                     .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
@@ -110,21 +146,24 @@ public class JoinEstimation {
             for (int i = 0; i < sortedJoinConditions.size(); i++) {
                 sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
             }
-            innerJoinStats = crossJoinStats.updateRowCountOnly(crossJoinStats.getRowCount() * sel);
+            outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
         } else {
-            double outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
             Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
             if (ratio.isPresent()) {
-                outputRowCount = outputRowCount * ratio.get();
+                outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
-
+        innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         if (!join.getOtherJoinConjuncts().isEmpty()) {
             FilterEstimation filterEstimation = new FilterEstimation();
             innerJoinStats = filterEstimation.estimate(
                     ExpressionUtils.and(join.getOtherJoinConjuncts()), innerJoinStats);
+            if (innerJoinStats.getRowCount() <= 0) {
+                innerJoinStats = new StatisticsBuilder(innerJoinStats).setRowCount(1).build();
+            }
         }
+
         innerJoinStats.setWidth(leftStats.getWidth() + rightStats.getWidth());
         innerJoinStats.setPenalty(0);
         return innerJoinStats;
@@ -170,10 +209,24 @@ public class JoinEstimation {
                 rowCount = rightStats.getRowCount() - semiRowCount;
             }
         }
-        return rowCount;
+        return Math.max(1, rowCount);
     }
 
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+                return new StatisticsBuilder().setRowCount(leftStats.getRowCount())
+                        .putColumnStatistics(leftStats.columnStatistics())
+                        .putColumnStatistics(rightStats.columnStatistics())
+                        .build();
+            } else {
+                //right semi or anti
+                return new StatisticsBuilder().setRowCount(rightStats.getRowCount())
+                        .putColumnStatistics(leftStats.columnStatistics())
+                        .putColumnStatistics(rightStats.columnStatistics())
+                        .build();
+            }
+        }
         double rowCount = Double.POSITIVE_INFINITY;
         for (Expression conjunct : join.getHashJoinConjuncts()) {
             double eqRowCount = estimateSemiOrAntiRowCountBySlotsEqual(leftStats, rightStats,
@@ -216,6 +269,7 @@ public class JoinEstimation {
             return estimateSemiOrAnti(leftStats, rightStats, join);
         } else if (joinType == JoinType.INNER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
+            innerJoinStats = updateJoinResultStatsByHashJoinCondition(innerJoinStats, join);
             return innerJoinStats;
         } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
@@ -237,6 +291,36 @@ public class JoinEstimation {
                     .build();
         }
         throw new AnalysisException("join type not supported: " + join.getJoinType());
+    }
+
+    /**
+     * L join R on a = b
+     * after join, a.ndv and b.ndv should be equal to min(a.ndv, b.ndv)
+     */
+    private static Statistics updateJoinResultStatsByHashJoinCondition(Statistics innerStats, Join join) {
+        Map<Expression, ColumnStatistic> updatedCols = new HashMap<>();
+        for (Expression expr : join.getHashJoinConjuncts()) {
+            EqualTo equalTo = (EqualTo) expr;
+            ColumnStatistic leftColStats = ExpressionEstimation.estimate(equalTo.left(), innerStats);
+            ColumnStatistic rightColStats = ExpressionEstimation.estimate(equalTo.right(), innerStats);
+            double minNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
+            leftColStats = new ColumnStatisticBuilder(leftColStats).setNdv(minNdv).build();
+            rightColStats = new ColumnStatisticBuilder(rightColStats).setNdv(minNdv).build();
+            Expression eqLeft = equalTo.left();
+            if (eqLeft instanceof Cast) {
+                eqLeft = eqLeft.child(0);
+            }
+            Expression eqRight = equalTo.right();
+            if (eqRight instanceof Cast) {
+                eqRight = eqRight.child(0);
+            }
+            updatedCols.put(eqLeft, leftColStats);
+            updatedCols.put(eqRight, rightColStats);
+        }
+        updatedCols.entrySet().stream().forEach(
+                entry -> innerStats.addColumnStats(entry.getKey(), entry.getValue())
+        );
+        return innerStats;
     }
 
 }

@@ -17,13 +17,17 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 
-#include "olap/olap_define.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/utils.h"
 #include "util/metrics.h"
 
 namespace doris {

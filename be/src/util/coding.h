@@ -8,9 +8,12 @@
 
 #pragma once
 
-#include <string>
+#ifndef __APPLE__
+#include <endian.h>
+#endif
+#include <stdint.h>
+#include <string.h>
 
-#include "gutil/endian.h"
 #include "olap/olap_common.h"
 #include "util/slice.h"
 

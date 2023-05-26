@@ -18,13 +18,25 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
 
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
+class ColumnPredicate;
+class FunctionFilter;
+class RuntimeProfile;
 
 namespace vectorized {
 
@@ -110,6 +122,8 @@ private:
     ColumnPtr _delete_filter_column;
 
     bool _is_rowsets_overlapping = true;
+
+    Arena _arena;
 };
 
 } // namespace vectorized

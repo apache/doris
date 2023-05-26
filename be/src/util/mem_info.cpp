@@ -24,21 +24,32 @@
 #include <sys/sysctl.h>
 #endif
 
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <jemalloc/jemalloc.h>
 
+#include <algorithm>
+#include <boost/algorithm/string/trim.hpp>
 #include <fstream>
-#include <iostream>
-#include <sstream>
+#include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
+#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/task_group/task_group.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "util/cgroup_util.h"
+#include "util/defer_op.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -105,10 +116,26 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+
+    if (segment_v2::InvertedIndexSearcherCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexSearcherCache::instance()->prune();
+    }
+
+    if (segment_v2::InvertedIndexQueryCache::instance()->mem_consumption() > min_free_size) {
+        freed_mem += segment_v2::InvertedIndexQueryCache::instance()->prune();
+    }
+
+    if (StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE) > min_free_size) {
+        freed_mem += StoragePageCache::instance()->get_page_cache_mem_consumption(
+                segment_v2::PRIMARY_KEY_INDEX_PAGE);
+        StoragePageCache::instance()->prune(segment_v2::PRIMARY_KEY_INDEX_PAGE);
+    }
 }
 
 // step1: free all cache
-// step2: free top overcommit query, if enable query memroy overcommit
+// step2: free resource groups memory that enable overcommit
+// step3: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemInfo::process_minor_gc() {
     MonotonicStopWatch watch;
@@ -130,7 +157,14 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
-    if (config::enable_query_memroy_overcommit) {
+    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
     }
@@ -141,9 +175,10 @@ bool MemInfo::process_minor_gc() {
 }
 
 // step1: free all cache
-// step2: free top memory query
-// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step4: free top memory load
+// step2: free resource groups memory that enable overcommit
+// step3: free global top memory query
+// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step5: free top memory load
 bool MemInfo::process_full_gc() {
     MonotonicStopWatch watch;
     watch.start();
@@ -171,24 +206,99 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    freed_mem += tg_soft_memory_limit_gc(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
+                                                        MemTrackerLimiter::Type::QUERY);
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
                                                           vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
-    if (config::enable_query_memroy_overcommit) {
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
+            "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
         if (freed_mem > _s_process_full_gc_size) {
             return true;
         }
     }
+
+    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory load in Full GC",
+                                                        MemTrackerLimiter::Type::LOAD);
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
                                                          vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
     return false;
+}
+
+int64_t MemInfo::tg_hard_memory_limit_gc() {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return !task_group->enable_memory_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_free_memory = 0;
+    for (const auto& task_group : task_groups) {
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        auto used = task_group->memory_used();
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
+                task_group->mem_tracker_limiter_pool());
+    }
+    return total_free_memory;
+}
+
+int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return task_group->enable_memory_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_exceeded_memory = 0;
+    std::vector<int64_t> used_memorys;
+    std::vector<int64_t> exceeded_memorys;
+    for (const auto& task_group : task_groups) {
+        auto used_memory = task_group->memory_used();
+        auto exceeded = used_memory - task_group->memory_limit();
+        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        total_exceeded_memory += exceeded_memory;
+        used_memorys.emplace_back(used_memory);
+        exceeded_memorys.emplace_back(exceeded_memory);
+    }
+
+    int64_t total_free_memory = 0;
+    bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
+    for (int i = 0; i < task_groups.size(); ++i) {
+        if (exceeded_memorys[i] == 0) {
+            continue;
+        }
+
+        // todo: GC according to resource group priority
+        int64_t tg_need_free_memory =
+                gc_all_exceeded ? exceeded_memorys[i]
+                                : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
+                                          request_free_memory /* exceeded memory as a weight */;
+        auto task_group = task_groups[i];
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
+                tg_info.memory_limit, task_group->mem_tracker_limiter_pool());
+    }
+    return total_free_memory;
 }
 
 #ifndef __APPLE__
@@ -237,21 +347,16 @@ void MemInfo::init() {
     }
 
     bool is_percent = true;
-    if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
-    } else {
-        _s_mem_limit =
-                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-        if (_s_mem_limit <= 0) {
-            LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
-        }
-        if (_s_mem_limit > _s_physical_mem) {
-            LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
-                         << " exceeds physical memory of "
-                         << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
-                         << ". Using physical memory instead";
-            _s_mem_limit = _s_physical_mem;
-        }
+    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    if (_s_mem_limit <= 0) {
+        LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+    }
+    if (_s_mem_limit > _s_physical_mem) {
+        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                     << " exceeds physical memory of "
+                     << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                     << ". Using physical memory instead";
+        _s_mem_limit = _s_physical_mem;
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
@@ -297,13 +402,28 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
     }
 
+    // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
+    // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
+    // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
+    std::ifstream sys_vm("/proc/sys/vm/overcommit_memory", std::ios::in);
+    std::string vm_overcommit;
+    getline(sys_vm, vm_overcommit);
+    if (sys_vm.is_open()) sys_vm.close();
+    if (std::stoi(vm_overcommit) == 2) {
+        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+                  << ", expect is 1, memory limit check is handed over to Doris Allocator, "
+                     "otherwise BE may crash even with remaining memory"
+                  << std::endl;
+    }
+
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
               << ", origin config value: " << config::mem_limit
               << ", System Mem Available Min Reserve: "
               << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
               << ", Vm Min Free KBytes: "
-              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES);
+              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES)
+              << ", Vm Overcommit Memory: " << vm_overcommit;
     _s_initialized = true;
 }
 #else
@@ -316,13 +436,8 @@ void MemInfo::init() {
         _s_physical_mem = -1;
     }
 
-    if (config::mem_limit == "auto") {
-        _s_mem_limit = std::max<int64_t>(_s_physical_mem * 0.9, _s_physical_mem - 6871947672);
-    } else {
-        bool is_percent = true;
-        _s_mem_limit =
-                ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
-    }
+    bool is_percent = true;
+    _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
     _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);

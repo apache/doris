@@ -18,13 +18,10 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/AgentService_types.h>
 
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "runtime/exec_env.h"
 
 namespace doris {
 

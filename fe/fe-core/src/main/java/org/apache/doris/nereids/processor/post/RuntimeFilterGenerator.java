@@ -20,7 +20,7 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.stats.StatsMathUtil;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableSet;
@@ -48,7 +49,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -105,6 +105,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     if (type == TRuntimeFilterType.BITMAP) {
                         continue;
                     }
+                    // in-filter is not friendly to pipeline
+                    if (type == TRuntimeFilterType.IN_OR_BLOOM && ctx.getSessionVariable().enablePipelineEngine()) {
+                        type = TRuntimeFilterType.BLOOM;
+                    }
                     // currently, we can ensure children in the two side are corresponding to the equal_to's.
                     // so right maybe an expression and left is a slot
                     Slot unwrappedSlot = checkTargetChild(equalTo.left());
@@ -114,22 +118,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         continue;
                     }
                     Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
-                    long buildSideNdv = -1L;
-                    AbstractPlan right = (AbstractPlan) join.right();
-                    if (right.getStats() != null) {
-                        List<Double> ndvs = join.getHashJoinConjuncts().stream()
-                                .map(Expression::getInputSlots)
-                                .flatMap(Set::stream)
-                                .filter(s -> right.getOutputExprIdSet().contains(s.getExprId()))
-                                .map(s -> right.getStats().columnStatistics().get(s))
-                                .filter(Objects::nonNull)
-                                .map(cs -> cs.ndv)
-                                .collect(Collectors.toList());
-                        buildSideNdv = (long) StatsMathUtil.jointNdv(ndvs);
-                        if (buildSideNdv <= 0 || buildSideNdv > right.getStats().getRowCount()) {
-                            buildSideNdv = (long) right.getStats().getRowCount();
-                        }
-                    }
+                    long buildSideNdv = getBuildSideNdv(join, equalTo);
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                             equalTo.right(), olapScanSlot, type, i, join, buildSideNdv);
                     ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
@@ -139,6 +128,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return join;
+    }
+
+    private long getBuildSideNdv(PhysicalHashJoin<? extends Plan, ? extends Plan> join, EqualTo equalTo) {
+        AbstractPlan right = (AbstractPlan) join.right();
+        //make ut test friendly
+        if (right.getStats() == null) {
+            return -1L;
+        }
+        ExpressionEstimation estimator = new ExpressionEstimation();
+        ColumnStatistic buildColStats = equalTo.right().accept(estimator, right.getStats());
+        return buildColStats.isUnKnown ? -1 : Math.max(1, (long) buildColStats.ndv);
     }
 
     @Override

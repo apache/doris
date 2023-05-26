@@ -17,30 +17,44 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/util/BitSet.h>
 #include <CLucene/util/bkd/bkd_reader.h>
+#include <stdint.h>
 
-#include <roaring/roaring.hh>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/tablet_schema.h"
+
+namespace lucene {
+namespace store {
+class Directory;
+} // namespace store
+namespace util {
+namespace bkd {
+class bkd_docid_set_iterator;
+} // namespace bkd
+} // namespace util
+} // namespace lucene
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
 class KeyCoder;
 class TypeInfo;
+struct OlapReaderStatistics;
 
 namespace segment_v2 {
 
 class InvertedIndexIterator;
+class InvertedIndexQueryCacheHandle;
 
 enum class InvertedIndexReaderType {
     UNKNOWN = -1,
@@ -141,46 +155,46 @@ public:
 
 class InvertedIndexVisitor : public lucene::util::bkd::bkd_reader::intersect_visitor {
 private:
-    roaring::Roaring* hits;
-    uint32_t num_hits;
-    bool only_count;
-    lucene::util::bkd::bkd_reader* reader;
-    InvertedIndexQueryType query_type;
+    roaring::Roaring* _hits;
+    uint32_t _num_hits;
+    bool _only_count;
+    lucene::util::bkd::bkd_reader* _reader;
+    InvertedIndexQueryType _query_type;
 
 public:
-    std::string queryMin;
-    std::string queryMax;
+    std::string query_min;
+    std::string query_max;
 
 public:
     InvertedIndexVisitor(roaring::Roaring* hits, InvertedIndexQueryType query_type,
                          bool only_count = false);
     virtual ~InvertedIndexVisitor() = default;
 
-    void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; }
-    lucene::util::bkd::bkd_reader* get_reader() { return reader; }
+    void set_reader(lucene::util::bkd::bkd_reader* r) { _reader = r; }
+    lucene::util::bkd::bkd_reader* get_reader() { return _reader; }
 
-    void visit(int rowID) override;
+    void visit(int row_id) override;
     void visit(roaring::Roaring& r) override;
     void visit(roaring::Roaring&& r) override;
-    void visit(roaring::Roaring* docID, std::vector<uint8_t>& packedValue) override;
-    void visit(std::vector<char>& docID, std::vector<uint8_t>& packedValue) override;
-    void visit(int rowID, std::vector<uint8_t>& packedValue) override;
+    void visit(roaring::Roaring* doc_id, std::vector<uint8_t>& packed_value) override;
+    void visit(std::vector<char>& doc_id, std::vector<uint8_t>& packed_value) override;
+    void visit(int row_id, std::vector<uint8_t>& packed_value) override;
     void visit(lucene::util::bkd::bkd_docid_set_iterator* iter,
-               std::vector<uint8_t>& packedValue) override;
-    bool matches(uint8_t* packedValue);
-    lucene::util::bkd::relation compare(std::vector<uint8_t>& minPacked,
-                                        std::vector<uint8_t>& maxPacked) override;
-    uint32_t get_num_hits() const { return num_hits; }
+               std::vector<uint8_t>& packed_value) override;
+    bool matches(uint8_t* packed_value);
+    lucene::util::bkd::relation compare(std::vector<uint8_t>& min_packed,
+                                        std::vector<uint8_t>& max_packed) override;
+    uint32_t get_num_hits() const { return _num_hits; }
 };
 
 class BkdIndexReader : public InvertedIndexReader {
 public:
     explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path, const uint32_t uniq_id);
     ~BkdIndexReader() override {
-        if (compoundReader != nullptr) {
-            compoundReader->close();
-            delete compoundReader;
-            compoundReader = nullptr;
+        if (_compoundReader != nullptr) {
+            _compoundReader->close();
+            delete _compoundReader;
+            _compoundReader = nullptr;
         }
     }
 
@@ -204,7 +218,7 @@ public:
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
-    DorisCompoundReader* compoundReader;
+    DorisCompoundReader* _compoundReader;
 };
 
 class InvertedIndexIterator {

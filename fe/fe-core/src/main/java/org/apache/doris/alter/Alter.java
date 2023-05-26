@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -27,6 +28,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -119,7 +121,7 @@ public class Alter {
         String dbName = stmt.getDBName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // check cluster capacity
-        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
         db.checkQuota();
 
@@ -182,7 +184,7 @@ public class Alter {
 
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
-            Env.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            Env.getCurrentSystemInfo().checkAvailableCapacity();
             db.checkQuota();
         }
 
@@ -242,6 +244,11 @@ public class Alter {
                     }
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                        boolean isInMemory =
+                                        Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                        if (isInMemory == true) {
+                            throw new UserException("Not support set 'in_memory'='true' now!");
+                        }
                         needProcessOutsideTableLock = true;
                     } else {
                         List<String> partitionNames = clause.getPartitionNames();
@@ -252,7 +259,9 @@ public class Alter {
                             needProcessOutsideTableLock = true;
                         }
                     }
-                } else if (alterClause instanceof AddPartitionClause) {
+                } else if (alterClause instanceof DropPartitionFromIndexClause) {
+                    // do nothing
+                } else if (alterClause instanceof AddPartitionClause || alterClause instanceof AddPartitionLikeClause) {
                     needProcessOutsideTableLock = true;
                 } else {
                     throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -476,6 +485,12 @@ public class Alter {
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause);
+            } else if (alterClause instanceof AddPartitionLikeClause) {
+                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed(
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                }
+                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
@@ -514,7 +529,7 @@ public class Alter {
             olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             // 2. drop old job and kill the associated tasks
-            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl(), isReplay);
 
             // 3. overwrite the refresh info in the memory of fe.
             olapTable.writeLock();
@@ -774,7 +789,7 @@ public class Alter {
         // get value from properties here
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+        Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, false);

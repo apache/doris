@@ -32,24 +32,30 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Map;
 
 /**
  * Statement for create a new catalog.
  */
 public class CreateCatalogStmt extends DdlStmt {
+    public static final String CREATE_TIME_PROP = "create_time";
     private final boolean ifNotExists;
     private final String catalogName;
     private final String resource;
+    private final String comment;
     private final Map<String, String> properties;
 
     /**
      * Statement for create a new catalog.
      */
-    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource, Map<String, String> properties) {
+    public CreateCatalogStmt(boolean ifNotExists, String catalogName, String resource, Map<String, String> properties,
+            String comment) {
         this.ifNotExists = ifNotExists;
         this.catalogName = catalogName;
-        this.resource = resource == null ? "" : resource;
+        this.resource = Strings.nullToEmpty(resource);
+        this.comment = Strings.nullToEmpty(comment);
         this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
@@ -59,6 +65,10 @@ public class CreateCatalogStmt extends DdlStmt {
 
     public String getResource() {
         return resource;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     public Map<String, String> getProperties() {
@@ -82,6 +92,8 @@ public class CreateCatalogStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
+        String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
+        properties.put(CREATE_TIME_PROP, currentDateTime);
         PropertyAnalyzer.checkCatalogProperties(properties, false);
     }
 
@@ -96,6 +108,9 @@ public class CreateCatalogStmt extends DdlStmt {
         stringBuilder.append("CREATE CATALOG ").append("`").append(catalogName).append("`");
         if (!Strings.isNullOrEmpty(resource)) {
             stringBuilder.append(" WITH RESOURCE `").append(resource).append("`");
+        }
+        if (!Strings.isNullOrEmpty(comment)) {
+            stringBuilder.append("\nCOMMENT \"").append(comment).append("\"");
         }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");

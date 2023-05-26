@@ -17,10 +17,25 @@
 
 #pragma once
 
-#include "vec/exec/vset_operation_node.h"
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <iosfwd>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/exec_node.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+
 namespace vectorized {
+class VExprContext;
 
 class VUnionNode final : public ExecNode {
 public:
@@ -89,7 +104,7 @@ private:
     /// Evaluates exprs for the current child and materializes the results into 'tuple_buf',
     /// which is attached to 'dst_block'. Runs until 'dst_block' is at capacity, or all rows
     /// have been consumed from the current child block. Updates '_child_row_idx'.
-    Block materialize_block(Block* dst_block, int child_idx);
+    Status materialize_block(Block* dst_block, int child_idx, Block* res_block);
 
     Status get_error_msg(const std::vector<VExprContext*>& exprs);
 

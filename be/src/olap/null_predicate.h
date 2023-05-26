@@ -17,15 +17,31 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <stdint.h>
 
-#include <roaring/roaring.hh>
+#include <ostream>
+#include <string>
+#include <utility>
 
+#include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/schema.h"
 #include "olap/wrapper_field.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris {
+namespace segment_v2 {
+class BitmapIndexIterator;
+class InvertedIndexIterator;
+} // namespace segment_v2
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
 
 class NullPredicate : public ColumnPredicate {
 public:

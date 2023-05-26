@@ -17,7 +17,19 @@
 
 #include "union_sink_operator.h"
 
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+
+namespace doris {
+class ExecNode;
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -49,7 +61,8 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
         }
     } else if (_node->get_first_materialized_child_idx() != _node->children_count() &&
                _cur_child_id < _node->children_count()) { //need materialized
-        this->_node->materialize_child_block(state, _cur_child_id, in_block, _output_block.get());
+        RETURN_IF_ERROR(this->_node->materialize_child_block(state, _cur_child_id, in_block,
+                                                             _output_block.get()));
     } else {
         return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
                                      _cur_child_id, _node->get_first_materialized_child_idx(),

@@ -20,28 +20,46 @@
 
 #include "vec/core/block.h"
 
+#include <assert.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
+#include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <iomanip>
+#include <iterator>
+#include <limits>
 
 #include "agent/be_exec_version_manager.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "udf/udf.h"
+#include "runtime/thread_context.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
-#include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
+
+class SipHash;
+
+namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -738,7 +756,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         for (size_t i = 0; i < size; ++i) {
             filter_data[i] &= !null_map[i];
         }
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
@@ -750,7 +768,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         const IColumn::Filter& filter =
                 assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                         .get_data();
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 
     erase_useless_column(block, column_to_keep);
@@ -810,8 +828,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_ERROR(codec->compress(Slice(column_values.data(), content_uncompressed_size),
-                                        &buf_compressed));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(codec->compress(
+                Slice(column_values.data(), content_uncompressed_size), &buf_compressed)));
         size_t compressed_size = buf_compressed.size();
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
@@ -970,7 +988,7 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
 }
 
 std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
-    auto temp_block = std::make_unique<Block>();
+    auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
         column->resize(size);

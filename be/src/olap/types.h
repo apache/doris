@@ -17,29 +17,43 @@
 
 #pragma once
 
-#include <math.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <limits>
 #include <memory>
+#include <new>
 #include <sstream>
 #include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
+#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/uint24.h"
 #include "runtime/collection_value.h"
-#include "runtime/jsonb_value.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_utils.h"
+#include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -47,13 +61,12 @@ namespace segment_v2 {
 class ColumnMetaPB;
 }
 
-struct uint24_t;
-struct decimal12_t;
 class TabletColumn;
 
 extern bool is_olap_string_type(FieldType field_type);
 
 class TypeInfo;
+
 using TypeInfoPtr = std::unique_ptr<const TypeInfo, void (*)(const TypeInfo*)>;
 
 TypeInfoPtr create_static_type_info_ptr(const TypeInfo* type_info);
@@ -726,6 +739,12 @@ template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
     using CppType = Slice;
 };
+
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
+    using CppType = Slice;
+};
+
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRUCT> {
     using CppType = StructValue;
@@ -901,7 +920,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
                 current += snprintf(current, end - current, "%" PRIu64, prefix);
                 current += snprintf(current, end - current, "%.19" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else if (OLAP_LIKELY(middle > 0)) {
+            } else if (LIKELY(middle > 0)) {
                 current += snprintf(current, end - current, "%" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
             } else {
@@ -1395,6 +1414,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 // Instantiate this template to get static access to the type traits.

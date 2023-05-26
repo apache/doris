@@ -20,11 +20,7 @@
 
 #pragma once
 
-#include <string.h>
-
 #include <cstdint>
-#include <functional>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,17 +31,7 @@ namespace doris {
 
 struct ColumnPtrWrapper;
 struct StringRef;
-class BitmapValue;
-class DecimalV2Value;
-class CollectionValue;
-struct TypeDescriptor;
 class RuntimeState;
-// All input and output values will be one of the structs below. The struct is a simple
-// object containing a boolean to store if the value is nullptr and the value itself. The
-// value is unspecified if the nullptr boolean is set.
-struct AnyVal;
-struct StringRef;
-struct DateTimeVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors

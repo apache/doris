@@ -476,7 +476,18 @@ public:
               m3(std::move(rhs.m3)),
               ms(std::move(rhs.ms)) {}
 
+    StringHashTable& operator=(StringHashTable&& other) {
+        std::swap(m0, other.m0);
+        std::swap(m1, other.m1);
+        std::swap(m2, other.m2);
+        std::swap(m3, other.m3);
+        std::swap(ms, other.ms);
+        return *this;
+    }
+
     ~StringHashTable() = default;
+
+    size_t hash(doris::StringRef key) { return StringHashTableHash()(key); }
 
     // Dispatch is written in a way that maximizes the performance:
     // 1. Always memcpy 8 times bytes

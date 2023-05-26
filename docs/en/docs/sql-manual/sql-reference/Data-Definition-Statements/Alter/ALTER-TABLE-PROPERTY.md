@@ -93,10 +93,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function
@@ -218,10 +218,10 @@ If you need to add dynamic partition attributes to tables without dynamic partit
 ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
 ```
 
-5. Modify the in_memory attribute of the table
+5. Modify the in_memory attribute of the table, only can set value 'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. Enable batch delete function

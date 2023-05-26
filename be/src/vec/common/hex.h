@@ -19,7 +19,6 @@
 // and modified by Doris
 
 #pragma once
-#include <cstddef>
 #include <cstring>
 #include <string>
 

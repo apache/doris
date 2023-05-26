@@ -21,7 +21,6 @@
 #include <memory>
 #include <string>
 
-#include "exec/es/es_scroll_parser.h"
 #include "http/http_client.h"
 
 namespace doris {

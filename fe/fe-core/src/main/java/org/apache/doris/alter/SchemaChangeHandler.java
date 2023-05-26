@@ -73,6 +73,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
@@ -697,6 +698,7 @@ public class SchemaChangeHandler extends AlterHandler {
              */
             modColumn.setName(SHADOW_NAME_PREFIX + modColumn.getName());
         }
+        LOG.info("modify column {} ", modColumn);
         return lightSchemaChange;
     }
 
@@ -1430,7 +1432,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // 5. calc short key
             short newShortKeyColumnCount = Env.calcShortKeyColumnCount(alterSchema,
-                    indexIdToProperties.get(alterIndexId));
+                    indexIdToProperties.get(alterIndexId), true/*isKeysRequired*/);
             LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
@@ -1599,33 +1601,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     });
                 }
             }
-
-            if (alterJobsV2.isDone()) {
-                changeTableState(alterJobsV2.getDbId(), alterJobsV2.getTableId(), OlapTableState.NORMAL);
-                runnableSchemaChangeJobV2.remove(alterJobsV2.getJobId());
-                LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJobsV2.getTableId(),
-                        alterJobsV2.getJobId());
-            }
         });
-    }
-
-    private void changeTableState(long dbId, long tableId, OlapTableState olapTableState) {
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-            olapTable.writeLockOrMetaException();
-            try {
-                if (olapTable.getState() == olapTableState) {
-                    return;
-                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
-                    olapTable.setState(olapTableState);
-                }
-            } finally {
-                olapTable.writeUnlock();
-            }
-        } catch (MetaNotFoundException e) {
-            LOG.warn("[INCONSISTENT META] changing table status failed after schema change job done", e);
-        }
     }
 
     public List<List<Comparable>> getAllAlterJobInfos() {
@@ -1890,8 +1866,22 @@ public class SchemaChangeHandler extends AlterHandler {
 
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
-        final AlterLSCHelper alterLSCHelper = new AlterLSCHelper(db, olapTable);
-        alterLSCHelper.enableLightSchemaChange();
+        final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
+        alterLightSchChangeHelper.enableLightSchemaChange();
+    }
+
+    public void replayAlterLightSchChange(AlterLightSchemaChangeInfo info) throws MetaNotFoundException {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(info.getDbId());
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
+        olapTable.writeLock();
+        final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
+        try {
+            alterLightSchChangeHelper.updateTableMeta(info);
+        } catch (DdlException e) {
+            LOG.warn("failed to replay alter light schema change", e);
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     @Override
@@ -2181,11 +2171,6 @@ public class SchemaChangeHandler extends AlterHandler {
             if (!schemaChangeJobV2.cancel("user cancelled")) {
                 throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
             }
-            if (schemaChangeJobV2.isDone()) {
-                changeTableState(schemaChangeJobV2.getDbId(), schemaChangeJobV2.getTableId(), OlapTableState.NORMAL);
-                LOG.info("set table's state to NORMAL when cancel job, table id: {}, job id: {}",
-                        schemaChangeJobV2.getTableId(), schemaChangeJobV2.getJobId());
-            }
             return;
         }
     }
@@ -2287,9 +2272,6 @@ public class SchemaChangeHandler extends AlterHandler {
         while (iterator.hasNext()) {
             AlterJobV2 alterJobV2 = iterator.next().getValue();
             if (alterJobV2.isDone()) {
-                changeTableState(alterJobV2.getDbId(), alterJobV2.getTableId(), OlapTableState.NORMAL);
-                LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJobV2.getTableId(),
-                        alterJobV2.getJobId());
                 iterator.remove();
             }
         }
@@ -2309,12 +2291,6 @@ public class SchemaChangeHandler extends AlterHandler {
             runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
         }
         super.replayAlterJobV2(alterJob);
-        if (alterJob.isDone()) {
-            changeTableState(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
-            runnableSchemaChangeJobV2.remove(alterJob.getJobId());
-            LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
-                    alterJob.getJobId());
-        }
     }
 
     // the invoker should keep table's write lock

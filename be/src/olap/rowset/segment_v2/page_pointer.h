@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <cstdint>
 #include <string>
 
-#include "gen_cpp/segment_v2.pb.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 

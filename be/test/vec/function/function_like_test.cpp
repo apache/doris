@@ -15,13 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <stdint.h>
 
 #include <string>
+#include <vector>
 
+#include "common/status.h"
 #include "function_test_util.h"
-#include "util/cpu_info.h"
+#include "gtest/gtest_pred_impl.h"
+#include "testutil/any_type.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 

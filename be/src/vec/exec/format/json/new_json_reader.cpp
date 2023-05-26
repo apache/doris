@@ -17,30 +17,63 @@
 
 #include "vec/exec/format/json/new_json_reader.h"
 
-#include <simdjson/error.h>
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <inttypes.h>
+#include <rapidjson/error/en.h>
+#include <rapidjson/reader.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stdio.h>
+#include <string.h>
 
-#include "common/compiler_util.h"
+#include <algorithm>
+#include <map>
+#include <ostream>
+#include <string_view>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
-#include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
-#include "io/fs/s3_file_reader.h"
 #include "io/fs/stream_load_pipe.h"
-#include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "util/string_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/json/simd_json_parser.h"
-
 // dynamic table
+#include "common/config.h"
+#include "io/fs/file_reader.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/slice.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/json/json_parser.h"
 #include "vec/json/parse2column.h"
+
+namespace doris {
+namespace io {
+class IOContext;
+enum class FileCachePolicy : uint8_t;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -338,22 +371,16 @@ Status NewJsonReader::_open_file_reader() {
     _current_offset = start_offset;
     _file_description.start_offset = start_offset;
 
-    io::FileReaderSPtr json_file_reader;
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &json_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &json_file_reader, cache_policy));
-    }
-    if (typeid_cast<io::S3FileReader*>(json_file_reader.get()) != nullptr ||
-        typeid_cast<io::BrokerFileReader*>(json_file_reader.get()) != nullptr) {
-        // PrefetchBufferedReader now only support csv&json format when reading s3&broker file
-        _file_reader.reset(
-                new io::PrefetchBufferedReader(json_file_reader, _range.start_offset, _range.size));
-    } else {
-        _file_reader = std::move(json_file_reader);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        reader_options.modification_time =
+                _range.__isset.modification_time ? _range.modification_time : 0;
+        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
+                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
+                io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();
 }
@@ -367,9 +394,9 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, nullptr, size,
-                                                  _line_delimiter, _line_delimiter_length,
-                                                  _current_offset));
+    _line_reader = NewPlainTextLineReader::create_unique(_profile, _file_reader, nullptr, size,
+                                                         _line_delimiter, _line_delimiter_length,
+                                                         _current_offset);
     return Status::OK();
 }
 
@@ -657,7 +684,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof, _io_ctx));
     } else {
         RETURN_IF_ERROR(_read_one_message(&json_str_ptr, size));
-        json_str = json_str_ptr.release();
+        json_str = json_str_ptr.get();
         if (*size == 0) {
             *eof = true;
         }
@@ -878,8 +905,11 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
             wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
         } else if (value->IsInt64()) {
             wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
+        } else if (value->IsFloat() || value->IsDouble()) {
+            auto end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
+            wbytes = end - tmp_buf;
         } else {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", value->GetDouble());
+            return Status::InternalError("It should not here.");
         }
         str_value = tmp_buf;
         break;

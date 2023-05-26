@@ -17,15 +17,14 @@
 
 #pragma once
 
-#include <map>
+#include <gen_cpp/Types_types.h>
+
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 
 #include "common/status.h"
-#include "runtime/primitive_type.h"
-#include "runtime/record_batch_queue.h"
-#include "util/hash_util.hpp"
+#include "util/hash_util.hpp" // IWYU pragma: keep
 
 namespace arrow {
 
@@ -34,10 +33,9 @@ class RecordBatch;
 
 namespace doris {
 
-class TUniqueId;
-class TScanRowBatch;
 class RecordBatchQueue;
-typedef std::shared_ptr<RecordBatchQueue> BlockQueueSharedPtr;
+
+using BlockQueueSharedPtr = std::shared_ptr<RecordBatchQueue>;
 
 class ResultQueueMgr {
 public:

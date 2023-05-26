@@ -17,14 +17,26 @@
 
 #include "util/doris_metrics.h"
 
-#include <sys/types.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
+#include <functional>
+#include <ostream>
+
+#include "common/status.h"
 #include "io/fs/local_file_system.h"
-#include "util/debug_util.h"
 #include "util/system_metrics.h"
 
 namespace doris {
+namespace io {
+struct FileInfo;
+} // namespace io
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fragment_requests_total, MetricUnit::REQUESTS,
                                      "Total fragment requests received.");

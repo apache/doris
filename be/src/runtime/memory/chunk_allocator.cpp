@@ -17,18 +17,21 @@
 
 #include "runtime/memory/chunk_allocator.h"
 
+#include <glog/logging.h>
 #include <sanitizer/asan_interface.h>
+#include <stdlib.h>
 
-#include <list>
 #include <mutex>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "runtime/memory/chunk.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/system_allocator.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/cpu_info.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 
@@ -80,9 +83,8 @@ public:
     ~ChunkArena() {
         for (int i = 0; i < 64; ++i) {
             if (_chunk_lists[i].empty()) continue;
-            size_t size = (uint64_t)1 << i;
             for (auto ptr : _chunk_lists[i]) {
-                SystemAllocator::free(ptr, size);
+                SystemAllocator::free(ptr);
             }
         }
     }
@@ -225,7 +227,7 @@ void ChunkAllocator::free(const Chunk& chunk) {
     DCHECK(chunk.core_id != -1);
     CHECK((chunk.size & (chunk.size - 1)) == 0);
     if (config::disable_mem_pools || _reserve_bytes_limit < 1) {
-        SystemAllocator::free(chunk.data, chunk.size);
+        SystemAllocator::free(chunk.data);
         return;
     }
 
@@ -238,7 +240,7 @@ void ChunkAllocator::free(const Chunk& chunk) {
             int64_t cost_ns = 0;
             {
                 SCOPED_RAW_TIMER(&cost_ns);
-                SystemAllocator::free(chunk.data, chunk.size);
+                SystemAllocator::free(chunk.data);
             }
             chunk_pool_system_free_count->increment(1);
             chunk_pool_system_free_cost_ns->increment(cost_ns);

@@ -17,10 +17,17 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <vector>
+
+#include "common/status.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
 namespace segment_v2 {
+enum HashStrategyPB : int;
 
 class NGramBloomFilter : public BloomFilter {
 public:

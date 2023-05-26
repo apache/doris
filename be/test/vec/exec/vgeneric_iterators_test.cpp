@@ -17,13 +17,20 @@
 
 #include "vec/olap/vgeneric_iterators.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/schema.h"
-#include "util/slice.h"
+#include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -38,12 +45,14 @@ public:
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_SMALLINT,
-                             true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
     // c2: int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, true);
     // c3: big int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, FieldType::OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                             FieldType::OLAP_FIELD_TYPE_BIGINT, true);
 
     Schema schema(col_schemas, 2);
     return schema;

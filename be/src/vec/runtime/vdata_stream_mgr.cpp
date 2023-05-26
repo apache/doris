@@ -17,12 +17,17 @@
 
 #include "vec/runtime/vdata_stream_mgr.h"
 
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
-#include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/logging.h"
+#include "util/hash_util.hpp"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
@@ -97,9 +102,13 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         // As a consequence, find_recvr() may return an innocuous NULL if a thread
         // calling deregister_recvr() beat the thread calling find_recvr()
         // in acquiring _lock.
+        //
+        // e.g. for broadcast join build side, only one instance will build the hash table,
+        // all other instances don't need build side data and will close the data stream receiver.
+        //
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK();
+        return Status::EndOfFile("data stream receiver closed");
     }
 
     // request can only be used before calling recvr's add_batch or when request

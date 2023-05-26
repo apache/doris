@@ -20,8 +20,28 @@
 
 #include "vec/data_types/data_type_struct.h"
 
+#include <ctype.h>
+#include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <typeinfo>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

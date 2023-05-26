@@ -19,17 +19,48 @@
 // and modified by Doris
 
 #pragma once
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <cmath>
+#include <limits>
+#include <memory>
+#include <ostream>
+#include <string>
 #include <type_traits>
 
-#include "common/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "serde/data_type_decimal_serde.h"
+#include "util/binary_cast.hpp"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class DecimalV2Value;
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+template <typename T>
+struct TypeId;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -175,6 +206,32 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Field get_default() const override;
+
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
+        DCHECK(node.__isset.decimal_literal);
+        // decimalv2
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+            DecimalV2Value value;
+            if (value.parse_from_str(node.decimal_literal.value.c_str(),
+                                     node.decimal_literal.value.size()) == E_DEC_OK) {
+                return DecimalField<Decimal128>(value.value(), value.scale());
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid decimal(scale: {}) value: {}", value.scale(),
+                                       node.decimal_literal.value);
+            }
+        }
+        // decimal
+        T val;
+        if (!parse_from_string(node.decimal_literal.value, &val)) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type {}", node.decimal_literal.value,
+                                   do_get_name());
+        };
+        return DecimalField<T>(val, scale);
+    }
+
     bool can_be_promoted() const override { return true; }
     DataTypePtr promote_numeric_type() const override;
     MutableColumnPtr create_column() const override;
@@ -198,6 +255,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale);
+    };
 
     /// Decimal specific
 

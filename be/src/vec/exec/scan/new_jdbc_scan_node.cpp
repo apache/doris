@@ -17,8 +17,24 @@
 
 #include "vec/exec/scan/new_jdbc_scan_node.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/PlanNodes_types.h>
+
+#include <memory>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
 #include "vec/exec/scan/new_jdbc_scanner.h"
-#include "vec/exec/scan/vscanner.h"
+
+namespace doris {
+class DescriptorTbl;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 NewJdbcScanNode::NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
@@ -45,16 +61,15 @@ Status NewJdbcScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status NewJdbcScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    NewJdbcScanner* scanner =
-            new NewJdbcScanner(_state, this, _limit_per_scanner, _tuple_id, _query_string,
-                               _table_type, _state->runtime_profile());
-    _scanner_pool.add(scanner);
-    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
-    scanners->push_back(static_cast<VScanner*>(scanner));
+    std::unique_ptr<NewJdbcScanner> scanner =
+            NewJdbcScanner::create_unique(_state, this, _limit_per_scanner, _tuple_id,
+                                          _query_string, _table_type, _state->runtime_profile());
+    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr));
+    scanners->push_back(std::move(scanner));
     return Status::OK();
 }
 } // namespace doris::vectorized

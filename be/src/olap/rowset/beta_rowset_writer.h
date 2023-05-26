@@ -17,21 +17,40 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "segcompaction.h"
 #include "segment_v2/segment.h"
-#include "vec/columns/column.h"
-#include "vec/olap/vertical_block_reader.h"
-#include "vec/olap/vgeneric_iterators.h"
+#include "util/spinlock.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
-
-namespace io {
-class FileWriter;
-} // namespace io
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -91,8 +110,6 @@ public:
         return _context.schema_change_recorder.get();
     }
 
-    uint64_t get_num_mow_keys() { return _num_mow_keys; }
-
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
@@ -133,12 +150,15 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
+    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+
 protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
     std::atomic<int32_t> _num_segment;
     std::atomic<int32_t> _num_flushed_segment;
+    int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
     std::atomic<int32_t> _num_segcompacted;   // index for segment compaction
@@ -169,13 +189,9 @@ protected:
         int64_t data_size;
         int64_t index_size;
         KeyBoundsPB key_bounds;
-        std::shared_ptr<std::unordered_set<std::string>> key_set;
     };
-    std::mutex _segid_statistics_map_mutex;
     std::map<uint32_t, Statistics> _segid_statistics_map;
-
-    // used for check correctness of unique key mow keys.
-    std::atomic<uint64_t> _num_mow_keys;
+    std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;
@@ -191,6 +207,8 @@ protected:
     std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
+
+    std::shared_ptr<MowContext> _mow_context;
 };
 
 } // namespace doris

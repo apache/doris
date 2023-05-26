@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <ctime>
+#include <stdint.h>
+
+#include <list>
 #include <memory>
 #include <mutex>
 
 #include "gutil/ref_counted.h"
-#include "runtime/routine_load/data_consumer.h"
 #include "util/countdown_latch.h"
-#include "util/lru_cache.hpp"
 #include "util/thread.h"
 
 namespace doris {
@@ -32,6 +32,7 @@ namespace doris {
 class DataConsumer;
 class DataConsumerGroup;
 class Status;
+class StreamLoadContext;
 
 // DataConsumerPool saves all available data consumer
 // to be reused

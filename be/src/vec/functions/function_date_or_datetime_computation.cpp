@@ -124,6 +124,10 @@ using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<Curren
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 
+/// @TEMPORARY: for be_exec_version=2
+using FunctionToWeekTwoArgsOld =
+        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImplOld<DataTypeDateTime>>;
+
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
     factory.register_function<FunctionAddMinutes>();
@@ -178,6 +182,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_alias("days_add", "date_add");
     factory.register_alias("days_add", "adddate");
     factory.register_alias("months_add", "add_months");
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionToWeekTwoArgsOld>();
 }
 
 } // namespace doris::vectorized

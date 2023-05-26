@@ -17,15 +17,29 @@
 
 #include "io/fs/s3_file_reader.h"
 
+#include <aws/core/utils/Outcome.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
 
+#include <algorithm>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/fs/s3_common.h"
-#include "util/async_io.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
+bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
+bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
+bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
 
 S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
                            std::shared_ptr<S3FileSystem> fs)
@@ -36,10 +50,13 @@ S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::st
           _key(std::move(key)) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
+    s3_file_reader_total << 1;
+    s3_file_being_read << 1;
 }
 
 S3FileReader::~S3FileReader() {
     close();
+    s3_file_being_read << -1;
 }
 
 Status S3FileReader::close() {
@@ -84,6 +101,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         return Status::IOError("failed to read from {}(bytes read: {}, bytes req: {})",
                                _path.native(), *bytes_read, bytes_req);
     }
+    s3_bytes_read_total << *bytes_read;
+    s3_file_reader_read_counter << 1;
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
     return Status::OK();
 }

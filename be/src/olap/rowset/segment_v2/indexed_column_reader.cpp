@@ -17,11 +17,19 @@
 
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+
 #include "gutil/strings/substitute.h" // for Substitute
-#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "olap/types.h"
+#include "util/block_compression.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -90,6 +98,9 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.use_page_cache = _use_page_cache;
     opts.kept_in_memory = _kept_in_memory;
     opts.type = type;
+    if (_is_pk_index) {
+        opts.type = PRIMARY_KEY_INDEX_PAGE;
+    }
     opts.encoding_info = _encoding_info;
     opts.pre_decode = pre_decode;
 

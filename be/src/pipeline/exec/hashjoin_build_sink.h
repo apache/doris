@@ -17,14 +17,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
+#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
-namespace vectorized {
-class HashJoinNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
+class ExecNode;
 
 namespace pipeline {
 

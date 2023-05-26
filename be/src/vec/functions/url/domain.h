@@ -21,10 +21,9 @@
 #pragma once
 
 // #include <base/find_symbols.h>
-#include <vec/common/string_utils/string_utils.h>
-
 #include <cstring>
 
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/functions/url/protocol.h"
 
 namespace doris::vectorized {

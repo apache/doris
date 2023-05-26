@@ -308,14 +308,14 @@ echo "Finished patching ${ROCKSDB_SOURCE}"
 
 # opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
 # see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.4.0" ]]; then
+if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.8.3" ]]; then
     rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
     cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
     mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
 
     cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.4.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.8.3.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -400,3 +400,15 @@ if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd -
 fi
 echo "Finished patching ${SIMDJSON_SOURCE}"
+
+if [[ "${BRPC_SOURCE}" == 'brpc-1.5.0' ]]; then
+    cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+            patch -p1 <"${patch_file}"
+        done
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BRPC_SOURCE}"

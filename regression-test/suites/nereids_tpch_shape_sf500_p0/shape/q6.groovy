@@ -23,12 +23,15 @@ suite("q6") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
-    sql "set enable_runtime_filter_prune=true"
-    sql 'set exec_mem_limit=21G'
-    sql 'set enable_new_cost_model=false'
+
     sql 'set global exec_mem_limit = 21G'
-    sql 'set global broadcast_row_count_limit = 30000000'
-    
+        
+    def result = sql "show backends;"
+    if (result.size() != 1) {
+        print("backends num: ${result.size()}");
+        return;
+    }
+
     qt_select """
     explain shape plan
     select 

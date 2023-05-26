@@ -17,19 +17,30 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <jni.h>
+#include <stdint.h>
 
-#include <string_view>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+
 namespace vectorized {
 
-class NewJdbcScanner;
+class Block;
+class IColumn;
+class VExprContext;
 
 struct JdbcConnectorParam {
     std::string driver_path;

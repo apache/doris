@@ -17,9 +17,19 @@
 
 #include "io/cache/whole_file_cache.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <filesystem>
+#include <future>
+#include <mutex>
+#include <ostream>
+#include <string>
+
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "util/async_io.h"
+#include "io/io_common.h"
+#include "runtime/exec_env.h"
+#include "util/threadpool.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -34,11 +44,11 @@ WholeFileCache::WholeFileCache(const Path& cache_dir, int64_t alive_time_sec,
           _remote_file_reader(remote_file_reader),
           _cache_file_reader(nullptr) {}
 
-WholeFileCache::~WholeFileCache() {}
+WholeFileCache::~WholeFileCache() = default;
 
 Status WholeFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
-    if (io_ctx != nullptr && io_ctx->reader_type != READER_QUERY) {
+    if (io_ctx != nullptr && io_ctx->reader_type != ReaderType::READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     if (_cache_file_reader == nullptr) {

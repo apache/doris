@@ -17,20 +17,27 @@
 
 #include "io/cache/sub_file_cache.h"
 
+#include <fmt/format.h>
 #include <glog/logging.h>
-#include <sys/types.h>
+#include <time.h>
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <future>
+#include <mutex>
+#include <ostream>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "util/async_io.h"
+#include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "util/string_util.h"
+#include "util/threadpool.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -51,7 +58,7 @@ SubFileCache::~SubFileCache() {}
 Status SubFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                   const IOContext* io_ctx) {
     RETURN_IF_ERROR(_init());
-    if (io_ctx != nullptr && io_ctx->reader_type != READER_QUERY) {
+    if (io_ctx != nullptr && io_ctx->reader_type != ReaderType::READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
     }
     std::vector<size_t> need_cache_offsets;

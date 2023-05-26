@@ -17,21 +17,51 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <algorithm>
+#include <mutex>
+#include <ostream>
+#include <variant>
+
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exec/olap_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
-#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -89,14 +119,16 @@ Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     // init profile for runtime filter
+    std::stringstream ss;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
+        ss << rf_ctx.runtime_filter->get_name() << ", ";
     }
+    _runtime_profile->add_info_string("RuntimeFilters: ", ss.str());
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
-            _shared_scanner_controller =
-                    state->get_query_fragments_ctx()->get_shared_scanner_controller();
+            _shared_scanner_controller = state->get_query_ctx()->get_shared_scanner_controller();
             auto [should_create_scanner, queue_id] =
                     _shared_scanner_controller->should_build_scanner_and_queue_id(id());
             _should_create_scanner = should_create_scanner;
@@ -122,7 +154,6 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     return ExecNode::open(state);
@@ -134,7 +165,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     }
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::alloc_resource");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
@@ -176,7 +206,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -238,7 +267,7 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _queued_blocks_memory_usage =
             memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
@@ -259,22 +288,20 @@ Status VScanNode::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _pre_alloc_free_blocks_num =
-            ADD_COUNTER(_runtime_profile, "PreAllocFreeBlocksNum", TUnit::UNIT);
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
+Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
     if (_is_pipeline_scan) {
-        _scanner_ctx.reset(new pipeline::PipScannerContext(
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->query_options().mem_limit / 20, _col_distribute_ids));
+                _state->scan_queue_mem_limit(), _col_distribute_ids);
     } else {
-        _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                              scanners, limit(),
-                                              _state->query_options().mem_limit / 20));
+        _scanner_ctx =
+                ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                              scanners, limit(), _state->scan_queue_mem_limit());
     }
     RETURN_IF_ERROR(_scanner_ctx->init());
     return Status::OK();
@@ -287,10 +314,23 @@ Status VScanNode::_register_runtime_filter() {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id()));
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
-                                                                         &runtime_filter));
+        if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
+            DCHECK(filter_desc.type == TRuntimeFilterType::BLOOM && filter_desc.has_remote_targets);
+            // Optimize merging phase iff:
+            // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
+            // 2. This filter is bloom filter (only bloom filter should be used for merging)
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
+                    filter_desc.filter_id, &runtime_filter));
+        } else {
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_filter(
+                    RuntimeFilterRole::CONSUMER, filter_desc, _state->query_options(), id(),
+                    false));
+            RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
+                                                                             &runtime_filter));
+        }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
     }
@@ -316,13 +356,6 @@ Status VScanNode::_acquire_runtime_filter(bool wait) {
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        // If all targets are local, scan node will use hash node's runtime filter, and we don't
-        // need to allocate memory again
-        if (runtime_filter->has_remote_target()) {
-            if (auto bf = runtime_filter->get_bloomfilter()) {
-                RETURN_IF_ERROR(bf->init_with_fixed_length());
-            }
-        }
         bool ready = runtime_filter->is_ready();
         if (!ready && wait) {
             ready = runtime_filter->await();
@@ -353,8 +386,8 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
     }
 
     VExpr* last_expr = nullptr;
-    if (_vconjunct_ctx_ptr) {
-        last_expr = (*_vconjunct_ctx_ptr)->root();
+    if (_vconjunct_ctx_ptr != nullptr) {
+        last_expr = _vconjunct_ctx_ptr->root();
     } else {
         DCHECK(_rf_vexpr_set.find(vexprs[0]) == _rf_vexpr_set.end());
         last_expr = vexprs[0];
@@ -383,24 +416,23 @@ Status VScanNode::_append_rf_into_conjuncts(std::vector<VExpr*>& vexprs) {
         texpr_node.__set_opcode(TExprOpcode::COMPOUND_AND);
         texpr_node.__set_fn(fn);
         texpr_node.__set_is_nullable(last_expr->is_nullable() || vexprs[j]->is_nullable());
-        VExpr* new_node = _pool->add(new VcompoundPred(texpr_node));
+        VExpr* new_node = _pool->add(VcompoundPred::create_unique(texpr_node).release());
         new_node->add_child(last_expr);
         DCHECK((vexprs[j])->get_impl() != nullptr);
         new_node->add_child(vexprs[j]);
         last_expr = new_node;
         _rf_vexpr_set.insert(vexprs[j]);
     }
-    auto new_vconjunct_ctx_ptr = _pool->add(new VExprContext(last_expr));
+    auto new_vconjunct_ctx_ptr = _pool->add(VExprContext::create_unique(last_expr).release());
     if (_vconjunct_ctx_ptr) {
-        (*_vconjunct_ctx_ptr)->clone_fn_contexts(new_vconjunct_ctx_ptr);
+        _vconjunct_ctx_ptr->clone_fn_contexts(new_vconjunct_ctx_ptr);
     }
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->prepare(_state, _row_descriptor));
     RETURN_IF_ERROR(new_vconjunct_ctx_ptr->open(_state));
     if (_vconjunct_ctx_ptr) {
-        _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
+        _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
     }
-    _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-    *_vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
+    _vconjunct_ctx_ptr = new_vconjunct_ctx_ptr;
     return Status::OK();
 }
 
@@ -408,13 +440,11 @@ Status VScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::close");
     RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK();
 }
 
 void VScanNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::release_resource");
     if (_scanner_ctx.get()) {
         if (!state->enable_pipeline_exec() || _should_create_scanner) {
             // stop and wait the scanner scheduler to be done
@@ -430,12 +460,11 @@ void VScanNode::release_resource(RuntimeState* state) {
     }
 
     for (auto& ctx : _stale_vexpr_ctxs) {
-        (*ctx)->close(state);
+        ctx->close(state);
     }
     if (_common_vexpr_ctxs_pushdown) {
-        (*_common_vexpr_ctxs_pushdown)->close(state);
+        _common_vexpr_ctxs_pushdown->close(state);
     }
-    _scanner_pool.clear();
 
     ExecNode::release_resource(state);
 }
@@ -501,18 +530,18 @@ Status VScanNode::_normalize_conjuncts() {
         }
     }
     if (_vconjunct_ctx_ptr) {
-        if ((*_vconjunct_ctx_ptr)->root()) {
+        if (_vconjunct_ctx_ptr->root()) {
             VExpr* new_root;
-            RETURN_IF_ERROR(_normalize_predicate((*_vconjunct_ctx_ptr)->root(), &new_root));
+            RETURN_IF_ERROR(_normalize_predicate(_vconjunct_ctx_ptr->root(), &new_root));
             if (new_root) {
-                (*_vconjunct_ctx_ptr)->set_root(new_root);
+                _vconjunct_ctx_ptr->set_root(new_root);
                 if (_should_push_down_common_expr()) {
-                    _common_vexpr_ctxs_pushdown = std::move(_vconjunct_ctx_ptr);
-                    _vconjunct_ctx_ptr.reset(nullptr);
+                    _common_vexpr_ctxs_pushdown = _vconjunct_ctx_ptr;
+                    _vconjunct_ctx_ptr = nullptr;
                 }
             } else { // All conjucts are pushed down as predicate column
-                _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
-                _vconjunct_ctx_ptr.reset(nullptr);
+                _stale_vexpr_ctxs.push_back(_vconjunct_ctx_ptr);
+                _vconjunct_ctx_ptr = nullptr;
             }
         }
     }
@@ -567,7 +596,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
-            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, *_vconjunct_ctx_ptr, &pdt));
+            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, _vconjunct_ctx_ptr, &pdt));
             if (pdt == PushDownType::ACCEPTABLE) {
                 *output_expr = nullptr;
                 return Status::OK();
@@ -581,28 +610,23 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                         is_runtimer_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             RETURN_IF_PUSH_DOWN(_normalize_match_predicate(
-                                    cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
-                                    &pdt));
+                                    cur_expr, _vconjunct_ctx_ptr, slot, value_range, &pdt));
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(
-                                        cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                        cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, *(_vconjunct_ctx_ptr.get()), slot, &pdt));
+                                            cur_expr, _vconjunct_ctx_ptr, slot, &pdt));
                                 }
                             }
                         },
@@ -611,7 +635,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), &pdt,
+                _normalize_compound_predicate(cur_expr, _vconjunct_ctx_ptr, &pdt,
                                               is_runtimer_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
@@ -637,10 +661,20 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 *output_expr = conjunct_expr_root;
                 return Status::OK();
             } else {
+                if (left_child == nullptr) {
+                    conjunct_expr_root->children()[0]->close(
+                            _state, _vconjunct_ctx_ptr,
+                            _vconjunct_ctx_ptr->get_function_state_scope());
+                }
+                if (right_child == nullptr) {
+                    conjunct_expr_root->children()[1]->close(
+                            _state, _vconjunct_ctx_ptr,
+                            _vconjunct_ctx_ptr->get_function_state_scope());
+                }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
-                                          (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                conjunct_expr_root->close(_state, _vconjunct_ctx_ptr,
+                                          _vconjunct_ctx_ptr->get_function_state_scope());
             }
 
             // here do not close VExpr* now
@@ -814,6 +848,12 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             InState* state = reinterpret_cast<InState*>(
                     expr_ctx->fn_context(pred->fn_context_index())
                             ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+            // xx in (col, xx, xx) should not be push down
+            if (!state->use_set) {
+                return Status::OK();
+            }
+
             iter = state->hybrid_set->begin();
         }
 
@@ -889,6 +929,12 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
         InState* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(pred->fn_context_index())
                         ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+        // xx in (col, xx, xx) should not be push down
+        if (!state->use_set) {
+            return Status::OK();
+        }
+
         HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
         auto fn_name = std::string("");
         if (!is_fixed_range && state->null_in_set) {
@@ -1290,7 +1336,8 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor);
+            _runtime_filter_ctxs[i].runtime_filter->get_prepared_vexprs(&vexprs, _row_descriptor,
+                                                                        _state);
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
@@ -1310,7 +1357,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
     if (_vconjunct_ctx_ptr) {
         std::unique_lock l(_rf_locks);
-        return (*_vconjunct_ctx_ptr)->clone(_state, _vconjunct_ctx);
+        return _vconjunct_ctx_ptr->clone(_state, _vconjunct_ctx);
     }
     return Status::OK();
 }
@@ -1362,7 +1409,7 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
 }
 
 Status VScanNode::_prepare_scanners() {
-    std::list<VScanner*> scanners;
+    std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos = true;

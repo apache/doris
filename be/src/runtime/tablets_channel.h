@@ -17,23 +17,47 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <ostream>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/descriptors.h"
+#include "common/status.h"
 #include "util/bitmap.h"
+#include "util/runtime_profile.h"
+#include "util/spinlock.h"
 #include "util/uid_util.h"
 
+namespace google {
+namespace protobuf {
+template <typename Element>
+class RepeatedField;
+template <typename Key, typename T>
+class Map;
+template <typename T>
+class RepeatedPtrField;
+} // namespace protobuf
+} // namespace google
+
 namespace doris {
+class PSlaveTabletNodes;
+class PSuccessSlaveTabletNodeIds;
+class PTabletError;
+class PTabletInfo;
+class PTabletWriterOpenRequest;
+class PUniqueId;
+class TupleDescriptor;
+class OpenPartitionRequest;
 
 struct TabletsChannelKey {
     UniqueId id;
@@ -59,15 +83,19 @@ class LoadChannel;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority);
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
+                   RuntimeProfile* profile);
 
     ~TabletsChannel();
 
     Status open(const PTabletWriterOpenRequest& request);
 
+    // Open specific partition all writers
+    Status open_all_writers_for_partition(const OpenPartitionRequest& request);
+
     // no-op when this channel has been closed or cancelled
-    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response);
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
@@ -100,19 +128,22 @@ private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
 
+    template <typename TabletWriterAddRequest>
+    Status _open_all_writers_for_partition(const int64_t& tablet_id,
+                                           const TabletWriterAddRequest& request);
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
-
-    bool _try_to_wait_flushing();
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
+    void _build_partition_tablets_relation(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
     bool _is_broken_tablet(int64_t tablet_id);
+    void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
     TabletsChannelKey _key;
@@ -145,6 +176,8 @@ private:
     // status to return when operate on an already closed/cancelled channel
     // currently it's OK.
     Status _close_status;
+    std::map<int64, std::vector<int64>> _partition_tablets_map;
+    std::map<int64, int64> _tablet_partition_map;
 
     // tablet_id -> TabletChannel
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
@@ -168,6 +201,15 @@ private:
     // mem -> tablet_id
     // sort by memory size
     std::multimap<int64_t, int64_t, std::greater<int64_t>> _mem_consumptions;
+
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _flush_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
 };
 
 template <typename Request>

@@ -17,39 +17,75 @@
 
 #pragma once
 #include <brpc/controller.h>
+#include <bthread/types.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <functional>
+#include <initializer_list>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <ostream>
 #include <queue>
+#include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "common/object_pool.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "gutil/ref_counted.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "runtime/types.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"
-#include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/spinlock.h"
-#include "util/thread.h"
+#include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/common/allocator.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class RuntimeState;
+class TDataSink;
+class TExpr;
+class Thread;
+class ThreadPoolToken;
+class TupleDescriptor;
+template <typename T>
+class RefCountClosure;
 
 namespace vectorized {
 class VExprContext;
 }
 
 namespace stream_load {
+
+class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
@@ -177,6 +213,8 @@ public:
 
     void open();
 
+    void open_partition(int64_t partition_id);
+
     Status init(RuntimeState* state);
 
     Status open_wait();
@@ -278,6 +316,7 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
+    std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -422,7 +461,7 @@ public:
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process(RuntimeState* state);
+    void _send_batch_process();
 
 private:
     friend class VNodeChannel;
@@ -460,6 +499,8 @@ private:
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
+
+    void _open_partition(const VOlapTablePartition* partition);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -501,8 +542,7 @@ private:
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
-    CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _sender_thread;
+    bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
@@ -565,6 +605,8 @@ private:
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
+
+    std::unordered_set<int64_t> _opened_partitions;
 };
 
 } // namespace stream_load

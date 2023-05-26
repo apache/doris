@@ -17,14 +17,19 @@
 
 #include "http/http_client.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <unistd.h>
 
-#include "boost/algorithm/string.hpp"
-#include "common/logging.h"
+#include <boost/algorithm/string/predicate.hpp>
+
+#include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
+#include "http/utils.h"
 
 namespace doris {
 

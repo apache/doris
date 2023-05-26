@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,6 +41,8 @@ import java.util.Optional;
  * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
+
+    public static final String DEFERRED_MATERIALIZED_SLOTS = "deferred_materialized_slots";
 
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
@@ -161,6 +164,20 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
         StringBuilder builder = new StringBuilder();
         builder.append(this.getClass().getSimpleName()).append("[").append(olapTable.getName()).append("]");
         return builder.toString();
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject olapScan = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("OlapTable", olapTable.toString());
+        properties.put("DistributionSpec", distributionSpec.toString());
+        properties.put("SelectedIndexId", selectedIndexId);
+        properties.put("SelectedTabletIds", selectedTabletIds.toString());
+        properties.put("SelectedPartitionIds", selectedPartitionIds.toString());
+        properties.put("PreAggStatus", preAggStatus.toString());
+        olapScan.put("Properties", properties);
+        return olapScan;
     }
 
 }

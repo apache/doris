@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] 冷热分离
+# 冷热分离
 
 ## 需求场景
 
@@ -62,15 +62,15 @@ CREATE RESOURCE "remote_s3"
 PROPERTIES
 (
     "type" = "s3",
-    "AWS_ENDPOINT" = "bj.s3.com",
-    "AWS_REGION" = "bj",
-    "AWS_BUCKET" = "test-bucket",
-    "AWS_ROOT_PATH" = "path/to/root",
-    "AWS_ACCESS_KEY" = "bbb",
-    "AWS_SECRET_KEY" = "aaaa",
-    "AWS_MAX_CONNECTIONS" = "50",
-    "AWS_REQUEST_TIMEOUT_MS" = "3000",
-    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000"
 );
 
 CREATE STORAGE POLICY test_policy
@@ -103,16 +103,16 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 
 ### 一些限制
 
-- 单表或单partition只能关联一个storage policy，关联后不能drop掉storage policy
+- 单表或单partition只能关联一个storage policy，关联后不能drop掉storage policy，需要先解二者的除关联。
 - storage policy关联的对象信息不支持修改数据存储path的信息，比如bucket、endpoint、root_path等信息
-- storage policy目前只支持创建和修改，不支持删除
+- storage policy支持创建和修改和支持删除，删除前需要先保证没有表引用此storage policy。
 
 ## 冷数据占用对象大小
 方式一：
-通过show proc '/backends'可以查看到每个be上传到对象的大小，RemoteUsedCapacity项
+通过show proc '/backends'可以查看到每个be上传到对象的大小，RemoteUsedCapacity项，此方式略有延迟。
 
 方式二：
-通过show tablets from tableName可以查看到表的每个tablet占用的对象大小，RemoteDataSize项
+通过show tablets from tableName可以查看到表的每个tablet占用的对象大小，RemoteDataSize项。
 
 ## 冷数据的cache
 上文提到冷数据为了优化查询的性能和对象存储资源节省，引入了cache的概念。在冷却后首次命中，Doris会将已经冷却的数据又重新加载到be的本地磁盘，cache有以下特性：
@@ -122,8 +122,31 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 - be参数`file_cache_max_size_per_disk` 可以设置cache占用磁盘大小，一旦超过这个设置，会删除最久未访问cache，默认是0，单位：字节，即不限制大小。
 - be参数`file_cache_type` 可选项`sub_file_cache`（切分远端文件进行本地缓存）和`whole_file_cache`（整个远端文件进行本地缓存），默认为""，即不缓存文件，需要缓存的时候请设置此参数。
 
+## 冷数据的compaction
+冷数据传入的时间是数据rowset文件写入本地磁盘时刻起，加上冷却时间。由于数据并不是一次性写入和冷却的，因此避免在对象存储内的小文件问题，doris也会进行冷数据的compaction。
+但是，冷数据的compaction的频次和资源占用的优先级并不是很高。具体可以通过以下be参数调整：
+- be参数`cold_data_compaction_thread_num`可以设置执行冷数据的compaction的并发，默认是2。
+- be参数`cold_data_compaction_interval_sec` 可以设置执行冷数据的compaction的时间间隔，默认是1800，单位：秒，即半个小时。
+
+## 冷数据的schema change
+数据冷却后支持schema change类型如下：
+- 增加、删除列
+- 修改列类型
+- 调整列顺序
+- 增加、修改 Bloom Filter
+- 增加、删除 bitmap index
+
+## 冷数据的垃圾回收
+冷数据的垃圾数据是指没有被任何Replica使用的数据，对象存储上可能会有如下情况产生的垃圾数据：
+1. 上传rowset失败但是有部分segment上传成功。
+2. FE重新选CooldownReplica后，新旧CooldownReplica的rowset version不一致，FollowerReplica都去同步新CooldownReplica的CooldownMeta，旧CooldownReplica中version不一致的rowset没有Replica使用成为垃圾数据。
+3. 冷数据Compaction后，合并前的rowset因为还可能被其他Replica使用不能立即删除，但是最终FollowerReplica都使用了最新的合并后的rowset，合并前的rowset成为垃圾数据。
+
+另外，对象上的垃圾数据并不会立即清理掉。
+be参数`remove_unused_remote_files_interval_sec` 可以设置冷数据的垃圾回收的时间间隔，默认是21600，单位：秒，即6个小时。
+
 
 ## 未尽事项
 
-- 数据被cooldown后，又有新数据update或导入等，compaction目前没有处理
-- 数据被cooldown后，schema change操作，目前不支持
+- 目前暂无方式查询特定storage policy 关联的表。
+- 一些远端占用指标更新获取不够完善

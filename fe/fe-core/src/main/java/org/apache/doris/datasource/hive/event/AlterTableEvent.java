@@ -40,6 +40,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     // true if this alter event was due to a rename operation
     private final boolean isRename;
+    private final boolean isView;
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
@@ -59,7 +60,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         // this is a rename event if either dbName or tblName of before and after object changed
         isRename = !tableBefore.getDbName().equalsIgnoreCase(tableAfter.getDbName())
                 || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
-
+        isView = tableBefore.isSetViewExpandedText() || tableBefore.isSetViewOriginalText();
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
@@ -67,6 +68,15 @@ public class AlterTableEvent extends MetastoreTableEvent {
         return Lists.newArrayList(new AlterTableEvent(event, catalogName));
     }
 
+    private void processRecreateTable() throws DdlException {
+        if (!isView) {
+            return;
+        }
+        Env.getCurrentEnv().getCatalogMgr()
+            .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+        Env.getCurrentEnv().getCatalogMgr()
+            .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+    }
 
     private void processRename() throws DdlException {
         if (!isRename) {
@@ -81,9 +91,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName);
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
+                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
 
     }
 
@@ -100,12 +110,18 @@ public class AlterTableEvent extends MetastoreTableEvent {
                 processRename();
                 return;
             }
+            if (isView) {
+                // if this table is a view, `viewExpandedText/viewOriginalText` of this table may be changed,
+                // so we need to recreate the table to make sure `remoteTable` will be rebuild
+                processRecreateTable();
+                return;
+            }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName);
+                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

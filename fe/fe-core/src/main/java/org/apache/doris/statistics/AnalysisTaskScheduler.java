@@ -18,8 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,7 +34,7 @@ public class AnalysisTaskScheduler {
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskScheduler.class);
 
     private final PriorityQueue<BaseAnalysisTask> systemJobQueue =
-            new PriorityQueue<>(Comparator.comparingInt(BaseAnalysisTask::getLastExecTime));
+            new PriorityQueue<>(Comparator.comparingLong(BaseAnalysisTask::getLastExecTime));
 
     private final Queue<BaseAnalysisTask> manualJobQueue = new LinkedList<>();
 
@@ -44,12 +42,10 @@ public class AnalysisTaskScheduler {
 
     private final Set<BaseAnalysisTask> manualJobSet = new HashSet<>();
 
-    public synchronized void schedule(AnalysisTaskInfo analysisTaskInfo) {
+    public synchronized void schedule(BaseAnalysisTask analysisTask) {
         try {
-            TableIf table = StatisticsUtil.findTable(analysisTaskInfo.catalogName,
-                    analysisTaskInfo.dbName, analysisTaskInfo.tblName);
-            BaseAnalysisTask analysisTask = table.createAnalysisTask(analysisTaskInfo);
-            switch (analysisTaskInfo.jobType) {
+
+            switch (analysisTask.info.jobType) {
                 case MANUAL:
                     addToManualJobQueue(analysisTask);
                     break;
@@ -57,11 +53,11 @@ public class AnalysisTaskScheduler {
                     addToSystemQueue(analysisTask);
                     break;
                 default:
-                    throw new IllegalArgumentException("Unknown job type: " + analysisTaskInfo.jobType);
+                    throw new IllegalArgumentException("Unknown job type: " + analysisTask.info.jobType);
             }
         } catch (Throwable t) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
-                    analysisTaskInfo, AnalysisState.FAILED, t.getMessage(), System.currentTimeMillis());
+                    analysisTask.info, AnalysisState.FAILED, t.getMessage(), System.currentTimeMillis());
         }
     }
 

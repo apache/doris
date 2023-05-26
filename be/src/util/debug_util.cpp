@@ -17,14 +17,15 @@
 
 #include "util/debug_util.h"
 
-#include <iomanip>
-#include <sstream>
+#include <gen_cpp/PlanNodes_types.h>
+#include <stdint.h>
 
-#include "common/logging.h"
-#include "gen_cpp/Opcodes_types.h"
-#include "gen_cpp/types.pb.h"
-#include "gen_cpp/version.h"
-#include "util/cpu_info.h"
+#include <iomanip>
+#include <map>
+#include <sstream> // IWYU pragma: keep
+#include <utility>
+
+#include "common/version_internal.h"
 
 namespace doris {
 
@@ -41,7 +42,7 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 
 std::string get_build_version(bool compact) {
     std::stringstream ss;
-    ss << DORIS_BUILD_VERSION
+    ss << version::doris_build_version()
 #if defined(__x86_64__) || defined(_M_X64)
 #ifdef __AVX2__
        << "(AVX2)"
@@ -69,18 +70,19 @@ std::string get_build_version(bool compact) {
        << " with BLSAN"
 #endif
 #endif
-       << " (build " << DORIS_BUILD_HASH << ")";
+       << " (build " << version::doris_build_hash() << ")";
 
     if (!compact) {
-        ss << std::endl << "Built on " << DORIS_BUILD_TIME << " by " << DORIS_BUILD_INFO;
+        ss << std::endl
+           << "Built on " << version::doris_build_time() << " by " << version::doris_build_info();
     }
 
     return ss.str();
 }
 
 std::string get_short_version() {
-    static std::string short_version(std::string(DORIS_BUILD_VERSION) + "-" +
-                                     DORIS_BUILD_SHORT_HASH);
+    static std::string short_version(std::string(version::doris_build_version()) + "-" +
+                                     version::doris_build_short_hash());
     return short_version;
 }
 

@@ -97,3 +97,46 @@ under the License.
 
     可以尝试在 `create catalog` 语句中添加 `"metastore.filter.hook" = "org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl"` 解决。
 
+10. 通过 Hive Catalog 连接 Hive 数据库报错：`RemoteException: SIMPLE authentication is not enabled.  Available:[TOKEN, KERBEROS]`
+
+   如果在 `show databases` 和 `show tables` 都是没问题的情况下，查询的时候出现上面的错误，我们需要进行下面两个操作：
+- fe/conf、be/conf 目录下需放置 core-site.xml 和 hdfs-site.xml
+   - BE 节点执行 Kerberos 的 kinit 然后重启 BE ，然后再去执行查询即可.
+
+
+11. 如果创建 Hive Catalog 后能正常`show tables`，但查询时报`java.net.UnknownHostException: xxxxx`
+
+    可以在 CATALOG 的 PROPERTIES 中添加
+    ```
+    'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
+    ```
+12. 在hive上可以查到hudi表分区字段的值，但是在doris查不到。
+
+    doris和hive目前查询hudi的方式不一样，doris需要在hudi表结构的avsc文件里添加上分区字段,如果没加，就会导致doris查询partition_val为空（即使设置了hoodie.datasource.hive_sync.partition_fields=partition_val也不可以）
+    ```
+    {
+        "type": "record",
+        "name": "record",
+        "fields": [{
+            "name": "partition_val",
+            "type": [
+                "null",
+                "string"
+                ],
+            "doc": "Preset partition field, empty string when not partitioned",
+            "default": null
+            },
+            {
+            "name": "name",
+            "type": "string",
+            "doc": "名称"
+            },
+            {
+            "name": "create_time",
+            "type": "string",
+            "doc": "创建时间"
+            }
+        ]
+    }
+    ```
+

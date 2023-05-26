@@ -17,26 +17,21 @@
 
 #pragma once
 
-#include <fcntl.h>
-#include <pthread.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <limits.h>
+#include <stdint.h>
 #include <sys/time.h>
-#include <zlib.h>
 
 #include <cstdio>
 #include <cstdlib>
-#include <exception>
-#include <filesystem>
 #include <iterator>
 #include <limits>
-#include <list>
-#include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
 
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
@@ -306,6 +301,18 @@ struct GlobalRowLoacation {
             : tablet_id(tid), row_location(rsid, sid, rid) {}
     uint32_t tablet_id;
     RowLocation row_location;
+
+    bool operator==(const GlobalRowLoacation& rhs) const {
+        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
+    }
+
+    bool operator<(const GlobalRowLoacation& rhs) const {
+        if (tablet_id != rhs.tablet_id) {
+            return tablet_id < rhs.tablet_id;
+        } else {
+            return row_location < rhs.row_location;
+        }
+    }
 };
 
 } // namespace doris

@@ -28,13 +28,12 @@ under the License.
 ### description
 #### Syntax
 
-`DATETIME TIME_ROUND(DATETIME expr)`
-
-`DATETIME TIME_ROUND(DATETIME expr, INT period)`
-
-`DATETIME TIME_ROUND(DATETIME expr, DATETIME origin)`
-
-`DATETIME TIME_ROUND(DATETIME expr, INT period, DATETIME origin)`
+```sql
+DATETIME TIME_ROUND(DATETIME expr)
+DATETIME TIME_ROUND(DATETIME expr, INT period)
+DATETIME TIME_ROUND(DATETIME expr, DATETIME origin)
+DATETIME TIME_ROUND(DATETIME expr, INT period, DATETIME origin)
+```
 
 函数名 `TIME_ROUND` 由两部分组成，每部分由以下可选值组成
 - `TIME`: `SECOND`, `MINUTE`, `HOUR`, `DAY`, `WEEK`, `MONTH`, `YEAR`

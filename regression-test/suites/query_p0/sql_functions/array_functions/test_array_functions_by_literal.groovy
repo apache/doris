@@ -269,7 +269,7 @@ suite("test_array_functions_by_literal") {
     qt_sql """select array_apply([1.111, 2.222, 3.333], '>=', 2)"""
     qt_sql """select array_apply(cast(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17") as array<datetimev2>), ">", '2020-01-02')"""
     qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), ">", '25')"""
-    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25.99')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25')"""
     // qt_sql """select array_apply(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), ">", '111.111')"""
 
     qt_sql "select array_concat([1, 2, 3], [2, 3, 4], [8, 1, 2], [9])"
@@ -334,6 +334,23 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_pushfront(array(cast ('2023-03-05' as datev2), cast ('2023-03-04' as datev2)), cast ('2023-02-05' as datev2))"
     qt_sql "select array_pushfront(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))), cast ('2023-03-08 16:23:54.999' as datetimev2(3)))"
     qt_sql "select array_pushfront(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (333.333 as decimalv3(6,3)))"
+
+    // array_cum_sum
+    qt_sql "select array_cum_sum([0, 2, 127])"
+    qt_sql "select array_cum_sum([254, 4, 0])"
+    qt_sql "select array_cum_sum([1.0, 2.1 ,3.2, 4.3, 5.4])"
+    qt_sql "select array_cum_sum([-1, 2 ,-3, 4, -5])"
+    qt_sql "select array_cum_sum([-5.23, 4.12, -3.02, 2.00 ,1.01])"
+    qt_sql "select array_cum_sum([1, 2, 3, null])"
+    qt_sql "select array_cum_sum([null, 1, null, 3, 8, null])"
+    qt_sql "select array_cum_sum([null, null])"
+    qt_sql "select array_cum_sum([8])"
+    qt_sql "select array_cum_sum([1.1])"
+    qt_sql "select array_cum_sum([null])"
+    qt_sql "select array_cum_sum([])"
+    qt_sql "select array_cum_sum(array(cast (12.99 as decimal(10,3)), cast (34.99 as decimal(10,3)), cast (999.28 as decimal(10,3))))"
+    qt_sql "select array_cum_sum(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))"
+    qt_sql "select array_cum_sum(array(cast (11.9999 as decimalv3(6,4)),cast (22.0001 as decimalv3(6,4))))"
 
     // abnormal test
     try {

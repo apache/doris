@@ -17,19 +17,31 @@
 
 #pragma once
 
-#include <list>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include <gen_cpp/BackendService.h>     // IWYU pragma: keep
+#include <gen_cpp/FrontendService.h>    // IWYU pragma: keep
+#include <gen_cpp/TPaloBrokerService.h> // IWYU pragma: keep
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
+#include <unistd.h>
 
+#include <functional>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+#include <unordered_map>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thrift_client.h"
+#include "util/thrift_server.h"
 
 namespace doris {
-
 // Helper class which implements the majority of the caching
 // functionality without using templates (i.e. pointers to the
 // superclass of all ThriftClients and a void* for the key).
@@ -268,13 +280,12 @@ private:
 
 // Doris backend client cache, used by a backend to send requests
 // to any other backend.
-class BackendServiceClient;
 using BackendServiceClientCache = ClientCache<BackendServiceClient>;
 using BackendServiceConnection = ClientConnection<BackendServiceClient>;
-class FrontendServiceClient;
+
 using FrontendServiceClientCache = ClientCache<FrontendServiceClient>;
 using FrontendServiceConnection = ClientConnection<FrontendServiceClient>;
-class TPaloBrokerServiceClient;
+
 using BrokerServiceClientCache = ClientCache<TPaloBrokerServiceClient>;
 using BrokerServiceConnection = ClientConnection<TPaloBrokerServiceClient>;
 

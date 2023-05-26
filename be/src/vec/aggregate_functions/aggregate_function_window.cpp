@@ -20,9 +20,13 @@
 
 #include "vec/aggregate_functions/aggregate_function_window.h"
 
-#include "common/logging.h"
+#include <string>
+#include <variant>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
@@ -30,15 +34,15 @@ namespace doris::vectorized {
 template <template <typename> class AggregateFunctionTemplate,
           template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable>
-IAggregateFunction* create_function_lead_lag_first_last(const String& name,
-                                                        const DataTypes& argument_types) {
+AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
+                                                         const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)           \
-    if (which.idx == TypeIndex::TYPE)         \
-        return new AggregateFunctionTemplate< \
-                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>(argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                        \
+    if (which.idx == TypeIndex::TYPE)                      \
+        return std::make_shared<AggregateFunctionTemplate< \
+                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>>(argument_types);
     TYPE_TO_BASIC_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 

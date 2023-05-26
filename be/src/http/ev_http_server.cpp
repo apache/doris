@@ -18,9 +18,10 @@
 #include "http/ev_http_server.h"
 
 #include <arpa/inet.h>
-#include <bthread/errno.h>
 #include <butil/endpoint.h>
 #include <butil/fd_utility.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>

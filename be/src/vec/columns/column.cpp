@@ -20,12 +20,11 @@
 
 #include "vec/columns/column.h"
 
-#include <sstream>
-
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/core/field.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

@@ -17,11 +17,22 @@
 
 #include "vec/exprs/table_function/vexplode_numbers.h"
 
+#include <glog/logging.h>
+
+#include <ostream>
+#include <vector>
+
 #include "common/status.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -43,7 +54,7 @@ Status VExplodeNumbersTableFunction::process_init(Block* block) {
         auto& column_nested = assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
         if (column_nested->is_nullable()) {
             if (!column_nested->is_null_at(0)) {
-                _cur_size = static_cast<const ColumnNullable*>(column_nested.get())
+                _cur_size = assert_cast<const ColumnNullable*>(column_nested.get())
                                     ->get_nested_column()
                                     .get_int(0);
             }
@@ -84,14 +95,14 @@ void VExplodeNumbersTableFunction::get_value(MutableColumnPtr& column) {
         column->insert_default();
     } else {
         if (_is_nullable) {
-            static_cast<ColumnInt32*>(
-                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+            assert_cast<ColumnInt32*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_value(_cur_offset);
-            static_cast<ColumnUInt8*>(
-                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_default();
         } else {
-            static_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
+            assert_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
         }
     }
 }

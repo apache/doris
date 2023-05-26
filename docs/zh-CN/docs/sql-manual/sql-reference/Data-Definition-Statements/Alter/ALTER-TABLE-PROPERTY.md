@@ -87,10 +87,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -225,10 +225,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能

@@ -34,6 +34,9 @@ array_min
 
 ### description
 
+#### Syntax
+`T array_min(ARRAY<T> array1)`
+
 Get the minimum element in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.
 

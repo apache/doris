@@ -23,12 +23,13 @@
 #include <memory>
 #include <vector>
 
+#include "runtime/memory/mem_tracker_limiter.h"
+
 namespace doris {
 
 struct Chunk;
 class ChunkArena;
 class MetricEntity;
-class MemTrackerLimiter;
 class Status;
 
 // Used to allocate memory with power-of-two length.

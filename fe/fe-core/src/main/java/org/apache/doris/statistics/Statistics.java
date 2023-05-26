@@ -154,6 +154,15 @@ public class Statistics {
 
     @Override
     public String toString() {
+        if (Double.isNaN(rowCount)) {
+            return "NaN";
+        }
+        if (Double.POSITIVE_INFINITY == rowCount) {
+            return "Infinite";
+        }
+        if (Double.NEGATIVE_INFINITY == rowCount) {
+            return "-Infinite";
+        }
         DecimalFormat format = new DecimalFormat("#,###.##");
         return format.format(rowCount);
     }
@@ -202,4 +211,20 @@ public class Statistics {
         return colStats.isUnKnown;
     }
 
+    /**
+     * merge this and other colStats.ndv, choose min
+     * @param other
+     */
+    public void updateNdv(Statistics other) {
+        for (Expression expr : expressionToColumnStats.keySet()) {
+            ColumnStatistic otherColStats = other.findColumnStatistics(expr);
+            if (otherColStats != null) {
+                ColumnStatistic thisColStats = expressionToColumnStats.get(expr);
+                if (thisColStats.ndv > otherColStats.ndv) {
+                    expressionToColumnStats.put(expr,
+                            new ColumnStatisticBuilder(thisColStats).setNdv(otherColStats.ndv).build());
+                }
+            }
+        }
+    }
 }

@@ -17,8 +17,24 @@
 
 #include "vec/functions/like.h"
 
+#include <fmt/format.h>
+#include <hs/hs_compile.h>
+#include <re2/stringpiece.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -435,7 +451,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
-        *(state->function.target<doris::Status (*)(LikeSearchState * state, const ColumnString&,
+        *(state->function.target<doris::Status (*)(LikeSearchState* state, const ColumnString&,
                                                    const StringRef&, ColumnUInt8::Container&)>())) {
         RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
                                           &state->search_state));
@@ -822,6 +838,7 @@ void register_function_like(SimpleFunctionFactory& factory) {
 
 void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexp>();
+    factory.register_alias(FunctionRegexp::name, FunctionRegexp::alias);
 }
 
 } // namespace doris::vectorized

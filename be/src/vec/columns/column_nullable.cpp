@@ -20,13 +20,20 @@
 
 #include "vec/columns/column_nullable.h"
 
+#include <string.h>
+
+#include <algorithm>
+
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/nan_utils.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -634,12 +641,14 @@ ColumnPtr ColumnNullable::index(const IColumn& indexes, size_t limit) const {
     return ColumnNullable::create(indexed_data, indexed_null_map);
 }
 
-void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map) {
+void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map,
+                        bool is_single) {
     if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
         // Danger: Here must dispose the null map data first! Because
         // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
         // of column nullable mem of null map
-        VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
+        VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data(),
+                                         is_single);
         argument_column = nullable->get_nested_column_ptr();
     }
 }

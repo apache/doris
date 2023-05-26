@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/descriptors.h"
 #include "scanner_context.h"
 
 namespace doris {
@@ -24,11 +25,13 @@ namespace doris {
 namespace pipeline {
 
 class PipScannerContext : public vectorized::ScannerContext {
+    ENABLE_FACTORY_CREATOR(PipScannerContext);
+
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* input_tuple_desc,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScanner*>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
                                          scanners, limit, max_bytes_in_blocks_queue),
@@ -38,7 +41,7 @@ public:
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
         {
-            std::unique_lock<std::mutex> l(_transfer_lock);
+            std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
                 _process_status = Status::Cancelled("cancelled");
             }
@@ -137,11 +140,12 @@ public:
                     limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
             int64_t free_blocks_memory_usage = 0;
             for (int i = 0; i < _max_queue_size; ++i) {
-                auto block = std::make_unique<vectorized::Block>(_output_tuple_desc->slots(),
-                                                                 real_block_size,
-                                                                 true /*ignore invalid slots*/);
+                auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
+                                                              real_block_size,
+                                                              true /*ignore invalid slots*/);
                 free_blocks_memory_usage += block->allocated_bytes();
-                _colocate_mutable_blocks.emplace_back(new vectorized::MutableBlock(block.get()));
+                _colocate_mutable_blocks.emplace_back(
+                        vectorized::MutableBlock::create_unique(block.get()));
                 _colocate_blocks.emplace_back(std::move(block));
                 _colocate_block_mutexs.emplace_back(new std::mutex);
             }
@@ -153,7 +157,7 @@ public:
         return _current_used_bytes < _max_bytes_in_queue / 2 * _max_queue_size;
     }
 
-    virtual void _dispose_coloate_blocks_not_in_queue() override {
+    void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
             for (int i = 0; i < _max_queue_size; ++i) {
                 std::scoped_lock s(*_colocate_block_mutexs[i], *_queue_mutexs[i]);

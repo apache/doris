@@ -16,12 +16,33 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <stddef.h>
+
+#include <string>
+#include <vector>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 class VectorizedFnCall : public VExpr {
+    ENABLE_FACTORY_CREATOR(VectorizedFnCall);
+
 public:
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
@@ -30,9 +51,17 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VectorizedFnCall(*this)); }
+    VExpr* clone(ObjectPool* pool) const override {
+        return pool->add(VectorizedFnCall::create_unique(*this).release());
+    }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool is_constant() const override {
+        if (!_function->is_use_default_implementation_for_constants()) {
+            return false;
+        }
+        return VExpr::is_constant();
+    }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
     bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -42,5 +71,6 @@ private:
     FunctionBasePtr _function;
     bool _can_fast_execute = false;
     std::string _expr_name;
+    std::string _function_name;
 };
 } // namespace doris::vectorized

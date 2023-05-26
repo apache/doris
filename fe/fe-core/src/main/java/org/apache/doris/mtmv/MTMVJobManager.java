@@ -306,7 +306,10 @@ public class MTMVJobManager {
             LOG.warn("fail to obtain scheduled info for job [{}]", job.getName());
             return true;
         }
-        boolean isCancel = future.cancel(true);
+        // MUST not set true for "mayInterruptIfRunning".
+        // Because this thread may doing bdbje write operation, it is interrupted,
+        // FE may exit due to bdbje write failure.
+        boolean isCancel = future.cancel(false);
         if (!isCancel) {
             LOG.warn("fail to cancel scheduler for job [{}]", job.getName());
         }
@@ -364,11 +367,11 @@ public class MTMVJobManager {
         LOG.info("change job:{}", changeJob.getJobId());
     }
 
-    public void dropJobByName(String dbName, String mvName) {
+    public void dropJobByName(String dbName, String mvName, boolean isReplay) {
         for (String jobName : nameToJobMap.keySet()) {
             MTMVJob job = nameToJobMap.get(jobName);
             if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                dropJobs(Collections.singletonList(job.getId()), false);
+                dropJobs(Collections.singletonList(job.getId()), isReplay);
                 return;
             }
         }

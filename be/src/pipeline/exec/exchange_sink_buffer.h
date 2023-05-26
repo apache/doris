@@ -17,18 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <list>
+#include <memory>
+#include <mutex>
 #include <queue>
-#include <shared_mutex>
+#include <string>
 
 #include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
+class PTransmitDataParams;
+class TUniqueId;
+
 namespace vectorized {
 class PipChannel;
 class BroadcastPBlockHolder;
@@ -78,6 +85,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, PTransmitDataParams*> _instance_to_request;
     phmap::flat_hash_map<InstanceLoId, PUniqueId> _instance_to_finst_id;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
+    phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
@@ -93,6 +101,8 @@ private:
     void _construct_request(InstanceLoId id);
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
+    inline void _set_receiver_eof(InstanceLoId id);
+    inline bool _is_receiver_eof(InstanceLoId id);
 };
 
 } // namespace pipeline

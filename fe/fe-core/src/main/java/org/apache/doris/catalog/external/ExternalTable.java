@@ -67,7 +67,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @SerializedName(value = "dbName")
     protected String dbName;
 
-    protected boolean objectCreated = false;
+    protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 

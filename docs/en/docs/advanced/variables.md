@@ -69,7 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
-* `insert_timeout`<version since="dev"></version>
+* <version since="dev" type="inline">`insert_timeout`</version>
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -189,11 +189,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join](../advanced/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](../query-acceleration/join-optimization/colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
 * `enable_bucket_shuffle_join`
 
-    Controls whether the [Bucket Shuffle Join](../advanced/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+    Controls whether the [Bucket Shuffle Join](../query-acceleration/join-optimization/bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
 
 * `disable_streaming_preaggregations`
 
@@ -220,6 +220,8 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     Usually, only some blocking nodes (such as sorting node, aggregation node, and join node) consume more memory, while in other nodes (such as scan node), data is streamed and does not occupy much memory.
     
     When a `Memory Exceed Limit` error occurs, you can try to increase the parameter exponentially, such as 4G, 8G, 16G, and so on.
+
+    It should be noted that this value may fluctuate by a few MB.
     
 * `forward_to_master`
 
@@ -486,7 +488,33 @@ Translated with www.DeepL.com/Translator (free version)
     Used to control whether to perform predicate derivation. There are two values: true and false. It is turned off by default, that is, the system does not perform predicate derivation, and uses the original predicate to perform related operations. After it is set to true, predicate expansion is performed.
 
 * `return_object_data_as_binary`
-  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array
+  Used to identify whether to return the bitmap/hll result in the select result. In the select into outfile statement, if the export file format is csv, the bimap/hll data will be base64-encoded, if it is the parquet file format, the data will be stored as a byte array. Below will be an example of Java, more examples can be found in [samples](https://github.com/apache/doris/tree/master/samples/read_bitmap).
+
+  ```java
+  try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/test?user=root");
+               Statement stmt = conn.createStatement()
+  ) {
+      stmt.execute("set return_object_data_as_binary=true"); // IMPORTANT!!!
+      ResultSet rs = stmt.executeQuery("select uids from t_bitmap");
+      while(rs.next()){
+          byte[] bytes = rs.getBytes(1);
+          RoaringBitmap bitmap32 = new RoaringBitmap();
+          switch(bytes[0]) {
+              case 0: // for empty bitmap
+                  break;
+              case 1: // for only 1 element in bitmap32
+                  bitmap32.add(ByteBuffer.wrap(bytes,1,bytes.length-1)
+                          .order(ByteOrder.LITTLE_ENDIAN)
+                          .getInt());
+                  break;
+              case 2: // for more than 1 elements in bitmap32
+                  bitmap32.deserialize(ByteBuffer.wrap(bytes,1,bytes.length-1));
+                  break;
+              // for more details, see https://github.com/apache/doris/tree/master/samples/read_bitmap
+          }
+      }
+  }
+  ```
 
 * `block_encryption_mode`
   The block_encryption_mode variable controls the block encryption mode. The default setting is empty, when use AES equal to `AES_128_ECB`, when use SM4 equal to `SM3_128_ECB`
@@ -580,7 +608,11 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `enable_file_cache`
 
-    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+    Set wether to use block file cache, default false. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.
+
+* `file_cache_base_path`
+
+    Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
 
 * `topn_opt_limit_threshold`
 
@@ -616,6 +648,14 @@ Translated with www.DeepL.com/Translator (free version)
     | 10000000     |
     +--------------+
     ```
+  
+* `enable_parquet_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in parquet reader. The default value is true.
+
+* `enable_orc_lazy_materialization`
+
+  Controls whether to use lazy materialization technology in orc reader. The default value is true.
 
 ***
 

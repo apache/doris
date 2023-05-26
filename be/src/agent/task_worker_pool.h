@@ -19,7 +19,6 @@
 
 #include <butil/macros.h>
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
@@ -31,11 +30,8 @@
 #include <mutex>
 #include <set>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "olap/data_dir.h"
 #include "olap/tablet.h"
 #include "util/countdown_latch.h"
 #include "util/metrics.h"
@@ -182,15 +178,13 @@ public:
     // notify the worker. currently for task/disk/tablet report thread
     void notify_thread();
 
-private:
+protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
                                   TPriority::type priority);
 
-    void _create_tablet_worker_thread_callback();
-    void _drop_tablet_worker_thread_callback();
     void _push_worker_thread_callback();
     void _publish_version_worker_thread_callback();
     void _clear_transaction_task_worker_thread_callback();
@@ -232,7 +226,7 @@ private:
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
-private:
+protected:
     std::string _name;
 
     // Reference to the ExecEnv::_master_info
@@ -259,6 +253,7 @@ private:
     // Always 1 when _thread_model is SINGLE_THREAD
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
+    std::function<void()> _cb;
 
     static std::atomic_ulong _s_report_version;
 
@@ -267,4 +262,21 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
+
+class CreateTableTaskPool : public TaskWorkerPool {
+public:
+    CreateTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _create_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);
+};
+
+class DropTableTaskPool : public TaskWorkerPool {
+public:
+    DropTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _drop_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DropTableTaskPool);
+};
+
 } // namespace doris

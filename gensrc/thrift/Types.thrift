@@ -93,7 +93,8 @@ enum TPrimitiveType {
   JSONB,
   UNSUPPORTED,
   VARIANT,
-  LAMBDA_FUNCTION
+  LAMBDA_FUNCTION,
+  AGG_STATE
 }
 
 enum TTypeNodeType {
@@ -160,6 +161,7 @@ struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
     3: optional i64  byte_size
+    4: optional list<TTypeDesc> sub_types;
 }
 
 enum TAggregationType {
@@ -302,6 +304,8 @@ enum TFunctionBinaryType {
   RPC,
 
   JAVA_UDF,
+
+  AGG_STATE
 }
 
 // Represents a fully qualified function name.
@@ -384,7 +388,11 @@ enum TOdbcTableType {
     MONGODB,
     CLICKHOUSE,
     SAP_HANA,
-    TRINO
+    TRINO,
+    PRESTO,
+    OCEANBASE,
+    OCEANBASE_ORACLE,
+    NEBULA
 }
 
 struct TJdbcExecutorCtorParams {
@@ -588,6 +596,7 @@ enum TTableType {
     HUDI_TABLE,
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
+    MAX_COMPUTE_TABLE,
 }
 
 enum TKeysType {

@@ -17,29 +17,27 @@
 
 #pragma once
 
-#include <atomic>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 
-#include "common/config.h"
-#include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
-#include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
-#include "gen_cpp/Types_types.h"               // for TUniqueId
-#include "olap/column_predicate.h"
 #include "olap/tablet_schema.h"
-#include "runtime/datetime_value.h"
-#include "runtime/exec_env.h"
-#include "util/threadpool.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "util/binary_cast.hpp"
+#include "vec/common/arena.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class ColumnPredicate;
 
 namespace vectorized {
-
-class Arena;
 
 class RuntimePredicate {
 public:

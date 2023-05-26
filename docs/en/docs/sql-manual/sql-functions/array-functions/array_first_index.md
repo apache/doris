@@ -32,9 +32,9 @@ array_first_index
 
 ### description
 
-```sql
-array_first_index(lambda, array1, ...)
-```
+#### Syntax
+
+`ARRAY<T> array_first_index(lambda, ARRAY<T> array1, ...)`
 
 Use an lambda expression as an input parameter to perform corresponding expression calculations on the internal data of other input ARRAY parameters. Returns the first index such that the return value of `lambda(array1[i], ...)` is not 0. Return 0 if such index is not found.
 

@@ -17,7 +17,8 @@
 
 #include "agent/utils.h"
 
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>

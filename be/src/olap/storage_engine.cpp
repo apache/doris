@@ -17,44 +17,61 @@
 
 #include "olap/storage_engine.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
 #include <rapidjson/document.h>
-#include <signal.h>
-#include <sys/syscall.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/classification.hpp>
-#include <boost/algorithm/string/split.hpp>
-#include <boost/algorithm/string/trim.hpp>
-#include <cstdio>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/container/detail/std_fwd.hpp>
 #include <filesystem>
+#include <iterator>
+#include <list>
 #include <new>
-#include <queue>
+#include <ostream>
 #include <random>
 #include <set>
+#include <thread>
+#include <utility>
 
 #include "agent/task_worker_pool.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
-#include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/push_handler.h"
-#include "olap/reader.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
-#include "olap/schema_change.h"
 #include "olap/segment_loader.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/task/engine_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
-#include "util/pretty_printer.h"
-#include "util/scoped_cleanup.h"
-#include "util/time.h"
+#include "util/metrics.h"
+#include "util/priority_thread_pool.hpp"
+#include "util/spinlock.h"
+#include "util/stopwatch.hpp"
+#include "util/thread.h"
+#include "util/threadpool.h"
 #include "util/trace.h"
+#include "util/uid_util.h"
 
 using apache::thrift::ThriftDebugString;
 using std::filesystem::canonical;
@@ -69,7 +86,6 @@ using std::map;
 using std::nothrow;
 using std::pair;
 using std::set;
-using std::set_difference;
 using std::string;
 using std::stringstream;
 using std::vector;
@@ -124,7 +140,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    _clear();
 
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
@@ -139,6 +154,7 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _clear();
     _s_instance = nullptr;
 }
 
@@ -231,7 +247,7 @@ Status StorageEngine::_init_store_map() {
 Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_record_path) {
     LOG(INFO) << "stream load record path: " << stream_load_record_path;
     // init stream load record rocksdb
-    _stream_load_recorder.reset(new StreamLoadRecorder(stream_load_record_path));
+    _stream_load_recorder = StreamLoadRecorder::create_unique(stream_load_record_path);
     if (_stream_load_recorder == nullptr) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::MemoryAllocFailed("allocate memory for StreamLoadRecorder failed"),
@@ -372,12 +388,8 @@ void StorageEngine::_start_disk_stat_monitor() {
     }
 
     _update_storage_medium_type_count();
-    bool some_tablets_were_dropped = _delete_tablets_on_unused_root_path();
-    // If some tablets were dropped, we should notify disk_state_worker_thread and
-    // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
-    if (some_tablets_were_dropped) {
-        notify_listeners();
-    }
+
+    _exit_if_too_many_disks_are_failed();
 }
 
 // TODO(lingbin): Should be in EnvPosix?
@@ -483,8 +495,7 @@ static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
             (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
 }
 
-bool StorageEngine::_delete_tablets_on_unused_root_path() {
-    std::vector<TabletInfo> tablet_info_vec;
+void StorageEngine::_exit_if_too_many_disks_are_failed() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
@@ -492,7 +503,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
         // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
         std::lock_guard<std::mutex> l(_store_lock);
         if (_store_map.empty()) {
-            return false;
+            return;
         }
 
         for (auto& it : _store_map) {
@@ -500,7 +511,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
             if (it.second->is_used()) {
                 continue;
             }
-            it.second->clear_tablets(&tablet_info_vec);
             ++unused_root_path_num;
         }
     }
@@ -512,10 +522,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
                    << ", total_disk_count=" << total_root_path_num;
         exit(0);
     }
-
-    _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
-    // If tablet_info_vec is not empty, means we have dropped some tablets.
-    return !tablet_info_vec.empty();
 }
 
 void StorageEngine::stop() {
@@ -622,8 +628,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const double guard_space =
             ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
-    RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
-                      "failed to get root path stat info when sweep trash.")
+    RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
+                                   "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间
@@ -963,11 +969,6 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
 
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
-    res = TabletMeta::reset_tablet_uid(header_path);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
-        return res;
-    }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
     if (!res.ok()) {

@@ -17,23 +17,25 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/block_column_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/olap_define.h"
+#include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
-class RowCursor;
-class Tablet;
-class TabletReader;
-class TabletSchema;
+class AndBlockColumnPredicate;
+class ColumnPredicate;
+class DeletePredicatePB;
+class TCondition;
 
 // Represent a delete condition.
 struct DeleteConditions {

@@ -17,39 +17,51 @@
 
 #include "olap/rowset/beta_rowset_writer.h"
 
+#include <assert.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <stdio.h>
+
 #include <ctime> // time
+#include <filesystem>
 #include <memory>
 #include <sstream>
+#include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/memtable.h"
-#include "olap/merger.h"
+#include "olap/data_dir.h"
 #include "olap/olap_define.h"
-#include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "segcompaction.h"
+#include "util/slice.h"
+#include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
-#include "vec/jsonb/serialize.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
-
-class StorageEngine;
 
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
           _num_segment(0),
           _num_flushed_segment(0),
+          _segment_start_id(0),
           _segcompacted_point(0),
           _num_segcompacted(0),
           _segment_writer(nullptr),
@@ -120,7 +132,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, block));
+        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, block));
     }
     return _add_block(block, &_segment_writer);
 }
@@ -135,7 +147,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+        auto type = config::enable_file_cache ? config::file_cache_type : "";
+        io::FileReaderOptions reader_options(io::cache_type_from_string(type),
                                              io::SegmentCachePathPolicy());
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
                                            _context.tablet_schema, reader_options, &segment);
@@ -159,7 +172,7 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         SegCompactionCandidatesSharedPtr segments) {
     std::vector<segment_v2::SegmentSharedPtr> all_segments;
     // subtract one to skip last (maybe active) segment
-    RETURN_NOT_OK(_load_noncompacted_segments(&all_segments, _num_segment - 1));
+    RETURN_IF_ERROR(_load_noncompacted_segments(&all_segments, _num_segment - 1));
 
     if (VLOG_DEBUG_IS_ON) {
         vlog_buffer.clear();
@@ -180,7 +193,7 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
                 is_terminated_by_big = true;
                 break;
             } else {
-                RETURN_NOT_OK(_rename_compacted_segment_plain(_segcompacted_point++));
+                RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
             }
         } else {
             let_big_terminate = true; // break if find a big after small
@@ -196,7 +209,7 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     }
     if (s == 1) { // poor bachelor, let it go
         VLOG_DEBUG << "only one candidate segment";
-        RETURN_NOT_OK(_rename_compacted_segment_plain(_segcompacted_point++));
+        RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         segments->clear();
         return Status::OK();
     }
@@ -225,7 +238,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
     }
 
     // rename inverted index files
-    RETURN_NOT_OK(_rename_compacted_indices(begin, end, 0));
+    RETURN_IF_ERROR(_rename_compacted_indices(begin, end, 0));
 
     _num_segcompacted++;
     return Status::OK();
@@ -268,7 +281,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         return Status::Error<ROWSET_RENAME_FILE_FAILED>();
     }
     // rename remaining inverted index files
-    RETURN_NOT_OK(_rename_compacted_indices(-1, -1, seg_id));
+    RETURN_IF_ERROR(_rename_compacted_indices(-1, -1, seg_id));
 
     ++_num_segcompacted;
     return Status::OK();
@@ -311,13 +324,13 @@ Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSh
         VLOG_DEBUG << "segcompaction last few segments";
         // currently we only rename remaining segments to reduce wait time
         // so that transaction can be committed ASAP
-        RETURN_NOT_OK(_load_noncompacted_segments(segments.get(), _num_segment));
+        RETURN_IF_ERROR(_load_noncompacted_segments(segments.get(), _num_segment));
         for (int i = 0; i < segments->size(); ++i) {
-            RETURN_NOT_OK(_rename_compacted_segment_plain(_segcompacted_point++));
+            RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
         }
         segments->clear();
     } else {
-        RETURN_NOT_OK(_find_longest_consecutive_small_segment(segments));
+        RETURN_IF_ERROR(_find_longest_consecutive_small_segment(segments));
     }
     return Status::OK();
 }
@@ -403,12 +416,11 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
-            RETURN_NOT_OK(_flush_segment_writer(segment_writer));
-            RETURN_NOT_OK(_create_segment_writer(segment_writer, block));
+            RETURN_IF_ERROR(_flush_segment_writer(segment_writer));
+            RETURN_IF_ERROR(_create_segment_writer(segment_writer, block));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
-
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
         auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
         if (UNLIKELY(!s.ok())) {
@@ -424,7 +436,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_NOT_OK(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
+    RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -445,7 +457,7 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr row
 
 Status BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
-        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+        RETURN_IF_ERROR(_flush_segment_writer(&_segment_writer));
     }
     return Status::OK();
 }
@@ -456,10 +468,10 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     }
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
-    RETURN_NOT_OK(_create_segment_writer(&writer, block));
-    RETURN_NOT_OK(_add_block(block, &writer));
-    RETURN_NOT_OK(_flush_segment_writer(&writer, flush_size));
-    RETURN_NOT_OK(_segcompaction_if_necessary());
+    RETURN_IF_ERROR(_create_segment_writer(&writer, block));
+    RETURN_IF_ERROR(_add_block(block, &writer));
+    RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -602,7 +614,6 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
-    std::unordered_set<std::string> key_set;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -610,13 +621,8 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
-            if (_context.enable_unique_key_merge_on_write) {
-                DCHECK(itr.second.key_set.get() != nullptr);
-                key_set.insert(itr.second.key_set->begin(), itr.second.key_set->end());
-            }
         }
     }
-    _num_mow_keys = key_set.size();
     for (auto itr = _segments_encoded_key_bounds.begin(); itr != _segments_encoded_key_bounds.end();
          ++itr) {
         segments_encoded_key_bounds.push_back(*itr);
@@ -668,7 +674,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
                                                            begin, end);
     } else {
-        segment_id = _num_segment.fetch_add(1);
+        segment_id = _num_segment.fetch_add(1) + _segment_start_id;
         path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     }
     auto fs = _rowset_meta->fs();
@@ -687,19 +693,24 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.is_direct_write = _context.is_direct_write;
+    if (is_segcompaction) {
+        writer_options.is_direct_write = false;
+    }
 
     if (is_segcompaction) {
-        writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,
-                                                    _context.tablet_schema, _context.data_dir,
-                                                    _context.max_rows_per_segment, writer_options));
+        writer->reset(new segment_v2::SegmentWriter(
+                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+                _context.data_dir, _context.max_rows_per_segment, writer_options,
+                _context.mow_context));
         if (_segcompaction_worker.get_file_writer() != nullptr) {
             _segcompaction_worker.get_file_writer()->close();
         }
         _segcompaction_worker.get_file_writer().reset(file_writer.release());
     } else {
-        writer->reset(new segment_v2::SegmentWriter(file_writer.get(), segment_id,
-                                                    _context.tablet_schema, _context.data_dir,
-                                                    _context.max_rows_per_segment, writer_options));
+        writer->reset(new segment_v2::SegmentWriter(
+                file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, _context.max_rows_per_segment, writer_options,
+                _context.mow_context));
         {
             std::lock_guard<SpinLock> l(_lock);
             _file_writers.push_back(std::move(file_writer));
@@ -762,7 +773,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     segstat.data_size = segment_size;
     segstat.index_size = index_size;
     segstat.key_bounds = key_bounds;
-    segstat.key_set = (*writer)->get_key_set();
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);

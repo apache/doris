@@ -49,8 +49,14 @@ suite("test_external_catalog_icebergv2", "p2") {
             qt_q11 """ select c_custkey from customer for version as of 906874575350293177 order by c_custkey limit 3 """
             qt_q12 """ select c_custkey from customer for version as of 6352416983354893547 order by c_custkey desc limit 3 """
         }
+        // in predicate
+        def q03 = {
+            qt_q13 """ select c_custkey from customer_small where c_custkey in (1, 2, 4, 7) order by c_custkey """
+            qt_q14 """ select c_name from customer_small where c_name in ('Customer#000000004', 'Customer#000000007') order by c_custkey """
+        }
         sql """ use `tpch_1000_icebergv2`; """
         q01()
         q02()
+        q03()
     }
 }

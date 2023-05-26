@@ -19,9 +19,11 @@
 
 #include <cstddef>
 
+#include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/local_file_system.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {

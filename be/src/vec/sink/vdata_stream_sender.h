@@ -17,36 +17,55 @@
 
 #pragma once
 
-#include <memory>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <fmt/format.h>
+#include <gen_cpp/Partitions_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
 
+#include <atomic>
+#include <cstddef>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/config.h"
 #include "common/global_types.h"
+#include "common/logging.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/data.pb.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
-#include "runtime/descriptors.h"
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
+#include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-class RuntimeProfile;
-class BufferControlBlock;
 class MemTracker;
+class RowDescriptor;
+class TDataSink;
+class TDataStreamSink;
+class TPlanFragmentDestination;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace pipeline {
 class ExchangeSinkOperator;
 }
 
 namespace vectorized {
-class VExprContext;
 class Channel;
 
 template <typename T>
@@ -139,8 +158,11 @@ protected:
     }
 
     template <typename Channels>
-    Status channel_add_rows(Channels& channels, int num_channels, const uint64_t* channel_ids,
-                            int rows, Block* block);
+    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
+                            const uint64_t* channel_ids, int rows, Block* block);
+
+    template <typename ChannelPtrType>
+    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     struct hash_128 {
         uint64_t high;
@@ -167,7 +189,7 @@ protected:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _cur_pb_block;
+    PBlock* _cur_pb_block = nullptr;
 
     // used by pipeline engine
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
@@ -231,6 +253,7 @@ public:
               _num_data_bytes_sent(0),
               _packet_seq(0),
               _need_close(false),
+              _closed(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
               _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
@@ -306,8 +329,18 @@ public:
                _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
+    bool is_receiver_eof() const { return receiver_status_.is<ErrorCode::END_OF_FILE>(); }
+
+    void set_receiver_eof(Status st) { receiver_status_ = st; }
+
 protected:
-    bool _recvr_is_valid() { return _local_recvr && !_local_recvr->is_closed(); }
+    bool _recvr_is_valid() {
+        if (_local_recvr && !_local_recvr->is_closed()) {
+            return true;
+        }
+        receiver_status_ = Status::EndOfFile("local data stream receiver closed");
+        return false;
+    }
 
     Status _wait_last_brpc() {
         SCOPED_TIMER(_parent->_brpc_wait_timer);
@@ -317,6 +350,7 @@ protected:
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
+        receiver_status_ = _closure->result.status();
         if (cntl->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
@@ -326,7 +360,7 @@ protected:
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
-        return Status::OK();
+        return receiver_status_;
     }
 
     // Serialize _batch into _thrift_batch and send via send_batch().
@@ -348,6 +382,7 @@ protected:
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _need_close;
+    bool _closed;
     int _be_number;
 
     TNetworkAddress _brpc_dest_addr;
@@ -358,6 +393,7 @@ protected:
     PTransmitDataParams _brpc_request;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+    Status receiver_status_;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
@@ -375,19 +411,30 @@ protected:
     PBlock _ch_pb_block2;
 };
 
+#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
+    do {                                                 \
+        if (status.is<ErrorCode::END_OF_FILE>()) {       \
+            _handle_eof_channel(state, channel, status); \
+        } else {                                         \
+            RETURN_IF_ERROR(status);                     \
+        }                                                \
+    } while (0)
+
 template <typename Channels>
-Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           const uint64_t* __restrict channel_ids, int rows,
-                                           Block* block) {
+Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
+                                           int num_channels, const uint64_t* __restrict channel_ids,
+                                           int rows, Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
     }
 
+    Status status;
     for (int i = 0; i < num_channels; ++i) {
-        if (!channel2rows[i].empty()) {
-            RETURN_IF_ERROR(channels[i]->add_rows(block, channel2rows[i]));
+        if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
+            status = channels[i]->add_rows(block, channel2rows[i]);
+            HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
     }
 
@@ -426,6 +473,9 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false) override {
+        std::unique_ptr<PBlock> pblock_ptr;
+        pblock_ptr.reset(block);
+
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
@@ -434,8 +484,7 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
         }
         return Status::OK();
     }
@@ -460,15 +509,14 @@ public:
             return send_local_block(eos);
         }
 
-        PBlock* block_ptr = nullptr;
+        auto block_ptr = std::make_unique<PBlock>();
         if (_mutable_block) {
-            block_ptr = new PBlock(); // TODO: need a pool of PBlock()
             auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr));
+            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr, eos));
+        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
         return Status::OK();
     }
 

@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_colocate_join") {
+
+    // this case check explain, so we disable nereids
+    sql """set enable_nereids_planner=false"""
+
     def db1 = "test_colocate_join_db1"
     def db2 = "test_colocate_join_db2"
     sql """ drop database if exists ${db1}"""

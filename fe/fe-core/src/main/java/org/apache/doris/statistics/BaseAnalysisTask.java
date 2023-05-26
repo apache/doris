@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -98,9 +99,9 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
-
     protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -141,6 +142,10 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
+        // External Table level task doesn't contain a column. Don't need to do the column related analyze.
+        if (info.externalTableLevelTask) {
+            return;
+        }
         if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
@@ -161,21 +166,20 @@ public abstract class BaseAnalysisTask {
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
                         String.format("Job has been cancelled: %s", info.toString()), -1);
     }
 
-    public int getLastExecTime() {
+    public long getLastExecTime() {
         return info.lastExecTimeInMs;
     }
 
     public long getJobId() {
         return info.jobId;
-    }
-
-    public AnalysisState getAnalysisState() {
-        return analysisState;
     }
 
     protected String getDataSizeFunction(Column column) {
@@ -189,4 +193,20 @@ public abstract class BaseAnalysisTask {
         return unsupportedType.contains(type);
     }
 
+    protected String getSampleExpression() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "";
+        }
+        // TODO Add sampling methods for external tables
+        if (info.samplePercent > 0) {
+            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+        } else {
+            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
+
+    public void markAsKilled() {
+        this.killed = true;
+        cancel();
+    }
 }

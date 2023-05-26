@@ -17,25 +17,64 @@
 
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
+#include <assert.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <utility>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "io/io_common.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/short_key_index.h"
+#include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/key_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -348,7 +387,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -408,7 +447,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
             int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -670,7 +709,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
 
@@ -768,7 +807,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
 
@@ -843,7 +882,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: range predicate"
-                         << ", error msg: " << res.code_as_string();
+                         << ", error msg: " << res;
             return res;
         }
     }
@@ -1172,8 +1211,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     //  all rows should be read, so runtime predicate will reduce rows for topn node
     if (_opts.use_topn_opt &&
         !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
-        auto& runtime_predicate =
-                _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
+        auto& runtime_predicate = _opts.runtime_state->get_query_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();
         if (_runtime_predicate) {
             _col_predicates.push_back(_runtime_predicate.get());
@@ -1197,6 +1235,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
+                if (predicate->get_filter_id() != -1) {
+                    _filter_info_id.push_back(predicate);
+                }
             }
         }
 
@@ -1568,9 +1609,13 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
+
+    // collect profile
+    for (auto p : _filter_info_id) {
+        _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
+    }
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
-
     // evaluate delete condition
     original_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
@@ -1601,13 +1646,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    Status st;
-    try {
-        st = _next_batch_internal(block);
-    } catch (const doris::Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
-    }
-    return st;
+    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
+    return Status::OK();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -1882,7 +1922,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
         }
 
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     } else if (auto* const_column =
                        vectorized::check_and_get_column<vectorized::ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
@@ -1898,7 +1939,8 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                         *filter_column)
                         .get_data();
         selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-        vectorized::Block::filter_block_internal(block, _columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(
+                vectorized::Block::filter_block_internal(block, _columns_to_filter, filter));
     }
     return Status::OK();
 }
@@ -1959,7 +2001,7 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
         if (!iter.second.first) {
             // predicate not in compound query
             block->get_by_name(iter.first).column =
-                    vectorized::DataTypeUInt8().create_column_const(block->rows(), 1u);
+                    vectorized::DataTypeUInt8().create_column_const(block->rows(), (uint8_t)1);
             continue;
         }
         _build_index_result_column(sel_rowid_idx, select_size, block, iter.first,

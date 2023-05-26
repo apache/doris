@@ -20,12 +20,24 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
 #include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
 
 #include "common/status.h"
+#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
@@ -77,6 +89,13 @@ public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    size_t result, size_t input_rows_count, bool dry_run = false) final;
 
+    /** If the function have non-zero number of arguments,
+      *  and if all arguments are constant, that we could automatically provide default implementation:
+      *  arguments are converted to ordinary columns with single value which is not const, then function is executed as usual,
+      *  and then the result is converted to constant column.
+      */
+    virtual bool use_default_implementation_for_constants() const { return true; }
+
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, size_t result,
@@ -95,13 +114,6 @@ protected:
       *   and wrap result in Nullable column where NULLs are in all rows where any of arguments are NULL.
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
-
-    /** If the function have non-zero number of arguments,
-      *  and if all arguments are constant, that we could automatically provide default implementation:
-      *  arguments are converted to ordinary columns with single value which is not const, then function is executed as usual,
-      *  and then the result is converted to constant column.
-      */
-    virtual bool use_default_implementation_for_constants() const { return false; }
 
     /** If function arguments has single low cardinality column and all other arguments are constants, call function on nested column.
       * Otherwise, convert all low cardinality columns to ordinary columns.
@@ -227,6 +239,8 @@ public:
       */
     virtual bool has_information_about_monotonicity() const { return false; }
 
+    virtual bool is_use_default_implementation_for_constants() const = 0;
+
     /// The property of monotonicity for a certain range.
     struct Monotonicity {
         bool is_monotonic = false; /// Is the function monotonous (nondecreasing or nonincreasing).
@@ -300,11 +314,14 @@ public:
 
 using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 
+/// used in function_factory. when we register a function, save a builder. to get a function, to get a builder.
+/// will use DefaultFunctionBuilder as the default builder in function's registration if we didn't explicitly specify.
 class FunctionBuilderImpl : public IFunctionBuilder {
 public:
     FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                           const DataTypePtr& return_type) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
+        // check return types equal.
         DCHECK(return_type->equals(*func_return_type) ||
                // For null constant argument, `get_return_type` would return
                // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
@@ -371,6 +388,7 @@ protected:
     /// If it isn't, will convert all ColumnLowCardinality arguments to full columns.
     virtual bool can_be_executed_on_low_cardinality_dictionary() const { return true; }
 
+    /// return a real function object to execute. called in build(...).
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
@@ -402,7 +420,6 @@ public:
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
 
     /// all constancy check should use this function to do automatically
@@ -412,6 +429,10 @@ public:
     }
     bool is_deterministic() const override { return true; }
     bool is_deterministic_in_scope_of_query() const override { return true; }
+
+    bool is_use_default_implementation_for_constants() const override {
+        return use_default_implementation_for_constants();
+    }
 
     using PreparedFunctionImpl::execute;
     using PreparedFunctionImpl::execute_impl_dry_run;
@@ -449,7 +470,7 @@ protected:
     }
 };
 
-/// Wrappers over IFunction.
+/// Wrappers over IFunction. If we (default)use DefaultFunction as wrapper, all function execution will go through this.
 
 class DefaultExecutable final : public PreparedFunctionImpl {
 public:
@@ -485,6 +506,10 @@ private:
     std::shared_ptr<IFunction> function;
 };
 
+/*
+ * when we register a function which didn't specify its base(i.e. inherited from IFunction), actually we use this as a wrapper.
+ * it saves real implementation as `function`. 
+*/
 class DefaultFunction final : public IFunctionBase {
 public:
     DefaultFunction(std::shared_ptr<IFunction> function_, DataTypes arguments_,
@@ -498,6 +523,7 @@ public:
     const DataTypes& get_argument_types() const override { return arguments; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
+    // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
@@ -543,6 +569,10 @@ public:
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                                            const Field& right) const override {
         return function->get_monotonicity_for_range(type, left, right);
+    }
+
+    bool is_use_default_implementation_for_constants() const override {
+        return function->is_use_default_implementation_for_constants();
     }
 
 private:
@@ -599,7 +629,9 @@ protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                const DataTypePtr& return_type) const override {
         DataTypes data_types(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            data_types[i] = arguments[i].type;
+        }
         return std::make_shared<DefaultFunction>(function, data_types, return_type);
     }
 

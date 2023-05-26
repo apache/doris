@@ -23,7 +23,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "runtime/cache/result_cache.h"
 #include "util/priority_thread_pool.hpp"
 
 namespace google {
@@ -32,10 +31,6 @@ class Closure;
 class RpcController;
 } // namespace protobuf
 } // namespace google
-
-namespace brpc {
-class Controller;
-}
 
 namespace doris {
 
@@ -91,6 +86,10 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
+    void open_partition(google::protobuf::RpcController* controller,
+                        const OpenPartitionRequest* request, OpenPartitionResult* response,
+                        google::protobuf::Closure* done) override;
+
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,
@@ -128,6 +127,10 @@ public:
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+    void apply_filterv2(::google::protobuf::RpcController* controller,
+                        const ::doris::PPublishFilterRequestV2* request,
+                        ::doris::PPublishFilterResponse* response,
+                        ::google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,
@@ -204,7 +207,7 @@ private:
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);
-    Status _multi_get(const PMultiGetRequest* request, PMultiGetResponse* response);
+    Status _multi_get(const PMultiGetRequest& request, PMultiGetResponse* response);
 
     void _get_column_ids_by_tablet_ids(google::protobuf::RpcController* controller,
                                        const PFetchColIdsRequest* request,

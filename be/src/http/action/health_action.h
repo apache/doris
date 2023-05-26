@@ -21,7 +21,6 @@
 
 namespace doris {
 
-class ExecEnv;
 class HttpRequest;
 
 // Get BE health state from http API.

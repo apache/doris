@@ -159,50 +159,60 @@ public class VariableMgr {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
         }
-        try {
-            switch (field.getType().getSimpleName()) {
-                case "boolean":
-                    if (value.equalsIgnoreCase("ON")
-                            || value.equalsIgnoreCase("TRUE")
-                            || value.equalsIgnoreCase("1")) {
-                        field.setBoolean(obj, true);
-                    } else if (value.equalsIgnoreCase("OFF")
-                            || value.equalsIgnoreCase("FALSE")
-                            || value.equalsIgnoreCase("0")) {
-                        field.setBoolean(obj, false);
-                    } else {
-                        throw new IllegalAccessException();
-                    }
-                    break;
-                case "byte":
-                    field.setByte(obj, Byte.valueOf(value));
-                    break;
-                case "short":
-                    field.setShort(obj, Short.valueOf(value));
-                    break;
-                case "int":
-                    field.setInt(obj, Integer.valueOf(value));
-                    break;
-                case "long":
-                    field.setLong(obj, Long.valueOf(value));
-                    break;
-                case "float":
-                    field.setFloat(obj, Float.valueOf(value));
-                    break;
-                case "double":
-                    field.setDouble(obj, Double.valueOf(value));
-                    break;
-                case "String":
-                    field.set(obj, value);
-                    break;
-                default:
-                    // Unsupported type variable.
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+        // If the session variable has specified the setter, then not use reflect
+        if (!attr.setter().equals("")) {
+            Preconditions.checkArgument(obj instanceof SessionVariable);
+            try {
+                SessionVariable.class.getDeclaredMethod(attr.setter(), String.class).invoke(obj, value);
+            } catch (Exception e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
-        } catch (NumberFormatException e) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
-        } catch (IllegalAccessException e) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
+        } else  {
+            try {
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        if (value.equalsIgnoreCase("ON")
+                                || value.equalsIgnoreCase("TRUE")
+                                || value.equalsIgnoreCase("1")) {
+                            field.setBoolean(obj, true);
+                        } else if (value.equalsIgnoreCase("OFF")
+                                || value.equalsIgnoreCase("FALSE")
+                                || value.equalsIgnoreCase("0")) {
+                            field.setBoolean(obj, false);
+                        } else {
+                            throw new IllegalAccessException();
+                        }
+                        break;
+                    case "byte":
+                        field.setByte(obj, Byte.valueOf(value));
+                        break;
+                    case "short":
+                        field.setShort(obj, Short.valueOf(value));
+                        break;
+                    case "int":
+                        field.setInt(obj, Integer.valueOf(value));
+                        break;
+                    case "long":
+                        field.setLong(obj, Long.valueOf(value));
+                        break;
+                    case "float":
+                        field.setFloat(obj, Float.valueOf(value));
+                        break;
+                    case "double":
+                        field.setDouble(obj, Double.valueOf(value));
+                        break;
+                    case "String":
+                        field.set(obj, value);
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+                }
+            } catch (NumberFormatException e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+            } catch (IllegalAccessException e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
+            }
         }
 
         if (VariableVarCallbacks.hasCallback(attr.name())) {
@@ -251,6 +261,33 @@ public class VariableMgr {
     //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
+        VarContext varCtx = setVarPreCheck(setVar);
+        checkUpdate(setVar, varCtx.getFlag());
+        setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    // The only difference between setVar and setVarForNonMasterFE
+    // is that setVarForNonMasterFE will just return if "checkUpdate" throw exception.
+    // This is because, when setting global variables from Non Master FE, Doris will do following step:
+    //      1. forward this SetStmt to Master FE to execute.
+    //      2. Change this SetStmt to "SESSION" level, and execute it again on this Non Master FE.
+    // But for "GLOBAL only" variable, such ash "password_history", it doesn't allow to set on SESSION level.
+    // So when doing step 2, "set password_history=xxx" without "GLOBAL" keywords will throw exception.
+    // So in this case, we should just ignore this exception and return.
+    public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
+            throws DdlException {
+        VarContext varCtx = setVarPreCheck(setVar);
+        try {
+            checkUpdate(setVar, varCtx.getFlag());
+        } catch (DdlException e) {
+            LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
+            return;
+        }
+        setVarInternal(sessionVariable, setVar, varCtx);
+    }
+
+    @NotNull
+    private static VarContext setVarPreCheck(SetVar setVar) throws DdlException {
         String varName = setVar.getVariable();
         boolean hasExpPrefix = false;
         if (varName.startsWith(ExperimentalUtil.EXPERIMENTAL_PREFIX)) {
@@ -265,9 +302,11 @@ public class VariableMgr {
         if (hasExpPrefix && ctx.getField().getAnnotation(VarAttr.class).expType() == ExperimentalType.NONE) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        // Check variable attribute and setVar
-        checkUpdate(setVar, ctx.getFlag());
+        return ctx;
+    }
 
+    private static void setVarInternal(SessionVariable sessionVariable, SetVar setVar, VarContext ctx)
+            throws DdlException {
         // To modify to default value.
         VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
         String value;
@@ -607,7 +646,7 @@ public class VariableMgr {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface VarAttr {
+    public @interface VarAttr {
         // Name in show variables and set statement;
         String name();
 
@@ -623,6 +662,9 @@ public class VariableMgr {
         // the checker function should be: public void checker(String value), value is the input string.
         String checker() default "";
 
+        // could specify the setter method for a variable, not depend on reflect mechanism
+        String setter() default "";
+
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
 
@@ -630,6 +672,15 @@ public class VariableMgr {
         boolean fuzzy() default false;
 
         ExperimentalType expType() default ExperimentalType.NONE;
+
+        // description for this config item.
+        // There should be 2 elements in the array.
+        // The first element is the description in Chinese.
+        // The second element is the description in English.
+        String[] description() default {"待补充", "TODO"};
+
+        // Enum options for this config item, if it has.
+        String[] options() default {};
     }
 
     private static class VarContext {

@@ -20,9 +20,16 @@
 
 #include "runtime/types.h"
 
-#include <ostream>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
 
+#include <ostream>
+#include <utility>
+
+#include "olap/olap_define.h"
 #include "runtime/primitive_type.h"
+
 namespace doris {
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
@@ -59,7 +66,12 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         DCHECK_EQ(node.contains_nulls.size(), 1);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
-        contains_nulls.push_back(node.contains_nulls[0]);
+        // here should compatible with fe 1.2, because use contains_null in contains_nulls
+        if (node.__isset.contains_nulls) {
+            contains_nulls.push_back(node.contains_nulls[0]);
+        } else {
+            contains_nulls.push_back(node.contains_null);
+        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;

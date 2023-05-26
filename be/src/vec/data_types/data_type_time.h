@@ -20,8 +20,29 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
+
+#include "runtime/define_primitive_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/serde/data_type_time_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -52,6 +73,8 @@ public:
         using PromotedType = DataTypeNumber<NearestFieldType<Float64>>;
         return std::make_shared<PromotedType>();
     }
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeSerDe>(); };
+    TypeIndex get_type_id() const override { return TypeIndex::Time; }
 };
 
 } // namespace doris::vectorized

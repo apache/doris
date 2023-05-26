@@ -17,21 +17,27 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
 #include <vector>
 
+#include "common/status.h"
+#include "io/io_common.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/rowid_conversion.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/utils.h"
-#include "rowset/rowset_id_generator.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
-class DataDir;
-class Merger;
+class MemTrackerLimiter;
+class RowsetWriter;
 
 // This class is a base class for compaction.
 // The entrance of this class is compact()
@@ -67,7 +73,7 @@ protected:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);

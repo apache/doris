@@ -17,7 +17,10 @@
 
 #include "vec/aggregate_functions/aggregate_function_quantile_state.h"
 
+#include <algorithm>
+
 #include "vec/aggregate_functions//aggregate_function_simple_factory.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

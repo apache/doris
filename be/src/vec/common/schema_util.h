@@ -17,20 +17,32 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <parallel_hashmap/phmap.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/field_visitors.h>
-#include <vec/core/block.h>
-#include <vec/core/column_with_type_and_name.h>
-#include <vec/data_types/data_type_number.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <map>
+#include <mutex>
+#include <string>
+
+#include "common/status.h"
 #include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 class LocalSchemaChangeRecorder;
-}
+enum class FieldType;
+
+namespace vectorized {
+class Block;
+class IColumn;
+struct ColumnWithTypeAndName;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -75,6 +87,7 @@ Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*fo
 // maybe use col_unique_id as key in the future
 // but for dynamic table, column name if ok
 struct FullBaseSchemaView {
+    ENABLE_FACTORY_CREATOR(FullBaseSchemaView);
     phmap::flat_hash_map<std::string, TColumn> column_name_to_column;
     int32_t schema_version = -1;
     int32_t table_id = 0;

@@ -17,13 +17,18 @@
 
 #include "runtime/decimalv2_value.h"
 
-#include <algorithm>
+#include <fmt/format.h>
+
+#include <cmath>
+#include <cstring>
 #include <iostream>
 #include <utility>
 
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
 
 static inline int128_t abs(const int128_t& x) {
     return (x < 0) ? -x : x;

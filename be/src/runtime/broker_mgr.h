@@ -17,20 +17,20 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_set>
 
-#include "gen_cpp/Types_types.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
-#include "util/hash_util.hpp"
-#include "util/thread.h"
+#include "util/hash_util.hpp" // IWYU pragma: keep
 
 namespace doris {
 
 class ExecEnv;
+class Thread;
 
 class BrokerMgr {
 public:

@@ -17,13 +17,16 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
 #include <cstddef>
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
 #include "olap/itoken_extractor.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "vec/common/arena.h"
 
 namespace doris {
@@ -36,7 +39,7 @@ class FileWriter;
 
 namespace segment_v2 {
 
-struct BloomFilterOptions;
+class ColumnIndexMetaPB;
 
 class BloomFilterIndexWriter {
 public:

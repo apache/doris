@@ -17,21 +17,35 @@
 
 #include "vec/exec/vschema_scan_node.h"
 
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
 
+#include <boost/algorithm/string/predicate.hpp>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "gen_cpp/PlanNodes_types.h"
+#include "exec/exec_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/types.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/types.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class TScanRangeParams;
+} // namespace doris
+
 namespace doris::vectorized {
 
 VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -95,14 +109,11 @@ Status VSchemaScanNode::open(RuntimeState* state) {
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::open");
     if (!_is_init) {
-        span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
     }
 
     if (nullptr == state) {
-        span->SetStatus(opentelemetry::trace::StatusCode::kError, "input pointer is nullptr.");
         return Status::InternalError("input pointer is nullptr.");
     }
 
@@ -129,7 +140,6 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     if (nullptr == state) {
         return Status::InternalError("state pointer is nullptr.");
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // get dest tuple desc
@@ -153,7 +163,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     _runtime_profile->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // new one scanner
-    _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
+    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
@@ -203,7 +213,6 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
@@ -274,7 +283,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     return ExecNode::close(state);
 }

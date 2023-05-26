@@ -15,29 +15,64 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <re2/re2.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <boost/token_functions.hpp>
+#include <boost/tokenizer.hpp>
+#include <memory>
+#include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "exprs/json_functions.h"
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
@@ -644,6 +679,8 @@ struct FunctionJsonObjectImpl {
 template <typename SpecificImpl>
 class FunctionJsonAlwaysNotNullable : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = SpecificImpl::name;
 
     static FunctionPtr create() {
@@ -657,8 +694,6 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     bool is_variadic() const override { return true; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
@@ -809,8 +844,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
@@ -854,8 +887,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
@@ -879,7 +910,7 @@ public:
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonbParserSIMD parser;
+        JsonbParser parser;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
@@ -902,11 +933,79 @@ public:
     }
 };
 
+class FunctionJsonUnquote : public IFunction {
+public:
+    static constexpr auto name = "json_unquote";
+    static FunctionPtr create() { return std::make_shared<FunctionJsonUnquote>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+            col_from_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+
+        if (!col_from_string) {
+            return Status::RuntimeError("Illegal column {} should be ColumnString",
+                                        col_from.get_name());
+        }
+
+        auto col_to = ColumnString::create();
+        col_to->reserve(input_rows_count);
+
+        // parser can be reused for performance
+        rapidjson::Document document;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (col_from.is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                col_to->insert_data(nullptr, 0);
+                continue;
+            }
+
+            const auto& json_str = col_from_string->get_data_at(i);
+            if (json_str.size < 2 || json_str.data[0] != '"' ||
+                json_str.data[json_str.size - 1] != '"') {
+                // non-quoted string
+                col_to->insert_data(json_str.data, json_str.size);
+            } else {
+                document.Parse(json_str.data, json_str.size);
+                if (document.HasParseError() || !document.IsString()) {
+                    return Status::RuntimeError(
+                            fmt::format("Invalid JSON text in argument 1 to function {}: {}", name,
+                                        std::string_view(json_str.data, json_str.size)));
+                }
+                col_to->insert_data(document.GetString(), document.GetStringLength());
+            }
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_to), std::move(null_map)));
+
+        return Status::OK();
+    }
+};
+
 void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
     factory.register_function<FunctionGetJsonBigInt>();
     factory.register_function<FunctionGetJsonDouble>();
     factory.register_function<FunctionGetJsonString>();
+    factory.register_function<FunctionJsonUnquote>();
 
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();

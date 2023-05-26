@@ -18,19 +18,26 @@
 #pragma once
 
 #include <bthread/bthread.h>
+#include <bthread/types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
 
+#include <memory>
+#include <ostream>
 #include <string>
 #include <thread>
 
+#include "common/exception.h"
 #include "common/logging.h"
-// #include "gen_cpp/PaloInternalService_types.h" // for TQueryType
 #include "gutil/macros.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to observe the memory usage of the specified code segment
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT(scope_mem) \
@@ -49,7 +56,7 @@
 #endif
 
 // Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // And count the memory during thread execution (is actually also the code segment that executes the function)
@@ -68,10 +75,18 @@
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
 #endif
 
+#define SKIP_MEMORY_CHECK(...)                  \
+    do {                                        \
+        doris::skip_memory_check++;             \
+        DEFER({ doris::skip_memory_check--; }); \
+        __VA_ARGS__;                            \
+    } while (0)
+
 namespace doris {
 
-class TUniqueId;
 class ThreadContext;
+class MemTracker;
+class RuntimeState;
 
 extern bthread_key_t btls_key;
 
@@ -110,7 +125,7 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local bool enable_thread_catch_bad_alloc = false;
+inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -134,7 +149,7 @@ public:
 
     ~ThreadContext() { thread_context_ptr.init = false; }
 
-    void attach_task(const std::string& task_id, const TUniqueId& fragment_instance_id,
+    void attach_task(const TUniqueId& task_id, const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
@@ -149,11 +164,12 @@ public:
     }
 
     void detach_task() {
-        _task_id = "";
+        _task_id = TUniqueId();
         _fragment_instance_id = TUniqueId();
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
+    const TUniqueId& task_id() const { return _task_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     std::string get_thread_id() {
@@ -174,7 +190,7 @@ public:
     }
 
 private:
-    std::string _task_id = "";
+    TUniqueId _task_id;
     TUniqueId _fragment_instance_id;
 };
 
@@ -237,7 +253,7 @@ private:
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const std::string& task_id = "",
+                        const TUniqueId& task_id = TUniqueId(),
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);
@@ -292,35 +308,6 @@ private:
     tracker->transfer_to(                               \
             size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 
-// Consider catching other memory errors, such as memset failure, etc.
-#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                            \
-    do {                                                                                           \
-        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();             \
-        if (doris::enable_thread_catch_bad_alloc) {                                                \
-            try {                                                                                  \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        } else {                                                                                   \
-            try {                                                                                  \
-                doris::enable_thread_catch_bad_alloc = true;                                       \
-                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }};             \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        }                                                                                          \
-    } while (0)
-
 // Mem Hook to consume thread mem tracker
 // TODO: In the original design, the MemTracker consume method is called before the memory is allocated.
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
@@ -350,6 +337,5 @@ private:
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_MEM_TRACKER(size) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
-#define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
 #endif
 } // namespace doris

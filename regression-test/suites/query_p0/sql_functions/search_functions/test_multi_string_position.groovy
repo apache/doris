@@ -16,14 +16,14 @@
 // under the License.
 
 suite("test_multi_string_position") {
-    def table_name = "strings"
+    def table_name = "test_multi_string_position_strings"
 
     sql """ DROP TABLE IF EXISTS ${table_name} """
     sql """ CREATE TABLE IF NOT EXISTS ${table_name}
             (
                 `col1`      INT NOT NULL,
-                `content`   TEXT NOT NULL,
-                `mode`      ARRAY<TEXT> NOT NULL
+                `content`   TEXT NULL,
+                `mode`      ARRAY<TEXT> NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`col1`)
             COMMENT 'OLAP'
@@ -40,7 +40,10 @@ suite("test_multi_string_position") {
             (2, 'Hello, World!', ['hello', 'world', 'Hello', '!'] ),
             (3, 'hello, world!', ['Hello', 'world'] ),
             (4, 'hello, world!', ['hello', 'world', 'Hello', '!'] ),
-            (5, 'HHHHW!', ['H', 'HHHH', 'HW', 'WH'] );
+            (5, 'HHHHW!', ['H', 'HHHH', 'HW', 'WH'] ),
+            (6, 'abc', null),
+            (7, null, null),
+            (8, null, ['a', 'b', 'c']);
         """
 
     qt_table_select1 "select multi_search_all_positions(content, ['hello', '!', 'world', 'Hello', 'World']) from ${table_name} order by col1"

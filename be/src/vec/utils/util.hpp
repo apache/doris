@@ -25,6 +25,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 class VectorizedUtils {
@@ -65,12 +66,19 @@ public:
         return columns_with_type_and_name;
     }
 
-    static void update_null_map(NullMap& dst, const NullMap& src) {
+    // is_single: whether src is null map of a ColumnConst
+    static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        for (size_t i = 0; i < size; ++i) {
-            l[i] |= r[i];
+        if (is_single && r[0]) {
+            for (size_t i = 0; i < size; ++i) {
+                l[i] = 1;
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                l[i] |= r[i];
+            }
         }
     }
 
@@ -112,6 +120,15 @@ public:
             return left_child != nullptr ? left_child : right_child;
         }
     }
+
+    static bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
+        for (const auto& arg : args) {
+            if (!is_column_const(*block.get_by_position(arg).column)) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 } // namespace doris::vectorized
@@ -122,9 +139,8 @@ ThriftStruct from_json_string(const std::string& json_val) {
     using namespace apache::thrift::transport;
     using namespace apache::thrift::protocol;
     ThriftStruct ts;
-    TMemoryBuffer* buffer =
-            new TMemoryBuffer((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
-    std::shared_ptr<TTransport> trans(buffer);
+    std::shared_ptr<TTransport> trans =
+            std::make_shared<TMemoryBuffer>((uint8_t*)json_val.c_str(), (uint32_t)json_val.size());
     TJSONProtocol protocol(trans);
     ts.read(&protocol);
     return ts;

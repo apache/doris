@@ -2,6 +2,18 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230525
+
+- Removed:  clucene changed to submodule
+- Modified: hadoop libhdfs 3.3.4.2
+
+## v20230517
+- Modified: opentelemetry-proto 0.18 -> 0.19 
+- Modified: opentelemetry-cpp 1.4.0 -> 1.8.3
+
+## v20230425
+- Modified: clucene 2.4.9 -> 2.4.11
+
 ## v20230412
 - Modified: sse2neon 1.5.1 -> 1.6.0
 - Modified: libhdfs3 2.3.8 -> 2.3.9

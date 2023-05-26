@@ -15,24 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/token_functions.hpp>
-#include <vector>
+#include <glog/logging.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/compiler_util.h"
-#include "util/string_parser.hpp"
-#include "util/string_util.h"
+#include <memory>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "udf/udf.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_error.h"
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+#include "util/jsonb_stream.h"
+#include "util/jsonb_utils.h"
+#include "util/jsonb_writer.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
-#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/template_helpers.hpp"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -48,11 +78,12 @@ enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INV
 template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
-    JsonbParserSIMD default_value_parser;
+    JsonbParser default_value_parser;
     bool has_const_default_value = false;
 
 public:
-    static constexpr auto name = "jsonb_parse";
+    static constexpr auto name = "json_parse";
+    static constexpr auto alias = "jsonb_parse";
     static FunctionPtr create() { return std::make_shared<FunctionJsonbParseBase>(); }
 
     String get_name() const override {
@@ -119,8 +150,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
@@ -195,7 +224,7 @@ public:
         col_to->reserve(size);
 
         // parser can be reused for performance
-        JsonbParserSIMD parser;
+        JsonbParser parser;
         JsonbErrType error = JsonbErrType::E_NONE;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -298,14 +327,13 @@ template <typename Impl>
 class FunctionJsonbExtract : public IFunction {
 public:
     static constexpr auto name = Impl::name;
+    static constexpr auto alias = Impl::alias;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtract>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -316,7 +344,7 @@ public:
         for (int i = 0; i < 2; ++i) {
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            check_set_nullable(argument_columns[i], null_map);
+            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         auto res = Impl::ColumnType::create();
@@ -391,7 +419,7 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, ".", nullptr);
+        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, nullptr);
         if (UNLIKELY(!value)) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -542,7 +570,7 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, ".", nullptr);
+        JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, nullptr);
 
         if (UNLIKELY(!value)) {
             if constexpr (!only_check_exists) {
@@ -730,39 +758,48 @@ struct JsonbTypeType {
 };
 
 struct JsonbExists : public JsonbExtractImpl<JsonbTypeExists> {
-    static constexpr auto name = "jsonb_exists_path";
+    static constexpr auto name = "json_exists_path";
+    static constexpr auto alias = "jsonb_exists_path";
 };
 
 struct JsonbExtractIsnull : public JsonbExtractImpl<JsonbTypeNull> {
-    static constexpr auto name = "jsonb_extract_isnull";
+    static constexpr auto name = "json_extract_isnull";
+    static constexpr auto alias = "jsonb_extract_isnull";
 };
 
 struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
-    static constexpr auto name = "jsonb_extract_bool";
+    static constexpr auto name = "json_extract_bool";
+    static constexpr auto alias = "jsonb_extract_bool";
 };
 
 struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
-    static constexpr auto name = "jsonb_extract_int";
+    static constexpr auto name = "json_extract_int";
+    static constexpr auto alias = "jsonb_extract_int";
 };
 
 struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
-    static constexpr auto name = "jsonb_extract_bigint";
+    static constexpr auto name = "json_extract_bigint";
+    static constexpr auto alias = "jsonb_extract_bigint";
 };
 
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
-    static constexpr auto name = "jsonb_extract_double";
+    static constexpr auto name = "json_extract_double";
+    static constexpr auto alias = "jsonb_extract_double";
 };
 
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
-    static constexpr auto name = "jsonb_extract_string";
+    static constexpr auto name = "json_extract_string";
+    static constexpr auto alias = "jsonb_extract_string";
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
     static constexpr auto name = "jsonb_extract";
+    static constexpr auto alias = "jsonb_extract";
 };
 
 struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
-    static constexpr auto name = "jsonb_type";
+    static constexpr auto name = "json_type";
+    static constexpr auto alias = "jsonb_type";
 };
 
 using FunctionJsonbExists = FunctionJsonbExtract<JsonbExists>;
@@ -777,35 +814,59 @@ using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
 
 void register_function_jsonb(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionJsonbParse>("jsonb_parse");
-    factory.register_function<FunctionJsonbParseErrorNull>("jsonb_parse_error_to_null");
-    factory.register_function<FunctionJsonbParseErrorValue>("jsonb_parse_error_to_value");
-    factory.register_function<FunctionJsonbParseErrorInvalid>("jsonb_parse_error_to_invalid");
+    factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
+    factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
+    factory.register_function<FunctionJsonbParseErrorNull>("json_parse_error_to_null");
+    factory.register_alias("json_parse_error_to_null", "jsonb_parse_error_to_null");
+    factory.register_function<FunctionJsonbParseErrorValue>("json_parse_error_to_value");
+    factory.register_alias("json_parse_error_to_value", "jsonb_parse_error_to_value");
+    factory.register_function<FunctionJsonbParseErrorInvalid>("json_parse_error_to_invalid");
+    factory.register_alias("json_parse_error_to_invalid", "jsonb_parse_error_to_invalid");
 
-    factory.register_function<FunctionJsonbParseNullable>("jsonb_parse_nullable");
+    factory.register_function<FunctionJsonbParseNullable>("json_parse_nullable");
+    factory.register_alias("json_parse_nullable", "jsonb_parse_nullable");
     factory.register_function<FunctionJsonbParseNullableErrorNull>(
-            "jsonb_parse_nullable_error_to_null");
+            "json_parse_nullable_error_to_null");
+    factory.register_alias("json_parse_nullable_error_to_null",
+                           "jsonb_parse_nullable_error_to_null");
     factory.register_function<FunctionJsonbParseNullableErrorValue>(
-            "jsonb_parse_nullable_error_to_value");
+            "json_parse_nullable_error_to_value");
+    factory.register_alias("json_parse_nullable_error_to_value",
+                           "jsonb_parse_nullable_error_to_value");
     factory.register_function<FunctionJsonbParseNullableErrorInvalid>(
-            "jsonb_parse_nullable_error_to_invalid");
+            "json_parse_nullable_error_to_invalid");
+    factory.register_alias("json_parse_nullable_error_to_invalid",
+                           "json_parse_nullable_error_to_invalid");
 
-    factory.register_function<FunctionJsonbParseNotnull>("jsonb_parse_notnull");
+    factory.register_function<FunctionJsonbParseNotnull>("json_parse_notnull");
+    factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorValue>(
-            "jsonb_parse_notnull_error_to_value");
+            "json_parse_notnull_error_to_value");
+    factory.register_alias("json_parse_notnull", "jsonb_parse_notnull");
     factory.register_function<FunctionJsonbParseNotnullErrorInvalid>(
-            "jsonb_parse_notnull_error_to_invalid");
+            "json_parse_notnull_error_to_invalid");
+    factory.register_alias("json_parse_notnull_error_to_invalid",
+                           "jsonb_parse_notnull_error_to_invalid");
 
     factory.register_function<FunctionJsonbExists>();
+    factory.register_alias(FunctionJsonbExists::name, FunctionJsonbExists::alias);
     factory.register_function<FunctionJsonbType>();
+    factory.register_alias(FunctionJsonbType::name, FunctionJsonbType::alias);
 
     factory.register_function<FunctionJsonbExtractIsnull>();
+    factory.register_alias(FunctionJsonbExtractIsnull::name, FunctionJsonbExtractIsnull::alias);
     factory.register_function<FunctionJsonbExtractBool>();
+    factory.register_alias(FunctionJsonbExtractBool::name, FunctionJsonbExtractBool::alias);
     factory.register_function<FunctionJsonbExtractInt>();
+    factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
     factory.register_function<FunctionJsonbExtractBigInt>();
+    factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
+    factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
     factory.register_function<FunctionJsonbExtractString>();
+    factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractJsonb>();
+    // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 }
 
 } // namespace doris::vectorized

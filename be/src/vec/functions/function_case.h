@@ -17,15 +17,41 @@
 
 #pragma once
 
-#include <cstdint>
+#include <string.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "gutil/integral_types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_struct.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+
+namespace vectorized {
+class ColumnArray;
+class ColumnMap;
+class ColumnString;
+class ColumnStruct;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -213,7 +239,7 @@ public:
                     }
                 } else {
                     auto* __restrict cond_raw_data =
-                            reinterpret_cast<const ColumnUInt8*>(when_column_ptr.get())
+                            assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
 
@@ -278,7 +304,7 @@ public:
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
@@ -288,7 +314,7 @@ public:
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    reinterpret_cast<ColumnType*>(
+                    assert_cast<ColumnType*>(
                             column_holder.then_ptrs[i].value()->assume_mutable().get())
                             ->get_data()
                             .data();
@@ -349,6 +375,10 @@ public:
             }
         }
 
+        for (int i = 0; i < arguments.size(); i++) {
+            block.replace_by_position_if_const(arguments[i]);
+        }
+
         if (when_null) {
             return execute_get_then_null<ColumnType, true>(data_type, block, arguments, result,
                                                            input_rows_count);
@@ -361,10 +391,10 @@ public:
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, size_t result,
                             size_t input_rows_count) {
-        WhichDataType which(data_type->is_nullable()
-                                    ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
-                                              ->get_nested_type()
-                                    : data_type);
+        WhichDataType which(
+                data_type->is_nullable()
+                        ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
+                        : data_type);
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
     if (which.idx == TypeIndex::TYPE)                                                  \
         return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \

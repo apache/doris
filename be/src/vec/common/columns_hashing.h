@@ -258,6 +258,38 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
             return EmplaceResult(inserted);
     }
 
+    template <typename Data>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
+                                            Arena& pool) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+
+            if constexpr (has_mapped) {
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
+            } else {
+                return EmplaceResult(!has_null_key);
+            }
+        }
+
+        auto key_holder = Base::get_key_holder(row, pool);
+
+        bool inserted = false;
+        typename Data::LookupResult it;
+        data.emplace(key_holder, it, hash_value, inserted);
+
+        if constexpr (has_mapped) {
+            auto& mapped = *lookup_result_get_mapped(it);
+            if (inserted) {
+                new (&mapped) Mapped();
+            }
+            return EmplaceResult(mapped, mapped, inserted);
+        } else {
+            return EmplaceResult(inserted);
+        }
+    }
+
     template <typename Data, typename Func, typename CreatorForNull>
     ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
             Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {

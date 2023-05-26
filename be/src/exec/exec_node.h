@@ -35,31 +35,21 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_statistics.h"
-#include "service/backend_options.h"
-#include "util/blocking_queue.hpp"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
-class Counters;
 class RuntimeState;
-class TPlan;
 class MemTracker;
 class QueryStatistics;
 
 namespace vectorized {
-class Block;
-class VExpr;
 class VExprContext;
 } // namespace vectorized
 
 namespace pipeline {
-class PipelineFragmentContext;
-class Pipeline;
 class OperatorBase;
 } // namespace pipeline
 
@@ -81,7 +71,7 @@ public:
     /// Initializes this object from the thrift tnode desc. The subclass should
     /// do any initialization that can fail in Init() rather than the ctor.
     /// If overridden in subclass, must first call superclass's Init().
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state);
+    [[nodiscard]] virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     // Sets up internal structures, etc., without doing any actual work.
     // Must be called prior to open(). Will only be called once in this
@@ -90,17 +80,17 @@ public:
     // in prepare().  Retrieving the jit compiled function pointer must happen in
     // open().
     // If overridden in subclass, must first call superclass's prepare().
-    virtual Status prepare(RuntimeState* state);
+    [[nodiscard]] virtual Status prepare(RuntimeState* state);
 
     // Performs any preparatory work prior to calling get_next().
     // Can be called repeatedly (after calls to close()).
     // Caller must not be holding any io buffers. This will cause deadlock.
-    virtual Status open(RuntimeState* state);
+    [[nodiscard]] virtual Status open(RuntimeState* state);
 
     // Alloc and open resource for the node
     // Only pipeline operator use exec node need to impl the virtual function
     // so only vectorized exec node need to impl
-    virtual Status alloc_resource(RuntimeState* state);
+    [[nodiscard]] virtual Status alloc_resource(RuntimeState* state);
 
     // Retrieves rows and returns them via row_batch. Sets eos to true
     // if subsequent calls will not retrieve any more rows.
@@ -115,9 +105,9 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
+    [[nodiscard]] virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    Status get_next_after_projects(
+    [[nodiscard]] Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
             const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
             bool clear_data = true);
@@ -135,11 +125,13 @@ public:
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan
-    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* output_block,
+                                      bool* eos) {
         return get_next(state, output_block, eos);
     }
 
-    virtual Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
+                                      bool eos) {
         return Status::OK();
     }
 
@@ -148,7 +140,8 @@ public:
     // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
     // `eos` means source is exhausted, exec node should do some finalize work
     // Eg: Aggregation, Sort
-    virtual Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos);
+    [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* input_block,
+                                      bool eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
     // Clears all internal state, returning this node to the state it was in after calling
@@ -163,12 +156,12 @@ public:
     // implementation calls Reset() on children.
     // Note that this function may be called many times (proportional to the input data),
     // so should be fast.
-    virtual Status reset(RuntimeState* state);
+    [[nodiscard]] virtual Status reset(RuntimeState* state);
 
     // This should be called before close() and after get_next(), it is responsible for
     // collecting statistics sent with row batch, it can't be called when prepare() returns
     // error.
-    virtual Status collect_query_statistics(QueryStatistics* statistics);
+    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
 
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
@@ -193,8 +186,9 @@ public:
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.
     // Returns error if 'plan' is corrupted, otherwise success.
-    static Status create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
-                              const DescriptorTbl& descs, ExecNode** root);
+    [[nodiscard]] static Status create_tree(RuntimeState* state, ObjectPool* pool,
+                                            const TPlan& plan, const DescriptorTbl& descs,
+                                            ExecNode** root);
 
     // Collect all nodes of given 'node_type' that are part of this subtree, and return in
     // 'nodes'.
@@ -241,7 +235,7 @@ public:
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    OpentelemetrySpan get_next_span() { return _get_next_span; }
+    OpentelemetrySpan get_next_span() { return _span; }
 
     virtual std::string get_name();
 
@@ -268,7 +262,7 @@ protected:
     ObjectPool* _pool;
     std::vector<TupleId> _tuple_ids;
 
-    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
+    doris::vectorized::VExprContext* _vconjunct_ctx_ptr = nullptr;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
@@ -295,13 +289,8 @@ protected:
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
 
-    /// Since get_next is a frequent operation, it is not necessary to generate a span for each call
-    /// to the get_next method. Therefore, the call of the get_next method in the ExecNode is
-    /// merged into this _get_next_span. The _get_next_span is initialized by
-    /// INIT_AND_SCOPE_GET_NEXT_SPAN when the get_next method is called for the first time
-    /// (recording the start timestamp), and is ended by RETURN_IF_ERROR_AND_CHECK_SPAN after the
-    /// last call to the get_next method (the record is terminated timestamp).
-    OpentelemetrySpan _get_next_span;
+    //
+    OpentelemetrySpan _span;
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be

@@ -21,19 +21,23 @@
 #pragma once
 
 #include <common/compiler_util.h>
+#include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
 
 #include <algorithm>
-#include <boost/iterator_adaptors.hpp>
-#include <boost/noncopyable.hpp>
+#include <boost/core/noncopyable.hpp>
+#include <boost/iterator/iterator_adaptor.hpp>
 #include <cassert>
 #include <cstddef>
-#include <memory>
+#include <initializer_list>
+#include <utility>
 
-#include "vec/common/allocator.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "vec/common/allocator.h" // IWYU pragma: keep
 #include "vec/common/bit_helpers.h"
 #include "vec/common/memcpy_small.h"
-#include "vec/common/strong_typedef.h"
 
 #ifndef NDEBUG
 #include <sys/mman.h>

@@ -15,17 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
+#include <memory>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "udf/udf.h"
+#include "util/binary_cast.hpp"
+#include "util/time_lut.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -52,12 +83,12 @@ struct StrToDate {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map);
+        check_set_nullable(argument_columns[0], null_map, col_const[0]);
         //TODO: when we set default implementation for nullable, the check_set_nullable for arguments is useless. consider to remove it.
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map);
+        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto specific_char_column = assert_cast<const ColumnString*>(argument_columns[1].get());
@@ -190,11 +221,11 @@ struct MakeDateImpl {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map);
+        check_set_nullable(argument_columns[0], null_map, col_const[0]);
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map);
+        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
@@ -431,8 +462,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FromDays>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
@@ -744,8 +773,6 @@ public:
     String get_name() const override { return name; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
@@ -1149,7 +1176,6 @@ public:
         return Impl::get_return_type_impl(arguments);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     //TODO: add function below when we fixed be-ut.
     //ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 

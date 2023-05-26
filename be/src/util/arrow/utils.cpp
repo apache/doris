@@ -18,9 +18,7 @@
 #include "util/arrow/utils.h"
 
 #include <arrow/pretty_print.h>
-#include <arrow/record_batch.h>
-#include <arrow/type.h>
-#include <arrow/type_fwd.h>
+#include <arrow/status.h>
 
 #include "gutil/strings/substitute.h"
 

@@ -17,9 +17,16 @@
 
 #include "olap/null_predicate.h"
 
-#include "olap/field.h"
+#include <string.h>
+
+#include <roaring/roaring.hh>
+
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/string_ref.h"
+#include "vec/runtime/vdatetime_value.h"
 
 using namespace doris::vectorized;
 
@@ -52,7 +59,7 @@ Status NullPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iter
     //  and be treated as false in WHERE
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
     RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-    roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
     if (null_bitmap) {
         if (_is_null) {
             *bitmap &= *null_bitmap;

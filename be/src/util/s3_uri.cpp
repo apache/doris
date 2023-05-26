@@ -17,9 +17,9 @@
 
 #include "util/s3_uri.h"
 
+#include <algorithm>
 #include <vector>
 
-#include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 

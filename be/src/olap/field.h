@@ -306,7 +306,7 @@ public:
 
 class CharField : public Field {
 public:
-    explicit CharField() : Field() {}
+    explicit CharField() = default;
     explicit CharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length; }
@@ -367,7 +367,7 @@ public:
 
 class VarcharField : public Field {
 public:
-    explicit VarcharField() : Field() {}
+    explicit VarcharField() = default;
     explicit VarcharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
@@ -428,7 +428,7 @@ public:
 };
 class StringField : public Field {
 public:
-    explicit StringField() : Field() {}
+    explicit StringField() = default;
     explicit StringField(const TabletColumn& column) : Field(column) {}
 
     // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
@@ -480,7 +480,7 @@ public:
 
 class BitmapAggField : public Field {
 public:
-    explicit BitmapAggField() : Field() {}
+    explicit BitmapAggField() = default;
     explicit BitmapAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -498,7 +498,7 @@ public:
 
 class QuantileStateAggField : public Field {
 public:
-    explicit QuantileStateAggField() : Field() {}
+    explicit QuantileStateAggField() = default;
     explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -514,9 +514,27 @@ public:
     }
 };
 
+class AggStateField : public Field {
+public:
+    explicit AggStateField() = default;
+    explicit AggStateField(const TabletColumn& column) : Field(column) {}
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
+        slice->data = nullptr;
+        return variable_ptr;
+    }
+
+    AggStateField* clone() const override {
+        auto* local = new AggStateField();
+        Field::clone(local);
+        return local;
+    }
+};
+
 class HllAggField : public Field {
 public:
-    explicit HllAggField() : Field() {}
+    explicit HllAggField() = default;
     explicit HllAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -541,6 +559,7 @@ public:
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
             case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+            case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
                 return new VarcharField(column);
             case FieldType::OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
@@ -588,12 +607,12 @@ public:
 
         // for value column
         switch (column.aggregation()) {
-        case OLAP_FIELD_AGGREGATION_NONE:
-        case OLAP_FIELD_AGGREGATION_SUM:
-        case OLAP_FIELD_AGGREGATION_MIN:
-        case OLAP_FIELD_AGGREGATION_MAX:
-        case OLAP_FIELD_AGGREGATION_REPLACE:
-        case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
             switch (column.type()) {
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
@@ -642,22 +661,23 @@ public:
             default:
                 return new Field(column);
             }
-        case OLAP_FIELD_AGGREGATION_HLL_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
             return new HllAggField(column);
-        case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION:
             return new BitmapAggField(column);
-        case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
             return new QuantileStateAggField(column);
-        case OLAP_FIELD_AGGREGATION_UNKNOWN:
-            LOG(WARNING) << "WOW! value column agg type is unknown";
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC:
+            return new AggStateField(column);
+        case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_UNKNOWN:
+            CHECK(false) << ", value column no agg type";
             return nullptr;
         }
-        LOG(WARNING) << "WOW! value column no agg type";
         return nullptr;
     }
 
     static Field* create_by_type(const FieldType& type) {
-        TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
         return create(column);
     }
 };

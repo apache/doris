@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "vec/core/block.h"
 
 namespace doris {
 class RuntimeState;
@@ -33,6 +32,8 @@ class Block;
 } // namespace vectorized
 
 class SchemaTablesScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTablesScanner);
+
 public:
     SchemaTablesScanner();
     ~SchemaTablesScanner() override;

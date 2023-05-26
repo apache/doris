@@ -17,21 +17,36 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/util/Misc.h>
+#include <butil/macros.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <iostream>
-#include <map>
+#include <atomic>
 #include <memory>
-#include <mutex>
 #include <roaring/roaring.hh>
-#include <vector>
+#include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/slice.h"
 #include "util/time.h"
 
+namespace lucene {
+namespace search {
+class IndexSearcher;
+} // namespace search
+} // namespace lucene
+
 namespace doris {
+struct OlapReaderStatistics;
 
 namespace segment_v2 {
 using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
@@ -80,6 +95,10 @@ public:
 
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
+
+    int64_t prune();
+
+    int64_t mem_consumption();
 
 private:
     InvertedIndexSearcherCache();
@@ -165,7 +184,6 @@ private:
 };
 
 enum class InvertedIndexQueryType;
-
 class InvertedIndexQueryCacheHandle;
 
 class InvertedIndexQueryCache {
@@ -190,7 +208,13 @@ public:
         }
     };
 
-    using CacheValue = roaring::Roaring;
+    struct CacheValue {
+        // Save the last visit time of this cache entry.
+        // Use atomic because it may be modified by multi threads.
+        std::atomic<int64_t> last_visit_time = 0;
+        std::shared_ptr<roaring::Roaring> bitmap;
+        size_t size = 0;
+    };
 
     // Create global instance of this class
     static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
@@ -213,8 +237,12 @@ public:
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
-    void insert(const CacheKey& key, roaring::Roaring* bitmap,
+    void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                 InvertedIndexQueryCacheHandle* handle);
+
+    int64_t prune();
+
+    int64_t mem_consumption();
 
 private:
     static InvertedIndexQueryCache* _s_instance;
@@ -249,11 +277,11 @@ public:
     Cache* cache() const { return _cache; }
     Slice data() const { return _cache->value_slice(_handle); }
 
-    InvertedIndexQueryCache::CacheValue* get_bitmap() const {
+    std::shared_ptr<roaring::Roaring> get_bitmap() const {
         if (!_cache) {
             return nullptr;
         }
-        return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle));
+        return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle))->bitmap;
     }
 
 private:

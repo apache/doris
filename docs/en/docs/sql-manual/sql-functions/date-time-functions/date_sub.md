@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`DATETIME DATE_SUB(DATETIME date,INTERVAL expr type)`
+`DATETIME DATE_SUB(DATETIME date, INTERVAL expr type)`
 
 
 Subtract the specified time interval from the date

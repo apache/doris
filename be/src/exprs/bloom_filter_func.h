@@ -19,6 +19,7 @@
 
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -52,7 +53,22 @@ public:
         return _bloom_filter->find(data);
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    template <typename T>
+    bool test_new_hash(T data) const {
+        if constexpr (std::is_same_v<T, Slice>) {
+            return _bloom_filter->find_crc32_hash(data);
+        } else {
+            return _bloom_filter->find(data);
+        }
+    }
+
     void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void add_bytes_new_hash(const char* data, size_t len) {
+        _bloom_filter->insert_crc32_hash(Slice(data, len));
+    }
 
     // test_element/find_element only used on vectorized engine
     template <typename T>
@@ -91,7 +107,31 @@ public:
 
     void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
 
-    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+    void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
+
+    Status init_with_fixed_length() {
+        if (_build_bf_exactly) {
+            return Status::OK();
+        } else {
+            return init_with_fixed_length(_bloom_filter_length);
+        }
+    }
+
+    Status init_with_cardinality(const size_t build_bf_cardinality) {
+        if (_build_bf_exactly) {
+            // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
+            constexpr double fpp = 0.05;
+            constexpr double k = 8; // BUCKET_WORDS
+            // m is the number of bits we would need to get the fpp specified
+            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
+
+            // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
+            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
+            return init_with_fixed_length(((int64_t)1) << log_filter_size);
+        } else {
+            return Status::OK();
+        }
+    }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
@@ -123,6 +163,7 @@ public:
                              << other_func->_bloom_filter_alloced;
                 return Status::InvalidArgument("bloom filter size invalid");
             }
+            set_filter_id(other_func->_filter_id);
             return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
         {
@@ -134,6 +175,7 @@ public:
                 _bloom_filter = bloomfilter_func->_bloom_filter;
                 _bloom_filter_alloced = other_func->_bloom_filter_alloced;
                 _inited = true;
+                set_filter_id(other_func->_filter_id);
                 return Status::OK();
             } else {
                 DCHECK(bloomfilter_func != nullptr);
@@ -144,6 +186,7 @@ public:
                                  << other_func->_bloom_filter_alloced;
                     return Status::InvalidArgument("bloom filter size invalid");
                 }
+                set_filter_id(other_func->_filter_id);
                 return _bloom_filter->merge(other_func->_bloom_filter.get());
             }
         }
@@ -164,16 +207,29 @@ public:
         return Status::OK();
     }
 
+    size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
+
     void light_copy(BloomFilterFuncBase* bloomfilter_func) {
         auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
+        set_filter_id(other_func->_filter_id);
     }
+
+    void set_filter_id(int filter_id) { _filter_id = filter_id; }
+
+    int get_filter_id() const { return _filter_id; }
 
     virtual void insert(const void* data) = 0;
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual void insert_crc32_hash(const void* data) = 0;
+
     virtual bool find(const void* data) const = 0;
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    virtual bool find_crc32_hash(const void* data) const = 0;
 
     virtual bool find_olap_engine(const void* data) const = 0;
 
@@ -197,6 +253,8 @@ protected:
     bool _inited;
     std::mutex _lock;
     int64_t _bloom_filter_length;
+    bool _build_bf_exactly = false;
+    int _filter_id = -1;
 };
 
 template <class T>
@@ -317,6 +375,15 @@ struct StringFindOp {
             bloom_filter.add_bytes(value->data, value->size);
         }
     }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_crc32_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value) {
+            bloom_filter.add_bytes_new_hash(value->data, value->size);
+        }
+    }
+
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value == nullptr) {
@@ -324,6 +391,16 @@ struct StringFindOp {
         }
         return bloom_filter.test(Slice(value->data, value->size));
     }
+
+    //This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_crc32_hash(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        if (value == nullptr) {
+            return false;
+        }
+        return bloom_filter.test_new_hash(Slice(value->data, value->size));
+    }
+
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return StringFindOp::find(bloom_filter, data);
     }
@@ -437,6 +514,18 @@ public:
         dummy.insert(*_bloom_filter, data);
     }
 
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    void insert_crc32_hash(const void* data) override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp> ||
+                      std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp,
+                                     FixedStringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            dummy.insert_crc32_hash(*_bloom_filter, data);
+        } else {
+            insert(data);
+        }
+    }
+
     void insert_fixed_len(const char* data, const int* offsets, int number) override {
         DCHECK(_bloom_filter != nullptr);
         dummy.insert_batch(*_bloom_filter, data, offsets, number);
@@ -461,6 +550,17 @@ public:
     bool find(const void* data) const override {
         DCHECK(_bloom_filter != nullptr);
         return dummy.find(*_bloom_filter, data);
+    }
+
+    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
+    bool find_crc32_hash(const void* data) const override {
+        if constexpr (std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp, StringFindOp> ||
+                      std::is_same_v<typename BloomFilterTypeTraits<type>::FindOp,
+                                     FixedStringFindOp>) {
+            DCHECK(_bloom_filter != nullptr);
+            return dummy.find_crc32_hash(*_bloom_filter, data);
+        }
+        return find(data);
     }
 
     bool find_olap_engine(const void* data) const override {

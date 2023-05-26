@@ -17,32 +17,64 @@
 
 #pragma once
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/error/en.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <simdjson/common_defs.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/line_reader.h"
+#include "exprs/json_functions.h"
 #include "io/file_factory.h"
-#include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/runtime_profile.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/json/json_parser.h"
+#include "vec/json/simd_json_parser.h"
+
+namespace simdjson {
+namespace fallback {
+namespace ondemand {
+class object;
+} // namespace ondemand
+} // namespace fallback
+} // namespace simdjson
 
 namespace doris {
 
-class FileReader;
-struct JsonPath;
-class LineReader;
 class SlotDescriptor;
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+struct TypeDescriptor;
 
 namespace vectorized {
 
 struct ScannerCounter;
-template <typename ParserImpl>
-class JSONDataParser;
-class SimdJSONParser;
+class Block;
+class IColumn;
 
 class NewJsonReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(NewJsonReader);
+
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,

@@ -17,14 +17,13 @@
 
 #include "exec/table_connector.h"
 
-#include <bthread/errno.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <iconv.h>
 
-#include <cstdlib>
 #include <memory>
 #include <string_view>
 #include <type_traits>

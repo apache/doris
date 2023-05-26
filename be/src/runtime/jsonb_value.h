@@ -18,14 +18,19 @@
 #ifndef DORIS_BE_RUNTIME_JSON_VALUE_H
 #define DORIS_BE_RUNTIME_JSON_VALUE_H
 
-#include "udf/udf.h"
-#include "util/cpu_info.h"
+#include <glog/logging.h>
+
+#include <cstddef>
+#include <ostream>
+#include <string>
+
+#include "common/status.h"
 #include "util/hash_util.hpp"
-#include "util/jsonb_error.h"
+#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#include "util/jsonb_utils.h"
-#include "util/sse_util.hpp"
-#include "vec/common/string_ref.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 
 namespace doris {
 
@@ -35,7 +40,7 @@ struct JsonBinaryValue {
     // default nullprt and size 0 for invalid or NULL value
     const char* ptr = nullptr;
     size_t len = 0;
-    JsonbParserSIMD parser;
+    JsonbParser parser;
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
     JsonBinaryValue(char* ptr, int len) { from_json_string(const_cast<const char*>(ptr), len); }

@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_writer.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
@@ -29,6 +33,14 @@
 #include "util/slice.h"
 
 namespace doris {
+class TypeInfo;
+
+namespace io {
+class FileWriter;
+} // namespace io
+namespace segment_v2 {
+class PrimaryKeyIndexMetaPB;
+} // namespace segment_v2
 
 // Build index for primary key.
 // The primary key index is designed in a similar way like RocksDB

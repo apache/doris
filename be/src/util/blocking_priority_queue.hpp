@@ -160,7 +160,7 @@ public:
 
     // Return false if queue full or has been shutdown.
     bool try_put(const T& val) {
-        std::unique_lock<std::mutex> unique_lock(_lock);
+        std::unique_lock unique_lock(_lock);
         if (_queue.size() < _max_element && !_shutdown) {
             _queue.push(val);
             unique_lock.unlock();

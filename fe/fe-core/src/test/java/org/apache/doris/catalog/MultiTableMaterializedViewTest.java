@@ -135,7 +135,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 stmt.getColumns(),
                 0,
                 Util.generateSchemaHash(),
-                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties()),
+                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties(), true),
                 TStorageType.COLUMN,
                 stmt.getKeysDesc().getKeysType());
         return mv;
@@ -511,5 +511,27 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "INNER JOIN supplier s ON (s.s_suppkey = l.lo_suppkey) "
                 + "INNER JOIN part p ON (p.p_partkey = l.lo_partkey)").execute();
         Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
+
+    @Test
+    void testCreateNeverRefreshMaterializedView() throws Exception {
+        createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate never refresh key (mpk) distributed by hash (mpk) "
+                + "properties ('replication_num' = '1') "
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        ShowExecutor showExecutor = new ShowExecutor(connectContext,
+                (ShowStmt) parseAndAnalyzeStmt("show create table mv"));
+        ShowResultSet resultSet = showExecutor.execute();
+        String result = resultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(result.contains("CREATE MATERIALIZED VIEW `mv`\n"
+                + "BUILD IMMEDIATE NEVER REFRESH \n"
+                + "KEY(`mpk`)\n"
+                + "DISTRIBUTED BY HASH(`mpk`) BUCKETS 10"));
     }
 }

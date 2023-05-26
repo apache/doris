@@ -97,6 +97,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                     replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+            boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+            if (isInMemory == true) {
+                throw new AnalysisException("Not support set 'in_memory'='true' now!");
+            }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {

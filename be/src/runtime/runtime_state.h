@@ -20,14 +20,25 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <stdint.h>
+
+#include <atomic>
 #include <fstream>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "cctz/time_zone.h"
-#include "common/global_types.h"
-#include "common/object_pool.h"
-#include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
-#include "gen_cpp/Types_types.h"               // for TUniqueId
-#include "runtime/query_fragments_ctx.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/factory_creator.h"
+#include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -35,19 +46,16 @@ namespace doris {
 
 class DescriptorTbl;
 class ObjectPool;
-class Status;
 class ExecEnv;
-class DateTimeValue;
-class MemTracker;
-class DataStreamRecvr;
-class ResultBufferMgr;
-class BufferedBlockMgr;
-class RowDescriptor;
 class RuntimeFilterMgr;
+class MemTrackerLimiter;
+class QueryContext;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
+    ENABLE_FACTORY_CREATOR(RuntimeState);
+
 public:
     // for ut only
     RuntimeState(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -78,6 +86,10 @@ public:
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
+    int64_t scan_queue_mem_limit() const {
+        return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
+                                                           : _query_options.mem_limit / 20;
+    }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -108,6 +120,7 @@ public:
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
+    RuntimeProfile* load_channel_profile() { return &_load_channel_profile; }
 
     bool enable_function_pushdown() const {
         return _query_options.__isset.enable_function_pushdown &&
@@ -144,7 +157,12 @@ public:
 
     bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
+    void set_is_cancelled(bool v) {
+        _is_cancelled.store(v);
+        // Create a error status, so that we could print error stack, and
+        // we could know which path call cancel.
+        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>();
+    }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
@@ -212,6 +230,8 @@ public:
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
+    int64_t num_finished_range() { return _num_finished_scan_range.load(); }
+
     int64_t num_rows_load_total() { return _num_rows_load_total.load(); }
 
     int64_t num_rows_load_filtered() { return _num_rows_load_filtered.load(); }
@@ -228,6 +248,10 @@ public:
 
     void update_num_bytes_load_total(int64_t bytes_load) {
         _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void update_num_finished_scan_range(int64_t finished_range) {
+        _num_finished_scan_range.fetch_add(finished_range);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -335,9 +359,9 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
-    void set_query_fragments_ctx(QueryFragmentsCtx* ctx) { _query_ctx = ctx; }
+    void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
-    QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() { return _query_ctx; }
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -372,6 +396,14 @@ public:
         return 0;
     }
 
+    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+
+    int64_t external_agg_bytes_threshold() const {
+        return _query_options.__isset.external_agg_bytes_threshold
+                       ? _query_options.external_agg_bytes_threshold
+                       : 0;
+    }
+
 private:
     Status create_error_log_file();
 
@@ -382,6 +414,7 @@ private:
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
+    RuntimeProfile _load_channel_profile;
 
     const DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -448,6 +481,7 @@ private:
     std::atomic<int64_t> _num_print_error_rows;
 
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
+    std::atomic<int64_t> _num_finished_scan_range;
 
     std::vector<std::string> _export_output_files;
     std::string _import_label;
@@ -463,7 +497,7 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    QueryFragmentsCtx* _query_ctx;
+    QueryContext* _query_ctx;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;

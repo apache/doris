@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 
@@ -27,7 +28,6 @@
 
 namespace arrow {
 
-class MemoryPool;
 class RecordBatch;
 class Schema;
 
@@ -35,7 +35,6 @@ class Schema;
 
 namespace doris {
 
-class ObjectPool;
 class RowDescriptor;
 
 // Convert Doris RowDescriptor to Arrow Schema.

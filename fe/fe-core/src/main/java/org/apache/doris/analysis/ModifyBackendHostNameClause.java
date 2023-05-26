@@ -28,7 +28,7 @@ public class ModifyBackendHostNameClause extends ModifyNodeHostNameClause {
         sb.append("ALTER SYSTEM MODIFY BACKEND \"");
         sb.append(hostPort).append("\"");
         sb.append(" HOSTNAME ").append("\"");
-        sb.append(newHostName).append("\"");
+        sb.append(newHost).append("\"");
         return sb.toString();
     }
 }

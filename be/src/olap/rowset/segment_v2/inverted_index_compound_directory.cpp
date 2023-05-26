@@ -18,10 +18,11 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 
 #include "CLucene/SharedHeader.h"
-#include "CLucene/StdHeader.h"
+#include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
-#include "olap/iterators.h"
-#include "util/md5.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
 #ifdef _CL_HAVE_IO_H
 #include <io.h>
@@ -35,12 +36,29 @@
 #ifdef _CL_HAVE_DIRECT_H
 #include <direct.h>
 #endif
+#include <CLucene/LuceneThreads.h>
+#include <CLucene/clucene-config.h>
+#include <CLucene/debug/error.h>
+#include <CLucene/debug/mem.h>
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/IndexWriter.h>
 #include <CLucene/store/LockFactory.h>
+#include <CLucene/store/RAMDirectory.h>
 #include <CLucene/util/Misc.h>
 #include <assert.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <utility>
 
 #define CL_MAX_PATH 4096
 #define CL_MAX_DIR CL_MAX_PATH
@@ -262,6 +280,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
             error.set(CL_ERR_IO, "Could not open file");
         }
     }
+    delete h->_shared_lock;
     _CLDECDELETE(h)
     return false;
 }

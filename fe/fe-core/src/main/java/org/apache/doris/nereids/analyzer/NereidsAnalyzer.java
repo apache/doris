@@ -22,9 +22,12 @@ import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.jobs.batch.BatchRewriteJob;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
+import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.CheckTypeToInsertTargetColumn;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
@@ -53,9 +56,15 @@ public class NereidsAnalyzer extends BatchRewriteJob {
                 new UserAuthentication(),
                 new BindExpression()
             ),
+            topDown(
+                new BindInsertTargetTable()
+            ),
+            bottomUp(
+                new CheckBound()
+            ),
             bottomUp(
                 new ProjectToGlobalAggregate(),
-                // this rule check's the logicalProject node's isDisinct property
+                // this rule check's the logicalProject node's isDistinct property
                 // and replace the logicalProject node with a LogicalAggregate node
                 // so any rule before this, if create a new logicalProject node
                 // should make sure isDistinct property is correctly passed around.
@@ -74,6 +83,7 @@ public class NereidsAnalyzer extends BatchRewriteJob {
             ),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
+            bottomUp(new CheckTypeToInsertTargetColumn()),
             bottomUp(new CheckAnalysis())
     );
 

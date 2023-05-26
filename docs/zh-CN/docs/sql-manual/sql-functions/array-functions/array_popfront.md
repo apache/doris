@@ -33,9 +33,7 @@ array_popfront
 
 #### Syntax
 
-```
-ARRAY<T> array_popfront(ARRAY<T> arr)
-```
+`ARRAY<T> array_popfront(ARRAY<T> arr)`
 
 返回移除第一个元素后的数组，如果输入参数为NULL，则返回NULL
 

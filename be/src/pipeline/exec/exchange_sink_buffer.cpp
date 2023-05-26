@@ -17,14 +17,28 @@
 
 #include "exchange_sink_buffer.h"
 
-#include <google/protobuf/stubs/common.h>
+#include <brpc/controller.h>
+#include <butil/errno.h>
+#include <butil/iobuf_inl.h>
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/callback.h>
+#include <stddef.h>
 
 #include <atomic>
+#include <exception>
+#include <functional>
 #include <memory>
+#include <ostream>
+#include <utility>
 
 #include "common/status.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "service/brpc.h"
+#include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "service/backend_options.h"
 #include "util/proto_util.h"
 #include "vec/sink/vdata_stream_sender.h"
 
@@ -47,6 +61,9 @@ public:
     void Run() noexcept override {
         std::unique_ptr<SelfDeleteClosure> self_guard(this);
         try {
+            if (_data) {
+                _data->unref();
+            }
             if (cntl.Failed()) {
                 std::string err = fmt::format(
                         "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
@@ -56,9 +73,6 @@ public:
                 _fail_fn(_id, err);
             } else {
                 _suc_fn(_id, _eos, result);
-            }
-            if (_data) {
-                _data->unref();
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -138,6 +152,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_lo(fragment_instance_id.lo);
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
+    _instance_to_receiver_eof[low_id] = false;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -167,6 +182,9 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     request.block_holder->ref();
     {
@@ -216,7 +234,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                         const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -259,7 +279,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                         const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -309,6 +331,16 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, err);
     _ended(id);
-};
+}
+
+void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _instance_to_receiver_eof[id] = true;
+}
+
+bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    return _instance_to_receiver_eof[id];
+}
 
 } // namespace doris::pipeline
