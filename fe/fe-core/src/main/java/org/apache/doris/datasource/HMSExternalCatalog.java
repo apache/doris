@@ -82,11 +82,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         // check file.meta.cache.ttl-second parameter
         // CatalogProperty oriProperty = this.catalogProperty;
 
-
-        for (Map.Entry<String, String> entry : this.catalogProperty.getProperties().entrySet()) {
-            System.out.println(entry.getKey() + ": " + entry.getValue());
-        }
-
         String fileMetaCacheTtlSecond = this.catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
@@ -100,32 +95,32 @@ public class HMSExternalCatalog extends ExternalCatalog {
         // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
         // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
         // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
-        String dfsNameservices = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
+        String dfsNameservices = this.catalogProperty.getOrDefault("dfs.nameservices", "");
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        System.out.println("开始检查" + HdfsResource.DSF_NAMENODES);
-        String namenodes = this.catalogProperty.getOrDefault(HdfsResource.DSF_NAMENODES + dfsNameservices, "");
+
+        String namenodes = this.catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
         if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing" + HdfsResource.DSF_NAMENODES + dfsNameservices + " property");
+            throw new DdlException("Missing" + "dfs.ha.namenodes." + dfsNameservices + " property");
         }
 
         String[] names = namenodes.split(",");
         for (String name : names) {
             String address = this.catalogProperty.getOrDefault(
-                    HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name,
+                    "dfs.namenode.rpc-address." + dfsNameservices + "." + name,
                     "");
             if (Strings.isNullOrEmpty(address)) {
                 throw new DdlException(
-                        "Missing" + HdfsResource.DSF_NAMESRPCADDRESS + dfsNameservices + "." + name + " property");
+                        "Missing" + "dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
             }
         }
         String failoverProvider = this.catalogProperty.getOrDefault(
-                HdfsResource.DSF_PROXY + dfsNameservices,
+                "dfs.client.failover.proxy.provider." + dfsNameservices,
                 "");
         if (Strings.isNullOrEmpty(failoverProvider)) {
             throw new DdlException(
-                    "Missing " + HdfsResource.DSF_PROXY + dfsNameservices + " property");
+                    "Missing " + "dfs.client.failover.proxy.provider." + dfsNameservices + " property");
         }
     }
 
