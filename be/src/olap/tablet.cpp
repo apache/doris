@@ -2699,6 +2699,14 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_id = rowset->rowset_id();
     auto rowset_schema = rowset->tablet_schema();
+    LOG(INFO) << "DEBUG: rowset schema columns : " << rowset_schema->num_columns();
+    for (auto c : rowset_schema->columns()) {
+        LOG(INFO) << "DEBUG: " << c.name();
+    }
+    LOG(INFO) << "DEBUG: tablet schema columns: " << tablet_schema()->num_columns();
+    for (auto c : tablet_schema()->columns()) {
+        LOG(INFO) << "DEBUG: " << c.name();
+    }
     bool is_partial_update = rowset_schema->is_partial_update();
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
