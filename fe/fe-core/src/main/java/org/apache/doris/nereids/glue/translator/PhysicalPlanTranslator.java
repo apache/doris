@@ -295,7 +295,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Expr> exprs = physicalPlan.getOutput().stream()
                     .map(slot -> context.findSlotRef(slot.getExprId()))
                     .collect(Collectors.toList());
-            rootFragment.setOutputExprs(exprs.subList(0, context.getInsertTargetTable().getFullSchema().size()));
+            rootFragment = setPlanFragmentForInsert(rootFragment, exprs);
         }
 
         if (rootFragment.getOutputExprs() == null) {
@@ -1605,16 +1605,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (context.isInsert()) {
             // other fields are already handled in visitPhysicalOlapTableSink
-            OlapTable olapTable = context.getInsertTargetTable();
-            HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
-            List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
-                    .map(column -> olapTable.getFullSchema().indexOf(column))
-                    .collect(Collectors.toList());
-
-            List<Expr> partitionExprs = colIdx.stream().map(execExprList::get).collect(Collectors.toList());
-            inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
-            inputFragment.setOutputExprs(execExprList.subList(0, olapTable.getFullSchema().size()));
-            return inputFragment;
+            return setPlanFragmentForInsert(inputFragment, execExprList);
         }
 
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
@@ -2556,6 +2547,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (statsErrorEstimator != null) {
             statsErrorEstimator.updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
         }
+    }
+
+    private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
+        OlapTable olapTable = context.getInsertTargetTable();
+        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
+        List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
+                .map(column -> olapTable.getFullSchema().indexOf(column))
+                .collect(Collectors.toList());
+
+        List<Expr> partitionExprs = colIdx.stream().map(execExprList::get).collect(Collectors.toList());
+
+        inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
+        inputFragment.setOutputExprs(execExprList.subList(0, olapTable.getFullSchema().size()));
+        return inputFragment;
     }
 
     private SlotDescriptor injectRowIdColumnSlot(TupleDescriptor tupleDesc) {
