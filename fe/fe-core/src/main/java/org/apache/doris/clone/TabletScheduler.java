@@ -965,11 +965,22 @@ public class TabletScheduler extends MasterDaemon {
             return false;
         }
         Replica chosenReplica = tabletCtx.getTablet().getReplicaById(id);
-        if (chosenReplica != null) {
-            deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
-            return true;
+        if (chosenReplica == null) {
+            return false;
         }
-        return false;
+        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
+        int eqOrNewVersionCount = 0;
+        for (Replica replica : replicas) {
+            if (replica.getVersion() >= chosenReplica.getVersion()) {
+                eqOrNewVersionCount++;
+            }
+        }
+        if (eqOrNewVersionCount < 2) {
+            return false;
+        }
+        deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
+
+        return true;
     }
 
     private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
