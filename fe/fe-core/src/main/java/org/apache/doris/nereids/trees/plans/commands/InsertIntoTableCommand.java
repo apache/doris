@@ -73,6 +73,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", t);
+            }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
         if (ctx.isTxnModel()) {

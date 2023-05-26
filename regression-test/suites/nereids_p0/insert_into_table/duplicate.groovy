@@ -20,7 +20,7 @@ suite("nereids_insert_duplicate") {
     sql 'clean label from nereids_insert_into_table_test'
 
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into dup_t
             select * except(kaint) from src'''

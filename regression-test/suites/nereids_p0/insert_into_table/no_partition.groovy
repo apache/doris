@@ -20,7 +20,7 @@ suite('nereids_insert_no_partition') {
     sql 'clean label from nereids_insert_into_table_test'
 
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
     sql '''insert into agg_nop_t
             select * except(kaint) from src'''
