@@ -182,7 +182,7 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
 lateralView

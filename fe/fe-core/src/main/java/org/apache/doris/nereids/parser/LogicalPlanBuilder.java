@@ -1564,7 +1564,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
             for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = kv.key.getText();
+                String parameterName = visitIdentifierOrText(kv.key);
                 Optional<String> value = Optional.empty();
                 if (kv.constantValue != null) {
                     Literal literal = (Literal) visit(kv.constantValue);
