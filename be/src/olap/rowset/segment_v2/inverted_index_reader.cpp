@@ -84,10 +84,10 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     return exists;
 }
 
-std::set<std::string> InvertedIndexReader::get_analyse_result(
+std::vector<std::string> InvertedIndexReader::get_analyse_result(
         const std::string& field_name, const std::string& value, InvertedIndexQueryType query_type,
         InvertedIndexParserType analyser_type) {
-    std::set<std::string> analyse_result;
+    std::vector<std::string> analyse_result;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     std::unique_ptr<lucene::util::Reader> reader;
     if (analyser_type == InvertedIndexParserType::PARSER_STANDARD) {
@@ -118,12 +118,18 @@ std::set<std::string> InvertedIndexReader::get_analyse_result(
     while (token_stream->next(&token)) {
         if (token.termLength<TCHAR>() != 0) {
             auto str = std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>());
-            analyse_result.insert(std::string(str.begin(), str.end()));
+            analyse_result.emplace_back(std::string(str.begin(), str.end()));
         }
     }
 
     if (token_stream != nullptr) {
         token_stream->close();
+    }
+
+    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        std::set<std::string> unrepeated_result(analyse_result.begin(), analyse_result.end());
+        analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
 
     return analyse_result;

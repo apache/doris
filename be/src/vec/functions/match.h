@@ -68,11 +68,8 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) = 0;
-
-protected:
-    bool is_equal(std::set<std::string>& v1, std::set<std::string>& v2);
 };
 
 class FunctionMatchAny : public FunctionMatchBase {
@@ -86,7 +83,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override;
 };
 
@@ -101,7 +98,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override;
 
 };
@@ -117,10 +114,11 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
-                        ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-    }
+                        InvertedIndexCtx* inverted_index_ctx,
+                        ColumnUInt8::Container& result) override;
+
+private:
+    bool _is_continue(const std::vector<int>& token_positions, int32_t len, int32_t slot = 0);
 };
 
 class FunctionMatchElementEQ : public FunctionMatchBase {
@@ -134,7 +132,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -151,7 +149,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -168,7 +166,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -185,7 +183,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -202,7 +200,7 @@ public:
                         const std::string& match_query_str,
                         size_t input_rows_count,
                         const ColumnString* query_values,
-                        doris::InvertedIndexParserType parser_type,
+                        InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
