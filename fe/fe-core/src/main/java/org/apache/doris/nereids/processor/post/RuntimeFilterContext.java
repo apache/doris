@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -71,11 +72,13 @@ public class RuntimeFilterContext {
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
     // you can see disjoint set data structure to learn the processing detailed.
-    private final Map<NamedExpression, Pair<ObjectId, Slot>> aliasTransferMap = Maps.newHashMap();
+    private final Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = Maps.newHashMap();
 
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
+    // collect the first column of tables. min-max/in RF on the first column could be used to shrink scan range.
+    private final Set<Slot> firstKeyOfTable = Sets.newHashSet();
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -126,7 +129,7 @@ public class RuntimeFilterContext {
         return exprIdToOlapScanNodeSlotRef;
     }
 
-    public Map<NamedExpression, Pair<ObjectId, Slot>> getAliasTransferMap() {
+    public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
         return aliasTransferMap;
     }
 
@@ -193,6 +196,14 @@ public class RuntimeFilterContext {
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
         return joinToTargetExprId.get(join);
+    }
+
+    public boolean isFirstKeyOfTable(Slot slot) {
+        return firstKeyOfTable.contains(slot);
+    }
+
+    public void addFistKeyOfTable(Slot slot) {
+        firstKeyOfTable.add(slot);
     }
 
     public SlotReference getCorrespondingOlapSlotReference(SlotReference slot) {
