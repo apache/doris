@@ -327,7 +327,8 @@ public class MTMVJobManager {
     public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
         for (String jobName : nameToJobMap.keySet()) {
             MTMVJob job = nameToJobMap.get(jobName);
-            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)
+                    && job.getTriggerMode() == TriggerMode.MANUAL) {
                 return submitJobTask(jobName);
             }
         }
