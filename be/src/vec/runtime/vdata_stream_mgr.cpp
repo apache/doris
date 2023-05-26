@@ -102,9 +102,13 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         // As a consequence, find_recvr() may return an innocuous NULL if a thread
         // calling deregister_recvr() beat the thread calling find_recvr()
         // in acquiring _lock.
+        //
+        // e.g. for broadcast join build side, only one instance will build the hash table,
+        // all other instances don't need build side data and will close the data stream receiver.
+        //
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
         // errors from receiver-initiated teardowns.
-        return Status::OK();
+        return Status::EndOfFile("data stream receiver closed");
     }
 
     // request can only be used before calling recvr's add_batch or when request

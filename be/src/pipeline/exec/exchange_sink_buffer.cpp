@@ -152,6 +152,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_lo(fragment_instance_id.lo);
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
+    _instance_to_receiver_eof[low_id] = false;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -181,6 +182,9 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     request.block_holder->ref();
     {
@@ -230,7 +234,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                         const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -273,7 +279,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                         const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -323,6 +331,16 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, err);
     _ended(id);
-};
+}
+
+void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _instance_to_receiver_eof[id] = true;
+}
+
+bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    return _instance_to_receiver_eof[id];
+}
 
 } // namespace doris::pipeline
