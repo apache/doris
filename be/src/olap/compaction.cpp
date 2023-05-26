@@ -518,7 +518,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
                 &location_map, &output_rowset_delete_bitmap);
         std::size_t missed_rows_size = missed_rows.size();
-        if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+        if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             if (stats != nullptr && stats->merged_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
@@ -541,7 +541,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
                     &location_map, &output_rowset_delete_bitmap);
-            if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
                 if (missed_rows.size() != missed_rows_size) {
                     LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
