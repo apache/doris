@@ -17,12 +17,10 @@
 
 #include "vec/sink/vdata_stream_sender.h"
 
-#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <opentelemetry/nostd/shared_ptr.h>
@@ -36,13 +34,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/common/sip_hash.h"
