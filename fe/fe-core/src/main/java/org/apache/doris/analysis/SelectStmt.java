@@ -1178,6 +1178,8 @@ public class SelectStmt extends QueryStmt {
                 aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
             }
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            // the groupingExprs must substitute in the same way as resultExprs
+            groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 /*
