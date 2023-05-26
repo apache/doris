@@ -16,7 +16,6 @@
 // under the License.
 #pragma once
 
-#include <butil/debug/stack_trace.h>
 #include <butil/macros.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
