@@ -2552,7 +2552,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
         OlapTable olapTable = context.getInsertTargetTable();
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
+        // HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
         // List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
         //         .map(column -> olapTable.getFullSchema().indexOf(column))
         //         .collect(Collectors.toList());
