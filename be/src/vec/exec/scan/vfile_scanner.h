@@ -128,7 +128,7 @@ protected:
     std::unordered_set<std::string> _missing_cols;
 
     // For load task
-    vectorized::VExprContextSPtr _pre_conjunct_ctx_ptr;
+    vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;

@@ -291,7 +291,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
             rootFragment.setOutputExprs(outputExprs);
         }
-        rootFragment.getPlanRoot().convertToVectorized();
         for (PlanFragment fragment : context.getPlanFragments()) {
             fragment.finalize(null);
         }

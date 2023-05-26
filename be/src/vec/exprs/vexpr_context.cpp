@@ -145,9 +145,16 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
                                               column_to_keep);
 }
 
-// TODO Performance Optimization
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters, Block* block,
+                                       IColumn::Filter* result_filter, bool* can_filter_all) {
+    return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all);
+}
+
+// TODO Performance Optimization
+Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
+                                       const std::vector<IColumn::Filter*>* filters,
+                                       const bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
     DCHECK(result_filter->size() == block->rows());
     *can_filter_all = false;
@@ -169,9 +176,16 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const size_t size = filter.size();
                 auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
-                for (size_t i = 0; i < size; ++i) {
-                    result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+                if (accept_null) {
+                    for (size_t i = 0; i < size; ++i) {
+                        result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
+                    }
+                } else {
+                    for (size_t i = 0; i < size; ++i) {
+                        result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+                    }
                 }
+
                 if (memchr(result_filter_data, 0x1, size) == nullptr) {
                     *can_filter_all = true;
                     return Status::OK();
@@ -218,7 +232,8 @@ Status VExprContext::execute_conjuncts_and_filter_block(
         std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
-    RETURN_IF_ERROR(execute_conjuncts(ctxs, filters, block, &result_filter, &can_filter_all));
+    RETURN_IF_ERROR(
+            execute_conjuncts(ctxs, filters, false, block, &result_filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -237,7 +252,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
                                                         IColumn::Filter& filter) {
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;
-    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, block, &filter, &can_filter_all));
+    RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();

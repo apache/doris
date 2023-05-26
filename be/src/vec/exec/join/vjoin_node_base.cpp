@@ -54,9 +54,10 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
                                                            : TJoinOp::CROSS_JOIN)),
-          _have_other_join_conjunct(tnode.__isset.hash_join_node
-                                            ? tnode.hash_join_node.__isset.vother_join_conjunct
-                                            : false),
+          _have_other_join_conjunct(tnode.__isset.hash_join_node &&
+                                    ((tnode.hash_join_node.__isset.other_join_conjuncts &&
+                                      !tnode.hash_join_node.other_join_conjuncts.empty()) ||
+                                     tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||

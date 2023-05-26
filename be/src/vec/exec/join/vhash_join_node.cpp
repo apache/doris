@@ -371,9 +371,17 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
-    if (tnode.hash_join_node.__isset.vother_join_conjunct) {
+    if (tnode.hash_join_node.__isset.other_join_conjuncts &&
+        !tnode.hash_join_node.other_join_conjuncts.empty()) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.other_join_conjuncts,
+                                                 _other_join_conjuncts));
+
+        DCHECK(!_build_unique);
+        DCHECK(_have_other_join_conjunct);
+    } else if (tnode.hash_join_node.__isset.vother_join_conjunct) {
+        _other_join_conjuncts.resize(1);
         RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.hash_join_node.vother_join_conjunct,
-                                                _other_join_conjunct_ptr));
+                                                _other_join_conjuncts[0]));
 
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
         // build table should not be deduplicated.
@@ -473,9 +481,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
-    // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
-    if (_other_join_conjunct_ptr) {
-        RETURN_IF_ERROR(_other_join_conjunct_ptr->prepare(state, *_intermediate_row_desc));
+    // _other_join_conjuncts are evaluated in the context of the rows produced by this node
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
@@ -751,8 +759,8 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     }
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
-    if (_other_join_conjunct_ptr) {
-        RETURN_IF_ERROR(_other_join_conjunct_ptr->open(state));
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     return Status::OK();
 }
@@ -761,8 +769,8 @@ void HashJoinNode::release_resource(RuntimeState* state) {
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
-    if (_other_join_conjunct_ptr) {
-        _other_join_conjunct_ptr->close(state);
+    for (auto& conjunct : _other_join_conjuncts) {
+        conjunct->close(state);
     }
     _release_mem();
     VJoinNodeBase::release_resource(state);

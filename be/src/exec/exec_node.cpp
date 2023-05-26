@@ -108,6 +108,12 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
         _conjuncts.emplace_back(context);
+    } else if (tnode.__isset.conjuncts) {
+        for (auto& conjunct : tnode.conjuncts) {
+            vectorized::VExprContextSPtr context;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
+            _conjuncts.emplace_back(context);
+        }
     }
 
     // create the projections expr
