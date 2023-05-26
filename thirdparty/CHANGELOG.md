@@ -5,7 +5,7 @@ This file contains version of the third-party dependency libraries in the build-
 ## v20230525
 
 - Removed:  clucene changed to submodule
-- Modified: hadoop libhdfs 3.3.4.1
+- Modified: hadoop libhdfs 3.3.4.2
 
 ## v20230517
 - Modified: opentelemetry-proto 0.18 -> 0.19 
