@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-
 /**
  * CatalogProperty to store the properties for catalog.
  * the properties in "properties" will overwrite properties in "resource"

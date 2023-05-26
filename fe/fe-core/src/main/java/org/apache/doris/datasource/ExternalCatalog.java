@@ -176,11 +176,9 @@ public abstract class ExternalCatalog
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
 
-
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        // Map<String, String> properties = newProps==null?getCatalogProperty().getProperties():newProps;
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
