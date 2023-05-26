@@ -42,7 +42,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Collect the stats for external table through sql.
      * @return ColumnStatistics
      */
-    protected void getStatsBySql() {
+    protected void getStatsBySql() throws Exception {
         throw new NotImplementedException("getColumnStatsBySql is not implemented");
     }
 
