@@ -454,17 +454,17 @@ endif()
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
+set(clucene_options -w -Wall -Wno-non-virtual-dtor)
 if (COMPILER_CLANG)
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-narrowing)
 endif()
+
+target_compile_options(clucene-core-static PRIVATE ${clucene_options})
+target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
+target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
+target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
@@ -505,7 +505,8 @@ add_compile_options(-g
                     -Werror
                     -pthread
                     -fstrict-aliasing
-                    -fno-omit-frame-pointer)
+                    -fno-omit-frame-pointer
+                    -Wnon-virtual-dtor)
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare
