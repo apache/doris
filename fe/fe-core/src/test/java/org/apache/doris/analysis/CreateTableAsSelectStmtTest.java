@@ -94,7 +94,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
@@ -114,7 +114,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
-                            + "\"disable_auto_compaction\" = \"false\"\n"
+                            + "\"disable_auto_compaction\" = \"false\",\n"
                             + "\"enable_single_replica_compaction\" = \"false\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
@@ -130,7 +130,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
-                            + "\"disable_auto_compaction\" = \"false\"\n"
+                            + "\"disable_auto_compaction\" = \"false\",\n"
                             + "\"enable_single_replica_compaction\" = \"false\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
@@ -164,7 +164,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -187,7 +187,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
@@ -212,7 +212,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
@@ -234,7 +234,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
-                + "\"disable_auto_compaction\" = \"false\"\n"
+                + "\"disable_auto_compaction\" = \"false\",\n"
                 + "\"enable_single_replica_compaction\" = \"false\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") "
@@ -252,7 +252,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
@@ -277,7 +277,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -299,7 +299,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
@@ -325,7 +325,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -348,7 +348,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");", showResultSet.getResultRows().get(0).get(1));
     }
@@ -370,7 +370,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -388,7 +388,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
-                + "\"disable_auto_compaction\" = \"false\"\n"
+                + "\"disable_auto_compaction\" = \"false\",\n"
                 + "\"enable_single_replica_compaction\" = \"false\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
     }
@@ -413,7 +413,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -437,7 +437,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -460,7 +460,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -484,7 +484,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
@@ -532,7 +532,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
-                                + "\"disable_auto_compaction\" = \"false\"\n"
+                                + "\"disable_auto_compaction\" = \"false\",\n"
                                 + "\"enable_single_replica_compaction\" = \"false\"\n"
                                 + ");",
                         createTableStmts.get(0));
@@ -548,7 +548,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
-                                + "\"disable_auto_compaction\" = \"false\"\n"
+                                + "\"disable_auto_compaction\" = \"false\",\n"
                                 + "\"enable_single_replica_compaction\" = \"false\"\n"
                                 + ");",
                         createTableStmts.get(0));
