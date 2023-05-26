@@ -37,8 +37,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,8 +53,6 @@ import java.util.stream.Collectors;
  * For TVF solution validation.
  */
 public class S3LoadStmt extends NativeInsertStmt {
-
-    private static final Logger LOG = LogManager.getLogger(S3LoadStmt.class);
 
     private final DataDescription dataDescription;
 
@@ -163,9 +159,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
         dataDescription.analyze(fullDbName);
         List<ImportColumnDesc> columnExprList = dataDescription.getParsedColumnExprList();
-        LOG.info("initial cols:{}", columnExprList);
         rewriteColumns(columnExprList);
-        LOG.info("rewrite results:{}", columnExprList);
         filterColumns(columnExprList);
         if (isFileFieldSpecified) {
             resetTargetColumnNames(columnExprList);
@@ -226,7 +220,6 @@ public class S3LoadStmt extends NativeInsertStmt {
                         columnDesc.isColumn() || Objects.nonNull(targetTable.getColumn(columnDesc.getColumnName()))
                 )
         );
-        LOG.info("remove result:{}", columnExprList);
         // if isFileFieldSpecified = false, `columnDesc with expr` must not exist
         isFileFieldSpecified = columnExprList.stream().anyMatch(ImportColumnDesc::isColumn);
         if (!isFileFieldSpecified) {
@@ -336,13 +329,11 @@ public class S3LoadStmt extends NativeInsertStmt {
                 .map(Column::getName)
                 .collect(Collectors.toSet());
 
-        LOG.info("filtered columns {}", columnExprList);
         targetColumnNames = columnExprList
                 .stream()
                 .map(ImportColumnDesc::getColumnName)
                 .filter(schemaColNameSet::contains)
                 .collect(Collectors.toList());
-        LOG.info("target cols:{}", targetColumnNames);
     }
 
     private void resetSelectList(List<ImportColumnDesc> columnExprList) {
