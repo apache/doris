@@ -231,6 +231,7 @@ set(VEC_TEST_FILES
     vec/data_types/complex_type_test.cpp
     vec/data_types/serde/data_type_serde_pb_test.cpp
     vec/data_types/serde/data_type_serde_arrow_test.cpp
+    vec/data_types/serde/data_type_serde_mysql_test.cpp
     vec/core/block_test.cpp
     vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp

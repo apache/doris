@@ -24,6 +24,7 @@
 #include "util/bitmap_value.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 
@@ -79,6 +80,21 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     BitmapValue bitmap_value(blob->getBlob());
     col.insert_value(bitmap_value);
+}
+
+template <bool is_binary_format>
+Status DataTypeBitMapSerDe::_write_column_to_mysql(
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, bool col_const) const {
+    int buf_ret = 0;
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        buf_ret = result[row_idx].push_null();
+        ++row_idx;
+    }
+    return Status::OK();
 }
 
 } // namespace vectorized

@@ -528,7 +528,7 @@ int MysqlRowBuffer<is_binary_format>::push_string(const char* str, int64_t lengt
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_null() {
     if (_dynamic_mode) {
-        // dynamic mode not write
+        // for nested type
         return 0;
     }
 

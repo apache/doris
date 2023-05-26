@@ -19,6 +19,8 @@
 
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
@@ -51,6 +53,63 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
                                               int start, int end,
                                               const cctz::time_zone& ctz) const {
     LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+}
+template <bool is_binary_format>
+Status DataTypeMapSerDe::_write_column_to_mysql(
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, bool col_const) const {
+    int buf_ret = 0;
+    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
+    bool is_val_string = remove_nullable(nested_values_column.get_ptr())->is_column_string();
+
+    auto& offsets = map_column.get_offsets();
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        result[row_idx].open_dynamic_mode();
+        buf_ret = result[row_idx].push_string("{", 1);
+        for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
+            if (j != offsets[col_index - 1]) {
+                buf_ret = result[row_idx].push_string(", ", 2);
+            }
+            if (nested_keys_column.is_null_at(j)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
+            } else {
+                if (is_key_string) {
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result,
+                                                                     row_idx, j, j + 1, col_const));
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                } else {
+                    RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result,
+                                                                     row_idx, j, j + 1, col_const));
+                }
+            }
+            buf_ret = result[row_idx].push_string(":", 1);
+            if (nested_values_column.is_null_at(j)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
+            } else {
+                if (is_val_string) {
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                    RETURN_IF_ERROR(value_serde->write_column_to_mysql(
+                            nested_values_column, result, row_idx, j, j + 1, col_const));
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                } else {
+                    RETURN_IF_ERROR(value_serde->write_column_to_mysql(
+                            nested_values_column, result, row_idx, j, j + 1, col_const));
+                }
+            }
+        }
+        buf_ret = result[row_idx].push_string("}", 1);
+        result[row_idx].close_dynamic_mode();
+        ++row_idx;
+    }
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris

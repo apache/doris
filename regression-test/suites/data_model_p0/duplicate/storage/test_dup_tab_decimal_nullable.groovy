@@ -18,6 +18,7 @@
 suite("test_dup_tab_decimal_nullable") {
 
     def table1 = "test_dup_tab_decimal_nullable"
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
 
     sql "drop table if exists ${table1}"
 
@@ -46,10 +47,10 @@ PROPERTIES (
         (null,2,null,4)
 """
 
-    // query decimal
+// query decimal
     test {
         sql "select siteid from ${table1} order by siteid"
-        result([[null],[1.10000],[1.10000],[2.10000],[3.10000],[4.10000]])
+        result([[null],[1.100000000],[1.100000000],[2.100000000],[3.100000000],[4.100000000]])
     }
     // FIXME(wb) this may failed because of regression framework
 //    test {
@@ -60,54 +61,54 @@ PROPERTIES (
     // pred is decimal
     test {
         sql "select siteid from ${table1} where siteid=4.1"
-        result([[4.10000]])
+        result([[4.100000000]])
     }
     test {
         sql "select siteid from ${table1} where siteid=1.1"
-        result([[1.10000],[1.10000]])
+        result([[1.100000000],[1.100000000]])
     }
 
     // pred not key
     test {
         sql "select citycode from ${table1} where citycode=2.2"
-        result([[2.20000],[2.20000]])
+        result([[2.200000000],[2.200000000]])
     }
     test {
         sql "select citycode from ${table1} where citycode=4.2"
-        result([[4.20000]])
+        result([[4.200000000]])
     }
 
     // pred column not same with read column
     test {
         sql "select citycode from ${table1} where siteid=4.1"
-        result([[4.20000]])
+        result([[4.200000000]])
     }
 
     test {
         sql "select citycode from ${table1} where siteid=1.1 order by citycode"
-        result([[1.20000],[2.20000]])
+        result([[1.200000000],[2.200000000]])
     }
 
     // pred column not same with read column;pred is not key
     test {
         sql "select siteid from ${table1} where citycode=2.2 order by siteid"
-        result([[1.10000],[2.10000]])
+        result([[1.100000000],[2.100000000]])
     }
 
     test {
         sql "select siteid from ${table1} where citycode=4.2 order by siteid"
-        result([[4.10000]])
+        result([[4.100000000]])
     }
 
     // int pred
     test {
         sql "select userid from ${table1} where userid in(2.3)"
-        result([[2.30000],[2.30000]])
+        result([[2.300000000],[2.300000000]])
     }
 
     test {
         sql "select userid from ${table1} where userid not in(2.3) order by userid"
-        result([[1.30000],[3.30000],[4.30000]])
+        result([[1.300000000],[3.300000000],[4.300000000]])
     }
 
     // is null
@@ -118,7 +119,7 @@ PROPERTIES (
     // is not null
     test {
         sql "select userid from  ${table1} where userid is not null order by userid"
-        result([[1.30000],[2.30000],[2.30000],[3.30000],[4.30000]])
+        result([[1.300000000],[2.300000000],[2.300000000],[3.300000000],[4.300000000]])
     }
 
     sql "drop table if exists ${table1}"
