@@ -37,6 +37,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -53,6 +54,8 @@ import java.util.stream.Collectors;
  * For TVF solution validation.
  */
 public class S3LoadStmt extends NativeInsertStmt {
+
+    private static final Logger LOG = LogManager.getLogger(S3LoadStmt.class);
 
     private final DataDescription dataDescription;
 
@@ -101,8 +104,10 @@ public class S3LoadStmt extends NativeInsertStmt {
 
 
         // merge preceding filter and where expr
-        final Expr whereExpr = dataDescription.getWhereExpr();
-        final Expr precdingFilterExpr = dataDescription.getPrecdingFilterExpr();
+        final BoolLiteral trueLiteral = new BoolLiteral(true);
+        final Expr whereExpr = Optional.ofNullable(dataDescription.getWhereExpr()).orElse(trueLiteral);
+        final Expr precdingFilterExpr =
+                Optional.ofNullable(dataDescription.getPrecdingFilterExpr()).orElse(trueLiteral);
         final Expr compoundPredicate = new CompoundPredicate(Operator.AND, precdingFilterExpr, whereExpr);
 
         final SelectStmt selectStmt = new SelectStmt(
@@ -159,7 +164,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
         dataDescription.analyze(fullDbName);
         List<ImportColumnDesc> columnExprList = dataDescription.getParsedColumnExprList();
-        rewriteColumns(columnExprList);
+        rewriteExpr(columnExprList);
         filterColumns(columnExprList);
         if (isFileFieldSpecified) {
             resetTargetColumnNames(columnExprList);
@@ -171,8 +176,10 @@ public class S3LoadStmt extends NativeInsertStmt {
      * find and rewrite the derivative columns
      * e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
      */
-    private void rewriteColumns(List<ImportColumnDesc> columnDescList) {
+    private void rewriteExpr(List<ImportColumnDesc> columnDescList) {
         Preconditions.checkNotNull(columnDescList, "columns should be not null");
+        Preconditions.checkNotNull(targetTable, "target table is unset");
+        LOG.info("original columnExpr:{}", columnDescList);
         Map<String, Expr> derivativeColumns = new HashMap<>();
         columnDescList
                 .stream()
@@ -184,15 +191,18 @@ public class S3LoadStmt extends NativeInsertStmt {
                         if (derivativeColumns.containsKey(columnName)) {
                             desc.setExpr(derivativeColumns.get(columnName));
                         }
-                        derivativeColumns.computeIfPresent(columnName, (n, e) -> {
-                            desc.setExpr(e);
-                            return e;
-                        });
                     } else {
                         recursiveRewrite(expr, derivativeColumns);
                     }
                     derivativeColumns.put(desc.getColumnName(), expr);
                 });
+        // `tmp` columns with expr can be removed after expr rewritten
+        columnDescList.removeIf(
+                Predicates.not(columnDesc ->
+                        columnDesc.isColumn() || Objects.nonNull(targetTable.getColumn(columnDesc.getColumnName()))
+                )
+        );
+        LOG.info("rewrite result:{}", columnDescList);
     }
 
     private void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
@@ -214,14 +224,14 @@ public class S3LoadStmt extends NativeInsertStmt {
     }
 
     private void filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
-        Preconditions.checkNotNull(targetTable, "target table should be not null");
-        columnExprList.removeIf(
-                Predicates.not(columnDesc ->
-                        columnDesc.isColumn() || Objects.nonNull(targetTable.getColumn(columnDesc.getColumnName()))
-                )
-        );
+        Preconditions.checkNotNull(targetTable, "target table is unset");
         // if isFileFieldSpecified = false, `columnDesc with expr` must not exist
         isFileFieldSpecified = columnExprList.stream().anyMatch(ImportColumnDesc::isColumn);
+        // remove all `tmp` columns, which are not in target table
+        columnExprList.removeIf(
+                Predicates.and(ImportColumnDesc::isColumn,
+                        columnDesc -> Objects.isNull(targetTable.getColumn(columnDesc.getColumnName())))
+        );
         if (!isFileFieldSpecified) {
             // If user does not specify the file field names, generate it by using base schema of table.
             // So that the following process can be unified
@@ -233,6 +243,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                         (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
         checkUnspecifiedCols(columnExprMap);
         addSchemaChangeShadowCols(columnExprList, columnExprMap);
+        LOG.info("filtered result:{}", columnExprList);
     }
 
     private void fillWithSchemaCols(List<ImportColumnDesc> columnDescList) {
@@ -287,25 +298,25 @@ public class S3LoadStmt extends NativeInsertStmt {
                     String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
                     if (columnExprMap.containsKey(originCol)) {
                         Expr mappingExpr = columnExprMap.get(originCol);
-                        ImportColumnDesc importColumnDesc;
-                        if (mappingExpr != null) {
-                            /*
-                             * eg:
-                             * (A, C) SET (B = func(xx))
-                             * ->
-                             * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
-                             */
-                            importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
-                        } else {
-                            /*
-                             * eg:
-                             * (A, B, C)
-                             * ->
-                             * (A, B, C) SET (__doris_shadow_B = B)
-                             */
-                            importColumnDesc = new ImportColumnDesc(column.getName(),
-                                    new SlotRef(null, originCol));
-                        }
+                        ImportColumnDesc importColumnDesc = Optional.ofNullable(mappingExpr)
+                                .map(
+                                        /*
+                                         * eg:
+                                         * (A, C) SET (B = func(xx))
+                                         * ->
+                                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
+                                         */
+                                        expr -> new ImportColumnDesc(column.getName(), expr)
+                                )
+                                .orElse(
+                                        /*
+                                         * eg:
+                                         * (A, B, C)
+                                         * ->
+                                         * (A, B, C) SET (__doris_shadow_B = B)
+                                         */
+                                        new ImportColumnDesc(column.getName(), new SlotRef(null, originCol))
+                                );
                         shadowColumnDescs.add(importColumnDesc);
                     } else {
                         /*
@@ -324,27 +335,23 @@ public class S3LoadStmt extends NativeInsertStmt {
     }
 
     private void resetTargetColumnNames(List<ImportColumnDesc> columnExprList) {
-        final Set<String> schemaColNameSet = targetTable.getFullSchema()
-                .stream()
-                .map(Column::getName)
-                .collect(Collectors.toSet());
-
         targetColumnNames = columnExprList
                 .stream()
                 .map(ImportColumnDesc::getColumnName)
-                .filter(schemaColNameSet::contains)
                 .collect(Collectors.toList());
+        LOG.info("target cols:{}", targetColumnNames);
     }
 
     private void resetSelectList(List<ImportColumnDesc> columnExprList) {
+        LOG.info("select list:{}", columnExprList);
         final SelectList selectList = new SelectList();
         columnExprList.forEach(desc -> {
             if (desc.isColumn()) {
                 selectList.addItem(new SelectListItem(new SlotRef(null, desc.getColumnName()), null));
             } else {
-                // use expr as select item and colName as alias
                 selectList.addItem(new SelectListItem(desc.getExpr(), desc.getColumnName()));
             }
+            // desc.getExpr().contains()
         });
         ((SelectStmt) getQueryStmt()).resetSelectList(selectList);
     }
