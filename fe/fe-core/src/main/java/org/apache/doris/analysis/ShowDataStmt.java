@@ -243,7 +243,8 @@ public class ShowDataStmt extends ShowStmt {
                         dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
+            OlapTable olapTable = (OlapTable) db
+                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
             long totalSize = 0;
             long totalReplicaCount = 0;
             long totalRemoteSize = 0;
