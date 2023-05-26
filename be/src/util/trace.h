@@ -16,11 +16,13 @@
 // under the License.
 #pragma once
 
+#include <butil/debug/stack_trace.h>
 #include <butil/macros.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <stdint.h>
 
+#include <chrono>
 #include <iosfwd>
 #include <string>
 #include <utility>
@@ -30,6 +32,7 @@
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/threading/thread_collision_warner.h"
+#include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
 #include "util/time.h"
 #include "util/trace_metrics.h"
@@ -112,6 +115,24 @@ class Trace;
             return prefix "_lt_1ms";               \
         }                                          \
     }()
+
+// If this scope times out, then put backtrace to the stream.
+// For example:
+//
+//    std::string tag = "[foo]";
+//    SCOPED_BACKTRACE_TO_STREAM_IF_TIMEOUT(5s, LOG(INFO) << tag);
+//
+#define SCOPED_BACKTRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                                    \
+    using namespace std::chrono_literals;                                                         \
+    auto VARNAME_LINENUM(scoped_backtrace) = doris::MonotonicMicros();                            \
+    SCOPED_CLEANUP({                                                                              \
+        auto timeout_us = std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
+        auto cost_us = doris::MonotonicMicros() - VARNAME_LINENUM(scoped_backtrace);              \
+        if (cost_us >= timeout_us) {                                                              \
+            stream << "Back trace cost(us): " << cost_us << std::endl                             \
+                   << butil::debug::StackTrace().ToString().substr(0, 1024);                      \
+        }                                                                                         \
+    })
 
 namespace doris {
 
