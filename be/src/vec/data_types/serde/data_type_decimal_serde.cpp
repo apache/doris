@@ -118,14 +118,14 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* arrow_decimal_type =
                 static_cast<const arrow::DecimalType*>(arrow_array->type().get());
         // TODO check precision
-        const auto scale = arrow_decimal_type->scale();
+        const auto arrow_scale = arrow_decimal_type->scale();
         for (size_t value_i = start; value_i < end; ++value_i) {
             auto value = *reinterpret_cast<const vectorized::Decimal128*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
-            if (9 > scale) {
+            if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128::NativeType;
-                MaxNativeType converted_value = common::exp10_i128(9 - scale);
+                MaxNativeType converted_value = common::exp10_i128(9 - arrow_scale);
                 if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                          converted_value)) {
                     VLOG_DEBUG << "Decimal convert overflow";
@@ -135,8 +135,8 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                 } else {
                     value = converted_value;
                 }
-            } else if (9 < scale) {
-                value = value / common::exp10_i128(scale - 9);
+            } else if (9 < arrow_scale) {
+                value = value / common::exp10_i128(arrow_scale - 9);
             }
             column_data.emplace_back(value);
         }

@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -77,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -216,6 +218,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(topN, context);
     }
 
+    public R visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN, C context) {
+        return visit(partitionTopN, context);
+    }
+
     public R visitLogicalLimit(LogicalLimit<? extends Plan> limit, C context) {
         return visit(limit, context);
     }
@@ -334,6 +340,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {
         return visitAbstractPhysicalSort(topN, context);
+    }
+
+    public R visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, C context) {
+        return visit(partitionTopN, context);
     }
 
     public R visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, C context) {

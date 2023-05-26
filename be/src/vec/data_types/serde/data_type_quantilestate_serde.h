@@ -29,6 +29,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 
@@ -56,6 +57,21 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
     }
+    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
+    }
+
+    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
+                                 int row_idx, int start, int end, bool col_const) const override {
+        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
+    }
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column,
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
+                                  int row_idx, int start, int end, bool col_const) const;
 };
 
 template <typename T>
@@ -101,6 +117,23 @@ void DataTypeQuantileStateSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     QuantileState<T> val;
     val.deserialize(Slice(blob->getBlob()));
     col.insert_value(val);
+}
+
+// QuantileState is binary data which is not shown by mysql
+template <typename T>
+template <bool is_binary_format>
+Status DataTypeQuantileStateSerDe<T>::_write_column_to_mysql(
+        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
+        int start, int end, bool col_const) const {
+    int buf_ret = 0;
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        buf_ret = result[row_idx].push_null();
+        ++row_idx;
+    }
+    return Status::OK();
 }
 
 } // namespace vectorized

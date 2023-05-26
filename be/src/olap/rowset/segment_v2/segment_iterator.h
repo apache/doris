@@ -421,6 +421,9 @@ private:
     vector<uint16_t> _sel_rowid_idx;
 
     std::unique_ptr<ObjectPool> _pool;
+
+    // used to collect filter information.
+    std::vector<ColumnPredicate*> _filter_info_id;
 };
 
 } // namespace segment_v2

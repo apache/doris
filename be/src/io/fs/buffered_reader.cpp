@@ -74,8 +74,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             return Status::OK();
         }
     } else if (!cached_data.empty()) {
-        // the data in range may be skipped
-        DCHECK_GE(offset, cached_data.end_offset);
+        // the data in range may be skipped or ignored
         for (int16 box_index : cached_data.ref_box) {
             _dec_box_ref(box_index);
         }

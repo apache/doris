@@ -123,10 +123,10 @@ public class PolicyTest extends TestWithFeService {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
         String queryStr = "EXPLAIN select * from test.table1 a";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assertions.assertTrue(explainString.contains("`a`.`k1` = 1"));
+        Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
         queryStr = "EXPLAIN select * from test.table1 b";
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assertions.assertTrue(explainString.contains("`b`.`k1` = 1"));
+        Assertions.assertTrue(explainString.contains("k1[#0] = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
         connectContext.getSessionVariable().setEnableNereidsPlanner(beforeConfig);
     }

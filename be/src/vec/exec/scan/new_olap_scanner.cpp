@@ -24,6 +24,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -31,6 +32,7 @@
 
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
 #include "io/cache/block/block_file_cache_profile.h"
@@ -255,7 +257,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
-    _tablet_reader_params.reader_type = READER_QUERY;
+    _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
         _tablet_reader_params.push_down_agg_type_opt =
@@ -552,6 +554,10 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
+
+    for (auto& [id, info] : stats.filter_info) {
+        olap_parent->add_filter_info(id, info);
+    }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
