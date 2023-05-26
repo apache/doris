@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -37,7 +38,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -72,16 +77,6 @@ public class UpdateCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        checkTable(ctx);
-        getQueryPlan();
-        new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
-    }
-
-    public LogicalPlan getLogicalQuery() {
-        return logicalQuery;
-    }
-
-    private void checkTable(ConnectContext ctx) throws AnalysisException {
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
@@ -97,24 +92,39 @@ public class UpdateCommand extends Command implements ForwardWithSync {
                 || targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique table could be updated.");
         }
+
+        getQueryPlan();
+        new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     /**
      * public for test
      */
     public void getQueryPlan() {
-        List<String> colNames = assignments.stream().map(pair -> pair.first.get(pair.first.size() - 1))
-                .collect(Collectors.toList());
-        List<Expression> selectLists = assignments.stream().map(pair -> pair.second).collect(Collectors.toList());
-        logicalQuery = new LogicalProject<>(selectLists.stream()
-                .map(expr -> expr instanceof UnboundSlot
+        Map<String, Expression> colNameToExpression = Maps.newHashMap();
+        for (Pair<List<String>, Expression> pair : assignments) {
+            colNameToExpression.put(pair.first.get(pair.first.size() - 1), pair.second);
+        }
+        List<NamedExpression> selectLists = Lists.newArrayList();
+        for (Column column : targetTable.getColumns()) {
+            if (colNameToExpression.containsKey(column.getName())) {
+                Expression expr = colNameToExpression.get(column.getName());
+                selectLists.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr, expr.toSql()))
-                .collect(Collectors.toList()),
-                logicalQuery);
+                        : new Alias(expr, expr.toSql()));
+            } else {
+                selectLists.add(new UnboundSlot(column.getName()));
+            }
+        }
+
+        logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        logicalQuery = new UnboundOlapTableSink<>(nameParts, colNames, null, null, logicalQuery);
+        logicalQuery = new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
     }
 
     @Override
