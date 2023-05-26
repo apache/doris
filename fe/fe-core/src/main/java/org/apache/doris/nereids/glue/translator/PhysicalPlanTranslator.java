@@ -40,7 +40,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -338,6 +337,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment.setPlanRoot(exchangeNode.getChild(0));
             rootFragment.setDestination(exchangeNode);
             context.addPlanFragment(currentFragment);
+            currentFragment.setDataPartition(rootFragment.getDataPartition());
             rootFragment = currentFragment;
         }
         rootFragment.setSink(sink);
@@ -1594,21 +1594,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
-
-        if (project.child() instanceof PhysicalOlapTableSink) {
-            // other fields are already handled in visitPhysicalOlapTableSink
-            OlapTable olapTable = ((PhysicalOlapTableSink) project.child()).getTargetTable();
-            HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
-            List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
-                    .map(column -> olapTable.getFullSchema().indexOf(column))
-                    .collect(Collectors.toList());
-
-            inputFragment.setDataPartition(DataPartition.hashPartitioned(
-                    colIdx.stream().map(execExprList::get).collect(Collectors.toList())
-            ));
-            inputFragment.setOutputExprs(execExprList);
-            return inputFragment;
-        }
 
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Slot> slotList = project.getProjects()
