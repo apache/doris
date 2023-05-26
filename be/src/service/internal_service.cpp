@@ -1483,6 +1483,12 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         desc.add_slot(&slots.back());
     }
 
+    // init read schema
+    TabletSchema full_read_schema;
+    for (const ColumnPB& column_pb : request.column_desc()) {
+        full_read_schema.append_column(TabletColumn(column_pb));
+    }
+
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
@@ -1508,10 +1514,6 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     << ", row_size:" << row_size;
             *response->add_row_locs() = row_loc;
         });
-        const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-        VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
-                   << ", version:" << tablet_schema->schema_version()
-                   << ", cost(us):" << watch.elapsed_time() / 1000;
         SegmentCacheHandle segment_cache;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
         // find segment
@@ -1541,17 +1543,24 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             result_block = vectorized::Block(desc.slots(), request.row_locs().size());
         }
         for (int x = 0; x < desc.slots().size(); ++x) {
-            int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
+            int index = -1;
+            if (desc.slots()[x]->col_unique_id() >= 0) {
+                // light sc enabled
+                index = full_read_schema.field_index(desc.slots()[x]->col_unique_id());
+            } else {
+                index = full_read_schema.field_index(desc.slots()[x]->col_name());
+            }
+            if (index < 0) {
+                std::stringstream ss;
+                ss << "field name is invalid. field=" << desc.slots()[x]->col_name()
+                   << ", field_name_to_index=" << full_read_schema.get_all_field_names();
+                return Status::InternalError(ss.str());
+            }
             segment_v2::ColumnIterator* column_iterator = nullptr;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            if (index < 0) {
-                column->insert_default();
-                continue;
-            } else {
-                RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(index),
-                                                             &column_iterator));
-            }
+            RETURN_IF_ERROR(
+                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
             std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
             segment_v2::ColumnIteratorOptions opt;
             OlapReaderStatistics stats;

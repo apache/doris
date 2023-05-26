@@ -52,6 +52,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.query.StatsDelta;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -476,6 +477,7 @@ public class OriginalPlanner extends Planner {
     private void injectRowIdColumnSlot() {
         boolean injected = false;
         OlapTable olapTable = null;
+        OlapScanNode scanNode = null;
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
@@ -489,7 +491,7 @@ public class OriginalPlanner extends Planner {
             // case1
             if ((node instanceof OlapScanNode) && (parent instanceof SortNode)) {
                 SortNode sortNode = (SortNode) parent;
-                OlapScanNode scanNode = (OlapScanNode) node;
+                scanNode = (OlapScanNode) node;
                 SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
                 injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
                 SlotRef extSlot = new SlotRef(slot);
@@ -501,7 +503,7 @@ public class OriginalPlanner extends Planner {
             }
             // case2
             if ((node instanceof OlapScanNode) && parent == null) {
-                OlapScanNode scanNode = (OlapScanNode) node;
+                scanNode = (OlapScanNode) node;
                 injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
                 injected = true;
                 olapTable = scanNode.getOlapTable();
@@ -514,6 +516,13 @@ public class OriginalPlanner extends Planner {
                 fetchOption.setFetchRowStore(olapTable.storeRowColumn());
                 fetchOption.setUseTwoPhaseFetch(true);
                 fetchOption.setNodesInfo(Env.getCurrentSystemInfo().createAliveNodesInfo());
+                // TODO for row store used seperate more faster path for wide tables
+                if (!olapTable.storeRowColumn()) {
+                    // Set column desc for each column
+                    List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                    scanNode.getColumnDesc(columnsDesc, null, null);
+                    fetchOption.setColumnDesc(columnsDesc);
+                }
                 ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }
