@@ -36,6 +36,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/io_common.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
@@ -1234,6 +1235,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
+                if (predicate->get_filter_id() != -1) {
+                    _filter_info_id.push_back(predicate);
+                }
             }
         }
 
@@ -1605,9 +1609,13 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
         auto& short_cir_column = _current_return_columns[column_id];
         selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
     }
+
+    // collect profile
+    for (auto p : _filter_info_id) {
+        _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
+    }
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
-
     // evaluate delete condition
     original_size = selected_size;
     selected_size = _opts.delete_condition_predicates->evaluate(_current_return_columns,
