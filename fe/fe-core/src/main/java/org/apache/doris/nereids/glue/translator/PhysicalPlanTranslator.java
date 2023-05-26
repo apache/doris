@@ -2561,7 +2561,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
-        inputFragment.setOutputExprs(execExprList.subList(0, olapTable.getFullSchema().size()));
+        List<Expr> castExprs = Lists.newArrayList();
+        for (int i = 0; i < olapTable.getFullSchema().size(); ++i) {
+            try {
+                castExprs.add(execExprList.get(i).castTo(olapTable.getFullSchema().get(i).getType()));
+            } catch (Exception e) {
+                throw new AnalysisException("cast failed");
+            }
+        }
+        inputFragment.setOutputExprs(castExprs);
         return inputFragment;
     }
 
