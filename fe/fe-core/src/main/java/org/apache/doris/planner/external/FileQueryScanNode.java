@@ -269,6 +269,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
 
+            // if (fileSplit instanceof HudiSplit) {
+            //     HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            // }
+
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                     curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_analyze_stats") {
+
     /**************************************** Constant definition Begin ****************************************/
     def dbName = "test_analyze_stats_db"
     def tblName = "test_analyze_stats_tbl"
@@ -162,17 +163,18 @@ suite("test_analyze_stats") {
         DROP DATABASE IF EXISTS ${dbName};
     """
 
-    sql """
-        DELETE FROM ${analysisJobsTblName} WHERE `tbl_name` = "$tblName";
-    """
-
-    sql """
-        DELETE FROM ${colStatisticsTblName} WHERE `col_id` IN ($tblColumnNames);
-    """
-
-    sql """
-        DELETE FROM ${colHistogramTblName} WHERE `col_id` IN ($tblColumnNames);
-    """
+    // TODO At present, "DELETE FROM" may fail to delete, so comment it out temporarily
+    // sql """
+    //     DELETE FROM ${analysisJobsTblName} WHERE `tbl_name` = "$tblName";
+    // """
+    //
+    // sql """
+    //     DELETE FROM ${colStatisticsTblName} WHERE `col_id` IN ($tblColumnNames);
+    // """
+    //
+    // sql """
+    //     DELETE FROM ${colHistogramTblName} WHERE `col_id` IN ($tblColumnNames);
+    // """
     /******************************************** Clean up data End ********************************************/
 }
 
