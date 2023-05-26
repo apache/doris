@@ -58,7 +58,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader_type:" << read_params.reader_type
+                     << ", reader_type:" << int(read_params.reader_type)
                      << ", version:" << read_params.version;
         return res;
     }

@@ -358,11 +358,11 @@ protected:
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                               input_rs_readers, output_rs_writer.get(), 10000000,
-                                               &stats);
+            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                               tablet_schema, input_rs_readers,
+                                               output_rs_writer.get(), 10000000, &stats);
         } else {
-            s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+            s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);
         }
         EXPECT_TRUE(s.ok());

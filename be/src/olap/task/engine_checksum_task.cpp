@@ -85,7 +85,7 @@ Status EngineChecksumTask::_compute_checksum() {
     TabletReader::ReaderParams reader_params;
     vectorized::Block block;
     RETURN_IF_ERROR(TabletReader::init_reader_params_and_create_block(
-            tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block));
+            tablet, ReaderType::READER_CHECKSUM, input_rowsets, &reader_params, &block));
 
     auto res = reader.init(reader_params);
     if (!res.ok()) {

@@ -95,7 +95,7 @@ public:
     struct ReaderParams {
         TabletSharedPtr tablet;
         TabletSchemaSPtr tablet_schema;
-        ReaderType reader_type = READER_QUERY;
+        ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
         bool need_agg_finalize = true;
@@ -265,7 +265,7 @@ protected:
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     bool _need_agg_finalize = true;
-    ReaderType _reader_type = READER_QUERY;
+    ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;

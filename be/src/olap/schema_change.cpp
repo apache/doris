@@ -622,7 +622,7 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
     }
 
     Merger::Statistics stats;
-    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, READER_ALTER_TABLE,
+    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            new_tablet->tablet_schema(), rs_readers, rowset_writer,
                                            &stats));
 
@@ -1096,7 +1096,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 break;
             }
 
-            reader_context.reader_type = READER_ALTER_TABLE;
+            reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
             reader_context.tablet_schema = base_tablet_schema;
             reader_context.need_ordered_result = true;
             reader_context.delete_handler = &delete_handler;
@@ -1393,7 +1393,7 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
 
             // reader_context is stack variables, it's lifetime should keep the same with rs_readers
             RowsetReaderContext reader_context;
-            reader_context.reader_type = READER_ALTER_TABLE;
+            reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
             reader_context.tablet_schema = tablet_schema;
             reader_context.need_ordered_result = false;
             reader_context.delete_handler = &delete_handler;

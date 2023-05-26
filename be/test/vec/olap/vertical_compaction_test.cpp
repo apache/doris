@@ -393,7 +393,7 @@ private:
 };
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
-    RowSourcesBuffer buffer(100, absolute_dir, READER_CUMULATIVE_COMPACTION);
+    RowSourcesBuffer buffer(100, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
     RowSource s1(0, 0);
     RowSource s2(0, 0);
     RowSource s3(1, 1);
@@ -425,7 +425,7 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
         buffer.advance(same);
     }
 
-    RowSourcesBuffer buffer1(101, absolute_dir, READER_CUMULATIVE_COMPACTION);
+    RowSourcesBuffer buffer1(101, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
     EXPECT_TRUE(buffer1.append(tmp_row_source).ok());
     buffer1.set_agg_flag(2, false);
@@ -502,7 +502,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
@@ -609,7 +609,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
@@ -717,7 +717,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
@@ -817,7 +817,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
@@ -911,7 +911,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
@@ -1005,7 +1005,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-    s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+    s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset = output_rs_writer->build();
