@@ -101,7 +101,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner.getPhysicalPlan());
+        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner
+                .getPhysicalPlan().child(0));
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
 
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
