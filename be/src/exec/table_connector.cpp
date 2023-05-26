@@ -231,6 +231,9 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
             }
         } else if (table_type == TOdbcTableType::POSTGRESQL) {
             fmt::format_to(_insert_stmt_buffer, "'{}'::date", str);
+        } else if (table_type == TOdbcTableType::SQLSERVER) {
+            // Values in sqlserver should be enclosed by single quotes
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }
