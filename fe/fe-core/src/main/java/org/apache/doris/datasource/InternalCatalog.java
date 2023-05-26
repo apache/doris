@@ -50,6 +50,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -2016,6 +2017,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // set binlog config
+        try {
+            Map<String, String> binlogConfigMap = PropertyAnalyzer.analyzeBinlogConfig(properties);
+            if (binlogConfigMap != null) {
+                BinlogConfig binlogConfig = new BinlogConfig();
+                binlogConfig.mergeFromProperties(properties);
+                olapTable.setBinlogConfig(binlogConfig);
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

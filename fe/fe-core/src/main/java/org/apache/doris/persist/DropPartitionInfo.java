@@ -96,6 +96,15 @@ public class DropPartitionInfo implements Writable {
         Text.writeString(out, json);
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
