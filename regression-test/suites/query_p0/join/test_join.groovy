@@ -1260,7 +1260,7 @@ suite("test_join", "query,p0") {
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
 
-    sql "drop table if exists `t0"
+    sql "drop table if exists `t0`"
     sql "drop table if exists `t1`"
 
     sql """

@@ -79,7 +79,7 @@ void serialize_and_deserialize_mysql_test() {
             {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false}};
     int row_num = 7;
     // make desc and generate block
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     _output_vexpr_ctxs.resize(cols.size());
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
@@ -256,8 +256,8 @@ void serialize_and_deserialize_mysql_test() {
         nodes[0].__set_type(create_type_desc(std::get<3>(t), type_desc.precision, type_desc.scale));
         TExpr texpr;
         texpr.__set_nodes(nodes);
-        VExprContext* ctx = nullptr;
-        Status st = VExpr::create_expr_tree(&object_pool, texpr, &ctx);
+        VExprContextSPtr ctx = nullptr;
+        Status st = VExpr::create_expr_tree(texpr, ctx);
         std::cout << st.to_string() << std::endl;
         doris::DescriptorTblBuilder builder(&object_pool);
         builder.declare_tuple() << type_desc;

@@ -351,7 +351,7 @@ private:
     std::unique_ptr<Arena> _agg_arena_pool;
     // partition by k1,k2
     int _partition_exprs_num = 0;
-    std::vector<VExprContext*> _partition_expr_ctxs;
+    VExprContextSPtrs _partition_expr_ctxs;
     std::vector<const IColumn*> _partition_columns;
     std::vector<size_t> _partition_key_sz;
     std::vector<size_t> _hash_values;
