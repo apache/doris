@@ -33,7 +33,7 @@ class DeleteHandler;
 class TabletSchema;
 
 struct RowsetReaderContext {
-    ReaderType reader_type = READER_QUERY;
+    ReaderType reader_type = ReaderType::READER_QUERY;
     Version version {-1, -1};
     TabletSchemaSPtr tablet_schema = nullptr;
     // flag for enable topn opt

@@ -1057,6 +1057,15 @@ public:
 
     friend class IRuntimeFilter;
 
+    void set_filter_id(int id) {
+        if (_context.bloom_filter_func) {
+            _context.bloom_filter_func->set_filter_id(id);
+        }
+        if (_context.bitmap_filter_func) {
+            _context.bitmap_filter_func->set_filter_id(id);
+        }
+    }
+
 private:
     RuntimeState* _state;
     QueryContext* _query_ctx;
@@ -1509,6 +1518,7 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     if (_profile != nullptr) {
         _profile->add_info_string("RealRuntimeFilterType",
                                   ::doris::to_string(_wrapper->get_real_type()));
+        _wrapper->set_filter_id(_filter_id);
     }
 }
 

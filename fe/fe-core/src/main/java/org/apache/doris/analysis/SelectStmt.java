@@ -753,7 +753,8 @@ public class SelectStmt extends QueryStmt {
         // Need enable light schema change, since opt rely on
         // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
-        if (!olapTable.getEnableLightSchemaChange()) {
+        if (!olapTable.isDupKeysOrMergeOnWrite()) {
+            LOG.debug("only support duplicate key or MOW model");
             return false;
         }
         if (getOrderByElements() != null) {
@@ -1381,6 +1382,8 @@ public class SelectStmt extends QueryStmt {
                 aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
             }
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            // the groupingExprs must substitute in the same way as resultExprs
+            groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 /*
