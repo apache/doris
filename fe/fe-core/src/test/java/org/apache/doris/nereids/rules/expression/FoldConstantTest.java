@@ -44,6 +44,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -593,6 +594,17 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("1 in (2, NULL, 3)", "NULL");
     }
 
+    @Test
+    public void testFoldTypeOfNullLiteral() {
+        String actualExpression = "append_trailing_char_if_absent(cast(version() as varchar), cast(null as varchar))";
+        ExpressionRewriteContext context = new ExpressionRewriteContext(
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new ObjectId(1), ImmutableList.of("test_table"))));
+        NereidsParser parser = new NereidsParser();
+        Expression e1 = parser.parseExpression(actualExpression);
+        e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
+        Assertions.assertTrue(e1.getDataType() instanceof VarcharType);
+    }
+
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
         ExpressionRewriteContext context = new ExpressionRewriteContext(
                 MemoTestUtils.createCascadesContext(new UnboundRelation(new ObjectId(1), ImmutableList.of("test_table"))));
@@ -600,6 +612,6 @@ public class FoldConstantTest extends ExpressionRewriteTestHelper {
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
-        Assertions.assertEquals(e1.toSql(), expectedExpression);
+        Assertions.assertEquals(expectedExpression, e1.toSql());
     }
 }
