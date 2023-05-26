@@ -154,6 +154,12 @@ public:
             auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
             chinese_analyzer->setLanguage(L"chinese");
             chinese_analyzer->initDict(config::inverted_index_dict_path);
+            auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+            if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+            } else {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+            }
             _analyzer.reset(chinese_analyzer);
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
