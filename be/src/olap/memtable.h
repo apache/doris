@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -67,6 +68,58 @@ struct RowInBlock {
     inline bool has_init_agg() const { return _has_init_agg; }
 
     inline void remove_init_agg() { _has_init_agg = false; }
+};
+
+
+using Tie = std::vector<uint8_t>;
+
+class TieIterator {
+public:
+    const Tie& tie;
+    const int begin;
+    const int end;
+
+    // For outer access
+    int range_first;
+    int range_last;
+
+    TieIterator(const Tie& tie) : TieIterator(tie, 0, tie.size()) {}
+
+    TieIterator(const Tie& tie, int begin, int end) : tie(tie), begin(begin), end(end) {
+        range_first = begin;
+        range_last = end;
+        _inner_range_first = begin;
+        _inner_range_last = end;
+    }
+
+    // Iterate the tie
+    // Return false means the loop should terminate
+    bool next();
+
+private:
+    int _inner_range_first;
+    int _inner_range_last;
+
+    template <class T>
+    static size_t _find_byte(const std::vector<T>& list, size_t start, T byte) {
+        if (start >= list.size()) {
+            return start;
+        }
+        const void* p = std::memchr((const void*)(list.data() + start), byte, list.size() - start);
+        if (p == nullptr) {
+            return list.size();
+        }
+        return (T*)p - list.data();
+    }
+
+    // Find position for zero byte, return size of list if not found
+    size_t _find_zero(const std::vector<uint8_t>& list, size_t start) {
+        return _find_byte<uint8_t>(list, start, 0);
+    }
+
+    size_t _find_nonzero(const std::vector<uint8_t>& list, size_t start) {
+        return _find_byte<uint8_t>(list, start, 1);
+    }
 };
 
 class RowInBlockComparator {
@@ -221,6 +274,8 @@ private:
 
     //return number of same keys
     int _sort();
+    void _inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                   std::function<int (const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);

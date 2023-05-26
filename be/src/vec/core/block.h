@@ -465,6 +465,18 @@ public:
         return _data_types[position];
     }
 
+    int compare_one(size_t n, size_t m, size_t i, const MutableBlock& rhs,
+                   int nan_direction_hint) const {
+        DCHECK_GE(columns(), i);
+        DCHECK_GE(rhs.columns(), i);
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+        return get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
+                                                     nan_direction_hint);
+    }
+
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {
         DCHECK_GE(columns(), num_columns);
