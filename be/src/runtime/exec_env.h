@@ -34,6 +34,7 @@ namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
+class SpillStreamManager;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -160,6 +161,7 @@ public:
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
+    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -251,6 +253,7 @@ private:
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;
+    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
     std::unique_ptr<ThreadPool> _spill_io_pool;
 };
 

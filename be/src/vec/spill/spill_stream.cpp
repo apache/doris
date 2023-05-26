@@ -17,6 +17,8 @@
 
 #include "vec/spill/spill_stream.h"
 
+#include <glog/logging.h>
+
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_writer.h"
@@ -32,41 +34,60 @@ Status SpillStream::prepare() {
     return Status::OK();
 }
 
-Status SpillStream::get_next(Block* block, bool* eos) {
-    DCHECK(!io_running_);
-    io_running_ = true;
-    Status status;
-    if (!spilled_) {
-        *block = std::move(blocks_.front());
-        blocks_.pop_front();
-    } else {
-        status = io_thread_pool_->submit_func([this, block, eos] {
-            auto st = reader_->read(block, eos);
-            io_status_.set_value(st);
-            io_running_ = false;
-        });
-    }
-    return status;
-}
-
 Status SpillStream::flush() {
     spilled_ = true;
-    DCHECK(!io_running_);
-    io_running_ = true;
+    DCHECK(!is_flushing_);
+    is_flushing_ = true;
     auto status = io_thread_pool_->submit_func([this] {
         for (auto it = blocks_.begin(); it != blocks_.end();) {
             auto st = writer_->write(*it);
             if (!st.ok()) {
                 io_status_.set_value(st);
-                break;;
+                break;
+                ;
             }
             it = blocks_.erase(it);
         }
         blocks_.clear();
         io_status_.set_value(Status::OK());
-        io_running_ = false;
+        is_flushing_ = false;
     });
     // RETURN_IF_ERROR(thread_status.get_future().get());
+    return status;
+}
+
+Status SpillStream::restore() {
+    DCHECK(is_restoring_);
+    is_restoring_ = true;
+    auto status = io_thread_pool_->submit_func([this] {
+        Block block;
+        bool eos = false;
+        while (!eos) {
+            auto st = reader_->read(&block, &eos);
+            if (!st.ok()) {
+                io_status_.set_value(st);
+                break;
+            }
+            blocks_.push_back(std::move(block));
+        }
+        is_restoring_ = false;
+    });
+    return Status::OK();
+}
+Status SpillStream::get_next(Block* block, bool* eos) {
+    Status status;
+    if (!spilled_) {
+        *block = std::move(blocks_.front());
+        blocks_.pop_front();
+    } else {
+        DCHECK(!is_reading_);
+        is_reading_ = true;
+        status = io_thread_pool_->submit_func([this, block, eos] {
+            auto st = reader_->read(block, eos);
+            io_status_.set_value(st);
+            is_reading_ = false;
+        });
+    }
     return status;
 }
 

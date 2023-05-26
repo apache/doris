@@ -255,6 +255,8 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
+    std::shared_ptr<std::vector<Block>> release_build_blocks() { return std::move(_build_blocks); }
+
 private:
     using VExprContexts = std::vector<VExprContext*>;
     // probe expr

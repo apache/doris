@@ -69,7 +69,7 @@ Status SpillStreamManager::init() {
 
 Status SpillStreamManager::register_spill_stream(SpillStreamSPtr& spill_stream,
                                                  std::string query_id, std::string operator_name,
-                                                 int32_t operator_id, int32_t task_id,
+                                                 int32_t operator_id, /* int32_t task_id,*/
                                                  int32_t batch_size, RuntimeProfile* profile) {
     int64_t id;
     std::vector<int> indices(_store_paths.size());
@@ -78,7 +78,7 @@ Status SpillStreamManager::register_spill_stream(SpillStreamSPtr& spill_stream,
 
     std::string spill_root_dir = fmt::format("{}/{}", _store_paths[indices[0]].path, SPILL_DIR);
     std::string spill_dir = fmt::format("{}/{}/{}-{}-{}", spill_root_dir, query_id, operator_name,
-                                        operator_id, task_id);
+                                        operator_id, /*task_id*/ 0);
     {
         std::lock_guard<std::mutex> l(lock_);
         id = id_++;

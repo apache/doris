@@ -38,7 +38,8 @@ public:
 
     // 创建SpillStream并登记
     Status register_spill_stream(SpillStreamSPtr& spill_stream, std::string query_id,
-                                 std::string operator_name, int32_t operator_id, int32_t task_id,
+                                 std::string operator_name,
+                                 int32_t operator_id, /* int32_t task_id, */
                                  int32_t batch_size, RuntimeProfile* profile);
 
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件

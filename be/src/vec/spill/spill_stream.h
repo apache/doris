@@ -53,10 +53,28 @@ public:
         return Status::OK();
     }
 
+    // add blocks to blocks_
+    Status add_blocks(std::vector<Block>&& blocks) {
+        for (auto& block : blocks) {
+            blocks_.push_back(std::move(block));
+        }
+        return Status::OK();
+    }
+
     Status get_next(Block* block, bool* eos);
 
     // write blocks_ to disk asynchronously
     Status flush();
+
+    Status restore();
+
+    bool is_flushing() const { return is_flushing_; }
+
+    bool is_reading() const { return is_reading_; }
+
+    bool is_restoring() const { return is_reading_; }
+
+    bool is_spilled() const { return spilled_; }
 
     int64 id() const { return stream_id_; }
 
@@ -66,7 +84,9 @@ private:
     std::string spill_dir_;
     int32_t batch_size_;
     bool spilled_ = false;
-    bool io_running_ = false;
+    bool is_flushing_ = false;
+    bool is_reading_ = false;
+    bool is_restoring_ = false;
     std::deque<Block> blocks_;
     SpillWriterUPtr writer_;
     SpillReaderUPtr reader_;

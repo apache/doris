@@ -576,6 +576,13 @@ public:
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
 
+    Status reserve(int rows) {
+        for (auto& column : _columns) {
+            RETURN_IF_CATCH_EXCEPTION(column->reserve(rows));
+        }
+        return Status::OK();
+    }
+
     std::string dump_data(size_t row_limit = 100) const;
 
     void clear() {

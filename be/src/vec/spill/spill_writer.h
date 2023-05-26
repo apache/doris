@@ -34,7 +34,12 @@ class SpillWriter {
 public:
     SpillWriter(int64_t id, size_t batch_size, const std::string& file_path,
                 RuntimeProfile* profile)
-            : stream_id_(id), batch_size_(batch_size), file_path_(file_path), profile_(profile) {
+            : stream_id_(id),
+              batch_size_(batch_size),
+              dir_(file_path),
+              file_index_(0),
+              profile_(profile) {
+        file_path_ = dir_ + "/" + std::to_string(file_index_);
         _init_profile();
     }
 
@@ -59,6 +64,8 @@ private:
     int64_t stream_id_;
     size_t batch_size_;
     size_t max_sub_block_size_ = 0;
+    std::string dir_;
+    int file_index_ = 0;
     std::string file_path_;
     std::unique_ptr<doris::io::FileWriter> file_writer_;
 

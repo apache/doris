@@ -77,6 +77,7 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -171,6 +172,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _spill_stream_mgr = new vectorized::SpillStreamManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -317,6 +319,8 @@ Status ExecEnv::_init_mem_env() {
 
     // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
+
+    RETURN_IF_ERROR(_spill_stream_mgr->init());
 
     // 5. init chunk allocator
     if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
