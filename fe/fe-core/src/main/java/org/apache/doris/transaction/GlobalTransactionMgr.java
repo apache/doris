@@ -112,7 +112,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator,
-            LoadJobSourceType sourceType, long timeoutSecond)
+                                 LoadJobSourceType sourceType, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
         return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
@@ -131,7 +131,8 @@ public class GlobalTransactionMgr implements Writable {
      * @throws DuplicatedRequestException
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
-            TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
+                                 TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId,
+                                 long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
 
@@ -149,12 +150,12 @@ public class GlobalTransactionMgr implements Writable {
         }
 
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
+        return dbTransactionMgr.beginTransaction(Arrays.asList(10094L), label, requestId,
                 coordinator, sourceType, listenerId, timeoutSecond);
     }
 
     private void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
-            int minLoadTimeOutSecond) throws AnalysisException {
+                                         int minLoadTimeOutSecond) throws AnalysisException {
         if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
             throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
                     + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
@@ -184,8 +185,8 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void preCommitTransaction2PC(Database db, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-            TxnCommitAttachment txnCommitAttachment)
+                                        List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                        TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
@@ -199,7 +200,8 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+                                        List<TabletCommitInfo> tabletCommitInfos,
+                                        TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
@@ -211,7 +213,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void commitTransaction(long dbId, List<Table> tableList,
-            long transactionId, List<TabletCommitInfo> tabletCommitInfos)
+                                  long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
@@ -226,7 +228,7 @@ public class GlobalTransactionMgr implements Writable {
      * @note callers should get all tables' write locks before call this api
      */
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+                                  List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
@@ -248,14 +250,14 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
         return commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis, null);
     }
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-            TxnCommitAttachment txnCommitAttachment)
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                               TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
@@ -315,7 +317,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void abortTransaction(Long dbId, Long txnId, String reason,
-            TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
+                                 TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 5000, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
@@ -715,7 +717,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     private long updateTxnMetric(Function<DatabaseTransactionMgr, Long> metricSupplier,
-            AutoMappedMetric<GaugeMetricImpl<Long>> metric) {
+                                 AutoMappedMetric<GaugeMetricImpl<Long>> metric) {
         long total = 0;
         for (DatabaseTransactionMgr mgr : dbIdToDatabaseTransactionMgrs.values()) {
             long num = metricSupplier.apply(mgr).longValue();

@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -171,7 +172,7 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(routineLoadJob.getDbId(),
-                    Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
+                    Lists.newArrayList(Collections.singletonList(10094L)), DebugUtil.printId(id), null,
                     new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
                     timeoutMs / 1000);

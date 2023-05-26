@@ -1330,6 +1330,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         result.setParams(planFragmentParamsList);
+        LOG.warn("receive stream load multi table put request result: {}", result);
         return result;
     }
 
