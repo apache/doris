@@ -291,6 +291,9 @@ public class OperationType {
     // query stats 440 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
 
+    // update binlog config
+    public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
     /**
      * Get opcode name by op code.
      **/

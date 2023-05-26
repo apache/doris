@@ -105,6 +105,13 @@ enum TCompressionType {
 }
 
 
+struct TBinlogConfig {
+    1: optional bool enable;
+    2: optional i64 ttl_seconds;
+    3: optional i64 max_bytes;
+    4: optional i64 max_history_nums;
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -131,6 +138,7 @@ struct TCreateTabletReq {
     // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
     20: optional i64 storage_policy_id
+    21: optional TBinlogConfig binlog_config
 }
 
 struct TDropTabletReq {
@@ -355,7 +363,8 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY
+    INMEMORY,
+    BINLOG_CONFIG
 }
 
 struct TTabletMetaInfo {
@@ -367,6 +376,7 @@ struct TTabletMetaInfo {
     // 6: optional string Deprecated_storage_policy
     7: optional i64 storage_policy_id
     8: optional Types.TReplicaId replica_id
+    9: optional TBinlogConfig binlog_config
 }
 
 struct TUpdateTabletMetaInfoReq {

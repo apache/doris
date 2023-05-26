@@ -482,7 +482,9 @@ void DeltaWriter::save_mem_consumption_snapshot() {
 }
 
 int64_t DeltaWriter::get_memtable_consumption_inflush() const {
-    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) return 0;
+    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) {
+        return 0;
+    }
     return _mem_consumption_snapshot - _memtable_consumption_snapshot;
 }
 

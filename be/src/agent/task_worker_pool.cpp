@@ -27,6 +27,8 @@
 
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <chrono> // IWYU pragma: keep
 #include <ctime>
 #include <functional>
@@ -856,6 +858,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
+                status = Status::NotFound("tablet not found");
                 LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
                              << tablet_meta_info.tablet_id;
                 continue;
@@ -877,6 +880,32 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             }
             if (tablet_meta_info.__isset.replica_id) {
                 tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
+            }
+            if (tablet_meta_info.__isset.binlog_config) {
+                // check binlog_config require fields: enable, ttl_seconds, max_bytes, max_history_nums
+                auto& t_binlog_config = tablet_meta_info.binlog_config;
+                if (!t_binlog_config.__isset.enable || !t_binlog_config.__isset.ttl_seconds ||
+                    !t_binlog_config.__isset.max_bytes ||
+                    !t_binlog_config.__isset.max_history_nums) {
+                    status = Status::InvalidArgument("invalid binlog config, some fields not set");
+                    LOG(WARNING) << fmt::format(
+                            "invalid binlog config, some fields not set, tablet_id={}, "
+                            "t_binlog_config={}",
+                            tablet_meta_info.tablet_id,
+                            apache::thrift::ThriftDebugString(t_binlog_config));
+                    continue;
+                }
+
+                BinlogConfig new_binlog_config;
+                new_binlog_config = tablet_meta_info.binlog_config;
+                LOG(INFO) << fmt::format(
+                        "update tablet meta binlog config. tablet_id={}, old_binlog_config={}, "
+                        "new_binlog_config={}",
+                        tablet_meta_info.tablet_id,
+                        tablet->tablet_meta()->binlog_config().to_string(),
+                        new_binlog_config.to_string());
+                tablet->set_binlog_config(new_binlog_config);
+                need_to_save = true;
             }
             if (need_to_save) {
                 std::shared_lock rlock(tablet->get_header_lock());

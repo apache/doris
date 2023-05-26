@@ -26,6 +26,7 @@ add_subdirectory(rowset)
 add_library(Olap STATIC
     base_compaction.cpp
     base_tablet.cpp
+    binlog_config.cpp
     bloom_filter.hpp
     block_column_predicate.cpp
     cold_data_compaction.cpp

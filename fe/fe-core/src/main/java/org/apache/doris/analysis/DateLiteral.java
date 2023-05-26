@@ -590,7 +590,7 @@ public class DateLiteral extends LiteralExpr {
         type = ScalarType.createDatetimeV2Type(newScale);
     }
 
-    private String convertToString(PrimitiveType type) {
+    public String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type == PrimitiveType.DATETIMEV2) {

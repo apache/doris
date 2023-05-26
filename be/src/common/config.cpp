@@ -1001,6 +1001,9 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
 
+// enable feature binlog, default false
+DEFINE_Bool(enable_feature_binlog, "false");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

@@ -30,11 +30,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -75,24 +77,32 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
+    @SerializedName(value = "clusterName")
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
     // table family group map
     private Map<Long, Table> idToTable;
+    @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
     // table name lower cast -> table name
     private Map<String, String> lowerCaseToTableName;
 
     // user define function
+    @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
     // user define encryptKey for current db
+    @SerializedName(value = "dbEncryptKey")
     private DatabaseEncryptKey dbEncryptKey;
 
+    @SerializedName(value = "dataQuotaBytes")
     private volatile long dataQuotaBytes;
 
+    @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
     private volatile long transactionQuotaSize;
@@ -103,9 +113,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         NORMAL, LINK, MOVE
     }
 
+    @SerializedName(value = "attachDbName")
     private String attachDbName;
+    @SerializedName(value = "dbState")
     private DbState dbState;
 
+    @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
     public Database() {
@@ -826,5 +839,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public Map<Long, Table> getIdToTable() {
         return new HashMap<>(idToTable);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

@@ -43,7 +43,7 @@ struct RowsetId;
 
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
-class BetaRowset : public Rowset {
+class BetaRowset final : public Rowset {
 public:
     virtual ~BetaRowset();
 
@@ -92,6 +92,8 @@ public:
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
+
+    [[nodiscard]] virtual Status add_to_binlog() override;
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

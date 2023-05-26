@@ -31,6 +31,7 @@ import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
@@ -147,7 +148,8 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     private boolean processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, Map<Long, IntSupplier> colUniqueIdSupplierMap)
+                                     Map<Long, LinkedList<Column>> indexSchemaMap,
+                                     Map<Long, IntSupplier> colUniqueIdSupplierMap)
             throws DdlException {
         Column column = alterClause.getColumn();
         ColumnPosition columnPos = alterClause.getColPos();
@@ -201,8 +203,8 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     public boolean processAddColumns(AddColumnsClause alterClause, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, boolean ignoreSameColumn,
-            Map<Long, IntSupplier> colUniqueIdSupplierMap) throws DdlException {
+                                     Map<Long, LinkedList<Column>> indexSchemaMap, boolean ignoreSameColumn,
+                                     Map<Long, IntSupplier> colUniqueIdSupplierMap) throws DdlException {
         List<Column> columns = alterClause.getColumns();
         String targetIndexName = alterClause.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -268,7 +270,8 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     private boolean processDropColumn(DropColumnClause alterClause, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes) throws DdlException {
+                                      Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes)
+            throws DdlException {
 
         String dropColName = alterClause.getColName();
         String targetIndexName = alterClause.getRollupName();
@@ -495,7 +498,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // User can modify column type and column position
     private boolean processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+                                        Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Column modColumn = alterClause.getColumn();
         boolean lightSchemaChange = false;
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
@@ -736,7 +739,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void processReorderColumn(ReorderColumnsClause alterClause, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+                                      Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         List<String> orderedColNames = alterClause.getColumnsByPos();
         String targetIndexName = alterClause.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -792,7 +795,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * Modified schema will be saved in 'indexSchemaMap'
      */
     private void addColumnInternal(Column newColumn, ColumnPosition columnPos, List<Column> modIndexSchema,
-            Set<String> newColNameSet) throws DdlException {
+                                   Set<String> newColNameSet) throws DdlException {
         String newColName = newColumn.getName();
         int posIndex = -1;
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
@@ -844,11 +847,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
     /**
      * @param olapTable
-     * @param newColumn Add 'newColumn' to specified index.
+     * @param newColumn              Add 'newColumn' to specified index.
      * @param columnPos
      * @param targetIndexId
      * @param baseIndexId
-     * @param indexSchemaMap Modified schema will be saved in 'indexSchemaMap'
+     * @param indexSchemaMap         Modified schema will be saved in 'indexSchemaMap'
      * @param newColNameSet
      * @param ignoreSameColumn
      * @param colUniqueIdSupplierMap
@@ -856,8 +859,10 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     private boolean addColumnInternal(OlapTable olapTable, Column newColumn, ColumnPosition columnPos,
-            long targetIndexId, long baseIndexId, Map<Long, LinkedList<Column>> indexSchemaMap,
-            Set<String> newColNameSet, boolean ignoreSameColumn, Map<Long, IntSupplier> colUniqueIdSupplierMap)
+                                      long targetIndexId, long baseIndexId,
+                                      Map<Long, LinkedList<Column>> indexSchemaMap,
+                                      Set<String> newColNameSet, boolean ignoreSameColumn,
+                                      Map<Long, IntSupplier> colUniqueIdSupplierMap)
             throws DdlException {
 
         //only new table generate ColUniqueId, exist table do not.
@@ -1068,7 +1073,8 @@ public class SchemaChangeHandler extends AlterHandler {
      * So that k1 will be added to base index 'twice', and we just ignore this repeat adding.
      */
     private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
-            Set<String> newColNameSet, boolean isBaseIndex, int newColumnUniqueId) throws DdlException {
+                                   Set<String> newColNameSet, boolean isBaseIndex, int newColumnUniqueId)
+            throws DdlException {
         int posIndex = -1;
         int lastVisibleIdx = -1;
         String newColName = newColumn.getName();
@@ -1153,7 +1159,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-            Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
         if (olapTable.getState() == OlapTableState.ROLLUP) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
@@ -1630,7 +1636,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2,
-            List<List<Comparable>> schemaChangeJobInfos) {
+                                    List<List<Comparable>> schemaChangeJobInfos) {
         ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : alterJobsV2) {
             if (alterJob.getDbId() != db.getId()) {
@@ -2002,7 +2008,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory);
+            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory, null);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2017,7 +2023,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * Update some specified partitions' properties of table
      */
     public void updatePartitionsProperties(Database db, String tableName, List<String> partitionNames,
-            Map<String, String> properties) throws DdlException, MetaNotFoundException {
+                                           Map<String, String> properties) throws DdlException, MetaNotFoundException {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
         int isInMemory = -1; // < 0 means don't update inMemory properties
@@ -2044,7 +2050,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (String partitionName : partitionNames) {
             try {
-                updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId, isInMemory);
+                updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId, isInMemory, null);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2058,7 +2064,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * This operation may return partial successfully, with an exception to inform user to retry
      */
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
-            int isInMemory) throws UserException {
+                                          int isInMemory, BinlogConfig binlogConfig) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2090,7 +2096,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
-                    storagePolicyId, countDownLatch);
+                    storagePolicyId, binlogConfig, countDownLatch);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -2295,7 +2301,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // the invoker should keep table's write lock
     public void modifyTableLightSchemaChange(Database db, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes, long jobId, boolean isReplay)
+                                             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
+                                             long jobId, boolean isReplay)
             throws DdlException {
 
         LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
@@ -2388,7 +2395,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public Map<Long, List<Column>> checkTable(Database db, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+                                              Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
         // ATTN: DO NOT change any meta in this loop
         for (Long alterIndexId : indexSchemaMap.keySet()) {
@@ -2467,7 +2474,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public void updateBaseIndexSchema(OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-            List<Index> indexes) throws IOException {
+                                      List<Index> indexes) throws IOException {
         long baseIndexId = olapTable.getBaseIndexId();
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
@@ -2496,9 +2503,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
     // the invoker should keep table's write lock
     public void modifyTableAddOrDropInvertedIndices(Database db, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, Map<String, String> propertyMap, List<Index> indexes,
-            List<Index> alterInvertedIndexes, boolean isDropInvertedIndex, List<Index> oriIndexes, long jobId,
-            boolean isReplay) throws UserException {
+                                                    Map<Long, LinkedList<Column>> indexSchemaMap,
+                                                    Map<String, String> propertyMap, List<Index> indexes,
+                                                    List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
+                                                    List<Index> oriIndexes, long jobId,
+                                                    boolean isReplay) throws UserException {
         LOG.info("begin to modify table's meta for add or drop inverted index. table: {}, job: {}", olapTable.getName(),
                 jobId);
         LOG.info("indexSchemaMap:{}, indexes:{}, alterInvertedIndexes:{}, isDropInvertedIndex: {}", indexSchemaMap,
@@ -2604,5 +2613,84 @@ public class SchemaChangeHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
+    }
+
+    public boolean updateBinlogConfig(Database db, OlapTable olapTable, List<AlterClause> alterClauses)
+            throws DdlException, UserException {
+        // TODO(Drogon): check olapTable read binlog thread safety
+        List<Partition> partitions = Lists.newArrayList();
+        BinlogConfig oldBinlogConfig;
+        BinlogConfig newBinlogConfig;
+
+        db.readLock();
+        try {
+            oldBinlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            newBinlogConfig = new BinlogConfig(oldBinlogConfig);
+            partitions.addAll(olapTable.getPartitions());
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        } finally {
+            db.readUnlock();
+        }
+
+        for (AlterClause alterClause : alterClauses) {
+            Map<String, String> properties = alterClause.getProperties();
+            if (properties == null) {
+                continue;
+            }
+
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
+                boolean binlogEnable = Boolean.parseBoolean(properties.get(
+                        PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
+                if (binlogEnable != oldBinlogConfig.isEnable()) {
+                    newBinlogConfig.setEnable(binlogEnable);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+                Long binlogTtlSeconds = Long.parseLong(properties.get(
+                        PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+                if (binlogTtlSeconds != oldBinlogConfig.getTtlSeconds()) {
+                    newBinlogConfig.setTtlSeconds(binlogTtlSeconds);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
+                Long binlogMaxBytes = Long.parseLong(properties.get(
+                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
+                if (binlogMaxBytes != oldBinlogConfig.getMaxBytes()) {
+                    newBinlogConfig.setMaxBytes(binlogMaxBytes);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+                Long binlogMaxHistoryNums = Long.parseLong(properties.get(
+                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+                if (binlogMaxHistoryNums != oldBinlogConfig.getMaxHistoryNums()) {
+                    newBinlogConfig.setMaxHistoryNums(binlogMaxHistoryNums);
+                }
+            }
+        }
+
+        boolean hasChanged = !newBinlogConfig.equals(oldBinlogConfig);
+        if (!hasChanged) {
+            LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
+                    olapTable.getName());
+            return true;
+        }
+
+        LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
+                olapTable.getName(), oldBinlogConfig, newBinlogConfig);
+
+
+        for (Partition partition : partitions) {
+            updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1, newBinlogConfig);
+        }
+
+        olapTable.writeLockOrDdlException();
+        try {
+            Env.getCurrentEnv().updateBinlogConfig(db, olapTable, newBinlogConfig);
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        return false;
     }
 }
