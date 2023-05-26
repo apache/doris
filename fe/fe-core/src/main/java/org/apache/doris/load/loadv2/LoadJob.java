@@ -77,6 +77,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -416,8 +417,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 break;
             case INSERT:
                 timeout = Optional.ofNullable(ConnectContext.get())
-                .map(ConnectContext::getExecTimeout)
-                .orElse(Config.insert_load_default_timeout_second)
+                                    .map(ConnectContext::getExecTimeout)
+                                    .orElse(Config.insert_load_default_timeout_second);
                 break;
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
