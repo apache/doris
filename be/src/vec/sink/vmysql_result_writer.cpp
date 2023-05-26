@@ -371,6 +371,9 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             if constexpr (type == TYPE_TIME || type == TYPE_TIMEV2) {
                 buf_ret = rows_buffer[i].push_time(data[col_index]);
             }
+            if constexpr (type == TYPE_DATETIMEV2_TIME) {
+                buf_ret = rows_buffer[i].push_time(data[col_index]);
+            }
             if constexpr (type == TYPE_DATETIME) {
                 auto time_num = data[col_index];
                 VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);

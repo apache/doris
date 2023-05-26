@@ -281,8 +281,45 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
         }                                                                                          \
     };
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
-DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
-
+// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
+// Expands to
+template <typename DateType1, typename DateType2>
+struct TimeDiffImpl {
+    using ArgType1 = std ::conditional_t<
+            std ::is_same_v<DateType1, DataTypeDateV2>, UInt32,
+            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>, UInt64, Int64>>;
+    using ArgType2 = std ::conditional_t<
+            std ::is_same_v<DateType2, DataTypeDateV2>, UInt32,
+            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>, UInt64, Int64>>;
+    using DateValueType1 = std ::conditional_t<
+            std ::is_same_v<DateType1, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
+            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>,
+                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
+    using DateValueType2 = std ::conditional_t<
+            std ::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
+            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>,
+                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
+    using ReturnType = std ::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2> &&
+                                                   std::is_same_v<DateType2, DataTypeDateTimeV2>,
+                                           DataTypeTimeV2, DataTypeTime>;
+    static constexpr auto name = "timediff";
+    static constexpr auto is_nullable = false;
+    static inline ReturnType ::FieldType execute(const ArgType1& t0, const ArgType2& t1,
+                                                 bool& is_null) {
+        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
+        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
+        is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
+        if constexpr (std::is_same_v<DateType1, DataTypeDateTimeV2> &&
+                      std::is_same_v<DateType2, DataTypeDateTimeV2>) {
+            return ts0.microsecond_diff(ts1);
+        } else {
+            return ts0.second_diff(ts1);
+        }
+    }
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<DateType1>(), std ::make_shared<DateType2>()};
+    }
+};
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
     DECLARE_DATE_FUNCTIONS(CLASS, NAME, DataTypeInt64, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
 

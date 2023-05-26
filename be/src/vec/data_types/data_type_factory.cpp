@@ -145,6 +145,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_TIME:
     case TYPE_TIMEV2:
+    case TYPE_DATETIMEV2_TIME:
         nested = std::make_shared<vectorized::DataTypeTime>();
         break;
     case TYPE_DOUBLE:

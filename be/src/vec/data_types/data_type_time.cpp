@@ -39,6 +39,9 @@ class IColumn;
 namespace doris::vectorized {
 
 bool DataTypeTime::equals(const IDataType& rhs) const {
+    if (rhs.get_type_as_primitive_type() == TYPE_DATETIMEV2_TIME) {
+        return true;
+    }
     return typeid(rhs) == typeid(*this);
 }
 

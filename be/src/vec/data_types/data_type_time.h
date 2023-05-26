@@ -46,7 +46,7 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeTime final : public DataTypeNumberBase<Float64> {
+class DataTypeTime  : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTime() = default;
 
@@ -71,4 +71,7 @@ public:
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
 };
 
+class DataTypeTimeV2 : public DataTypeTime{
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIMEV2_TIME; }
+};
 } // namespace doris::vectorized
