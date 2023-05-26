@@ -356,7 +356,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Database db : this.fullNameToDb.values()) {
             long dbId = db.getId();
             for (Table table : db.getTables()) {
-                if (!(table instanceof OlapTable)) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -498,7 +498,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 try {
                     if (!stmt.isForceDrop()) {
                         for (Table table : tableList) {
-                            if (table.getType() == TableType.OLAP) {
+                            if (table.isManagedTable()) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
@@ -1228,7 +1228,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (!Env.isCheckpointThread()) {
             // add to inverted index
-            if (table instanceof OlapTable) {
+            if (table.isManagedTable()) {
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 OlapTable olapTable = (OlapTable) table;
                 long dbId = db.getId();

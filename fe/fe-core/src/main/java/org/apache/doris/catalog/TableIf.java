@@ -214,5 +214,9 @@ public interface TableIf {
     default Partition getPartition(String name) {
         return null;
     }
+
+    default boolean isManagedTable() {
+        return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
+    }
 }
 
