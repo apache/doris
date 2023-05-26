@@ -638,6 +638,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 * Default value: true
 
+#### `pick_rowset_to_compact_interval_sec`
+
+* Type: int64
+* Description: select the time interval in seconds for rowset to be compacted.
+* Default value: 86400
+
 
 ### Load
 

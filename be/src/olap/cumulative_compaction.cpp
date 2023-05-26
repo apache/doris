@@ -153,7 +153,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold = 86400 * 1000;
+            int64_t interval_threshold = config::pick_rowset_to_compact_interval_sec * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
