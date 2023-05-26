@@ -633,6 +633,11 @@ public class JdbcClient {
             case "bool":
                 return Type.BOOLEAN;
             case "bit":
+                if (fieldSchema.getColumnSize() == 1) {
+                    return Type.BOOLEAN;
+                } else {
+                    return ScalarType.createStringType();
+                }
             case "point":
             case "line":
             case "lseg":
