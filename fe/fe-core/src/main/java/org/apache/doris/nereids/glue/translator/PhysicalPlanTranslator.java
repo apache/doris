@@ -291,6 +291,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
+        if (physicalPlan instanceof PhysicalOlapTableSink) {
+            List<Expr> exprs = physicalPlan.getOutput().stream()
+                    .map(slot -> context.findSlotRef(slot.getExprId()))
+                    .collect(Collectors.toList());
+            rootFragment.setOutputExprs(exprs.subList(0, context.getInsertTargetTable().getFullSchema().size()));
+        }
+
         if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
@@ -311,6 +318,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
         context.setIsInsert(true);
+        context.setInsertTargetTable(olapTableSink.getTargetTable());
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
         for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
@@ -1595,9 +1603,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
 
-        if (project.child() instanceof PhysicalOlapTableSink) {
+        if (context.isInsert()) {
             // other fields are already handled in visitPhysicalOlapTableSink
-            OlapTable olapTable = ((PhysicalOlapTableSink) project.child()).getTargetTable();
+            OlapTable olapTable = context.getInsertTargetTable();
             HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
             List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
                     .map(column -> olapTable.getFullSchema().indexOf(column))
@@ -1605,7 +1613,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
             List<Expr> partitionExprs = colIdx.stream().map(execExprList::get).collect(Collectors.toList());
             inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
-            inputFragment.setOutputExprs(execExprList);
+            inputFragment.setOutputExprs(execExprList.subList(0, olapTable.getFullSchema().size()));
             return inputFragment;
         }
 

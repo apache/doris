@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -99,6 +100,14 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     public void testInsertIntoSomeColumns() throws Exception {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+    }
+    
+    @Test
+    public void testAnalysisException() {
+        String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
+        Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
+        // String sql1 = "explain insert into t1(v1, v2) select 'xyz', v2 + 4 from src";
+        // Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql1));
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

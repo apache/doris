@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -61,23 +60,32 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     Database database = pair.first;
                     OlapTable table = pair.second;
 
+                    List<NamedExpression> newProjects = Lists.newArrayList(project.getProjects());
+                    newProjects.addAll(project.child().getOutput());
+                    LogicalProject<?> newProject = new LogicalProject<>(newProjects, project.child());
+
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
                             bindTargetColumns(table, sink.getColNames()),
                             bindPartitionIds(table, sink.getPartitions()),
-                            sink.child().child());
+                            newProject);
 
                     // we need to insert all the columns of the target table although some columns are not mentions.
                     // so we add a projects to supply the default value.
 
+                    if (boundSink.getCols().size() != project.getOutputs().size()) {
+                        throw new AnalysisException("insert into cols should be corresponding to the query output");
+                    }
+
                     Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
-                    Preconditions.checkArgument(boundSink.getCols().size() == project.getOutput().size());
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
+                        // DataType lhs = DataType.fromCatalogType(boundSink.getCols().get(i).getType());
+                        // DataType rhs = project.getOutput().get(i).getDataType();
                         columnToOutput.put(boundSink.getCols().get(i), project.getOutput().get(i));
                     }
 
-                    List<NamedExpression> newOutput = Lists.newArrayList();
+                    List<NamedExpression> newOutput = Lists.newArrayList(project.child().getOutput());
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
                         if (columnToOutput.containsKey(column)) {
                             newOutput.add(columnToOutput.get(column));
@@ -93,7 +101,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             ));
                         }
                     }
-                    return new LogicalProject<>(newOutput, project.withChildren(boundSink));
+                    return new LogicalProject<>(newOutput, boundSink);
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
