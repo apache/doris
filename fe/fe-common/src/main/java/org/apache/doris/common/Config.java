@@ -944,6 +944,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int partition_rebalance_max_moves_num_per_selection = 10;
 
+    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
+    @ConfField(masterOnly = true, mutable = true)
+    public static int balance_slot_num_per_path = 1;
+
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
     // several seconds after some modification of metadata(drop partition, etc..).
@@ -1932,6 +1936,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
+    /**
+     * Now we not fully support array/struct/map nesting complex type in many situation,
+     * so just disable creating nesting complex data type when create table.
+     * We can make it able after we fully support
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_nested_complex_type  = true;
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set
      * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",

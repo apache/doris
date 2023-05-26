@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -151,6 +152,20 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
             runCost = childStatistics.getRowCount() * CMP_COST * Math.log(statistics.getRowCount())
                     / statistics.getBENumber();
         }
+
+        double startCost = runCost;
+        return new CostV2(startCost, runCost, statistics.computeSize());
+    }
+
+    @Override
+    public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
+
+        // Random set a value. The partitionTopN is generated in the rewrite phase,
+        // and it only has one physical implementation. So this cost will not affect the result.
+        double runCost = childStatistics.getRowCount() * CMP_COST * Math.log(statistics.getRowCount())
+                / statistics.getBENumber();
 
         double startCost = runCost;
         return new CostV2(startCost, runCost, statistics.computeSize());

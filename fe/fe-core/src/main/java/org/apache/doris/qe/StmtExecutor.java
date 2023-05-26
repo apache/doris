@@ -195,8 +195,8 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
-    private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
-    private static final String NULL_VALUE_FOR_LOAD = "\\N";
+    public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
+    public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -1826,8 +1826,11 @@ public class StmtExecutor {
                 throw new DdlException("Unknown load job type");
             }
             LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
-            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
-            context.getState().setOk();
+            loadManagerAdapter.submitLoadFromInsertStmt(context, insertStmt);
+            // when complete
+            if (loadManagerAdapter.getMysqlLoadId() != null) {
+                this.mysqlLoadId = loadManagerAdapter.getMysqlLoadId();
+            }
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
@@ -2460,6 +2463,14 @@ public class StmtExecutor {
 
     public SummaryProfile getSummaryProfile() {
         return profile.getSummaryProfile();
+    }
+
+    public Profile getProfile() {
+        return profile;
+    }
+
+    public void setProfileType(ProfileType profileType) {
+        this.profileType = profileType;
     }
 }
 

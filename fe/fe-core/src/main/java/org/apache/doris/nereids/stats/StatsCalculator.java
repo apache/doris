@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
@@ -56,7 +57,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -80,7 +83,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -115,6 +120,7 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
     private final GroupExpression groupExpression;
 
     private boolean forbidUnknownColStats = false;
@@ -184,6 +190,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         groupExpression.setEstOutputRowCount(stats.getRowCount());
         groupExpression.setStatDerived(true);
+    }
+
+    @Override
+    public Statistics visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -270,6 +281,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN, Void context) {
+        return computePartitionTopN(partitionTopN);
+    }
+
+    @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
@@ -309,8 +325,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
+    }
+
+    @Override
     public Statistics visitPhysicalWindow(PhysicalWindow window, Void context) {
         return computeWindow(window);
+    }
+
+    @Override
+    public Statistics visitPhysicalPartitionTopN(PhysicalPartitionTopN partitionTopN, Void context) {
+        return computePartitionTopN(partitionTopN);
     }
 
     @Override
@@ -531,6 +557,35 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeTopN(TopN topN) {
         Statistics stats = groupExpression.childStatistics(0);
         return stats.withRowCount(Math.min(stats.getRowCount(), topN.getLimit()));
+    }
+
+    private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
+        Statistics stats = groupExpression.childStatistics(0);
+        double rowCount = stats.getRowCount();
+        List<Expression> partitionKeys = partitionTopN.getPartitionKeys();
+        if (!partitionTopN.hasGlobalLimit() && !partitionKeys.isEmpty()) {
+            // If there is no global limit. So result for the cardinality estimation is:
+            // NDV(partition key) * partitionLimit
+            Map<Expression, ColumnStatistic> childSlotToColumnStats = stats.columnStatistics();
+            List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
+                    .filter(childSlotToColumnStats::containsKey)
+                    .map(childSlotToColumnStats::get)
+                    .filter(s -> !s.isUnKnown)
+                    .collect(Collectors.toList());
+            if (partitionByKeyStats.isEmpty()) {
+                // all column stats are unknown, use default ratio
+                rowCount = rowCount * DEFAULT_COLUMN_NDV_RATIO;
+            } else {
+                rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
+                    .max(Double::compare).get());
+            }
+        } else {
+            rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
+        }
+        // TODO: for the filter push down window situation, we will prune the row count twice
+        //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
+        //  and the other is in 'Filter'. It's hard to dismiss.
+        return stats.updateRowCountOnly(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {

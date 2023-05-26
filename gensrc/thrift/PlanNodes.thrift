@@ -57,6 +57,7 @@ enum TPlanNodeType {
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
+  PARTITION_SORT_NODE,
 }
 
 // phases of an execution node
@@ -286,9 +287,18 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct THudiFileDesc {
+    1: optional string basePath;
+    2: optional string dataFilePath;
+    3: optional list<string> deltaFilePaths;
+    // Deprecated
+    4: optional Exprs.TExpr file_select_conjunct;
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
+    3: optional THudiFileDesc hudi_params
 }
 
 struct TFileScanRangeParams {
@@ -765,6 +775,19 @@ struct TSortNode {
   7: optional bool use_topn_opt
 }
 
+enum TopNAlgorithm {
+   RANK,
+   DENSE_RANK,
+   ROW_NUMBER
+ }
+
+ struct TPartitionSortNode {
+   1: optional list<Exprs.TExpr> partition_exprs
+   2: optional TSortInfo sort_info
+   3: optional bool has_global_limit
+   4: optional TopNAlgorithm top_n_algorithm
+   5: optional i64 partition_inner_limit
+ }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
   RANGE,
@@ -1072,6 +1095,7 @@ struct TPlanNode {
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
+  103: optional TPartitionSortNode partition_sort_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

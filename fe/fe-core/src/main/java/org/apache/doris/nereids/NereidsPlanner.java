@@ -33,7 +33,6 @@ import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
-import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -46,11 +45,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -59,8 +55,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
@@ -95,6 +89,7 @@ public class NereidsPlanner extends Planner {
     private Plan analyzedPlan;
     private Plan rewrittenPlan;
     private Plan optimizedPlan;
+    private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
 
@@ -118,13 +113,13 @@ public class NereidsPlanner extends Planner {
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
-        PhysicalProperties requireProperties = buildInitRequireProperties(parsedPlan);
+        PhysicalProperties requireProperties = buildInitRequireProperties();
         Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
         }
-        PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
+        physicalPlan = (PhysicalPlan) resultPlan;
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
@@ -311,25 +306,12 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
+    // DependsRules: EnsureProjectOnTopJoin.class
     private void dpHypOptimize() {
         Group root = getRoot();
-        boolean changeRoot = false;
-        if (root.isInnerJoinGroup()) {
-            // If the root group is join group, DPHyp can change the root group.
-            // To keep the root group is not changed, we add a project operator above join
-            List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
-            LogicalPlan plan = new LogicalProject<>(outputs, root.getLogicalExpression().getPlan());
-            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, true);
-            root = copyInResult.correspondingExpression.getOwnerGroup();
-            Preconditions.checkArgument(copyInResult.generateNewExpression,
-                    "the top project node can't be generated for dpHypOptimize");
-            changeRoot = true;
-        }
+        // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
     }
 
     /**
@@ -514,9 +496,8 @@ public class NereidsPlanner extends Planner {
         return cascadesContext;
     }
 
-    public static PhysicalProperties buildInitRequireProperties(Plan initPlan) {
-        boolean isQuery = !(initPlan instanceof Command) || (initPlan instanceof ExplainCommand);
-        return isQuery ? PhysicalProperties.GATHER : PhysicalProperties.ANY;
+    public static PhysicalProperties buildInitRequireProperties() {
+        return PhysicalProperties.GATHER;
     }
 
     private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
@@ -555,5 +536,9 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public Plan getOptimizedPlan() {
         return optimizedPlan;
+    }
+
+    public PhysicalPlan getPhysicalPlan() {
+        return physicalPlan;
     }
 }

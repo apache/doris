@@ -435,7 +435,7 @@ PROPERTIES (
 
 Different from the Aggregate and Unique Models, the Duplicate Model stores the data as they are and executes no aggregation. Even if there are two identical rows of data, they will both be retained. The DUPLICATE KEY in the CREATE TABLE statement is only used to specify based on which columns the data are sorted. (A more appropriate name than DUPLICATE KEY would be SORTING COLUMN, but it is named as such to specify the data model used. For more information, see [Prefix Index](https://doris.apache.org/docs/dev/data-table/index/prefix-index/).) For the choice of DUPLICATE KEY, we recommend the first 2-4 columns.
 
-The Duplicate Mode l is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
+The Duplicate Model is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
 
 ## Limitations of Aggregate Model
 
