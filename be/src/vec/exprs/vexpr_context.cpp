@@ -21,6 +21,8 @@
 #include <ostream>
 #include <string>
 
+#include "common/daemon.h"
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/object_pool.h"
@@ -49,8 +51,9 @@ VExprContext::VExprContext(VExpr* expr)
 VExprContext::~VExprContext() {
     // Do not delete this code, this code here is used to check if forget to close the opened context
     // Or there will be memory leak
-    DCHECK(!_prepared || _closed) << get_stack_trace() << " prepare:" << _prepared
-                                  << " closed:" << _closed << " expr:" << _root->debug_string();
+    DCHECK(!_prepared || _closed || k_doris_exit)
+            << " prepare:" << _prepared << " closed:" << _closed
+            << " expr:" << _root->debug_string();
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
