@@ -182,14 +182,8 @@ hintStatement
     ;
 
 hintAssignment
-    : key=hintKey (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     ;
-
-hintKey
-    : identifier
-    | STRING
-    ;
-
 
 lateralView
     : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
