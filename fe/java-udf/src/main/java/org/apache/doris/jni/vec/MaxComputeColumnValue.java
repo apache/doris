@@ -61,7 +61,12 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     private void skippedIfNull() {
         // null has been process by appendValue with isNull()
-        if (column.isNull(idx)) {
+        try {
+            if (column.isNull(idx)) {
+                idx++;
+            }
+        } catch (IndexOutOfBoundsException e) {
+            // skip left rows
             idx++;
         }
     }
@@ -71,7 +76,6 @@ public class MaxComputeColumnValue implements ColumnValue {
         skippedIfNull();
         TinyIntVector tinyIntCol = (TinyIntVector) column;
         return tinyIntCol.get(idx++) > 0;
-
     }
 
     @Override

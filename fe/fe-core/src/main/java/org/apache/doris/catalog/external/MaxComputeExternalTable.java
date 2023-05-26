@@ -100,6 +100,9 @@ public class MaxComputeExternalTable extends ExternalTable {
                 CharTypeInfo charType = (CharTypeInfo) typeInfo;
                 return ScalarType.createChar(charType.getLength());
             }
+            case STRING: {
+                return ScalarType.createStringType();
+            }
             case VARCHAR: {
                 VarcharTypeInfo varcharType = (VarcharTypeInfo) typeInfo;
                 return ScalarType.createVarchar(varcharType.getLength());

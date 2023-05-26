@@ -188,7 +188,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
-
+        if (params.getRequiredSlots() == null) {
+            params.setColumnIdxs(columnIdxs);
+            return;
+        }
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -322,10 +325,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         if (getLocationType() == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
+        } else if (getLocationType() == TFileType.FILE_S3
+                || getLocationType() == TFileType.FILE_BROKER
+                || getLocationType() == TFileType.FILE_NET) {
             // need full path
-            rangeDesc.setPath(fileSplit.getPath().toString());
-        }  else if (getLocationType() == TFileType.FILE_NET) {
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
