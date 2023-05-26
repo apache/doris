@@ -506,7 +506,7 @@ add_compile_options(-g
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
-                    -Wnon-virtual-dtor)
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare
