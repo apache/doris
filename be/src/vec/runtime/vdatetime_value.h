@@ -235,6 +235,7 @@ public:
     VecDateTimeValue()
             : _neg(0),
               _type(TIME_DATETIME),
+              _microsecond(0),
               _second(0),
               _minute(0),
               _hour(0),
@@ -406,6 +407,7 @@ public:
     int hour() const { return _hour; }
     int minute() const { return _minute; }
     int second() const { return _second; }
+    int microsecond() const { return _microsecond; }
     int neg() const { return _neg; }
     int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
@@ -695,10 +697,11 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
-    // 1 bits for neg. 3 bits for type. 12bit for second
-    uint16_t _neg : 1;  // Used for time value.
-    uint16_t _type : 3; // Which type of this value.
-    uint16_t _second : 12;
+    // 1 bits for neg. 3 bits for type. 20bit for microsecond. 8bit for second
+    uint32_t _neg : 1;  // Used for time value.
+    uint32_t _type : 3; // Which type of this value.
+    uint32_t _microsecond : 20;
+    uint32_t _second : 8;
     uint8_t _minute;
     uint8_t _hour;
     uint8_t _day;

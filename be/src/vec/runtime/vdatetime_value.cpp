@@ -3430,6 +3430,7 @@ DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateTimeV2ValueType)
 DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateV2ValueType)
 DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateTimeV2ValueType)
 
+template bool VecDateTimeValue::date_add_interval<TimeUnit::MICROSECOND>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::SECOND>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::MINUTE>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::HOUR>(const TimeInterval& interval);
@@ -3477,6 +3478,7 @@ template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUAR
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
         const TimeInterval& interval);
 
+template bool VecDateTimeValue::datetime_trunc<TimeUnit::MICROSECOND>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::SECOND>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::MINUTE>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::HOUR>();
@@ -3486,6 +3488,7 @@ template bool VecDateTimeValue::datetime_trunc<TimeUnit::YEAR>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::QUARTER>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::WEEK>();
 
+template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MICROSECOND>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
@@ -3495,6 +3498,7 @@ template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MICROSECOND>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
