@@ -642,4 +642,26 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
     return res != _olap_scan_node.key_column_name.end();
 }
 
+void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_info) {
+    static std::vector<std::string> PredicateTypeName(20, "Unknow");
+    PredicateTypeName[static_cast<int>(PredicateType::BF)] = "BloomFilter";
+    PredicateTypeName[static_cast<int>(PredicateType::BITMAP_FILTER)] = "BitmapFilter";
+    // update
+    _filter_info[id].filtered_row += update_info.filtered_row;
+    _filter_info[id].input_row += update_info.input_row;
+    _filter_info[id].type = update_info.type;
+    // to string
+    auto& info = _filter_info[id];
+    std::string filter_name = "RuntimeFilterInfo id ";
+    filter_name += std::to_string(id);
+    std::string info_str;
+    info_str += "type = " + PredicateTypeName[info.type] + ", ";
+    info_str += "input = " + std::to_string(info.input_row) + ", ";
+    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str = "[" + info_str + "]";
+
+    // add info
+    _segment_profile->add_info_string(filter_name, info_str);
+}
+
 }; // namespace doris::vectorized

@@ -24,6 +24,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -31,6 +32,7 @@
 
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
 #include "io/cache/block/block_file_cache_profile.h"
@@ -552,6 +554,10 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
+
+    for (auto& [id, info] : stats.filter_info) {
+        olap_parent->add_filter_info(id, info);
+    }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
