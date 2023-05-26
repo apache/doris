@@ -64,7 +64,7 @@ import java.util.Optional;
  */
 @Data
 public abstract class ExternalCatalog
-            implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
+        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
@@ -99,7 +99,7 @@ public abstract class ExternalCatalog
 
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+                + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
     /**
@@ -397,7 +397,6 @@ public abstract class ExternalCatalog
         catalogProperty.rollBackCatalogProps(props);
     }
 
-
     private void modifyComment(Map<String, String> props) {
         setComment(props.getOrDefault("comment", comment));
         props.remove("comment");
@@ -420,7 +419,7 @@ public abstract class ExternalCatalog
 
     public void replayInitCatalog(InitCatalogLog log) {
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long,  ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
+        Map<Long, ExternalDatabase<? extends ExternalTable>> tmpIdToDb = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             ExternalDatabase<? extends ExternalTable> db = getDbForReplay(log.getRefreshDbIds().get(i));
             db.setUnInitialized(invalidCacheInInit);
@@ -440,12 +439,12 @@ public abstract class ExternalCatalog
         initialized = true;
     }
 
-    public  ExternalDatabase<? extends ExternalTable> getDbForReplay(long dbId) {
+    public ExternalDatabase<? extends ExternalTable> getDbForReplay(long dbId) {
         return idToDb.get(dbId);
     }
 
     protected ExternalDatabase<? extends ExternalTable> getDbForInit(String dbName, long dbId,
-                                                                     InitCatalogLog.Type logType) {
+            InitCatalogLog.Type logType) {
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, dbName);
@@ -458,7 +457,7 @@ public abstract class ExternalCatalog
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
             //case HUDI:
-                //return new HudiExternalDatabase(this, dbId, dbName);
+            //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
             default:

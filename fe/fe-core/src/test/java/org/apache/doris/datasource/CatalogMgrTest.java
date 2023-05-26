@@ -276,7 +276,8 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(1, showResultSet.getResultRows().size());
         List<String> result = showResultSet.getResultRows().get(0);
         Assertions.assertEquals("my_catalog", result.get(0));
-        Assertions.assertTrue(result.get(1).startsWith("\nCREATE CATALOG `my_catalog`\nCOMMENT \"hms comment\"\n PROPERTIES ("));
+        Assertions.assertTrue(
+                result.get(1).startsWith("\nCREATE CATALOG `my_catalog`\nCOMMENT \"hms comment\"\n PROPERTIES ("));
 
         testCatalogMgrPersist();
 
@@ -291,11 +292,6 @@ public class CatalogMgrTest extends TestWithFeService {
 
         //test alter fileCache
         testAlterFileCache();
-    }
-
-    @Test
-    public void testExceptionCase() throws Exception {
-
     }
 
     private void testCatalogMgrPersist() throws Exception {
@@ -685,7 +681,8 @@ public class CatalogMgrTest extends TestWithFeService {
 
         HMSExternalCatalog hiveCatalog = (HMSExternalCatalog) mgr.getCatalog(catalogName);
         HiveMetaStoreCache metaStoreCache = externalMetaCacheMgr.getMetaStoreCache(hiveCatalog);
-        LoadingCache<FileCacheKey, HiveMetaStoreCache.FileCacheValue> preFileCache = metaStoreCache.getFileCacheRef().get();
+        LoadingCache<FileCacheKey, HiveMetaStoreCache.FileCacheValue> preFileCache = metaStoreCache.getFileCacheRef()
+                .get();
 
 
         // 1. properties contains `file.meta.cache.ttl-second`, it should not be equal
@@ -702,7 +699,6 @@ public class CatalogMgrTest extends TestWithFeService {
                 + " (\"type\" = \"hms\", \"hive.metastore.uris\" = \"thrift://172.16.5.9:9083\");";
         mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProp));
         Assertions.assertEquals(preFileCache, metaStoreCache.getFileCacheRef().get());
-
 
     }
 
