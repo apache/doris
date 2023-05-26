@@ -554,7 +554,7 @@ public final class RuntimeFilter {
             return;
         }
         SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        if (sessionVariable.use_rf_default) {
+        if (sessionVariable.useRuntimeFilterDefaultSize) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;
         }
@@ -569,6 +569,7 @@ public final class RuntimeFilter {
         int logFilterSize = getMinLogSpaceForBloomFilter(ndv, fpp);
         return 1L << logFilterSize;
     }
+
     /**
      * Returns the log (base 2) of the minimum number of bytes we need for a Bloom
      * filter with 'ndv' unique elements and a false positive probability of less
