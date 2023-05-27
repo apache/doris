@@ -1982,7 +1982,7 @@ public class Config extends ConfigBase {
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true)
     public static boolean enable_query_hive_views = false;
 
     /**
