@@ -91,7 +91,9 @@ S3FileWriter::~S3FileWriter() {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
         abort();
+        _bytes_written = 0;
     }
+    s3_bytes_written_total << _bytes_written;
     CHECK(_closed) << ", closed: " << _closed;
     // in case there are task which might run after this object is destroyed
     // for example, if the whole task failed and some task are still pending
@@ -358,7 +360,7 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
         buf._on_failed(_st);
         LOG(WARNING) << _st;
     }
-    s3_bytes_written_total << buf.get_size();
+    _bytes_written += buf.get_size();
     s3_file_created_total << 1;
 }
 
