@@ -309,7 +309,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.table_schema_param = _schema;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+        auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "open delta writer failed, tablet_id={}"
@@ -372,7 +372,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
 
             if (_tablet_writers.find(tablet) == _tablet_writers.end()) {
                 DeltaWriter* writer = nullptr;
-                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
                 if (!st.ok()) {
                     auto err_msg = fmt::format(
                             "open delta writer failed, tablet_id={}"
@@ -422,7 +422,7 @@ Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest
 
             if (_tablet_writers.find(tablet.tablet_id()) == _tablet_writers.end()) {
                 DeltaWriter* writer = nullptr;
-                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
                 if (!st.ok()) {
                     auto err_msg = fmt::format(
                             "open delta writer failed, tablet_id={}"

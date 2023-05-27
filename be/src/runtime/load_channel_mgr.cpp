@@ -125,7 +125,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 #endif
             channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
                                           channel_timeout_s, is_high_priority, params.sender_ip(),
-                                          params.backend_id()));
+                                          params.backend_id(), params.enable_profile()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -182,6 +182,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     if (!status.ok() || is_eof) {
         return status;
     }
+    SCOPED_TIMER(channel->get_mgr_add_batch_timer());
 
     if (!channel->is_high_priority()) {
         // 2. check if mem consumption exceed limit

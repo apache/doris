@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
@@ -76,7 +77,7 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer,
+    static Status open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile* profile,
                        const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
@@ -134,7 +135,8 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile *profile,
+                const UniqueId& load_id);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -148,6 +150,8 @@ private:
                                       const TabletSchema& ori_tablet_schema);
 
     void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+
+    void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -196,8 +200,23 @@ private:
 
     // total rows num written by DeltaWriter
     int64_t _total_received_rows = 0;
-    // rows num merged by memtable
-    int64_t _merged_rows = 0;
+
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _lock_timer = nullptr;
+    RuntimeProfile::Counter* _sort_timer = nullptr;
+    RuntimeProfile::Counter* _agg_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
+    RuntimeProfile::Counter* _slave_replica_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
+    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
+    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
+    RuntimeProfile::Counter* _sort_times = nullptr;
+    RuntimeProfile::Counter* _agg_times = nullptr;
+
+    MonotonicStopWatch _lock_watch;
+
+    MemTableStat _memtable_stat;
 };
 
 } // namespace doris

@@ -27,13 +27,14 @@ namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                         int64_t backend_id)
+                         int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
-          _backend_id(backend_id) {
+          _backend_id(backend_id),
+          _enable_profile(enable_profile) {
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -49,6 +50,7 @@ LoadChannel::~LoadChannel() {
 
 void LoadChannel::_init_profile() {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTimer");
     _self_profile =
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),
@@ -56,6 +58,7 @@ void LoadChannel::_init_profile() {
     _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
+    _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTimer");
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -138,6 +141,7 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    SCOPED_TIMER(_add_batch_timer);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -168,6 +172,10 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 }
 
 void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
+    if (!_enable_profile) {
+        return;
+    }
+
     COUNTER_SET(_peak_memory_usage_counter, _mem_tracker->peak_consumption());
     // TabletSink and LoadChannel in BE are M: N relationship,
     // Every once in a while LoadChannel will randomly return its own runtime profile to a TabletSink,
