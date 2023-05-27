@@ -18,9 +18,13 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,12 +32,20 @@ import java.io.IOException;
 
 public class DatabaseInfo implements Writable {
 
+    @SerializedName(value = "dbName")
     private String dbName;
+    @SerializedName(value = "newDbName")
     private String newDbName;
+    @SerializedName(value = "quota")
     private long quota;
+    @SerializedName(value = "clusterName")
     private String clusterName;
+    @SerializedName(value = "dbState")
     private DbState dbState;
+    @SerializedName(value = "quotaType")
     private QuotaType quotaType;
+    @SerializedName(value = "binlogConfig")
+    private BinlogConfig binlogConfig;
 
     public DatabaseInfo() {
         // for persist
@@ -43,6 +55,7 @@ public class DatabaseInfo implements Writable {
         this.clusterName = "";
         this.dbState = DbState.NORMAL;
         this.quotaType = QuotaType.DATA;
+        binlogConfig = null;
     }
 
     public DatabaseInfo(String dbName, String newDbName, long quota, QuotaType quotaType) {
@@ -52,6 +65,7 @@ public class DatabaseInfo implements Writable {
         this.clusterName = "";
         this.dbState = DbState.NORMAL;
         this.quotaType = quotaType;
+        this.binlogConfig = null;
     }
 
     public String getDbName() {
@@ -64,6 +78,10 @@ public class DatabaseInfo implements Writable {
 
     public long getQuota() {
         return quota;
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        return binlogConfig;
     }
 
     public static DatabaseInfo read(DataInput in) throws IOException {
@@ -107,4 +125,12 @@ public class DatabaseInfo implements Writable {
         return quotaType;
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
+    }
 }
