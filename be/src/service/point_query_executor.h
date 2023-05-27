@@ -274,6 +274,9 @@ struct Metrics {
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
     OlapReaderStatistics read_stats;
+    size_t row_cache_hits = 0;
+    bool hit_lookup_cache = false;
+    size_t result_data_bytes;
 };
 
 // An util to do tablet lookup
@@ -319,8 +322,6 @@ private:
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
-    size_t _row_cache_hits = 0;
-    bool _hit_lookup_cache = false;
     bool _binary_row_format = false;
 };
 
