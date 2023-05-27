@@ -18,7 +18,6 @@
 #pragma once
 
 #include <parallel_hashmap/btree.h>
-#include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -29,6 +28,7 @@
 #include <new>
 #include <numeric>
 #include <roaring/roaring.hh>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -1390,7 +1390,7 @@ public:
                 for (auto v : _set) {
                     _bitmap->add(v);
                 }
-                _type = SET;
+                _type = BITMAP;
                 break;
             }
             }
@@ -1438,7 +1438,7 @@ public:
     BitmapValue& fastunion(const std::vector<const BitmapValue*>& values) {
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
-        std::vector<const phmap::flat_hash_set<uint64_t>*> sets;
+        std::vector<const std::set<uint64_t>*> sets;
         for (int i = 0; i < values.size(); ++i) {
             auto* value = values[i];
             switch (value->_type) {
@@ -1534,7 +1534,7 @@ public:
                     if (_type == SINGLE) {
                         _bitmap->add(_sv);
                     }
-                    _type = SET;
+                    _type = BITMAP;
                 }
                 break;
             case BITMAP: {
@@ -2160,13 +2160,7 @@ public:
                 bool first = true;
             } iter_ctx;
             iter_ctx.ss = &ss;
-            std::vector<uint64_t> values;
             for (auto v : _set) {
-                values.emplace_back(v);
-            }
-
-            std::sort(values.begin(), values.end());
-            for (auto v : values) {
                 if (iter_ctx.first) {
                     iter_ctx.first = false;
                 } else {
@@ -2202,27 +2196,13 @@ public:
     }
 
     uint64_t _min_in_set() const {
-        uint64_t result = std::numeric_limits<uint64_t>::max();
-        if (_type == SET) {
-            for (auto v : _set) {
-                if (v < result) {
-                    result = v;
-                }
-            }
-        }
-        return result;
+        DCHECK_EQ(_type, SET);
+        return *std::min_element(_set.begin(), _set.end());
     }
 
     uint64_t _max_in_set() const {
-        uint64_t result = 0;
-        if (_type == SET) {
-            for (auto v : _set) {
-                if (v > result) {
-                    result = v;
-                }
-            }
-        }
-        return result;
+        DCHECK_EQ(_type, SET);
+        return *std::max_element(_set.begin(), _set.end());
     }
 
     bool empty() const { return _type == EMPTY; }
@@ -2311,13 +2291,8 @@ public:
         }
         case SET: {
             int64_t count = 0;
-            std::vector<uint64_t> values;
-            for (auto v : _set) {
-                values.emplace_back(v);
-            }
 
-            std::sort(values.begin(), values.end());
-            for (auto it = values.begin(); it != values.end(); ++it) {
+            for (auto it = _set.begin(); it != _set.end(); ++it) {
                 if (*it < range_start) {
                     continue;
                 }
@@ -2385,15 +2360,18 @@ public:
             }
 
             int64_t count = 0;
-            std::vector<uint64_t> values;
+            size_t index = 0;
             for (auto v : _set) {
-                values.emplace_back(v);
-            }
-
-            std::sort(values.begin(), values.end());
-            for (size_t i = abs_offset; i != values.size() && count < limit; ++i) {
-                ret_bitmap->add(values[i]);
-                count++;
+                if (index < abs_offset) {
+                    ++index;
+                    continue;
+                }
+                if (count == limit || index == _set.size()) {
+                    break;
+                }
+                ++count;
+                ++index;
+                ret_bitmap->add(v);
             }
             return count;
         }
@@ -2415,12 +2393,7 @@ public:
             break;
         }
         case SET: {
-            std::vector<uint64_t> values;
             for (auto v : _set) {
-                values.emplace_back(v);
-            }
-            std::sort(values.begin(), values.end());
-            for (auto v : values) {
                 data.emplace_back(v);
             }
             break;
@@ -2526,12 +2499,12 @@ private:
     enum BitmapDataType {
         EMPTY = 0,
         SINGLE = 1, // single element
-        SET = 2,    // elements count less or equal than 32
-        BITMAP = 3  // more than one elements
+        BITMAP = 2, // more than one elements
+        SET = 3     // elements count less or equal than 32
     };
     uint64_t _sv = 0;                              // store the single value when _type == SINGLE
     std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
-    phmap::flat_hash_set<uint64_t> _set;
+    std::set<uint64_t> _set;
     BitmapDataType _type {EMPTY};
     // Indicate whether the state is shared among multi BitmapValue object
     bool _is_shared = true;
@@ -2685,7 +2658,7 @@ public:
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
-    phmap::flat_hash_set<uint64_t>::const_iterator _set_iter;
+    std::set<uint64_t>::const_iterator _set_iter;
     uint64_t _sv = 0;
     bool _end = false;
 };
