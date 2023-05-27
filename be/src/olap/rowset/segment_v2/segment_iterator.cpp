@@ -207,11 +207,11 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
-    // get file handle from file descriptor of segment
     if (_inited) {
         return Status::OK();
     }
     _inited = true;
+    // get file handle from file descriptor of segment
     _file_reader = _segment->_file_reader;
     _opts = opts;
     _col_predicates.clear();
@@ -226,9 +226,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
         }
     }
     _tablet_id = opts.tablet_id;
-    _block_row_max = opts.block_row_max;
     // Read options will not change, so that just resize here
-    _block_rowids.resize(_block_row_max);
+    _block_rowids.resize(_opts.block_row_max);
     if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {
         _col_preds_except_leafnode_of_andnode = opts.column_predicates_except_leafnode_of_andnode;
     }
@@ -1498,7 +1497,7 @@ void SegmentIterator::_init_current_block(
             } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                 current_columns[cid]->set_decimalv2_type();
             }
-            current_columns[cid]->reserve(_block_row_max);
+            current_columns[cid]->reserve(_opts.block_row_max);
         }
     }
 }
@@ -1703,7 +1702,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-            _block_rowids.resize(_block_row_max);
+            _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema->columns().size());
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
@@ -1714,7 +1713,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
-                _current_return_columns[cid]->reserve(_block_row_max);
+                _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
                 // a delete condition column. but the column is not effective in the segment. so we just
@@ -1725,7 +1724,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_block_row_max);
+                _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
     }
@@ -1733,7 +1732,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _init_current_block(block, _current_return_columns);
 
     _current_batch_rows_read = 0;
-    uint32_t nrows_read_limit = _block_row_max;
+    uint32_t nrows_read_limit = _opts.block_row_max;
     if (_wait_times_estimate_row_size > 0) {
         // first time, read 100 rows to estimate average row size, to avoid oom caused by a single batch being too large.
         // If no valid data is read for the first time, block_row_max is read each time thereafter.
@@ -2082,8 +2081,8 @@ void SegmentIterator::_update_max_row(const vectorized::Block* block) {
     _estimate_row_size = false;
     auto avg_row_size = block->bytes() / block->rows();
 
-    uint32_t block_row_max = config::doris_scan_block_max_mb / avg_row_size;
-    _block_row_max = std::min(block_row_max, _block_row_max);
+    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
+    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {

@@ -19,7 +19,6 @@
 
 #include <assert.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>

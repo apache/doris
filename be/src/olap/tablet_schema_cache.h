@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <fmt/core.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <glog/logging.h>
 
 #include <memory>
 #include <mutex>

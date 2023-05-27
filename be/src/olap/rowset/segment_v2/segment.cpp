@@ -35,9 +35,7 @@
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
 #include "olap/primary_key_index.h"
-#include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -45,7 +43,6 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/schema.h"
-#include "olap/schema_cache.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"

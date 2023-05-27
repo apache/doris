@@ -25,8 +25,6 @@
 #include <utility>
 
 #include "common/config.h"
-#include "olap/field.h"
-#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "util/trace.h"
 #include "vec/columns/column_array.h"

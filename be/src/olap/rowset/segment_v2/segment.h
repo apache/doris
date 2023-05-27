@@ -33,8 +33,6 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"

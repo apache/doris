@@ -429,7 +429,6 @@ private:
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
-    uint32_t _block_row_max = 0;
     int32_t _tablet_id = 0;
 };
 
