@@ -21,7 +21,6 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -36,7 +35,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,8 +56,6 @@ public class S3LoadStmt extends NativeInsertStmt {
     private static final Logger LOG = LogManager.getLogger(S3LoadStmt.class);
 
     private final DataDescription dataDescription;
-
-    private boolean isFileFieldSpecified;
 
     public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
@@ -163,13 +159,16 @@ public class S3LoadStmt extends NativeInsertStmt {
     private void analyzeColumns(Analyzer analyzer) throws AnalysisException {
         final String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
         dataDescription.analyze(fullDbName);
-        List<ImportColumnDesc> columnExprList = dataDescription.getParsedColumnExprList();
+        // copy a list for analyzing
+        List<ImportColumnDesc> columnExprList = Lists.newArrayList(dataDescription.getParsedColumnExprList());
         rewriteExpr(columnExprList);
-        filterColumns(columnExprList);
-        if (isFileFieldSpecified) {
-            resetTargetColumnNames(columnExprList);
-            resetSelectList(columnExprList);
+        boolean isFileFieldSpecified = columnExprList.stream().anyMatch(ImportColumnDesc::isColumn);
+        if (!isFileFieldSpecified) {
+            return;
         }
+        filterColumns(columnExprList);
+        resetTargetColumnNames(columnExprList);
+        resetSelectList(columnExprList);
     }
 
     /**
@@ -225,18 +224,11 @@ public class S3LoadStmt extends NativeInsertStmt {
 
     private void filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
         Preconditions.checkNotNull(targetTable, "target table is unset");
-        // if isFileFieldSpecified = false, `columnDesc with expr` must not exist
-        isFileFieldSpecified = columnExprList.stream().anyMatch(ImportColumnDesc::isColumn);
         // remove all `tmp` columns, which are not in target table
         columnExprList.removeIf(
                 Predicates.and(ImportColumnDesc::isColumn,
                         columnDesc -> Objects.isNull(targetTable.getColumn(columnDesc.getColumnName())))
         );
-        if (!isFileFieldSpecified) {
-            // If user does not specify the file field names, generate it by using base schema of table.
-            // So that the following process can be unified
-            fillWithSchemaCols(columnExprList);
-        }
         Map<String, Expr> columnExprMap = columnExprList.stream()
                 // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
                 .collect(() -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER),
@@ -244,24 +236,6 @@ public class S3LoadStmt extends NativeInsertStmt {
         checkUnspecifiedCols(columnExprMap);
         addSchemaChangeShadowCols(columnExprList, columnExprMap);
         LOG.info("filtered result:{}", columnExprList);
-    }
-
-    private void fillWithSchemaCols(List<ImportColumnDesc> columnDescList) {
-        final List<Column> columns = targetTable.getBaseSchema(false);
-        boolean hasSequenceCol = (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol());
-        for (Column column : columns) {
-            if (hasSequenceCol && column.isSequenceColumn()) {
-                // columnExprs has sequence column, don't need to generate the sequence column
-                continue;
-            }
-            ImportColumnDesc columnDesc;
-            if (StringUtils.equals(dataDescription.getFileFormat(), "json")) {
-                columnDesc = new ImportColumnDesc(column.getName());
-            } else {
-                columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
-            }
-            columnDescList.add(columnDesc);
-        }
     }
 
     /**
@@ -351,7 +325,6 @@ public class S3LoadStmt extends NativeInsertStmt {
             } else {
                 selectList.addItem(new SelectListItem(desc.getExpr(), desc.getColumnName()));
             }
-            // desc.getExpr().contains()
         });
         ((SelectStmt) getQueryStmt()).resetSelectList(selectList);
     }

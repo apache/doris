@@ -34,8 +34,6 @@ public class UnifiedLoadStmt extends DdlStmt {
 
     private final StatementBase proxyStmt;
 
-<<<<<<<HEAD
-
     public UnifiedLoadStmt(StatementBase proxyStmt) {
         this.proxyStmt = proxyStmt;
     }
