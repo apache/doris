@@ -69,6 +69,7 @@ S3FileBufferPool::S3FileBufferPool() {
     DCHECK((config::s3_write_buffer_size >= 5 * 1024 * 1024) &&
            (config::s3_write_buffer_whole_size > config::s3_write_buffer_size));
     LOG_INFO("S3 file buffer pool with {} buffers", buf_num);
+    _whole_mem_buffer = std::make_unique<char[]>(config::s3_write_buffer_whole_size);
     for (size_t i = 0; i < buf_num; i++) {
         Slice s {_whole_mem_buffer.get() + i * config::s3_write_buffer_size,
                  static_cast<size_t>(config::s3_write_buffer_size)};

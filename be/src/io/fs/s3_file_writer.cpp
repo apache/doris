@@ -46,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_write_bufferpool.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -87,7 +88,7 @@ S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (!_closed) {
+    if (!_closed || _failed) {
         // if we don't abort multi part upload, the uploaded part in object
         // store will not automatically reclaim itself, it would cost more money
         abort();
@@ -165,7 +166,7 @@ Status S3FileWriter::close() {
         _wait_until_finish("close");
         return _st;
     }
-    _closed = true;
+    Defer defer {[&]() { _closed = true; }};
     if (_failed) {
         abort();
         return _st;
