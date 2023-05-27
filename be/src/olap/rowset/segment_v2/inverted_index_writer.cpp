@@ -205,13 +205,9 @@ public:
     }
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
-        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
+        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            auto stringReader = _CLNEW lucene::util::SimpleInputStreamReader(
-                    new lucene::util::AStringReader(field_value_data, field_value_size),
-                    lucene::util::SimpleInputStreamReader::UTF8);
-            _field->setValue(stringReader);
         } else {
             new_field_value(field_value_data, field_value_size, _field);
         }

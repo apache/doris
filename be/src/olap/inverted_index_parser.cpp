@@ -64,8 +64,8 @@ std::string get_parser_string_from_properties(
 
 std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties) {
-    if (properties.find(INVERTED_INDEX_PARSER_GRANULARITY_KEY) != properties.end()) {
-        return properties.at(INVERTED_INDEX_PARSER_GRANULARITY_KEY);
+    if (properties.find(INVERTED_INDEX_PARSER_MODE_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
     } else {
         return INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }

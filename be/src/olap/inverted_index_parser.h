@@ -30,9 +30,9 @@ enum class InvertedIndexParserType {
     PARSER_CHINESE = 4,
 };
 
-const std::string INVERTED_INDEX_PARSER_GRANULARITY_KEY = "parser_granularity";
-const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine";
-const std::string INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse";
+const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
+const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
+const std::string INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
 
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
