@@ -809,9 +809,7 @@ Status IndexChannel::check_tablet_received_rows_consistency() {
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool),
-          _input_row_desc(row_desc),
-          _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     if (!_is_vectorized) {
         if (!texprs.empty()) {
             *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
@@ -1482,7 +1480,7 @@ void OlapTableSink::send_batch_process() {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num,
-                                                 this](const std::shared_ptr<NodeChannel>& ch) {
+                                                  this](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
                         ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
