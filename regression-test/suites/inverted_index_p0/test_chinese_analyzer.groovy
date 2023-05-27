@@ -33,7 +33,7 @@ suite("test_chinese_analyzer"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 		`id`int(11)NULL,
 		`c` text NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese","parser_mode"="fine-grained") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese","parser_mode"="fine_grained") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
