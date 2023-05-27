@@ -33,13 +33,12 @@ class RowsetWriter;
 
 using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 
-class IndexBuilder { 
+class IndexBuilder {
 public:
-    IndexBuilder(const TabletSharedPtr& tablet,
-                       const std::vector<TColumn>& columns,
-                       const std::vector<TOlapTableIndex> exist_indexes,
-                       const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
-                       bool is_drop_op = false);
+    IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
+                 const std::vector<TOlapTableIndex> exist_indexes,
+                 const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
+                 bool is_drop_op = false);
     ~IndexBuilder();
 
     Status init();
@@ -47,13 +46,13 @@ public:
     Status update_inverted_index_info();
     Status handle_inverted_index_data();
     Status handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta,
-            std::vector<segment_v2::SegmentSharedPtr>& segments);
+                                std::vector<segment_v2::SegmentSharedPtr>& segments);
     Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
 private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
-                                 vectorized::Block* block);
+                                      vectorized::Block* block);
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                      const uint8_t** ptr, size_t num_rows);
@@ -62,6 +61,7 @@ private:
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
     Status _calc_alter_column_ids();
+
 private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
@@ -75,9 +75,9 @@ private:
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> InvertedIndexColumnWriter
-    std::unordered_map<
-            std::pair<int64_t, int64_t>,
-            std::unique_ptr<segment_v2::InvertedIndexColumnWriter>> _inverted_index_builders;
+    std::unordered_map<std::pair<int64_t, int64_t>,
+                       std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
+            _inverted_index_builders;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

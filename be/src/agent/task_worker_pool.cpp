@@ -62,10 +62,10 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/task/engine_alter_tablet_task.h"
-#include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
+#include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
 #include "olap/txn_manager.h"
@@ -390,13 +390,14 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
                   << ", job_id=" << alter_inverted_index_rq.job_id;
 
         Status status = Status::OK();
-        TabletSharedPtr tablet_ptr =
-                StorageEngine::instance()->tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
+        TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
+                alter_inverted_index_rq.tablet_id);
         if (tablet_ptr != nullptr) {
             EngineIndexChangeTask engine_task(alter_inverted_index_rq);
             status = _env->storage_engine()->execute_task(&engine_task);
         } else {
-            status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
+            status =
+                    Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
         }
 
         // Return result to fe
@@ -406,17 +407,19 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
         finish_task_request.__set_signature(agent_task_req.signature);
         std::vector<TTabletInfo> finish_tablet_infos;
         if (!status.ok()) {
-            LOG(WARNING) << "failed to alter inverted index task, signature=" << agent_task_req.signature
+            LOG(WARNING) << "failed to alter inverted index task, signature="
+                         << agent_task_req.signature
                          << ", tablet_id=" << alter_inverted_index_rq.tablet_id
-                         << ", job_id=" << alter_inverted_index_rq.job_id
-                         << ", error=" << status;
+                         << ", job_id=" << alter_inverted_index_rq.job_id << ", error=" << status;
         } else {
-            LOG(INFO) << "successfully alter inverted index task, signature=" << agent_task_req.signature
-                         << ", tablet_id=" << alter_inverted_index_rq.tablet_id
-                         << ", job_id=" << alter_inverted_index_rq.job_id;
+            LOG(INFO) << "successfully alter inverted index task, signature="
+                      << agent_task_req.signature
+                      << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                      << ", job_id=" << alter_inverted_index_rq.job_id;
             TTabletInfo tablet_info;
-            status = _get_tablet_info(alter_inverted_index_rq.tablet_id, alter_inverted_index_rq.schema_hash,
-                                      agent_task_req.signature, &tablet_info);
+            status = _get_tablet_info(alter_inverted_index_rq.tablet_id,
+                                      alter_inverted_index_rq.schema_hash, agent_task_req.signature,
+                                      &tablet_info);
             if (status.ok()) {
                 finish_tablet_infos.push_back(tablet_info);
             }

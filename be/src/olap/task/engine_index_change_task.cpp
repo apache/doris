@@ -36,7 +36,8 @@ Status EngineIndexChangeTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
     uint64_t start = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
     Status res = StorageEngine::instance()->process_index_change_task(_alter_inverted_index_req);
 
     if (!res.ok()) {
@@ -49,13 +50,13 @@ Status EngineIndexChangeTask::execute() {
     }
 
     uint64_t end = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
     LOG(INFO) << "success to execute index change task. res=" << res
               << " tablet_id=" << _alter_inverted_index_req.tablet_id
               << ", job_id=" << _alter_inverted_index_req.job_id
               << ", schema_hash=" << _alter_inverted_index_req.schema_hash
-              << ", start time=" << start
-              << ", end time=" << end
+              << ", start time=" << start << ", end time=" << end
               << ", cost time=" << (end - start);
     return res;
 } // execute

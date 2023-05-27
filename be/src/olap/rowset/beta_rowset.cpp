@@ -247,8 +247,8 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return Status::Error<OS_ERROR>();
         }
         for (auto& column : _schema->columns()) {
-            if (without_index_column_uids != nullptr
-                && without_index_column_uids->count(column.unique_id())) {
+            if (without_index_column_uids != nullptr &&
+                without_index_column_uids->count(column.unique_id())) {
                 continue;
             }
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
