@@ -109,6 +109,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         dynamicPartitionTableInfo.add(Pair.of(dbId, tableId));
     }
 
+    // only for test
+    public boolean containsDynamicPartitionTable(Long dbId, Long tableId) {
+        return dynamicPartitionTableInfo.contains(Pair.of(dbId, tableId));
+    }
+
     public void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(Pair.of(dbId, tableId));
     }
