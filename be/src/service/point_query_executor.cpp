@@ -152,7 +152,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
-        _hit_lookup_cache = true;
+        _profile_metrics.hit_lookup_cache = true;
     } else {
         // init handle
         auto reusable_ptr = std::make_shared<Reusable>();
@@ -213,13 +213,13 @@ std::string PointQueryExecutor::print_profile() {
             ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
             "io_latency:{}ns, "
-            "uncompressed_bytes_read:{}"
+            "uncompressed_bytes_read:{}, result_data_bytes:{}"
             "",
             total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
-            _row_read_ctxs.size(), _row_cache_hits, read_stats.cached_pages_num,
+            _profile_metrics.hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
+            _row_read_ctxs.size(), _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
             read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
-            read_stats.uncompressed_bytes_read);
+            read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes);
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
@@ -258,7 +258,7 @@ Status PointQueryExecutor::_lookup_row_key() {
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
             if (hit_cache) {
                 _row_read_ctxs[i]._cached_row_data = std::move(cache_handle);
-                ++_row_cache_hits;
+                ++_profile_metrics.row_cache_hits;
                 continue;
             }
         }
@@ -340,6 +340,7 @@ Status PointQueryExecutor::_output_data() {
     } else {
         _response->set_empty_batch(true);
     }
+    _profile_metrics.result_data_bytes = _result_block->bytes();
     _reusable->return_block(_result_block);
     return Status::OK();
 }
