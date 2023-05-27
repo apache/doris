@@ -233,7 +233,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         brpc::ClosureGuard closure_guard(done);
-        auto st = _exec_env->load_channel_mgr()->open(*request);
+        auto st = _exec_env->load_channel_mgr()->open(*request, response);
         if (!st.ok()) {
             LOG(WARNING) << "load channel open failed, message=" << st << ", id=" << request->id()
                          << ", index_id=" << request->index_id()

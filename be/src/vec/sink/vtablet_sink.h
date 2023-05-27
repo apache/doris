@@ -289,6 +289,8 @@ public:
 protected:
     void _close_check();
     void _cancel_with_msg(const std::string& msg);
+    void _refresh_load_wait_time(
+            const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>& response);
 
     VOlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;

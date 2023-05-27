@@ -58,7 +58,7 @@ public:
     ~LoadChannel();
 
     // open a new load channel if not exist
-    Status open(const PTabletWriterOpenRequest& request);
+    Status open(const PTabletWriterOpenRequest& request, PTabletWriterOpenResult* response);
 
     Status open_partition(const OpenPartitionRequest& params);
 

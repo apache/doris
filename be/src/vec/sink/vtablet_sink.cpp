@@ -374,6 +374,24 @@ void VNodeChannel::open() {
     request.release_schema();
 }
 
+void VNodeChannel::_refresh_load_wait_time(
+        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>& response) {
+    int64_t max_rowset_num_gap = 0;
+    // if any one tablet is under high load pressure, we would make the whole procedure
+    // sleep to prevent the corresponding BE return -235
+    max_rowset_num_gap = std::accumulate(
+            response.begin(), response.end(), max_rowset_num_gap, [](int64_t acc, auto& load_info) {
+                int64_t rowset_num_gap =
+                        load_info.current_rowset_nums() - (load_info.max_config_rowset_nums() / 2);
+                return std::max(acc, rowset_num_gap);
+            });
+    // to slow down the high load pressure
+    auto t = std::min(((max_rowset_num_gap + 99) / 100) * 100, config::max_load_pressure_wait_time);
+    if (UNLIKELY(t > 0)) {
+        _load_pressure_wait_time.store(t);
+    }
+}
+
 Status VNodeChannel::open_wait() {
     _open_closure->join();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
@@ -398,6 +416,9 @@ Status VNodeChannel::open_wait() {
                                      berror(error_code), error_text);
     }
     Status status(_open_closure->result.status());
+    if (status.ok()) {
+        _refresh_load_wait_time(_open_closure->result.tablet_load_rowset_num_infos());
+    }
     if (_open_closure->unref()) {
         delete _open_closure;
     }
@@ -443,6 +464,7 @@ Status VNodeChannel::open_wait() {
             return;
         }
         SCOPED_ATTACH_TASK(_state);
+        _refresh_load_wait_time(result.tablet_load_rowset_num_infos());
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first
@@ -486,21 +508,6 @@ Status VNodeChannel::open_wait() {
                     }
                 }
                 _add_batches_finished = true;
-            }
-            auto& tablet_load_infos = result.tablet_load_rowset_num_infos();
-            int32_t max_rowset_num_gap = 0;
-            // if any one tablet is under high load pressure, we would make the whole procedure
-            // sleep to prevent the corresponding BE return -235
-            std::for_each(tablet_load_infos.begin(), tablet_load_infos.end(),
-                          [&max_rowset_num_gap](auto& load_info) {
-                              int32_t rowset_num_gap = load_info.current_rowset_nums() -
-                                                       (load_info.max_config_rowset_nums() / 2);
-                              max_rowset_num_gap = std::max(max_rowset_num_gap, rowset_num_gap);
-                          });
-            // don't sleep too long, at most sleep 400ms to slow down the high load pressure
-            auto t = std::min(((max_rowset_num_gap + 100) / 100) * 100, 400);
-            if (UNLIKELY(t > 0)) {
-                _load_pressure_wait_time = t;
             }
         } else {
             _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",

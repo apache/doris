@@ -18,6 +18,7 @@
 #include "runtime/tablets_channel.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <time.h>
@@ -33,6 +34,7 @@
 
 #include "common/logging.h"
 #include "exec/tablet_info.h"
+#include "olap/tablet_manager.h"
 #include "olap/delta_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
@@ -88,7 +90,7 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
-Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
+Status TabletsChannel::open(const PTabletWriterOpenRequest& request, PTabletWriterOpenResult* response) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -107,7 +109,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _closed_senders.Reset(_num_remaining_senders);
 
     if (!config::enable_lazy_open_partition) {
-        RETURN_IF_ERROR(_open_all_writers(request));
+        RETURN_IF_ERROR(_open_all_writers(request, response));
     } else {
         _build_partition_tablets_relation(request);
     }
@@ -300,7 +302,7 @@ void TabletsChannel::get_active_memtable_mem_consumption(
 }
 
 // Old logic,used for opening all writers of all partitions.
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request, PTabletWriterOpenResult* response) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (auto& index : _schema->indexes()) {
@@ -313,6 +315,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     if (index_slots == nullptr) {
         Status::InternalError("unknown index id, key={}", _key.to_string());
     }
+    auto tablet_load_infos = response->mutable_tablet_load_rowset_num_infos();
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
         wrequest.index_id = request.index_id();
@@ -326,7 +329,17 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
-
+        TTabletId tid = tablet.tablet_id();
+        TabletSharedPtr tablet_sptr = StorageEngine::instance()->tablet_manager()->get_tablet(tid);
+        if (UNLIKELY(tablet_sptr == nullptr)) {
+            continue;
+        }
+        if (auto version_cnt = tablet_sptr->version_count();
+            UNLIKELY(version_cnt > (config::max_tablet_version_num / 2))) {
+            auto load_info = tablet_load_infos->Add();
+            load_info->set_current_rowset_nums(version_cnt);
+            load_info->set_max_config_rowset_nums(config::max_tablet_version_num);
+        }
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
         if (!st.ok()) {

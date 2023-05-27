@@ -96,6 +96,7 @@ message PTabletWriterOpenRequest {
 
 message PTabletWriterOpenResult {
     required PStatus status = 1;
+    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 2;
 };
 
 message OpenPartitionRequest {
