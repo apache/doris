@@ -57,7 +57,7 @@ public class LdapUserInfo {
     }
 
     // The password needs to be checked by LdapManager for updated cache, so it is visible in the package.
-    boolean isSetPasswd() {
+    public boolean isSetPasswd() {
         return isSetPasswd;
     }
 
