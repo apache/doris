@@ -256,6 +256,8 @@ E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
 E(PIP_WAIT_FOR_SC, -3121);
+E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
+E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
@@ -573,6 +575,15 @@ inline std::string Status::to_string() const {
 
 template <typename T>
 using Result = expected<T, Status>;
+
+#define RETURN_IF_ERROR_RESULT(stmt)                \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            return unexpected(std::move(_status_)); \
+        }                                           \
+    } while (false)
+
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

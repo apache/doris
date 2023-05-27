@@ -291,6 +291,8 @@ public:
 
     bool check_rowset_segment();
 
+    [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
+
 protected:
     friend class RowsetFactory;
 
@@ -307,9 +309,6 @@ protected:
 
     // release resources in this api
     virtual void do_close() = 0;
-
-    // allow subclass to add custom logic when rowset is being published
-    virtual void make_visible_extra(Version version) {}
 
     virtual bool check_current_rowset_segment() = 0;
 

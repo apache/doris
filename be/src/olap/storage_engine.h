@@ -290,6 +290,7 @@ private:
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
+    void _gc_binlogs();
 
 private:
     struct CompactionCandidate {

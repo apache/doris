@@ -412,8 +412,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
-        RETURN_IF_ERROR(client->execute(&file_list_str));
-        return Status::OK();
+        return client->execute(&file_list_str);
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
     std::vector<string> file_name_list =

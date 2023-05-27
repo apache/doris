@@ -1247,10 +1247,6 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-Status Tablet::set_partition_id(int64_t partition_id) {
-    return _tablet_meta->set_partition_id(partition_id);
-}
-
 TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
@@ -3222,4 +3218,41 @@ bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now)
     return false;
 }
 
+std::pair<std::string, int64_t> Tablet::get_binlog_info(std::string_view binlog_version) const {
+    return RowsetMetaManager::get_binlog_info(_data_dir->get_meta(), tablet_uid(), binlog_version);
+}
+
+std::string Tablet::get_binlog_rowset_meta(std::string_view binlog_version,
+                                           std::string_view rowset_id) const {
+    return RowsetMetaManager::get_binlog_rowset_meta(_data_dir->get_meta(), tablet_uid(),
+                                                     binlog_version, rowset_id);
+}
+
+std::string Tablet::get_segment_filepath(std::string_view rowset_id,
+                                         std::string_view segment_index) const {
+    return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
+}
+
+std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
+    const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
+    std::vector<std::string> binlog_filepath;
+    for (int i = 0; i < num_segments; ++i) {
+        // TODO(Drogon): rewrite by filesystem path
+        auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+        binlog_filepath.emplace_back(fmt::format("{}/_binlog/{}", _tablet_path, segment_file));
+    }
+    return binlog_filepath;
+}
+
+bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
+    return !_data_dir->reach_capacity_limit(total_binlog_size);
+}
+
+bool Tablet::is_enable_binlog() {
+    return config::enable_feature_binlog && tablet_meta()->binlog_config().is_enable();
+}
+
+void Tablet::set_binlog_config(BinlogConfig binlog_config) {
+    tablet_meta()->set_binlog_config(std::move(binlog_config));
+}
 } // namespace doris

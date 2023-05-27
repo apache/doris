@@ -202,5 +202,26 @@ suite("test_point_query") {
         sql """prepare stmt2 from  select * from ${tableName} where k1 = % and k2 = % and k3 = %""" 
         qt_sql """execute stmt2 using (1231, 119291.11, 'ddd')"""
         qt_sql """execute stmt2 using (1237, 120939.11130, 'a    ddd')"""
+        tableName = "test_query"
+        sql """DROP TABLE IF EXISTS ${tableName}"""
+        sql """CREATE TABLE ${tableName} (
+                `customer_key` bigint(20) NULL,
+                `customer_btm_value_0` text NULL,
+                `customer_btm_value_1` text NULL,
+                `customer_btm_value_2` text NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`customer_key`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`customer_key`) BUCKETS 16
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "store_row_column" = "true",
+            "enable_unique_key_merge_on_write" = "true",
+            "disable_auto_compaction" = "false"
+            );"""
+        sql """insert into ${tableName} values (0, "1", "2", "3")"""
+        qt_sql "select * from test_query where customer_key = 0"
     }
 }

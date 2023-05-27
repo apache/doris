@@ -222,8 +222,8 @@ Status OrcReader::_create_file_reader() {
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &inner_reader,
                 io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
-        _file_input_stream.reset(
-                new ORCFileInputStream(_scan_range.path, inner_reader, &_statistics, _io_ctx));
+        _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader,
+                                                        &_statistics, _io_ctx, _profile));
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -1320,6 +1320,28 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     data.numElements = new_size;
     return Status::OK();
+}
+
+void ORCFileInputStream::beforeReadStripe(
+        std::unique_ptr<orc::StripeInformation> current_strip_information,
+        std::vector<bool> selected_columns) {
+    // Generate prefetch ranges, build stripe file reader.
+    uint64_t offset = current_strip_information->getOffset();
+    std::vector<io::PrefetchRange> prefetch_ranges;
+    for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
+         ++stream_id) {
+        std::unique_ptr<orc::StreamInformation> stream =
+                current_strip_information->getStreamInformation(stream_id);
+        uint32_t columnId = stream->getColumnId();
+        uint64_t length = stream->getLength();
+        if (selected_columns[columnId]) {
+            doris::io::PrefetchRange prefetch_range = {offset, offset + length};
+            prefetch_ranges.emplace_back(std::move(prefetch_range));
+        }
+        offset += length;
+    }
+    // The underlying page reader will prefetch data in column.
+    _file_reader.reset(new io::MergeRangeFileReader(_profile, _file_reader, prefetch_ranges));
 }
 
 } // namespace doris::vectorized

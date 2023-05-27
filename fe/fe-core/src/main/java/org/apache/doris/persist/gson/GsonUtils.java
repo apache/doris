@@ -30,6 +30,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
@@ -49,6 +50,7 @@ import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -82,6 +84,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Range;
 import com.google.common.collect.Table;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
@@ -238,7 +241,9 @@ public class GsonUtils {
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
-            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
+            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
+            .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
