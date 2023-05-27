@@ -115,7 +115,7 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd, String remoteIp, List<UserIdentity> currentUser) {
         if (checkUserPasswd(fullName, passwd)) {
-            currentUser.add(UserIdentity.createAnalyzedUserIdentWithIp(fullName, remoteIp));
+            currentUser.addAll(Env.getCurrentEnv().getAuth().getUserIdentityForLdap(fullName, remoteIp));
             return true;
         }
         return false;
