@@ -20,14 +20,13 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.BlockingCounter;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -36,8 +35,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -65,12 +62,12 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
 
     @Test
     public void testExpiredJobCancellation() throws Exception {
-        AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.COLUMN)
+        AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfo.Builder().jobId(0).taskId(0)
+                .catalogName("internal").dbName("default_cluster:analysis_job_test").tblName("t1")
+                .colName("col1").jobType(JobType.MANUAL)
+                .analysisMode(AnalysisMode.FULL)
+                .analysisMethod(AnalysisMethod.FULL)
+                .analysisType(AnalysisType.COLUMN)
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
@@ -98,15 +95,13 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
     @Test
     public void testTaskExecution() throws Exception {
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
-        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
-        colToPartitions.put("col1", Collections.singleton("t1"));
-        AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.COLUMN)
-                .setColToPartitions(colToPartitions)
+        AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfo.Builder().jobId(0).taskId(0)
+                .catalogName("internal").dbName("default_cluster:analysis_job_test").tblName("t1")
+                .colName("col1").jobType(JobType.MANUAL)
+                .analysisMode(AnalysisMode.FULL)
+                .analysisMethod(AnalysisMethod.FULL)
+                .analysisType(AnalysisType.COLUMN)
+                .partitions(Collections.singleton("t1"))
                 .build();
         OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskInfo);
         new MockUp<AnalysisTaskScheduler>() {

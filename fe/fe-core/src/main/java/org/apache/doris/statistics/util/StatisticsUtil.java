@@ -39,6 +39,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -49,7 +50,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
@@ -58,6 +59,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -73,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Function;
@@ -114,14 +118,16 @@ public class StatisticsUtil {
         }
     }
 
-    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
-            throws TException {
+    public static List<AnalysisJobInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
+            throws TException, DdlException {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return Collections.emptyList();
         }
-        return resultBatches.stream()
-                .map(AnalysisTaskInfo::fromResultRow)
-                .collect(Collectors.toList());
+        List<AnalysisJobInfo> analysisJobInfos = new ArrayList<>();
+        for (ResultRow resultBatch : resultBatches) {
+            analysisJobInfos.add(AnalysisJobInfo.fromResultRow(resultBatch));
+        }
+        return analysisJobInfos;
     }
 
     public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
@@ -390,6 +396,14 @@ public class StatisticsUtil {
                 ));
     }
 
+    public static Set<Long> getPartitionIds(TableIf table) {
+        return table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .filter(Objects::nonNull)
+                .map(Partition::getId)
+                .collect(Collectors.toSet());
+    }
+
     public static Map<Long, String> getPartitionIdToName(TableIf table) {
         return table.getPartitionNames().stream()
                 .map(table::getPartition)
@@ -399,7 +413,14 @@ public class StatisticsUtil {
                 ));
     }
 
+    public static <T> String joinElementsToString(Collection<T> values) {
+        return joinElementsToString(values, VALUES_DELIMITER);
+    }
+
     public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
         StringJoiner builder = new StringJoiner(delimiter);
         values.forEach(v -> builder.add(String.valueOf(v)));
         return builder.toString();
@@ -455,5 +476,22 @@ public class StatisticsUtil {
             double healthCoefficient = (double) (totalRows - updatedRows) / (double) totalRows;
             return (int) (healthCoefficient * 100.0);
         }
+    }
+
+    public static <T> String getColToPartitionStr(Map<String, Set<T>> colToPartitions) {
+        if (colToPartitions == null || colToPartitions.isEmpty()) {
+            return "";
+        }
+        Gson gson = new Gson();
+        return gson.toJson(colToPartitions);
+    }
+
+    public static Map<String, Set<Long>> getColToPartition(String colToPartitionStr) {
+        if (isNullOrEmpty(colToPartitionStr)) {
+            return null;
+        }
+        Gson gson = new Gson();
+        java.lang.reflect.Type type = new TypeToken<Map<String, Set<Long>>>() {}.getType();
+        return gson.fromJson(colToPartitionStr, type);
     }
 }

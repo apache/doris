@@ -41,13 +41,20 @@ suite("test_analyze_stats_p1") {
     def tblSchema = "`c_id`, `c_boolean`, `c_int`, `c_float`, `c_double`, `c_decimal`, `c_varchar`, `c_datev2`"
     def tblColumnNames = """ "c_id", "c_boolean", "c_int", "c_float", "c_double", "c_decimal", "c_varchar", "c_datev2" """
     def analysisJobSchema = "`tbl_name`, `col_name`, `job_type`, `analysis_type`, `analysis_mode`, `analysis_method`, " +
-            "`schedule_type`, `state` , `sample_percent`, `sample_rows`, `max_bucket_num`, `period_time_in_ms`, col_partitions"
+            "`schedule_type`, `state` , `sample_percent`, `sample_rows`, `max_bucket_num`, `period_time_in_ms`"
+    def analysisTaskSchema = "`tbl_name`, `col_name`, `job_type`, `analysis_type`, `analysis_mode`, `analysis_method`, " +
+            "`schedule_type`, `state` , `sample_percent`, `sample_rows`, `max_bucket_num`, `period_time_in_ms`, partitions"
     def colStatisticsSchema = "`col_id`, `count`, `ndv`, `null_count`, `min`, `max`, `data_size_in_bytes`"
     def colHistogramSchema = "`col_id`, `sample_rate`, `buckets`"
 
     def checkAnalysisManualJobSql = """
         SELECT $analysisJobSchema  FROM ${analysisJobsTblName} 
-        WHERE `tbl_name` = "$tblName" AND `job_type` = "MANUAL";
+        WHERE `tbl_name` = "$tblName" AND `job_type` = "MANUAL" AND task_id IS NULL;
+    """
+
+    def checkAnalysisManualTaskSql = """
+        SELECT $analysisTaskSchema  FROM ${analysisJobsTblName} 
+        WHERE `tbl_name` = "$tblName" AND `job_type` = "MANUAL" AND task_id IS NOT NULL;
     """
 
     def checkColStatisticsSql = """
@@ -272,6 +279,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the asynchronous analysis results are as expected
     order_qt_check_analysis_job_in_test_1_1 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_1_1 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_1_1 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_1_1 checkColStatisticsSql
     order_qt_check_histogram_stats_in_test_1_1 checkColHistogramSql
@@ -298,6 +306,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the synchronous analysis results are as expected
     order_qt_check_analysis_job_in_test_1_2 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_1_2 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_1_2 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_1_2 checkColStatisticsSql
     order_qt_check_histogram_stats_in_test_1_2 checkColHistogramSql
@@ -331,6 +340,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the sampled analysis results are as expected
     order_qt_check_analysis_job_in_test_1_3 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_1_3 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_1_3 checkTblStatisticsSql
     order_qt_check_column_stats_cnt_in_test_1_3 checkColStatisticsCntSql
     order_qt_check_histogram_stats_cnt_in_test_1_3 checkColHistogramCntSql
@@ -365,6 +375,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the sampled analysis results are as expected
     order_qt_check_analysis_job_in_test_2_1 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_2_1 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_2_1 checkTblStatisticsSql
     order_qt_check_column_stats_cnt_in_test_2_1 checkColStatisticsCntSql
     order_qt_check_histogram_stats_cnt_in_test_2_1 checkColHistogramCntSql
@@ -391,6 +402,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the sampled analysis results are as expected
     order_qt_check_analysis_job_in_test_2_2 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_2_2 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_2_2 checkTblStatisticsSql
     order_qt_check_column_stats_cnt_in_test_2_2 checkColStatisticsCntSql
     order_qt_check_histogram_stats_cnt_in_test_2_2 checkColHistogramCntSql
@@ -424,6 +436,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the incremental analysis results are as expected
     order_qt_check_analysis_job_in_test_3_1 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_1 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_1 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_1 checkColStatisticsSql
 
@@ -442,6 +455,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the original analysis results are as expected
     order_qt_check_analysis_job_in_test_3_2 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_2 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_2 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_2 checkColStatisticsSql
 
@@ -474,6 +488,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the incremental analysis results are as expected
     order_qt_check_analysis_job_in_test_3_3 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_3 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_3 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_3 checkColStatisticsSql
 
@@ -503,6 +518,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the incremental analysis results are as expected
     order_qt_check_analysis_job_in_test_3_4 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_4 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_4 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_4 checkColStatisticsSql
 
@@ -529,6 +545,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the incremental analysis results are as expected
     order_qt_check_analysis_job_in_test_3_5 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_5 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_5 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_5 checkColStatisticsSql
 
@@ -551,6 +568,7 @@ suite("test_analyze_stats_p1") {
 
     // Check whether the incremental analysis results are as expected
     order_qt_check_analysis_job_in_test_3_6 checkAnalysisManualJobSql
+    order_qt_check_analysis_task_in_test_3_6 checkAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_3_6 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_3_6 checkColStatisticsSql
     /************************************* Test3: Incremental analysis End *************************************/
@@ -714,14 +732,14 @@ suite("test_analyze_stats_p1") {
     """
 
     // Just check the tasks that the task type is manual (jobs may change)
-    def checkPeriodicAnalysisManualJobSql = """
-        SELECT $analysisJobSchema  FROM ${analysisJobsTblName} 
-        WHERE `tbl_name` = "$tblName" AND `task_id` != -1 
+    def checkPeriodicAnalysisManualTaskSql = """
+        SELECT $analysisTaskSchema  FROM ${analysisJobsTblName} 
+        WHERE `tbl_name` = "$tblName" AND `task_id` IS NOT NULL 
         AND `job_type` = "MANUAL" AND `schedule_type` = "PERIOD" AND `state` = "FINISHED";
     """
 
     // Check whether the automatic analysis results are as expected
-    order_qt_check_analysis_job_in_test_5_0 checkPeriodicAnalysisManualJobSql
+    order_qt_check_analysis_Task_in_test_5_0 checkPeriodicAnalysisManualTaskSql
     // order_qt_check_table_stats_cnt_in_test_5_0 checkTblStatisticsSql
     order_qt_check_column_stats_in_test_5_0 checkColStatisticsSql
     order_qt_check_histogram_stats_in_test_5_0 checkColHistogramSql
@@ -734,14 +752,14 @@ suite("test_analyze_stats_p1") {
     assertTrue(isSqlValueEqualToTarget(checkColStatisticsCntSql, "0", 10000, 60))
     assertTrue(isSqlValueEqualToTarget(checkColHistogramCntSql, "0", 10000, 60))
 
-    def checkPeriodicSystemJobCntSql = """
+    def checkPeriodicSystemTaskCntSql = """
         SELECT COUNT(*) FROM ${analysisJobsTblName} 
-        WHERE `tbl_name` = "$tblName" AND `task_id` != -1 
+        WHERE `tbl_name` = "$tblName" AND `task_id` IS NOT NULL
         AND `job_type` = "SYSTEM" AND `schedule_type` = "PERIOD" AND `state` = "FINISHED";
     """
 
     // Wait for periodic analysis to complete
-    assertTrue(isSqlValueGreaterThanTarget(checkPeriodicSystemJobCntSql, 16, 10000, 60))
+    assertTrue(isSqlValueGreaterThanTarget(checkPeriodicSystemTaskCntSql, 16, 10000, 60))
     assertTrue(isSqlValueEqualToTarget(checkColStatisticsCntSql, "48", 10000, 60))
     assertTrue(isSqlValueEqualToTarget(checkColHistogramCntSql, "8", 10000, 60))
 

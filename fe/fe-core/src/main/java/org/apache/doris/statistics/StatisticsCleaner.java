@@ -197,7 +197,7 @@ public class StatisticsCleaner extends MasterDaemon {
         params.put("right", right);
         String sql = new StringSubstitutor(params).replace(deleteTemplate);
         if (taskOnly) {
-            sql += " AND task_id != -1";
+            sql += " AND task_id IS NOT NULL";
         }
         try {
             StatisticsUtil.execUpdate(sql);

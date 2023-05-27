@@ -79,12 +79,12 @@ public class StatisticsRepository {
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
             + " WHERE `id` = '${id}'";
 
-    private static final String PERSIST_ANALYSIS_TASK_SQL_TEMPLATE =
-            "INSERT INTO " + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
-                    + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}', '${tblName}', "
-                    + "'${colName}', '${indexId}', '${colPartitions}', '${jobType}', '${analysisType}', "
-                    + "'${analysisMode}', '${analysisMethod}', '${scheduleType}', '${state}', ${samplePercent}, "
-                    + "${sampleRows}, ${maxBucketNum}, ${periodTimeInMs}, ${lastExecTimeInMs}, '${message}')";
+    private static final String PERSIST_ANALYSIS_INFO_SQL_TEMPLATE = "INSERT INTO "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}', '${tblName}',"
+            + " '${colName}', '${indexId}', '${partitions}', '${jobType}', '${analysisType}',"
+            + " '${analysisMode}', '${analysisMethod}', '${scheduleType}', '${state}', ${samplePercent},"
+            + " ${sampleRows}, ${maxBucketNum}, ${periodTimeInMs}, ${lastExecTimeInMs}, '${message}')";
 
     private static final String INSERT_INTO_COLUMN_STATISTICS = "INSERT INTO "
             + FULL_QUALIFIED_COLUMN_STATISTICS_NAME + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, '${idxId}',"
@@ -95,7 +95,7 @@ public class StatisticsRepository {
 
     private static final String FIND_EXPIRED_ONCE_JOBS = "SELECT job_id FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
-            + " WHERE task_id = -1 AND ${now} - last_exec_time_in_ms  > "
+            + " WHERE task_id IS NULL AND ${now} - last_exec_time_in_ms  > "
             + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
             + " AND schedule_type = 'ONCE'"
             + " ORDER BY last_exec_time_in_ms"
@@ -103,7 +103,7 @@ public class StatisticsRepository {
 
     private static final String FIND_EXPIRED_AUTO_JOBS = "SELECT DISTINCT(job_id) FROM (SELECT job_id FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
-            + "WHERE task_id != -1 AND ${now} - last_exec_time_in_ms  > "
+            + "WHERE task_id IS NULL AND ${now} - last_exec_time_in_ms  > "
             + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
             + " AND schedule_type = 'PERIOD' OR schedule_type = 'AUTOMATIC'"
             + " ORDER BY last_exec_time_in_ms"
@@ -129,14 +129,14 @@ public class StatisticsRepository {
 
     private static final String FETCH_PERIODIC_ANALYSIS_JOB_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
-            + " WHERE task_id = -1 "
+            + " WHERE task_id IS NULL "
             + " AND schedule_type = 'PERIOD' "
             + " AND state = 'FINISHED' "
             + " AND (${currentTimeStamp} - last_exec_time_in_ms >= period_time_in_ms)";
 
     private static final String FETCH_AUTOMATIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
-            + " WHERE task_id = -1 "
+            + " WHERE task_id IS NULL "
             + " AND schedule_type = 'AUTOMATIC' "
             + " AND state = 'FINISHED' "
             + " AND last_exec_time_in_ms > 0";
@@ -270,30 +270,47 @@ public class StatisticsRepository {
         }
     }
 
-    public static void persistAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
+    public static <T extends AnalysisInfo> void persistAnalysisInfo(T info) throws Exception {
         Map<String, String> params = new HashMap<>();
-        params.put("jobId", String.valueOf(analysisTaskInfo.jobId));
-        params.put("taskId", String.valueOf(analysisTaskInfo.taskId));
-        params.put("catalogName", analysisTaskInfo.catalogName);
-        params.put("dbName", analysisTaskInfo.dbName);
-        params.put("tblName", analysisTaskInfo.tblName);
-        params.put("colName", analysisTaskInfo.colName == null ? "" : analysisTaskInfo.colName);
-        params.put("indexId", analysisTaskInfo.indexId == null ? "-1" : String.valueOf(analysisTaskInfo.indexId));
-        params.put("colPartitions", analysisTaskInfo.getColToPartitionStr());
-        params.put("jobType", analysisTaskInfo.jobType.toString());
-        params.put("analysisType", analysisTaskInfo.analysisType.toString());
-        params.put("analysisMode", analysisTaskInfo.analysisMode.toString());
-        params.put("analysisMethod", analysisTaskInfo.analysisMethod.toString());
-        params.put("scheduleType", analysisTaskInfo.scheduleType.toString());
-        params.put("state", analysisTaskInfo.state.toString());
-        params.put("samplePercent", String.valueOf(analysisTaskInfo.samplePercent));
-        params.put("sampleRows", String.valueOf(analysisTaskInfo.sampleRows));
-        params.put("maxBucketNum", String.valueOf(analysisTaskInfo.maxBucketNum));
-        params.put("periodTimeInMs", String.valueOf(analysisTaskInfo.periodTimeInMs));
-        params.put("lastExecTimeInMs", String.valueOf(analysisTaskInfo.lastExecTimeInMs));
+        params.put("jobId", String.valueOf(info.jobId));
+        params.put("catalogName", info.catalogName);
+        params.put("dbName", info.dbName);
+        params.put("tblName", info.tblName);
+        params.put("indexId", info.indexId == null ? "-1" : String.valueOf(info.indexId));
+        params.put("jobType", info.jobType.toString());
+        params.put("analysisType", info.analysisType.toString());
+        params.put("analysisMode", info.analysisMode.toString());
+        params.put("analysisMethod", info.analysisMethod.toString());
+        params.put("scheduleType", info.scheduleType.toString());
+        params.put("state", info.state.toString());
+        params.put("samplePercent", String.valueOf(info.samplePercent));
+        params.put("sampleRows", String.valueOf(info.sampleRows));
+        params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
+        params.put("lastExecTimeInMs", String.valueOf(info.lastExecTimeInMs));
         params.put("message", "");
-        StatisticsUtil.execUpdate(
-                new StringSubstitutor(params).replace(PERSIST_ANALYSIS_TASK_SQL_TEMPLATE));
+        if (info instanceof AnalysisJobInfo) {
+            AnalysisJobInfo jobInfo = (AnalysisJobInfo) info;
+            params.put("partitions", jobInfo.colToPartitions == null ? "NULL"
+                    : StatisticsUtil.getColToPartitionStr(jobInfo.colToPartitions));
+            params.put("periodTimeInMs", String.valueOf(jobInfo.periodTimeInMs));
+            params.put("taskId", "NULL");
+            params.put("colName", "NULL");
+        } else if (info instanceof AnalysisTaskInfo) {
+            AnalysisTaskInfo taskInfo = (AnalysisTaskInfo) info;
+            params.put("taskId", String.valueOf(taskInfo.taskId));
+            params.put("colName", taskInfo.colName);
+            params.put("partitions", StatisticsUtil.joinElementsToString(taskInfo.partitions));
+            params.put("periodTimeInMs", "NULL");
+        }
+        StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(PERSIST_ANALYSIS_INFO_SQL_TEMPLATE));
+    }
+
+    public static void persistAnalysisJob(AnalysisJobInfo jobInfo) throws Exception {
+        persistAnalysisInfo(jobInfo);
+    }
+
+    public static void persistAnalysisTask(AnalysisTaskInfo taskInfo) throws Exception {
+        persistAnalysisInfo(taskInfo);
     }
 
     public static void persistTableStats(Map<String, String> params) throws Exception {

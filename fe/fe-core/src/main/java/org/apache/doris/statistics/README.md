@@ -53,6 +53,7 @@ There may be compatibility issues if there are changes to the schema of the stat
 |StatisticsAutoAnalyzer|Mainly responsible for automatically analysing statistics. Generate analysis job info for AnalysisManager to execute, including periodic and automatic analysis jobs.|
 |StatisticsRepository|Most of the related SQL is defined here.|
 |StatisticsUtil|Mainly consists of helper methods, such as checking the status of stats-related tables.|
+|AnalysisInfo| Analysis-related information, including subclasses `AnalysisJobInfo` and `AnalysisTaskInfo`. `AnalysisJobInfo` describes the basic job information, automatic collection, periodic analysis will read this information to trigger the system analysis tasks; `AnalysisTaskInfo` is the specific task execution information.|
 
 ## Analyze execution flow
 ```mermaid
@@ -117,6 +118,10 @@ end
 # Test
 
 # Feature note
+
+20230516:
+1. Refactor the related code of `AnalysisTaskInfo` and add `AnalysisJobInfo`.
+2. Change the `col_partitions` field to `partitions`, which stores a mapping from column names to partitions when storing JobInfo and comma-separated partitions when storing TaskInfo.
 
 20230508:
 1. Add table level statistics, support `SHOW TABLE STATS` statement to show table level statistics.

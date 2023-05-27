@@ -221,13 +221,13 @@ public class InternalSchemaInitializer extends Thread {
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("job_id", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("task_id", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("task_id", TypeDef.create(PrimitiveType.BIGINT), true));
         columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(1024)));
         columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("col_name", TypeDef.createVarchar(1024)));
+        columnDefs.add(new ColumnDef("col_name", TypeDef.createVarchar(1024), true));
         columnDefs.add(new ColumnDef("index_id", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("col_partitions", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
+        columnDefs.add(new ColumnDef("partitions", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("job_type", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("analysis_type", TypeDef.createVarchar(32)));
         columnDefs.add(new ColumnDef("analysis_mode", TypeDef.createVarchar(32)));
@@ -237,7 +237,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("sample_percent", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("sample_rows", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("max_bucket_num", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("period_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("period_time_in_ms", TypeDef.create(PrimitiveType.BIGINT), true));
         columnDefs.add(new ColumnDef("last_exec_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("message", TypeDef.createVarchar(1024)));
         // TODO remove this code after the table structure is stable

@@ -52,24 +52,26 @@
 10005	false	55	55.0	55.55	55.5000	eee	2023-05-05
 
 -- !check_analysis_job_in_test_1_1 --
-test_analyze_tbl_p1		MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1		MANUAL	INDEX	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	0	{"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+test_analyze_tbl_p1	NULL	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	0
+test_analyze_tbl_p1	NULL	MANUAL	INDEX	FULL	FULL	ONCE	FINISHED	0	0	0	0
+
+-- !check_analysis_task_in_test_1_1 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	FULL	ONCE	FINISHED	0	0	128	\N	
 
 -- !check_column_stats_in_test_1_1 --
 c_boolean	10	1	3	0	0	10
@@ -133,6 +135,8 @@ c_varchar	0.0	{"num_buckets":5,"buckets":[{"lower":"aaa","upper":"aaa","ndv":1,"
 
 -- !check_analysis_job_in_test_1_2 --
 
+-- !check_analysis_task_in_test_1_2 --
+
 -- !check_column_stats_in_test_1_2 --
 c_boolean	10	1	3	0	0	10
 c_boolean	10	1	3	0	0	10
@@ -195,6 +199,8 @@ c_varchar	0.0	{"num_buckets":5,"buckets":[{"lower":"aaa","upper":"aaa","ndv":1,"
 
 -- !check_analysis_job_in_test_1_3 --
 
+-- !check_analysis_task_in_test_1_3 --
+
 -- !check_column_stats_cnt_in_test_1_3 --
 48
 
@@ -202,24 +208,26 @@ c_varchar	0.0	{"num_buckets":5,"buckets":[{"lower":"aaa","upper":"aaa","ndv":1,"
 8
 
 -- !check_analysis_job_in_test_2_1 --
-test_analyze_tbl_p1		MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1		MANUAL	INDEX	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0	{"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+test_analyze_tbl_p1	NULL	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	0
+test_analyze_tbl_p1	NULL	MANUAL	INDEX	FULL	SAMPLE	ONCE	FINISHED	0	40	0	0
+
+-- !check_analysis_task_in_test_2_1 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	0	40	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	128	\N	
 
 -- !check_column_stats_cnt_in_test_2_1 --
 48
@@ -228,24 +236,26 @@ test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	0	40	12
 8
 
 -- !check_analysis_job_in_test_2_2 --
-test_analyze_tbl_p1		MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1		MANUAL	INDEX	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0	{"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+test_analyze_tbl_p1	NULL	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	0
+test_analyze_tbl_p1	NULL	MANUAL	INDEX	FULL	SAMPLE	ONCE	FINISHED	80	0	0	0
+
+-- !check_analysis_task_in_test_2_2 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	SAMPLE	ONCE	FINISHED	80	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	128	\N	
 
 -- !check_column_stats_cnt_in_test_2_2 --
 48
@@ -254,15 +264,17 @@ test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	SAMPLE	ONCE	FINISHED	80	0	12
 8
 
 -- !check_analysis_job_in_test_3_1 --
-test_analyze_tbl_p1		MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+test_analyze_tbl_p1	NULL	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0
+
+-- !check_analysis_task_in_test_3_1 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
 
 -- !check_column_stats_in_test_3_1 --
 c_boolean	10	1	3	0	0	10
@@ -315,6 +327,8 @@ c_varchar	10	1	3	eee	eee	21
 c_varchar	50	5	15	aaa	eee	105
 
 -- !check_analysis_job_in_test_3_2 --
+
+-- !check_analysis_task_in_test_3_2 --
 
 -- !check_column_stats_in_test_3_2 --
 c_boolean	10	1	3	0	0	10
@@ -374,15 +388,17 @@ c_varchar	50	5	15	aaa	eee	105
 10006	true	44	44.0	44.44	44.4000	ddd	2023-05-06
 
 -- !check_analysis_job_in_test_3_3 --
-test_analyze_tbl_p1		MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["new_partition"],"c_varchar":["new_partition"],"c_float":["new_partition"],"c_decimal":["new_partition"],"c_double":["new_partition"],"c_id":["new_partition"],"c_int":["new_partition"],"c_boolean":["new_partition"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_boolean":["new_partition"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":["new_partition"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_decimal":["new_partition"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_double":["new_partition"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_float":["new_partition"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_id":["new_partition"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_int":["new_partition"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_varchar":["new_partition"]}
+test_analyze_tbl_p1	NULL	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0
+
+-- !check_analysis_task_in_test_3_3 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	new_partition
 
 -- !check_column_stats_in_test_3_3 --
 c_boolean	10	1	3	0	0	10
@@ -443,15 +459,17 @@ c_varchar	5	5	0	aaa	eee	15
 c_varchar	55	5	15	aaa	eee	120
 
 -- !check_analysis_job_in_test_3_4 --
-test_analyze_tbl_p1		MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":[],"c_varchar":[],"c_float":[],"c_decimal":[],"c_double":[],"c_id":[],"c_int":[],"c_boolean":[]}
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_boolean":[]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_datev2":[]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_decimal":[]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_double":[]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_float":[]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_id":[]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_int":[]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"c_varchar":[]}
+test_analyze_tbl_p1	NULL	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0
+
+-- !check_analysis_task_in_test_3_4 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	
 
 -- !check_column_stats_in_test_3_4 --
 c_boolean	10	1	3	0	0	10
@@ -556,8 +574,10 @@ c_varchar	50	5	15	aaa	eee	105
 0
 
 -- !check_analysis_job_in_test_3_5 --
-test_analyze_tbl_p1		MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"new_column":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	new_column	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0	{"new_column":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+test_analyze_tbl_p1	NULL	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	0
+
+-- !check_analysis_task_in_test_3_5 --
+test_analyze_tbl_p1	new_column	MANUAL	COLUMN	INCREMENTAL	FULL	ONCE	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
 
 -- !check_column_stats_in_test_3_5 --
 c_boolean	10	1	3	0	0	10
@@ -611,6 +631,8 @@ c_varchar	50	5	15	aaa	eee	105
 
 -- !check_analysis_job_in_test_3_6 --
 
+-- !check_analysis_task_in_test_3_6 --
+
 -- !check_column_stats_in_test_3_6 --
 c_boolean	10	1	3	0	0	10
 c_boolean	10	1	3	0	0	10
@@ -661,23 +683,23 @@ c_varchar	10	1	3	ddd	ddd	21
 c_varchar	10	1	3	eee	eee	21
 c_varchar	50	5	15	aaa	eee	105
 
--- !check_analysis_job_in_test_5_0 --
-test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	90000	{"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
-test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	90000	{"c_datev2":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_varchar":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_float":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_decimal":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_double":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_id":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_int":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"],"c_boolean":["p_20230501","p_20230502","p_20230503","p_20230504","p_20230505"]}
+-- !check_analysis_Task_in_test_5_0 --
+test_analyze_tbl_p1	c_boolean	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_boolean	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_datev2	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_datev2	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_decimal	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_decimal	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_double	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_double	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_float	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_float	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_id	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_id	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_int	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_int	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
+test_analyze_tbl_p1	c_varchar	MANUAL	COLUMN	FULL	FULL	PERIOD	FINISHED	0	0	0	\N	p_20230501,p_20230502,p_20230503,p_20230504,p_20230505
+test_analyze_tbl_p1	c_varchar	MANUAL	HISTOGRAM	FULL	FULL	PERIOD	FINISHED	0	0	128	\N	
 
 -- !check_column_stats_in_test_5_0 --
 c_boolean	10	1	3	0	0	10

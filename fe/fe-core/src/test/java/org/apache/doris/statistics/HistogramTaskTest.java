@@ -21,10 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -101,13 +101,13 @@ public class HistogramTaskTest extends TestWithFeService {
     @Test
     public void test2TaskExecution() throws Exception {
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
-        AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder()
-                .setJobId(0).setTaskId(0).setCatalogName("internal")
-                .setDbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").setTblName("t1")
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.HISTOGRAM)
+        AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfo.Builder()
+                .jobId(0).taskId(0).catalogName("internal")
+                .dbName(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test").tblName("t1")
+                .colName("col1").jobType(JobType.MANUAL)
+                .analysisMode(AnalysisMode.FULL)
+                .analysisMethod(AnalysisMethod.FULL)
+                .analysisType(AnalysisType.HISTOGRAM)
                 .build();
         HistogramTask task = new HistogramTask(analysisTaskInfo);
 

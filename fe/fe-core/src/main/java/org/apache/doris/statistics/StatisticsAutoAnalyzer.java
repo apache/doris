@@ -75,8 +75,8 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         }
         try {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisTaskInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
-            for (AnalysisTaskInfo jobInfo : jobInfos) {
+            List<AnalysisJobInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
+            for (AnalysisJobInfo jobInfo : jobInfos) {
                 analysisManager.createAnalysisJob(jobInfo);
             }
         } catch (TException | DdlException e) {
@@ -91,9 +91,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         }
         try {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisTaskInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
-            for (AnalysisTaskInfo jobInfo : jobInfos) {
-                AnalysisTaskInfo checkedJobInfo = checkAutomaticJobInfo(jobInfo);
+            List<AnalysisJobInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
+            for (AnalysisJobInfo jobInfo : jobInfos) {
+                AnalysisJobInfo checkedJobInfo = checkAutomaticJobInfo(jobInfo);
                 if (checkedJobInfo != null) {
                     analysisManager.createAnalysisJob(checkedJobInfo);
                 }
@@ -123,7 +123,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
      * @return new job info after check
      * @throws Throwable failed to check
      */
-    private AnalysisTaskInfo checkAutomaticJobInfo(AnalysisTaskInfo jobInfo) throws Throwable {
+    private AnalysisJobInfo checkAutomaticJobInfo(AnalysisJobInfo jobInfo) throws Throwable {
         long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
@@ -139,14 +139,14 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return null;
         }
 
-        Set<String> needRunPartitions = new HashSet<>();
-        Set<String> statsPartitions = jobInfo.colToPartitions.values()
+        Set<Long> needRunPartitions = new HashSet<>();
+        Map<Long, Partition> idToPartition = StatisticsUtil.getIdToPartition(table);
+        Set<Long> statsPartIds = jobInfo.colToPartitions.values()
                 .stream()
                 .flatMap(Collection::stream)
                 .collect(Collectors.toSet());
-
-        checkAnalyzedPartitions(table, statsPartitions, needRunPartitions, lastExecTimeInMs);
-        checkNewPartitions(table, needRunPartitions, lastExecTimeInMs);
+        checkAnalyzedPartitions(idToPartition, statsPartIds, needRunPartitions, lastExecTimeInMs);
+        checkNewPartitions(idToPartition, needRunPartitions, lastExecTimeInMs);
 
         if (needRunPartitions.isEmpty()) {
             return null;
@@ -162,14 +162,14 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         return tblHealth < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
     }
 
-    private void checkAnalyzedPartitions(TableIf table, Set<String> statsPartitions,
-            Set<String> needRunPartitions, long lastExecTimeInMs) throws DdlException {
-        for (String statsPartition : statsPartitions) {
-            Partition partition = table.getPartition(statsPartition);
+    private void checkAnalyzedPartitions(Map<Long, Partition> tblIdToPartition, Set<Long> statsPartIds,
+            Set<Long> needRunPartitions, long lastExecTimeInMs) throws DdlException {
+        for (long statsPartId : statsPartIds) {
+            Partition partition = tblIdToPartition.get(statsPartId);
             if (partition == null) {
                 // Partition that has been deleted also need to
                 // be reanalyzed (delete partition statistics later)
-                needRunPartitions.add(statsPartition);
+                needRunPartitions.add(statsPartId);
                 continue;
             }
             TableStatistic partitionStats = StatisticsRepository
@@ -178,7 +178,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 continue;
             }
             if (needReanalyzePartition(lastExecTimeInMs, partition, partitionStats)) {
-                needRunPartitions.add(partition.getName());
+                needRunPartitions.add(partition.getId());
             }
         }
     }
@@ -194,29 +194,30 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         return partHealth < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
     }
 
-    private void checkNewPartitions(TableIf table, Set<String> needRunPartitions, long lastExecTimeInMs) {
-        Set<String> partitionNames = table.getPartitionNames();
-        partitionNames.removeAll(needRunPartitions);
+    private void checkNewPartitions(Map<Long, Partition> tblIdToPartition, Set<Long> needRunPartitions,
+            long lastExecTimeInMs) {
+        Set<Long> partIds = tblIdToPartition.keySet();
+        partIds.removeAll(needRunPartitions);
         needRunPartitions.addAll(
-                partitionNames.stream()
-                        .map(table::getPartition)
+                partIds.stream()
+                        .map(tblIdToPartition::get)
                         .filter(partition -> partition.getVisibleVersionTime() >= lastExecTimeInMs)
-                        .map(Partition::getName)
+                        .map(Partition::getId)
                         .collect(Collectors.toSet())
         );
     }
 
-    private AnalysisTaskInfo getAnalysisJobInfo(AnalysisTaskInfo jobInfo, TableIf table,
-            Set<String> needRunPartitions) {
-        Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
-        Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
+    private AnalysisJobInfo getAnalysisJobInfo(AnalysisJobInfo jobInfo, TableIf table,
+            Set<Long> needRunPartitions) {
+        Map<String, Set<Long>> newColToPartitions = Maps.newHashMap();
+        Map<String, Set<Long>> colToPartitions = jobInfo.colToPartitions;
         colToPartitions.keySet().forEach(colName -> {
             Column column = table.getColumn(colName);
             if (column != null) {
                 newColToPartitions.put(colName, needRunPartitions);
             }
         });
-        return new AnalysisTaskInfoBuilder(jobInfo)
-                .setColToPartitions(newColToPartitions).build();
+        return new AnalysisJobInfo.Builder(jobInfo)
+                .colToPartitions(newColToPartitions).build();
     }
 }
