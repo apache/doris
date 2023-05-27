@@ -111,6 +111,7 @@ public class ConnectContextTest {
         Assert.assertEquals("Ping", row.get(5));
         Assert.assertEquals("1", row.get(6));
         Assert.assertEquals("", row.get(7));
+        Assert.assertEquals("", row.get(8));
 
         // Start time
         Assert.assertEquals(0, ctx.getStartTime());
