@@ -410,7 +410,52 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 #### Automatic collection
 
-To be added.
+Statistics can be "invalidated" when tables are changed, which can cause the optimizer to select the wrong execution plan.
+
+Table statistics may become invalid due to the following causes:
+
+- New field: The new field has no statistics
+- Field change: Original statistics are unavailable
+- Added zone: The new zone has no statistics
+- Zone change: The original statistics are invalid
+- data changes (insert data delete data | | change data) : the statistical information is error
+
+The main operations involved include:
+
+- update: updates the data
+- delete: deletes data
+- drop: deletes a partition
+- load: import data and add partitions
+- insert: inserts data and adds partitions
+- alter: Field change, partition change, or new partition
+
+Database, table, partition, field deletion, internal will automatically clear these invalid statistics. Adjusting the column order and changing the column type do not affect.
+
+The system determines whether to collect statistics again based on the health of the table (as defined above). By setting the health threshold, the system collects statistics about the table again when the health is lower than a certain value. To put it simply, if statistics are collected on a table and the data of a partition becomes more or less, or a partition is added or deleted, the statistics may be automatically collected. After the statistics are collected again, the statistics and health of the table are updated. 
+
+Currently, only tables that are configured by the user to automatically collect statistics will be collected, and statistics will not be automatically collected for other tables.
+
+Example:
+
+- Automatically analysis statistics for the 'example_tbl' table using the following syntax:
+
+```SQL
+-- use with auto
+mysql> ANALYZE TABLE stats_test.example_tbl WITH AUTO;
++--------+
+| job_id |
++--------+
+| 52539  |
++--------+
+
+-- configure automatic
+mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
++--------+
+| job_id |
++--------+
+| 52565  |
++--------+
+```
 
 ### Manage job
 
