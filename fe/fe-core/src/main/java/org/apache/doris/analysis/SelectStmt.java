@@ -1162,6 +1162,10 @@ public class SelectStmt extends QueryStmt {
             havingClauseAfterAnaylzed =
                     havingClauseAfterAnaylzed.substitute(countAllMap, analyzer, false);
         }
+        if (sortInfo != null) {
+            // the ordering exprs must substitute in the same way as resultExprs
+            sortInfo.substituteOrderingExprs(countAllMap, analyzer);
+        }
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 
