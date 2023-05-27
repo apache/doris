@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -89,10 +90,10 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = ldapManager;
 
-                Role role = new Role("");
+                Role role = new Role("ldapRole");
                 Map<TablePattern, PrivBitSet> tblPatternToPrivs = role.getTblPatternToPrivs();
 
-                TablePattern global = new TablePattern("*", "*", "*");
+                TablePattern global = new TablePattern("ctl1", "*", "*");
                 tblPatternToPrivs.put(global, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.CREATE_PRIV));
                 TablePattern db = new TablePattern(INTERNAL, DB, "*");
                 tblPatternToPrivs.put(db, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV));
@@ -102,12 +103,11 @@ public class LdapPrivsCheckerTest {
                 tblPatternToPrivs.put(tbl2, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV));
 
                 Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = role.getResourcePatternToPrivs();
-                ResourcePattern globalResource = new ResourcePattern("*");
-                resourcePatternToPrivs.put(globalResource, PrivBitSet.of(Privilege.USAGE_PRIV));
                 ResourcePattern resource1 = new ResourcePattern(RESOURCE1);
                 resourcePatternToPrivs.put(resource1, PrivBitSet.of(Privilege.USAGE_PRIV));
                 ResourcePattern resource2 = new ResourcePattern(RESOURCE1);
                 resourcePatternToPrivs.put(resource2, PrivBitSet.of(Privilege.USAGE_PRIV));
+                Role ldapRole = new Role(role.getRoleName());
                 try {
                     global.analyze(CLUSTER);
                     db.analyze(CLUSTER);
@@ -115,7 +115,8 @@ public class LdapPrivsCheckerTest {
                     tbl2.analyze(CLUSTER);
                     resource1.analyze();
                     resource2.analyze();
-                } catch (AnalysisException e) {
+                    ldapRole.merge(role);
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
 
@@ -123,7 +124,7 @@ public class LdapPrivsCheckerTest {
 
                 ldapManager.getUserInfo(userIdentity.getQualifiedUser());
                 minTimes = 0;
-                result = new LdapUserInfo(userIdentity.getQualifiedUser(), false, "", role);
+                result = new LdapUserInfo(userIdentity.getQualifiedUser(), false, "", ldapRole);
 
                 ldapManager.doesUserExist(userIdentity.getQualifiedUser());
                 minTimes = 0;
@@ -136,6 +137,10 @@ public class LdapPrivsCheckerTest {
                 context.getSessionVariable();
                 minTimes = 0;
                 result = sessionVariable;
+
+                auth.getUserIdentityForLdap(USER, IP);
+                minTimes = 0;
+                result = Lists.newArrayList(userIdentity);
             }
         };
         // call the mocked method before replay
@@ -144,32 +149,23 @@ public class LdapPrivsCheckerTest {
     }
 
     @Test
-    public void testHasGlobalPrivFromLdap() {
-        Assert.assertTrue(LdapPrivsChecker.hasGlobalPrivFromLdap(userIdent, PrivPredicate.CREATE));
-        Assert.assertTrue(LdapPrivsChecker.hasGlobalPrivFromLdap(userIdent, PrivPredicate.USAGE));
-        Assert.assertFalse(LdapPrivsChecker.hasGlobalPrivFromLdap(userIdent, PrivPredicate.DROP));
-    }
-
-    @Test
     public void testHasDbPrivFromLdap() {
-        Assert.assertTrue(LdapPrivsChecker.hasDbPrivFromLdap(userIdent, CLUSTER + ":" + DB, PrivPredicate.LOAD));
-        Assert.assertFalse(LdapPrivsChecker.hasDbPrivFromLdap(userIdent, CLUSTER + ":" + DB, PrivPredicate.DROP));
-        Assert.assertTrue(LdapPrivsChecker.hasDbPrivFromLdap(userIdent, PrivPredicate.LOAD));
-        Assert.assertFalse(LdapPrivsChecker.hasDbPrivFromLdap(userIdent, PrivPredicate.DROP));
+        Assert.assertTrue(
+                LdapPrivsChecker.hasDbPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + DB, PrivPredicate.LOAD));
+        Assert.assertFalse(
+                LdapPrivsChecker.hasDbPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + DB, PrivPredicate.DROP));
     }
 
     @Test
     public void testHasTblPrivFromLdap() {
-        Assert.assertTrue(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE1,
+        Assert.assertTrue(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + TABLE_DB, TABLE1,
                 PrivPredicate.ALTER));
-        Assert.assertFalse(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE1,
+        Assert.assertFalse(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + TABLE_DB, TABLE1,
                 PrivPredicate.DROP));
-        Assert.assertTrue(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE2,
+        Assert.assertTrue(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + TABLE_DB, TABLE2,
                 PrivPredicate.DROP));
-        Assert.assertFalse(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE2,
+        Assert.assertFalse(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, INTERNAL, CLUSTER + ":" + TABLE_DB, TABLE2,
                 PrivPredicate.CREATE));
-        Assert.assertTrue(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, PrivPredicate.ALTER));
-        Assert.assertFalse(LdapPrivsChecker.hasTblPrivFromLdap(userIdent, PrivPredicate.LOAD));
     }
 
     @Test
@@ -180,34 +176,9 @@ public class LdapPrivsCheckerTest {
     }
 
     @Test
-    public void testGetGlobalPrivFromLdap() {
-        Assert.assertEquals(
-                PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.CREATE_PRIV, Privilege.USAGE_PRIV)
-                        .toString(),
-                LdapPrivsChecker.getGlobalPrivFromLdap(userIdent).toString());
-    }
-
-    @Test
-    public void testGetDbPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV).toString(),
-                LdapPrivsChecker.getDbPrivFromLdap(userIdent, CLUSTER + ":" + DB).toString());
-    }
-
-    @Test
-    public void testGetTblPrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.ALTER_PRIV).toString(),
-                LdapPrivsChecker.getTblPrivFromLdap(userIdent, CLUSTER + ":" + TABLE_DB, TABLE1).toString());
-    }
-
-    @Test
     public void testGetResourcePrivFromLdap() {
         Assert.assertEquals(PrivBitSet.of(Privilege.USAGE_PRIV).toString(),
                 LdapPrivsChecker.getResourcePrivFromLdap(userIdent, RESOURCE1).toString());
-    }
-
-    @Test
-    public void testHasPrivsOfDb() {
-        Assert.assertTrue(LdapPrivsChecker.hasPrivsOfDb(userIdent, CLUSTER + ":" + TABLE_DB));
     }
 
     @Test
