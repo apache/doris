@@ -1311,34 +1311,40 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
                           << ", local_path=" << local_file_path
                           << ", txn_id=" << rowset_meta->txn_id();
-            PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
-                    indices_size.at(segment.first);
-            for (auto index_size : segment_indices_size.index_sizes()) {
-                auto index_id = index_size.indexid();
-                auto size = index_size.size();
-                std::string remote_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id);
-                std::string remote_inverted_index_file_url = construct_url(
-                        get_host_port(host, http_port), token, remote_inverted_index_file);
+            if (indices_size.find(segment.first) != indices_size.end()) {
+                PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
+                        indices_size.at(segment.first);
 
-                std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
-                st = download_file_action(remote_inverted_index_file_url, local_inverted_index_file,
-                                          estimate_timeout, size);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to pull rowset for slave replica. failed to download "
-                                    "file. url="
-                                 << remote_inverted_index_file_url
-                                 << ", local_path=" << local_inverted_index_file
-                                 << ", txn_id=" << rowset_meta->txn_id();
-                    _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
-                                                rowset_meta->tablet_id(), node_id, false);
-                    return;
+                for (auto index_size : segment_indices_size.index_sizes()) {
+                    auto index_id = index_size.indexid();
+                    auto size = index_size.size();
+                    std::string remote_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
+                                                                         index_id);
+                    std::string remote_inverted_index_file_url = construct_url(
+                            get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                    std::string local_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                    st = download_file_action(remote_inverted_index_file_url,
+                                              local_inverted_index_file, estimate_timeout, size);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to pull rowset for slave replica. failed to "
+                                        "download "
+                                        "file. url="
+                                     << remote_inverted_index_file_url
+                                     << ", local_path=" << local_inverted_index_file
+                                     << ", txn_id=" << rowset_meta->txn_id();
+                        _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                                    rowset_meta->tablet_id(), node_id, false);
+                        return;
+                    }
+                    VLOG_CRITICAL
+                            << "succeed to download inverted index file for slave replica. url="
+                            << remote_inverted_index_file_url
+                            << ", local_path=" << local_inverted_index_file
+                            << ", txn_id=" << rowset_meta->txn_id();
                 }
-                VLOG_CRITICAL << "succeed to download inverted index file for slave replica. url="
-                              << remote_inverted_index_file_url
-                              << ", local_path=" << local_inverted_index_file
-                              << ", txn_id=" << rowset_meta->txn_id();
             }
         }
 
