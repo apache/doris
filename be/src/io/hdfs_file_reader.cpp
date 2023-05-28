@@ -78,7 +78,8 @@ Status HdfsFileReader::open() {
 #ifdef USE_HADOOP_HDFS
         char* root_cause = hdfsGetLastExceptionRootCause();
         if (root_cause != nullptr) {
-            return Status::InternalError("fail to check path exist {}, reason: {}", _path, root_cause);
+            return Status::InternalError("fail to check path exist {}, reason: {}", _path,
+                                         root_cause);
         }
 #endif
         if (_fs_handle->from_cache) {
@@ -92,7 +93,8 @@ Status HdfsFileReader::open() {
 #ifdef USE_HADOOP_HDFS
                 root_cause = hdfsGetLastExceptionRootCause();
                 if (root_cause != nullptr) {
-                    return Status::InternalError("fail to check path exist {}, reason: {}", _path, root_cause);
+                    return Status::InternalError("fail to check path exist {}, reason: {}", _path,
+                                                 root_cause);
                 }
 #endif
                 // code != 0 and root_cause is nullptr, mean this file does not exist.
