@@ -78,6 +78,7 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
     _profile->add_child(memory_usage, false, nullptr);
+    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
     _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
@@ -208,6 +209,7 @@ Status TabletsChannel::close(
             // so that there is enough time to collect completed replica. Otherwise, the task may
             // timeout and fail even though most of the replicas are completed. Here we set 0.9
             // times the timeout as the maximum waiting time.
+            SCOPED_TIMER(_slave_replica_timer);
             while (need_wait_writers.size() > 0 &&
                    (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
                 std::set<DeltaWriter*>::iterator it;

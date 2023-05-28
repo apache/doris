@@ -188,6 +188,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // 2. check if mem consumption exceed limit
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
+        SCOPED_TIMER(channel->get_handle_mem_limit_timer());
         _handle_mem_exceed_limit();
     }
 

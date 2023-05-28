@@ -89,16 +89,16 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     profile->add_child(_profile, false, nullptr);
     _lock_timer = ADD_TIMER(_profile, "LockTime");
-    _sort_timer = ADD_TIMER(_profile, "SortTime");
-    _agg_timer = ADD_TIMER(_profile, "AggTime");
+    _sort_timer = ADD_TIMER(_profile, "MemTableSortTime");
+    _agg_timer = ADD_TIMER(_profile, "MemTableAggTime");
     _memtable_duration_timer = ADD_TIMER(_profile, "MemTableDurationTime");
     _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTime");
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
-    _wait_flush_timer = ADD_TIMER(_profile, "WaitFlushTime");
-    _put_into_output_timer = ADD_TIMER(_profile, "PutIntoOutputTime");
-    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
-    _sort_times = ADD_COUNTER(_profile, "SortTimes", TUnit::UNIT);
-    _agg_times = ADD_COUNTER(_profile, "AggTimes", TUnit::UNIT);
+    _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
+    _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
+    _delete_bitmap_timer = ADD_TIMER(_profile, "MemTableDeleteBitmapTime");
+    _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
+    _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
+    _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -391,6 +391,7 @@ Status DeltaWriter::close() {
 
 Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
+    SCOPED_TIMER(_close_wait_timer);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -585,7 +586,6 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
-    SCOPED_TIMER(_slave_replica_timer);
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     node_info.host(), node_info.async_internal_port());

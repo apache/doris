@@ -206,13 +206,13 @@ private:
     RuntimeProfile::Counter* _sort_timer = nullptr;
     RuntimeProfile::Counter* _agg_timer = nullptr;
     RuntimeProfile::Counter* _wait_flush_timer = nullptr;
-    RuntimeProfile::Counter* _slave_replica_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _segment_writer_timer = nullptr;
     RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
     RuntimeProfile::Counter* _put_into_output_timer = nullptr;
     RuntimeProfile::Counter* _sort_times = nullptr;
     RuntimeProfile::Counter* _agg_times = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
 
     MonotonicStopWatch _lock_watch;
 

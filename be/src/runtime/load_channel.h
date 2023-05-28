@@ -119,6 +119,7 @@ public:
     }
 
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
+    RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
 protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
@@ -160,6 +161,7 @@ private:
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;
