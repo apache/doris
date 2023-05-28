@@ -85,26 +85,7 @@ public:
         _field_name = std::wstring(field_name.begin(), field_name.end());
     }
 
-    ~InvertedIndexColumnWriterImpl() override {
-        // The close function is expected to be called when the column writer finishes its operations.
-        // If it's not called, it indicates that an unexpected event has occurred.
-        // This destructor checks if the close() function has been called. If not, it attempts to release memory.
-        if (_index_writer) {
-            _CLDELETE(_index_writer)
-        }
-
-        if (_doc) {
-            _CLDELETE(_doc)
-        }
-
-        if (_analyzer) {
-            _CLDELETE(_analyzer)
-        }
-
-        if (_char_string_reader) {
-            _CLDELETE(_char_string_reader)
-        }
-    };
+    ~InvertedIndexColumnWriterImpl() override = default;
 
     Status init() override {
         try {
@@ -131,23 +112,6 @@ public:
                         _segment_file_name, _index_meta->index_id());
                 InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
             }
-            _CLLDELETE(_index_writer)
-            _index_writer = nullptr;
-        }
-
-        if (_doc) {
-            _CLLDELETE(_doc)
-            _doc = nullptr;
-        }
-
-        if (_analyzer) {
-            _CLLDELETE(_analyzer)
-            _analyzer = nullptr;
-        }
-
-        if (_char_string_reader) {
-            _CLDELETE(_char_string_reader)
-            _char_string_reader = nullptr;
         }
     }
 
@@ -178,24 +142,24 @@ public:
             }
         }
 
-        _char_string_reader = _CLNEW lucene::util::SStringReader<char>;
-        _doc = _CLNEW lucene::document::Document();
+        _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
+        _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
         if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
-            _analyzer = _CLNEW lucene::analysis::standard::StandardAnalyzer();
+            _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-            _analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<char>();
+            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
             auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
             chinese_analyzer->setLanguage(L"chinese");
             chinese_analyzer->initDict(config::inverted_index_dict_path);
-            _analyzer = chinese_analyzer;
+            _analyzer.reset(chinese_analyzer);
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<TCHAR>();
+            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<TCHAR>>();
         }
-        _index_writer = _CLNEW lucene::index::IndexWriter(_dir.get(), _analyzer, create, true);
+        _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(), create, true);
         _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         _index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
         _index_writer->setMaxFieldLength(MAX_FIELD_LEN);
@@ -210,7 +174,7 @@ public:
         } else {
             field_config |= int(lucene::document::Field::INDEX_TOKENIZED);
         }
-        _field = _CLNEW lucene::document::Field(_field_name.c_str(), field_config);
+        _field = new lucene::document::Field(_field_name.c_str(), field_config);
         _doc->add(*_field);
         return Status::OK();
     }
@@ -227,7 +191,7 @@ public:
 
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(empty_value.c_str(), 0);
-                _index_writer->addDocument(_doc);
+                _index_writer->addDocument(_doc.get());
             }
         }
         return Status::OK();
@@ -248,7 +212,7 @@ public:
 
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
         _char_string_reader->init(s, len, false);
-        auto stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader);
+        auto stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
         field->setValue(stream);
     }
 
@@ -269,7 +233,7 @@ public:
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(v->get_data(), v->get_size());
-                _index_writer->addDocument(_doc);
+                _index_writer->addDocument(_doc.get());
                 ++v;
                 _rid++;
             }
@@ -302,7 +266,7 @@ public:
                 auto value = join(strings, " ");
                 new_fulltext_field(value.c_str(), value.length());
                 _rid++;
-                _index_writer->addDocument(_doc);
+                _index_writer->addDocument(_doc.get());
                 values++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
@@ -423,11 +387,11 @@ private:
     roaring::Roaring _null_bitmap;
     uint64_t _reverted_index_size;
 
-    lucene::document::Document* _doc {};
+    std::unique_ptr<lucene::document::Document> _doc {};
     lucene::document::Field* _field {};
-    lucene::index::IndexWriter* _index_writer {};
-    lucene::analysis::Analyzer* _analyzer {};
-    lucene::util::SStringReader<char>* _char_string_reader {};
+    std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
+    std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
+    std::unique_ptr<lucene::util::SStringReader<char>> _char_string_reader {};
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
     std::string _segment_file_name;
     std::string _directory;
