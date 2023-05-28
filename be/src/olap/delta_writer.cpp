@@ -352,7 +352,7 @@ void DeltaWriter::_reset_mem_table() {
         COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
         COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
         COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
- });
+    });
 }
 
 Status DeltaWriter::close() {
