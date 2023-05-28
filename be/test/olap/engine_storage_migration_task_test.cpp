@@ -187,7 +187,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile);
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     EXPECT_NE(delta_writer, nullptr);
 
     res = delta_writer->close();
