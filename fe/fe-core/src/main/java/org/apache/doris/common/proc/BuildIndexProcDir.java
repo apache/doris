@@ -17,9 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
@@ -32,7 +30,6 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -43,19 +40,21 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
-public class SchemaChangeProcDir implements ProcDirInterface {
+public class BuildIndexProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
-            .add("IndexName").add("IndexId").add("OriginIndexId").add("SchemaVersion")
-            .add("TransactionId").add("State").add("Msg").add("Progress").add("Timeout")
+            .add("JobId").add("TableName")
+            .add("PartitionName").add("AlterInvertedIndexes")
+            .add("CreateTime").add("FinishTime")
+            .add("TransactionId").add("State")
+            .add("Msg").add("Progress")
             .build();
 
-    private static final Logger LOG = LogManager.getLogger(SchemaChangeProcDir.class);
+    private static final Logger LOG = LogManager.getLogger(BuildIndexProcDir.class);
 
     private SchemaChangeHandler schemaChangeHandler;
     private Database db;
 
-    public SchemaChangeProcDir(SchemaChangeHandler schemaChangeHandler, Database db) {
+    public BuildIndexProcDir(SchemaChangeHandler schemaChangeHandler, Database db) {
         this.schemaChangeHandler = schemaChangeHandler;
         this.db = db;
     }
@@ -116,17 +115,17 @@ public class SchemaChangeProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(schemaChangeHandler);
 
-        List<List<Comparable>> schemaChangeJobInfos = schemaChangeHandler.getAlterJobInfosByDb(db);
+        List<List<Comparable>> indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
 
         //where
         List<List<Comparable>> jobInfos;
         if (filter == null || filter.size() == 0) {
-            jobInfos = schemaChangeJobInfos;
+            jobInfos = indexChangeJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
-            for (List<Comparable> infoStr : schemaChangeJobInfos) {
+            for (List<Comparable> infoStr : indexChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
-                    LOG.warn("SchemaChangeJobInfos.size() " + schemaChangeJobInfos.size()
+                    LOG.warn("indexChangeJobInfos.size() " + indexChangeJobInfos.size()
                             + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
                     continue;
                 }
@@ -180,14 +179,14 @@ public class SchemaChangeProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> schemaChangeJobInfos;
+        List<List<Comparable>> indexChangeJobInfos;
         // db is null means need total result of all databases
         if (db == null) {
-            schemaChangeJobInfos = schemaChangeHandler.getAllAlterJobInfos();
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos();
         } else {
-            schemaChangeJobInfos = schemaChangeHandler.getAlterJobInfosByDb(db);
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
         }
-        for (List<Comparable> infoStr : schemaChangeJobInfos) {
+        for (List<Comparable> infoStr : indexChangeJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {
                 oneInfo.add(element.toString());
@@ -212,24 +211,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String jobIdStr) throws AnalysisException {
-        if (Strings.isNullOrEmpty(jobIdStr)) {
-            throw new AnalysisException("Job id is null");
-        }
-
-        long jobId = -1L;
-        try {
-            jobId = Long.valueOf(jobIdStr);
-        } catch (Exception e) {
-            throw new AnalysisException("Job id is invalid");
-        }
-
-        Preconditions.checkState(jobId != -1L);
-        AlterJobV2 job = schemaChangeHandler.getUnfinishedAlterJobV2ByJobId(jobId);
-        if (job == null) {
-            return null;
-        }
-
-        return new SchemaChangeJobProcNode((SchemaChangeJobV2) job);
+    public ProcNodeInterface lookup(String name) {
+        return null;
     }
 }
