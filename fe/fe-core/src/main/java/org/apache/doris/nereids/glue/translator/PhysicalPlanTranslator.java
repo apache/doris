@@ -40,6 +40,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -345,7 +346,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment.setPlanRoot(exchangeNode.getChild(0));
             rootFragment.setDestination(exchangeNode);
             context.addPlanFragment(currentFragment);
-            currentFragment.setDataPartition(rootFragment.getDataPartition());
             rootFragment = currentFragment;
         }
         rootFragment.setSink(sink);
@@ -2551,16 +2551,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
         OlapTable olapTable = context.getInsertTargetTable();
-        // HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
-        // List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
-        //         .map(column -> olapTable.getFullSchema().indexOf(column))
-        //         .collect(Collectors.toList());
+        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
+        List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
+                .map(column -> olapTable.getFullSchema().indexOf(column))
+                .collect(Collectors.toList());
 
-        // List<Expr> partitionExprs = colIdx.stream()
-        //         .map(idx -> execExprList.get(idx + olapTable.getFullSchema().size()))
-        //         .collect(Collectors.toList());
+        List<Expr> partitionExprs = colIdx.stream()
+                .map(idx -> execExprList.get(idx + olapTable.getFullSchema().size()))
+                .collect(Collectors.toList());
 
-        // inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
+        inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         List<Expr> castExprs = Lists.newArrayList();
         for (int i = 0; i < olapTable.getFullSchema().size(); ++i) {
             try {
