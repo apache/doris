@@ -88,15 +88,15 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, Runti
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     profile->add_child(_profile, false, nullptr);
-    _lock_timer = ADD_TIMER(_profile, "LockTimer");
-    _sort_timer = ADD_TIMER(_profile, "SortTimer");
-    _agg_timer = ADD_TIMER(_profile, "AggTimer");
-    _memtable_duration_timer = ADD_TIMER(_profile, "MemTableDurationTimer");
-    _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTimer");
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTimer");
-    _wait_flush_timer = ADD_TIMER(_profile, "WaitFlushTimer");
-    _put_into_output_timer = ADD_TIMER(_profile, "PutIntoOutputTimer");
-    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTimer");
+    _lock_timer = ADD_TIMER(_profile, "LockTime");
+    _sort_timer = ADD_TIMER(_profile, "SortTime");
+    _agg_timer = ADD_TIMER(_profile, "AggTime");
+    _memtable_duration_timer = ADD_TIMER(_profile, "MemTableDurationTime");
+    _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTime");
+    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
+    _wait_flush_timer = ADD_TIMER(_profile, "WaitFlushTime");
+    _put_into_output_timer = ADD_TIMER(_profile, "PutIntoOutputTime");
+    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
     _sort_times = ADD_COUNTER(_profile, "SortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "AggTimes", TUnit::UNIT);
 }

@@ -50,7 +50,7 @@ LoadChannel::~LoadChannel() {
 
 void LoadChannel::_init_profile() {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTimer");
+    _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
     _self_profile =
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),

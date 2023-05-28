@@ -1065,6 +1065,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
     _total_add_batch_exec_timer = ADD_TIMER(_profile, "TotalAddBatchExecTime");
     _max_add_batch_exec_timer = ADD_TIMER(_profile, "MaxAddBatchExecTime");
+    _total_wait_exec_timer = ADD_TIMER(_profile, "TotalWaitExecTime");
+    _max_wait_exec_timer = ADD_TIMER(_profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
@@ -1453,6 +1455,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
         COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
         COUNTER_SET(_max_add_batch_exec_timer, max_add_batch_exec_time_ns);
+        COUNTER_SET(_total_wait_exec_timer, total_wait_exec_time_ns);
+        COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
         COUNTER_SET(_add_batch_number, total_add_batch_num);
         COUNTER_SET(_num_node_channels, num_node_channels);
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
