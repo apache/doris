@@ -1410,6 +1410,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
                          &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
                          &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                         &total_wait_exec_time_ns, &wait_exec_time,
                          &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
