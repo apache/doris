@@ -63,6 +63,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
+#include "util/trace.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column.h"
@@ -747,6 +748,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
         std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
 
         do {
@@ -947,6 +949,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // step 3
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             int64_t new_max_version = new_tablet->max_version().second;
             rowsets.clear();
             if (max_version < new_max_version) {
@@ -977,6 +980,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         } else {
             // set state to ready
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
@@ -1053,6 +1057,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         {
             // save tablet meta here because rowset meta is not saved during add rowset
             std::lock_guard<std::shared_mutex> new_wlock(sc_params.new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             sc_params.new_tablet->save_meta();
         }
         if (res) {

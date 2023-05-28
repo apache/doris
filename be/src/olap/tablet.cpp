@@ -127,11 +127,14 @@ class Block;
 } // namespace vectorized
 
 using namespace ErrorCode;
+using namespace std::chrono_literals;
 
 using std::pair;
 using std::string;
 using std::vector;
 using io::FileSystemSPtr;
+
+const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 10s;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
@@ -379,7 +382,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
 }
 
 RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return version_rowset.second;
@@ -396,6 +399,7 @@ RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
 Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
     // we can use it to check this situation.
     if (_contains_rowset(rowset->rowset_id())) {
@@ -669,6 +673,7 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 void Tablet::delete_expired_stale_rowset() {
     int64_t now = UnixSeconds();
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
     double expired_stale_sweep_endtime =
             ::difftime(now, config::tablet_rowset_stale_sweep_time_sec);
@@ -1137,6 +1142,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
 
 void Tablet::calculate_cumulative_point() {
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(
             this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
@@ -1929,6 +1935,7 @@ Status Tablet::_cooldown_data() {
     erase_pending_remote_rowset(new_rowset_id.to_string());
     {
         std::unique_lock meta_rlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
     // upload cooldowned rowset meta to remote fs
@@ -2051,6 +2058,7 @@ Status Tablet::_follow_cooldowned_data() {
 
     {
         std::lock_guard wlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         if (tablet_state() != TABLET_RUNNING) {
             return Status::InternalError("tablet not running");
         }
@@ -2099,6 +2107,7 @@ Status Tablet::_follow_cooldowned_data() {
     }
     {
         std::lock_guard rlock(_meta_lock);
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
 

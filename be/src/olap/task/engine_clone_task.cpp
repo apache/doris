@@ -63,6 +63,7 @@
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thrift_rpc_helper.h"
+#include "util/trace.h"
 
 using std::set;
 using std::stringstream;
@@ -582,6 +583,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
         status = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
     } else {
