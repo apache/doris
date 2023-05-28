@@ -100,6 +100,8 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
     _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
+    _raw_rows_num = ADD_COUNTER(_profile, "RawRowNum", TUnit::UNIT);
+    _merged_rows_num = ADD_COUNTER(_profile, "MergedRowNum", TUnit::UNIT);
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -355,6 +357,8 @@ void DeltaWriter::_reset_mem_table() {
         COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
         COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
         COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
+        COUNTER_UPDATE(_raw_rows_num, _memtable_stat.raw_rows);
+        COUNTER_UPDATE(_merged_rows_num, _memtable_stat.merged_rows);
     });
 }
 
