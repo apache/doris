@@ -603,12 +603,19 @@ struct TStreamLoadPutRequest {
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
     45: optional bool partial_update
+    46: optional list<string> table_names  // only used for stream load multi table
 }
 
 struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
+}
+
+struct TStreamLoadMultiTablePutResult {
+    1: required Status.TStatus status
+    // valid when status is OK
+    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
 }
 
 struct TKafkaRLTaskProgress {
@@ -999,6 +1006,8 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+    
+    TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 

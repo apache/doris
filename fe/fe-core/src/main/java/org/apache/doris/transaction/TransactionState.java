@@ -35,6 +35,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -175,6 +177,8 @@ public class TransactionState implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableIdList")
+    @Setter
+    @Getter
     private List<Long> tableIdList;
     private int replicaNum = 0;
     @SerializedName(value = "txnId")

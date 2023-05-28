@@ -76,6 +76,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -112,6 +113,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
+
+    @Getter
+    @Setter
+    private boolean isMultiTable = false;
 
     /*
                      +-----------------+
@@ -275,6 +280,29 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
+    /**
+     * MultiLoadJob will use this constructor
+     */
+    public RoutineLoadJob(Long id, String name, String clusterName,
+                          long dbId, LoadDataSourceType dataSourceType,
+                          UserIdentity userIdentity) {
+        this(id, dataSourceType);
+        this.name = name;
+        this.clusterName = clusterName;
+        this.dbId = dbId;
+        this.authCode = 0;
+        this.userIdentity = userIdentity;
+        this.isMultiTable = true;
+
+        if (ConnectContext.get() != null) {
+            SessionVariable var = ConnectContext.get().getSessionVariable();
+            sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+        } else {
+            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        }
+    }
+
+
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         if (stmt.getDesiredConcurrentNum() != -1) {
@@ -419,6 +447,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public String getTableName() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        if (isMultiTable) {
+            return "It's a multi-table load job.";
+        }
         return database.getTableOrMetaException(tableId).getName();
     }
 
@@ -723,7 +754,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-            long taskExecutionTime, boolean isReplay) throws UserException {
+                                 long taskExecutionTime, boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
         this.jobStatistic.errorRows += numOfErrorRows;
         this.jobStatistic.unselectedRows += unselectedRows;
@@ -752,7 +783,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
                     updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                                    "current error rows of job is more than max error num"), isReplay);
+                            "current error rows of job is more than max error num"), isReplay);
                 }
             }
 
@@ -778,7 +809,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                                "current error rows is more than max error num"), isReplay);
+                        "current error rows is more than max error num"), isReplay);
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
@@ -805,8 +836,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void initPlanner() throws UserException {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        // for multi table load job, the table name is dynamic,we will set table when task scheduling.
+        if (isMultiTable) {
+            return;
+        }
         planner = new StreamLoadPlanner(db,
-            (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
+                (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
@@ -1240,10 +1275,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         // check table belong to database
         Table table = database.getTableNullable(tableId);
-        if (table == null) {
+        if (table == null && !isMultiTable) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
-                             .add("table_id", tableId)
-                             .add("msg", "The table has been deleted change job state to cancelled").build());
+                    .add("table_id", tableId)
+                    .add("msg", "The table has been deleted change job state to cancelled").build());
             writeLock();
             try {
                 if (!state.isFinalState()) {
