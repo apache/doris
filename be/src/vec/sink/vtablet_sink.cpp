@@ -1393,7 +1393,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
         int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
                 actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
-                max_add_batch_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
+                max_add_batch_exec_time_ns = 0, total_wait_exec_time_ns = 0,
+                max_wait_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
@@ -1404,6 +1405,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
             for (auto index_channel : _channels) {
                 int64_t add_batch_exec_time = 0;
+                int64_t wait_exec_time = 0;
                 index_channel->for_each_node_channel(
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
                          &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
@@ -1422,11 +1424,15 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                             &mem_exceeded_block_ns, &queue_push_lock_ns,
                                             &actual_consume_ns, &total_add_batch_exec_time_ns,
-                                            &add_batch_exec_time, &total_add_batch_num);
+                                            &add_batch_exec_time, &total_wait_exec_time_ns,
+                                            &wait_exec_time, &total_add_batch_num);
                         });
 
                 if (add_batch_exec_time > max_add_batch_exec_time_ns) {
                     max_add_batch_exec_time_ns = add_batch_exec_time;
+                }
+                if (wait_exec_time > max_exec_time_ns) {
+                    max_wait_exec_time_ns = wait_exec_time;
                 }
 
                 // check if index has intolerable failure

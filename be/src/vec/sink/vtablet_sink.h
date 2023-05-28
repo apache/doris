@@ -244,6 +244,7 @@ public:
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
+                     int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
                      int64_t* total_add_batch_num) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
@@ -253,6 +254,8 @@ public:
         *actual_consume_ns += _actual_consume_ns;
         *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
         *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
+        *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
+        *total_wait_exec_time_ns += *wait_exec_time_ns;
         *total_add_batch_num += _add_batch_counter.add_batch_num;
     }
 
@@ -576,6 +579,8 @@ private:
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _total_add_batch_exec_timer = nullptr;
     RuntimeProfile::Counter* _max_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _total_wait_exec_timer = nullptr;
+    RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
 
