@@ -574,6 +574,10 @@ public class DataDescription implements InsertStmt.DataDesc {
         return columnSeparator.getSeparator();
     }
 
+    public Separator getColumnSeparatorObj() {
+        return columnSeparator;
+    }
+
     public boolean isNegative() {
         return isNegative;
     }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Column;
@@ -30,22 +29,26 @@ import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -55,7 +58,22 @@ public class S3LoadStmt extends NativeInsertStmt {
 
     private static final Logger LOG = LogManager.getLogger(S3LoadStmt.class);
 
+    private static final String FORMAT_CSV = "csv";
+
+    private static final String DEFAULT_FORMAT = FORMAT_CSV;
+
     private final DataDescription dataDescription;
+
+    /**
+     * we need some particular process
+     */
+    private final boolean isCsvFormat;
+
+    /**
+     * only used for loading from csv format tvf
+     * with mapping from col name to csv-format-tvf-style col name (c1, c2, c3...)
+     */
+    private Map<String, String> selectColNameToCsvColName;
 
     public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
@@ -66,6 +84,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         this.dataDescription = dataDescList.get(0);
         this.properties = properties;
         this.comments = comments;
+        this.isCsvFormat = isCsvFormat(dataDescription.getFileFormat());
     }
 
     // ------------------------------------ init helpers ------------------------------------
@@ -127,8 +146,19 @@ public class S3LoadStmt extends NativeInsertStmt {
             params.putAll(dataDescProp);
         }
 
-        params.put(ExternalFileTableValuedFunction.FORMAT, dataDescription.getFileFormat());
-        params.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, dataDescription.getColumnSeparator());
+        final String format = Optional.ofNullable(dataDescription.getFileFormat()).orElse(DEFAULT_FORMAT);
+        params.put(ExternalFileTableValuedFunction.FORMAT, format);
+        if (isCsvFormat(format)) {
+            final Separator separator = dataDescription.getColumnSeparatorObj();
+            if (separator != null) {
+                try {
+                    separator.analyze();
+                } catch (AnalysisException e) {
+                    throw new DdlException("failed to create s3 tvf ref", e);
+                }
+                params.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, dataDescription.getColumnSeparator());
+            }
+        }
 
         Preconditions.checkState(!brokerDesc.isMultiLoadBroker(), "do not support multi broker load currently");
         Preconditions.checkState(brokerDesc.getStorageType() == StorageType.S3, "only support S3 load");
@@ -143,6 +173,10 @@ public class S3LoadStmt extends NativeInsertStmt {
         } catch (AnalysisException e) {
             throw new DdlException("failed to create s3 tvf ref", e);
         }
+    }
+
+    private static boolean isCsvFormat(String format) {
+        return Strings.isNullOrEmpty(format) || StringUtils.equalsIgnoreCase(format, FORMAT_CSV);
     }
 
     // --------------------------------------------------------------------------------------
@@ -179,10 +213,10 @@ public class S3LoadStmt extends NativeInsertStmt {
         Preconditions.checkNotNull(columnDescList, "columns should be not null");
         Preconditions.checkNotNull(targetTable, "target table is unset");
         LOG.info("original columnExpr:{}", columnDescList);
-        Map<String, Expr> derivativeColumns = new HashMap<>();
+        Map<String, Expr> derivativeColumns = Maps.newHashMap();
         columnDescList
                 .stream()
-                .filter(desc -> !desc.isColumn())
+                .filter(Predicates.not(ImportColumnDesc::isColumn))
                 .forEach(desc -> {
                     final Expr expr = desc.getExpr();
                     if (expr instanceof SlotRef) {
@@ -195,6 +229,10 @@ public class S3LoadStmt extends NativeInsertStmt {
                     }
                     derivativeColumns.put(desc.getColumnName(), expr);
                 });
+        if (isCsvFormat) {
+            // in tvf, csv format column names are like "c1, c2, c3", record for correctness of select list
+            recordCsvColNames(columnDescList);
+        }
         // `tmp` columns with expr can be removed after expr rewritten
         columnDescList.removeIf(
                 Predicates.not(columnDesc ->
@@ -222,6 +260,24 @@ public class S3LoadStmt extends NativeInsertStmt {
         }
     }
 
+    /**
+     * record mapping from col name to csv-format-tvf-style col name
+     *
+     * @see selectColNameToCsvColName
+     */
+    private void recordCsvColNames(List<ImportColumnDesc> columnDescList) {
+        AtomicInteger counter = new AtomicInteger(1);
+        selectColNameToCsvColName = columnDescList.stream()
+                .filter(ImportColumnDesc::isColumn)
+                .collect(Collectors.toMap(
+                        ImportColumnDesc::getColumnName,
+                        name -> "c" + counter.getAndIncrement(),
+                        (v1, v2) -> v1,
+                        LinkedHashMap::new
+                ));
+        LOG.info("select column name to csv colum name:{}", selectColNameToCsvColName);
+    }
+
     private void filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
         Preconditions.checkNotNull(targetTable, "target table is unset");
         // remove all `tmp` columns, which are not in target table
@@ -231,10 +287,9 @@ public class S3LoadStmt extends NativeInsertStmt {
         );
         Map<String, Expr> columnExprMap = columnExprList.stream()
                 // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
-                .collect(() -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER),
+                .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
                         (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
         checkUnspecifiedCols(columnExprMap);
-        addSchemaChangeShadowCols(columnExprList, columnExprMap);
         LOG.info("filtered result:{}", columnExprList);
     }
 
@@ -255,59 +310,6 @@ public class S3LoadStmt extends NativeInsertStmt {
         }
     }
 
-    /**
-     * When doing schema change, there may have some 'shadow' columns, with prefix '__doris_shadow_' in
-     * their names. These columns are invisible to user, but we need to generate data for these columns.
-     * So we add column mappings for these column.
-     * eg1:
-     * base schema is (A, B, C), and B is under schema change, so there will be a shadow column: '__doris_shadow_B'
-     * So the final column mapping should looks like: (A, B, C, __doris_shadow_B = substitute(B));
-     */
-    private void addSchemaChangeShadowCols(List<ImportColumnDesc> columnExprList, Map<String, Expr> columnExprMap) {
-        List<ImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
-        targetTable.getFullSchema()
-                .stream()
-                .filter(column -> column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX))
-                .forEach(column -> {
-                    String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
-                    if (columnExprMap.containsKey(originCol)) {
-                        Expr mappingExpr = columnExprMap.get(originCol);
-                        ImportColumnDesc importColumnDesc = Optional.ofNullable(mappingExpr)
-                                .map(
-                                        /*
-                                         * eg:
-                                         * (A, C) SET (B = func(xx))
-                                         * ->
-                                         * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
-                                         */
-                                        expr -> new ImportColumnDesc(column.getName(), expr)
-                                )
-                                .orElse(
-                                        /*
-                                         * eg:
-                                         * (A, B, C)
-                                         * ->
-                                         * (A, B, C) SET (__doris_shadow_B = B)
-                                         */
-                                        new ImportColumnDesc(column.getName(), new SlotRef(null, originCol))
-                                );
-                        shadowColumnDescs.add(importColumnDesc);
-                    } else {
-                        /*
-                         * There is a case that if user does not specify the related origin column, eg:
-                         * COLUMNS (A, C), and B is not specified, but B is being modified
-                         * so there is a shadow column '__doris_shadow_B'.
-                         * We can not just add a mapping function "__doris_shadow_B = substitute(B)",
-                         * because Doris can not find column B.
-                         * In this case, __doris_shadow_B can use its default value,
-                         * so no need to add it to column mapping.
-                         */
-                        // do nothing
-                    }
-                });
-        columnExprList.addAll(shadowColumnDescs);
-    }
-
     private void resetTargetColumnNames(List<ImportColumnDesc> columnExprList) {
         targetColumnNames = columnExprList
                 .stream()
@@ -317,16 +319,52 @@ public class S3LoadStmt extends NativeInsertStmt {
     }
 
     private void resetSelectList(List<ImportColumnDesc> columnExprList) {
+        if (isCsvFormat) {
+            rewriteExprColNameToCsvStyle(columnExprList);
+        }
         LOG.info("select list:{}", columnExprList);
         final SelectList selectList = new SelectList();
         columnExprList.forEach(desc -> {
             if (desc.isColumn()) {
-                selectList.addItem(new SelectListItem(new SlotRef(null, desc.getColumnName()), null));
+                if (isCsvFormat) {
+                    // use csv-style-column name and target column name as alias
+                    final Expr slotRef = new SlotRef(null, selectColNameToCsvColName.get(desc.getColumnName()));
+                    selectList.addItem(new SelectListItem(slotRef, desc.getColumnName()));
+                } else {
+                    selectList.addItem(new SelectListItem(new SlotRef(null, desc.getColumnName()), null));
+                }
             } else {
                 selectList.addItem(new SelectListItem(desc.getExpr(), desc.getColumnName()));
             }
         });
         ((SelectStmt) getQueryStmt()).resetSelectList(selectList);
+    }
+
+    private void rewriteExprColNameToCsvStyle(List<ImportColumnDesc> columnExprList) {
+        Preconditions.checkNotNull(selectColNameToCsvColName,
+                "SelectColName To CsvColName is not recorded");
+        columnExprList
+                .stream()
+                .filter(Predicates.not(ImportColumnDesc::isColumn))
+                .forEach(desc -> rewriteSlotRefInExpr(desc.getExpr()));
+
+        // rewrite where predicate and order by elements
+        final SelectStmt selectStmt = (SelectStmt) getQueryStmt();
+        rewriteSlotRefInExpr(selectStmt.getWhereClause());
+        selectStmt.getOrderByElements().forEach(orderByElement -> rewriteSlotRefInExpr(orderByElement.getExpr()));
+    }
+
+    private void rewriteSlotRefInExpr(Expr expr) {
+        final Predicate<? super Expr> rewritePredicate = e -> e instanceof SlotRef
+                && selectColNameToCsvColName.containsKey(((SlotRef) e).getColumnName());
+        final Consumer<? super Expr> rewriteOperation = e -> {
+            final SlotRef slotRef = (SlotRef) e;
+            slotRef.setCol(selectColNameToCsvColName.get(slotRef.getColumnName()));
+        };
+
+        List<Expr> slotRefs = Lists.newArrayList();
+        expr.collect(rewritePredicate, slotRefs);
+        slotRefs.forEach(rewriteOperation);
     }
 
     // -----------------------------------------------------------------------------------------
