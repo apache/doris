@@ -93,7 +93,7 @@ public:
         segment_writer_ns += stat.segment_writer_ns;
         duration_ns += stat.duration_ns;
         sort_times += stat.sort_times;
-        agg_times += stat. agg_times;
+        agg_times += stat.agg_times;
 
         return *this;
     }
@@ -140,7 +140,9 @@ public:
 
     int64_t flush_size() const { return _flush_size; }
 
-    void set_callback(std::function<void(MemTableStat&)> callback) { _delta_writer_callback = callback; }
+    void set_callback(std::function<void(MemTableStat&)> callback) {
+        _delta_writer_callback = callback;
+    }
 
 private:
     Status _do_flush();

@@ -135,7 +135,7 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile *profile,
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
 
     // push a full memtable to flush executor

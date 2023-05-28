@@ -86,8 +86,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, Runti
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
-    _profile =
-            profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
+    _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     profile->add_child(_profile, false, nullptr);
     _lock_timer = ADD_TIMER(_profile, "LockTimer");
     _sort_timer = ADD_TIMER(_profile, "SortTimer");
@@ -343,18 +342,17 @@ void DeltaWriter::_reset_mem_table() {
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
-    _mem_table->set_callback(
-            [this](MemTableStat& stat) {
-                _memtable_stat += stat;
-                COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);
-                COUNTER_UPDATE(_agg_timer, _memtable_stat.agg_ns);
-                COUNTER_UPDATE(_memtable_duration_timer, _memtable_stat.duration_ns);
-                COUNTER_UPDATE(_segment_writer_timer, _memtable_stat.segment_writer_ns);
-                COUNTER_UPDATE(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
-                COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
-                COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
-                COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
-            });
+    _mem_table->set_callback([this](MemTableStat& stat) {
+        _memtable_stat += stat;
+        COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);
+        COUNTER_UPDATE(_agg_timer, _memtable_stat.agg_ns);
+        COUNTER_UPDATE(_memtable_duration_timer, _memtable_stat.duration_ns);
+        COUNTER_UPDATE(_segment_writer_timer, _memtable_stat.segment_writer_ns);
+        COUNTER_UPDATE(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
+        COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
+        COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
+        COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
+ });
 }
 
 Status DeltaWriter::close() {
@@ -415,7 +413,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
 
     if (_rowset_writer->num_rows() + _memtable_stat.merged_rows != _total_received_rows) {
         LOG(WARNING) << "the rows number written doesn't match, rowset num rows written to file: "
-                     << _rowset_writer->num_rows() << ", merged_rows: " << _memtable_stat.merged_rows
+                     << _rowset_writer->num_rows()
+                     << ", merged_rows: " << _memtable_stat.merged_rows
                      << ", total received rows: " << _total_received_rows;
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
