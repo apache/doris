@@ -229,6 +229,7 @@ set(VEC_TEST_FILES
     vec/columns/column_decimal_test.cpp
     vec/columns/column_fixed_length_object_test.cpp
     vec/data_types/complex_type_test.cpp
+    vec/data_types/serde/data_type_to_string_test.cpp
     vec/data_types/serde/data_type_serde_pb_test.cpp
     vec/data_types/serde/data_type_serde_arrow_test.cpp
     vec/data_types/serde/data_type_serde_mysql_test.cpp

@@ -232,8 +232,6 @@ public:
         return DecimalField<T>(val, scale);
     }
 
-    bool can_be_promoted() const override { return true; }
-    DataTypePtr promote_numeric_type() const override;
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
 

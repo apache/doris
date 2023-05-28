@@ -65,7 +65,6 @@ public:
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDateV2SerDe>(); }
@@ -118,7 +117,6 @@ public:
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
