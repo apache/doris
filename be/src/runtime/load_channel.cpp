@@ -165,7 +165,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         if (!st.ok()) {
             return st;
         }
-    } else if (_add_batch_number_counter->value() % 10 == 1) {
+    } else if (_add_batch_number_counter->value() % 100 == 1) {
         _report_profile(response);
     }
     _last_updated_time.store(time(nullptr));

@@ -96,9 +96,10 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
     _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
     _delete_bitmap_timer = ADD_TIMER(_profile, "MemTableDeleteBitmapTime");
+    _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
-    _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
+    _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
 }
 
 DeltaWriter::~DeltaWriter() {
@@ -343,6 +344,7 @@ void DeltaWriter::_reset_mem_table() {
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
+    COUNTER_UPDATE(_segment_num, 1);
     _mem_table->set_callback([this](MemTableStat& stat) {
         _memtable_stat += stat;
         COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);

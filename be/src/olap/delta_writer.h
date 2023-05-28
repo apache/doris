@@ -213,6 +213,7 @@ private:
     RuntimeProfile::Counter* _sort_times = nullptr;
     RuntimeProfile::Counter* _agg_times = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _segment_num = nullptr;
 
     MonotonicStopWatch _lock_watch;
 
