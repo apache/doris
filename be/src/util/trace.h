@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
@@ -116,22 +117,30 @@ class Trace;
         }                                          \
     }()
 
-// If this scope times out, then put backtrace to the stream.
+// If this scope times out, make a simple trace.
+// It will log the cost time only.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
+#define SCOPED_SIMPLE_TRACE_IF_TIMEOUT(timeout) \
+    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, LOG(WARNING))
+
+// If this scope times out, then put simple trace to the stream.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
 // For example:
 //
 //    std::string tag = "[foo]";
-//    SCOPED_BACKTRACE_TO_STREAM_IF_TIMEOUT(5s, LOG(INFO) << tag);
+//    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(5s, LOG(INFO) << tag);
 //
-#define SCOPED_BACKTRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                                    \
-    using namespace std::chrono_literals;                                                         \
-    auto VARNAME_LINENUM(scoped_backtrace) = doris::MonotonicMicros();                            \
-    SCOPED_CLEANUP({                                                                              \
-        auto timeout_us = std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
-        auto cost_us = doris::MonotonicMicros() - VARNAME_LINENUM(scoped_backtrace);              \
-        if (cost_us >= timeout_us) {                                                              \
-            stream << "Back trace cost(us): " << cost_us << std::endl                             \
-                   << butil::debug::StackTrace().ToString().substr(0, 1024);                      \
-        }                                                                                         \
+#define SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                       \
+    using namespace std::chrono_literals;                                               \
+    auto VARNAME_LINENUM(scoped_simple_trace) = doris::MonotonicMicros();               \
+    SCOPED_CLEANUP({                                                                    \
+        auto VARNAME_LINENUM(timeout_us) =                                              \
+                std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
+        auto VARNAME_LINENUM(cost_us) =                                                 \
+                doris::MonotonicMicros() - VARNAME_LINENUM(scoped_simple_trace);        \
+        if (VARNAME_LINENUM(cost_us) >= VARNAME_LINENUM(timeout_us)) {                  \
+            stream << "Simple trace cost(us): " << VARNAME_LINENUM(cost_us);            \
+        }                                                                               \
     })
 
 namespace doris {
