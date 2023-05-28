@@ -165,17 +165,12 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::STORAGE_MEDIUM_MIGRATE:
         break;
     case TaskWorkerType::CHECK_CONSISTENCY:
-        _worker_count = config::check_consistency_worker_count;
-        _cb = std::bind<void>(&TaskWorkerPool::_check_consistency_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_TASK:
-        _cb = std::bind<void>(&TaskWorkerPool::_report_task_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_DISK_STATE:
-        _cb = std::bind<void>(&TaskWorkerPool::_report_disk_state_worker_thread_callback, this);
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        _cb = std::bind<void>(&TaskWorkerPool::_report_tablet_worker_thread_callback, this);
         break;
     case TaskWorkerType::UPLOAD:
         _worker_count = config::upload_worker_count;
@@ -520,219 +515,6 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
             _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
         }
     }
-}
-
-void TaskWorkerPool::_check_consistency_worker_thread_callback() {
-    while (_is_work) {
-        TAgentTaskRequest agent_task_req;
-        TCheckConsistencyReq check_consistency_req;
-        {
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait(
-                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
-            if (!_is_work) {
-                return;
-            }
-
-            agent_task_req = _tasks.front();
-            check_consistency_req = agent_task_req.check_consistency_req;
-            _tasks.pop_front();
-        }
-
-        uint32_t checksum = 0;
-        EngineChecksumTask engine_task(check_consistency_req.tablet_id,
-                                       check_consistency_req.schema_hash,
-                                       check_consistency_req.version, &checksum);
-        Status status = _env->storage_engine()->execute_task(&engine_task);
-        if (!status.ok()) {
-            LOG_WARNING("failed to check consistency")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", check_consistency_req.tablet_id)
-                    .error(status);
-        } else {
-            LOG_INFO("successfully check consistency")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("tablet_id", check_consistency_req.tablet_id)
-                    .tag("checksum", checksum);
-        }
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(BackendOptions::get_local_backend());
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(status.to_thrift());
-        finish_task_request.__set_tablet_checksum(static_cast<int64_t>(checksum));
-        finish_task_request.__set_request_version(check_consistency_req.version);
-
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-    }
-}
-
-void TaskWorkerPool::_report_task_worker_thread_callback() {
-    StorageEngine::instance()->register_report_listener(this);
-    TReportRequest request;
-    while (_is_work) {
-        _is_doing_work = false;
-        {
-            // wait at most report_task_interval_seconds, or being notified
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait_for(
-                    worker_thread_lock, std::chrono::seconds(config::report_task_interval_seconds));
-        }
-        if (!_is_work) {
-            break;
-        }
-
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO)
-                    << "waiting to receive first heartbeat from frontend before doing task report";
-            continue;
-        }
-
-        _is_doing_work = true;
-        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
-        _random_sleep(5);
-        {
-            std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
-            request.__set_tasks(_s_task_signatures);
-            request.__set_backend(BackendOptions::get_local_backend());
-        }
-        _handle_report(request, ReportType::TASK);
-    }
-    StorageEngine::instance()->deregister_report_listener(this);
-}
-
-/// disk state report thread will report disk state at a configurable fix interval.
-void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
-    StorageEngine::instance()->register_report_listener(this);
-
-    while (_is_work) {
-        _is_doing_work = false;
-        {
-            // wait at most report_disk_state_interval_seconds, or being notified
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait_for(
-                    worker_thread_lock,
-                    std::chrono::seconds(config::report_disk_state_interval_seconds));
-        }
-        if (!_is_work) {
-            break;
-        }
-
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            LOG(INFO)
-                    << "waiting to receive first heartbeat from frontend before doing disk report";
-            continue;
-        }
-
-        _is_doing_work = true;
-        // Random sleep 1~5 seconds before doing report.
-        // In order to avoid the problem that the FE receives many report requests at the same time
-        // and can not be processed.
-        _random_sleep(5);
-
-        TReportRequest request;
-        request.__set_backend(BackendOptions::get_local_backend());
-        request.__isset.disks = true;
-
-        std::vector<DataDirInfo> data_dir_infos;
-        _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
-
-        for (auto& root_path_info : data_dir_infos) {
-            TDisk disk;
-            disk.__set_root_path(root_path_info.path);
-            disk.__set_path_hash(root_path_info.path_hash);
-            disk.__set_storage_medium(root_path_info.storage_medium);
-            disk.__set_disk_total_capacity(root_path_info.disk_capacity);
-            disk.__set_data_used_capacity(root_path_info.local_used_capacity);
-            disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
-            disk.__set_disk_available_capacity(root_path_info.available);
-            disk.__set_used(root_path_info.is_used);
-            request.disks[root_path_info.path] = disk;
-        }
-        request.__set_num_cores(CpuInfo::num_cores());
-        request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
-                                                     ? config::pipeline_executor_size
-                                                     : CpuInfo::num_cores());
-        _handle_report(request, ReportType::DISK);
-    }
-    StorageEngine::instance()->deregister_report_listener(this);
-}
-
-void TaskWorkerPool::_report_tablet_worker_thread_callback() {
-    StorageEngine::instance()->register_report_listener(this);
-
-    while (_is_work) {
-        _is_doing_work = false;
-
-        {
-            // wait at most report_tablet_interval_seconds, or being notified
-            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            _worker_thread_condition_variable.wait_for(
-                    worker_thread_lock,
-                    std::chrono::seconds(config::report_tablet_interval_seconds));
-        }
-        if (!_is_work) {
-            break;
-        }
-
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing tablet "
-                         "report";
-            continue;
-        }
-
-        _is_doing_work = true;
-        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
-        _random_sleep(5);
-
-        TReportRequest request;
-        request.__set_backend(BackendOptions::get_local_backend());
-        request.__isset.tablets = true;
-
-        uint64_t report_version = _s_report_version;
-        StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
-                &request.tablets);
-        if (report_version < _s_report_version) {
-            // TODO llj This can only reduce the possibility for report error, but can't avoid it.
-            // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
-            // report, and the report version has a small probability that it has not been updated in time. When FE
-            // receives this report, it is possible to delete the new tablet.
-            LOG(WARNING) << "report version " << report_version << " change to "
-                         << _s_report_version;
-            DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
-            continue;
-        }
-        int64_t max_compaction_score =
-                std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
-                         DorisMetrics::instance()->tablet_base_max_compaction_score->value());
-        request.__set_tablet_max_compaction_score(max_compaction_score);
-        request.__set_report_version(report_version);
-
-        // report storage policy and resource
-        auto& storage_policy_list = request.storage_policy;
-        for (auto [id, version] : get_storage_policy_ids()) {
-            auto& storage_policy = storage_policy_list.emplace_back();
-            storage_policy.__set_id(id);
-            storage_policy.__set_version(version);
-        }
-        request.__isset.storage_policy = true;
-        auto& resource_list = request.resource;
-        for (auto [id, version] : get_storage_resource_ids()) {
-            auto& resource = resource_list.emplace_back();
-            resource.__set_id(id);
-            resource.__set_version(version);
-        }
-        request.__isset.resource = true;
-
-        _handle_report(request, ReportType::TABLET);
-    }
-    StorageEngine::instance()->deregister_report_listener(this);
 }
 
 void TaskWorkerPool::_upload_worker_thread_callback() {
@@ -1961,6 +1743,241 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
     }
 
     return Status::OK();
+}
+
+CheckConsistencyTaskPool::CheckConsistencyTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::CHECK_CONSISTENCY, env, *env->master_info(),
+                         thread_model) {
+    _worker_count = config::check_consistency_worker_count;
+    _cb = [this]() { _check_consistency_worker_thread_callback(); };
+}
+
+void CheckConsistencyTaskPool::_check_consistency_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+        const TCheckConsistencyReq& check_consistency_req = agent_task_req.check_consistency_req;
+
+        uint32_t checksum = 0;
+        EngineChecksumTask engine_task(check_consistency_req.tablet_id,
+                                       check_consistency_req.schema_hash,
+                                       check_consistency_req.version, &checksum);
+        Status status = _env->storage_engine()->execute_task(&engine_task);
+        if (!status.ok()) {
+            LOG_WARNING("failed to check consistency")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", check_consistency_req.tablet_id)
+                    .error(status);
+        } else {
+            LOG_INFO("successfully check consistency")
+                    .tag("signature", agent_task_req.signature)
+                    .tag("tablet_id", check_consistency_req.tablet_id)
+                    .tag("checksum", checksum);
+        }
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+        finish_task_request.__set_tablet_checksum(static_cast<int64_t>(checksum));
+        finish_task_request.__set_request_version(check_consistency_req.version);
+
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+ReportTaskTaskPool::ReportTaskTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::REPORT_TASK, env, *env->master_info(), thread_model) {
+    _cb = [this]() { _report_task_worker_thread_callback(); };
+}
+
+void ReportTaskTaskPool::_report_task_worker_thread_callback() {
+    StorageEngine::instance()->register_report_listener(this);
+    TReportRequest request;
+    while (_is_work) {
+        _is_doing_work = false;
+        {
+            // wait at most report_task_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock, std::chrono::seconds(config::report_task_interval_seconds));
+        }
+        if (!_is_work) {
+            break;
+        }
+
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            // sleep a short time and try again
+            LOG(INFO)
+                    << "waiting to receive first heartbeat from frontend before doing task report";
+            continue;
+        }
+
+        _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
+        {
+            std::lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
+            request.__set_tasks(_s_task_signatures);
+            request.__set_backend(BackendOptions::get_local_backend());
+        }
+        _handle_report(request, ReportType::TASK);
+    }
+    StorageEngine::instance()->deregister_report_listener(this);
+}
+
+ReportDiskStateTaskPool::ReportDiskStateTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::REPORT_DISK_STATE, env, *env->master_info(),
+                         thread_model) {
+    _cb = [this]() { _report_disk_state_worker_thread_callback(); };
+}
+
+/// disk state report thread will report disk state at a configurable fix interval.
+void ReportDiskStateTaskPool::_report_disk_state_worker_thread_callback() {
+    StorageEngine::instance()->register_report_listener(this);
+
+    while (_is_work) {
+        _is_doing_work = false;
+        {
+            // wait at most report_disk_state_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock,
+                    std::chrono::seconds(config::report_disk_state_interval_seconds));
+        }
+        if (!_is_work) {
+            break;
+        }
+
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO)
+                    << "waiting to receive first heartbeat from frontend before doing disk report";
+            continue;
+        }
+
+        _is_doing_work = true;
+        // Random sleep 1~5 seconds before doing report.
+        // In order to avoid the problem that the FE receives many report requests at the same time
+        // and can not be processed.
+        _random_sleep(5);
+
+        TReportRequest request;
+        request.__set_backend(BackendOptions::get_local_backend());
+        request.__isset.disks = true;
+
+        std::vector<DataDirInfo> data_dir_infos;
+        _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
+
+        for (auto& root_path_info : data_dir_infos) {
+            TDisk disk;
+            disk.__set_root_path(root_path_info.path);
+            disk.__set_path_hash(root_path_info.path_hash);
+            disk.__set_storage_medium(root_path_info.storage_medium);
+            disk.__set_disk_total_capacity(root_path_info.disk_capacity);
+            disk.__set_data_used_capacity(root_path_info.local_used_capacity);
+            disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
+            disk.__set_disk_available_capacity(root_path_info.available);
+            disk.__set_used(root_path_info.is_used);
+            request.disks[root_path_info.path] = disk;
+        }
+        int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
+                                                           : CpuInfo::num_cores();
+        request.__set_num_cores(num_cores);
+        _handle_report(request, ReportType::DISK);
+    }
+    StorageEngine::instance()->deregister_report_listener(this);
+}
+
+ReportOlapStateTaskPool::ReportOlapStateTaskPool(ExecEnv* env, ThreadModel thread_model)
+        : TaskWorkerPool(TaskWorkerType::REPORT_OLAP_TABLE, env, *env->master_info(),
+                         thread_model) {
+    _cb = [this]() { _report_tablet_worker_thread_callback(); };
+}
+
+void ReportOlapStateTaskPool::_report_tablet_worker_thread_callback() {
+    StorageEngine::instance()->register_report_listener(this);
+
+    while (_is_work) {
+        _is_doing_work = false;
+
+        {
+            // wait at most report_tablet_interval_seconds, or being notified
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait_for(
+                    worker_thread_lock,
+                    std::chrono::seconds(config::report_tablet_interval_seconds));
+        }
+        if (!_is_work) {
+            break;
+        }
+
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing tablet "
+                         "report";
+            continue;
+        }
+
+        _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
+
+        TReportRequest request;
+        request.__set_backend(BackendOptions::get_local_backend());
+        request.__isset.tablets = true;
+
+        uint64_t report_version = _s_report_version;
+        StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
+                &request.tablets);
+        if (report_version < _s_report_version) {
+            // TODO llj This can only reduce the possibility for report error, but can't avoid it.
+            // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
+            // report, and the report version has a small probability that it has not been updated in time. When FE
+            // receives this report, it is possible to delete the new tablet.
+            LOG(WARNING) << "report version " << report_version << " change to "
+                         << _s_report_version;
+            DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+            continue;
+        }
+        int64_t max_compaction_score =
+                std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
+                         DorisMetrics::instance()->tablet_base_max_compaction_score->value());
+        request.__set_tablet_max_compaction_score(max_compaction_score);
+        request.__set_report_version(report_version);
+
+        // report storage policy and resource
+        auto& storage_policy_list = request.storage_policy;
+        for (auto [id, version] : get_storage_policy_ids()) {
+            auto& storage_policy = storage_policy_list.emplace_back();
+            storage_policy.__set_id(id);
+            storage_policy.__set_version(version);
+        }
+        request.__isset.storage_policy = true;
+        auto& resource_list = request.resource;
+        for (auto [id, version] : get_storage_resource_ids()) {
+            auto& resource = resource_list.emplace_back();
+            resource.__set_id(id);
+            resource.__set_version(version);
+        }
+        request.__isset.resource = true;
+
+        _handle_report(request, ReportType::TABLET);
+    }
+    StorageEngine::instance()->deregister_report_listener(this);
 }
 
 } // namespace doris

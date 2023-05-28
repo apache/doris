@@ -112,9 +112,21 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     _storage_medium_migrate_workers.reset(
             new StorageMediumMigrateTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
     _storage_medium_migrate_workers->start();
+    _check_consistency_workers.reset(
+            new CheckConsistencyTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
+    _check_consistency_workers->start();
+
+    _report_task_workers.reset(
+            new ReportTaskTaskPool(exec_env, TaskWorkerPool::ThreadModel::SINGLE_THREAD));
+    _report_task_workers->start();
+    _report_disk_state_workers.reset(
+            new ReportDiskStateTaskPool(exec_env, TaskWorkerPool::ThreadModel::SINGLE_THREAD));
+    _report_disk_state_workers->start();
+    _report_tablet_workers.reset(
+            new ReportOlapStateTaskPool(exec_env, TaskWorkerPool::ThreadModel::SINGLE_THREAD));
+    _report_tablet_workers->start();
 #endif
     CREATE_AND_START_POOL(ALTER_INVERTED_INDEX, _alter_inverted_index_workers);
-    CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
     CREATE_AND_START_POOL(UPLOAD, _upload_workers);
     CREATE_AND_START_POOL(DOWNLOAD, _download_workers);
     CREATE_AND_START_POOL(MAKE_SNAPSHOT, _make_snapshot_workers);
@@ -123,9 +135,6 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
     CREATE_AND_START_THREAD(PUSH_COOLDOWN_CONF, _push_cooldown_conf_workers);
 
-    CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
-    CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
-    CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
     CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
     CREATE_AND_START_THREAD(GC_BINLOG, _gc_binlog_workers);

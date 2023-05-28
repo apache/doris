@@ -187,10 +187,6 @@ protected:
     void _finish_task(const TFinishTaskRequest& finish_task_request);
 
     void _alter_inverted_index_worker_thread_callback();
-    void _check_consistency_worker_thread_callback();
-    void _report_task_worker_thread_callback();
-    void _report_disk_state_worker_thread_callback();
-    void _report_tablet_worker_thread_callback();
     void _upload_worker_thread_callback();
     void _download_worker_thread_callback();
     void _make_snapshot_thread_callback();
@@ -202,8 +198,6 @@ protected:
     void _push_storage_policy_worker_thread_callback();
     void _gc_binlog_worker_thread_callback();
 
-    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
-                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
                                int64_t signature, const TTaskType::type task_type,
                                TFinishTaskRequest* finish_task_request);
@@ -326,6 +320,38 @@ public:
     void _storage_medium_migrate_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(StorageMediumMigrateTaskPool);
+};
+
+class CheckConsistencyTaskPool : public TaskWorkerPool {
+public:
+    CheckConsistencyTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _check_consistency_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CheckConsistencyTaskPool);
+};
+
+class ReportTaskTaskPool : public TaskWorkerPool {
+public:
+    ReportTaskTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _report_task_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportTaskTaskPool);
+};
+
+class ReportDiskStateTaskPool : public TaskWorkerPool {
+public:
+    ReportDiskStateTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _report_disk_state_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportDiskStateTaskPool);
+};
+
+class ReportOlapStateTaskPool : public TaskWorkerPool {
+public:
+    ReportOlapStateTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _report_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ReportOlapStateTaskPool);
 };
 
 } // namespace doris
