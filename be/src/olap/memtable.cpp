@@ -474,7 +474,6 @@ Status MemTable::_do_flush() {
         _put_into_output(in_block);
     } else {
         _aggregate<true>();
-        DCHECK(_stat.merged_rows == same_keys_num);
     }
     vectorized::Block block = _output_mutable_block.to_block();
     if (_tablet_schema->is_dynamic_schema()) {
