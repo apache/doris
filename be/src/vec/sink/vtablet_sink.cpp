@@ -1431,7 +1431,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 if (add_batch_exec_time > max_add_batch_exec_time_ns) {
                     max_add_batch_exec_time_ns = add_batch_exec_time;
                 }
-                if (wait_exec_time > max_exec_time_ns) {
+                if (wait_exec_time > max_wait_exec_time_ns) {
                     max_wait_exec_time_ns = wait_exec_time;
                 }
 
