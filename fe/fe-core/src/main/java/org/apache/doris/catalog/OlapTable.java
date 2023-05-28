@@ -251,6 +251,13 @@ public class OlapTable extends Table {
         return indexes.getIndexes();
     }
 
+    public List<Long> getIndexIds() {
+        if (indexes == null) {
+            return Lists.newArrayList();
+        }
+        return indexes.getIndexIds();
+    }
+
     public TableIndexes getTableIndexes() {
         return indexes;
     }

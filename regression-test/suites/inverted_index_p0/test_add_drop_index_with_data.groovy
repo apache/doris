@@ -37,6 +37,29 @@ suite("test_add_drop_index_with_data", "inverted_index"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            expected_finished_num = alter_res.size();
+            finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            } else {
+                finished_num = 0;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+    }
+
     def indexTbName1 = "test_add_drop_inverted_index2"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -103,7 +126,8 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-
+    sql "build index idx_desc on ${indexTbName1}"
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
@@ -210,7 +234,8 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-
+    sql "build index idx_desc on ${indexTbName1}"
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
     // query rows where description match 'desc'
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
     assertEquals(select_result.size(), 2)
@@ -245,6 +270,8 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 3)
+    sql "build index idx_name on ${indexTbName1}"
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
 
     // query rows where name match 'name1'
     select_result = sql "select * from ${indexTbName1} where name match 'name1'"

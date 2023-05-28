@@ -220,7 +220,8 @@ void BetaRowset::do_close() {
 }
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                                 size_t new_rowset_start_seg_id) {
+                                 size_t new_rowset_start_seg_id,
+                                 std::set<int32_t>* without_index_column_uids) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
@@ -246,7 +247,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return Status::Error<OS_ERROR>();
         }
         for (auto& column : _schema->columns()) {
-            // if (column.has_inverted_index()) {
+            if (without_index_column_uids != nullptr &&
+                without_index_column_uids->count(column.unique_id())) {
+                continue;
+            }
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
             if (index_meta) {
                 std::string inverted_index_src_file_path =

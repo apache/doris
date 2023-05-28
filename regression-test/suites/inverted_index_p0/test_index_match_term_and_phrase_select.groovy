@@ -47,6 +47,29 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            expected_finished_num = alter_res.size();
+            finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            } else {
+                finished_num = 0;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+    }
+
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
 
     // create table with different index
@@ -116,6 +139,20 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
                     add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+            sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${varchar_colume2}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${varchar_colume3}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${int_colume1}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${string_colume1}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${char_colume1}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
+            sql """ build index ${text_colume1}_idx on ${indexTbName1} """
+            wait_for_build_index_on_partition_finish(indexTbName1, timeout)
         }
 
         // case1: match term

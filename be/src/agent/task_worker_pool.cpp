@@ -65,6 +65,7 @@
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
+#include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
 #include "olap/txn_manager.h"
@@ -334,11 +335,11 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
 void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
+
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -346,104 +347,52 @@ void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
-        int64_t signature = agent_task_req.signature;
-        LOG(INFO) << "get alter inverted index task, signature: " << agent_task_req.signature;
-        bool is_task_timeout = false;
-        if (agent_task_req.__isset.recv_time) {
-            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
-            if (time_elapsed > config::report_task_interval_seconds * 20) {
-                LOG(INFO) << "task elapsed " << time_elapsed
-                          << " seconds since it is inserted to queue, it is timeout";
-                is_task_timeout = true;
-            }
+
+        auto& alter_inverted_index_rq = agent_task_req.alter_inverted_index_req;
+        LOG(INFO) << "get alter inverted index task. signature=" << agent_task_req.signature
+                  << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                  << ", job_id=" << alter_inverted_index_rq.job_id;
+
+        Status status = Status::OK();
+        TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
+                alter_inverted_index_rq.tablet_id);
+        if (tablet_ptr != nullptr) {
+            EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+            status = _env->storage_engine()->execute_task(&engine_task);
+        } else {
+            status =
+                    Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
         }
-        if (!is_task_timeout) {
-            TFinishTaskRequest finish_task_request;
-            TTaskType::type task_type = agent_task_req.task_type;
-            switch (task_type) {
-            case TTaskType::ALTER_INVERTED_INDEX:
-                _alter_inverted_index(agent_task_req, signature, task_type, &finish_task_request);
-                break;
-            default:
-                // pass
-                break;
+
+        // Return result to fe
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        std::vector<TTabletInfo> finish_tablet_infos;
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to alter inverted index task, signature="
+                         << agent_task_req.signature
+                         << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                         << ", job_id=" << alter_inverted_index_rq.job_id << ", error=" << status;
+        } else {
+            LOG(INFO) << "successfully alter inverted index task, signature="
+                      << agent_task_req.signature
+                      << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                      << ", job_id=" << alter_inverted_index_rq.job_id;
+            TTabletInfo tablet_info;
+            status = _get_tablet_info(alter_inverted_index_rq.tablet_id,
+                                      alter_inverted_index_rq.schema_hash, agent_task_req.signature,
+                                      &tablet_info);
+            if (status.ok()) {
+                finish_tablet_infos.push_back(tablet_info);
             }
-            _finish_task(finish_task_request);
+            finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
         }
+        finish_task_request.__set_task_status(status.to_thrift());
+        _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
-}
-
-void TaskWorkerPool::_alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
-                                           int64_t signature, const TTaskType::type task_type,
-                                           TFinishTaskRequest* finish_task_request) {
-    Status status = Status::OK();
-    string process_name;
-    switch (task_type) {
-    case TTaskType::ALTER_INVERTED_INDEX:
-        process_name = "AlterInvertedIndex";
-        break;
-    default:
-        std::string task_name;
-        EnumToString(TTaskType, task_type, task_name);
-        LOG(WARNING) << "schema change type invalid. type: " << task_name
-                     << ", signature: " << signature;
-        status = Status::NotSupported("Schema change type invalid");
-        break;
-    }
-
-    TTabletId tablet_id;
-    TSchemaHash schema_hash = 0;
-    if (status.ok()) {
-        tablet_id = alter_inverted_index_request.alter_inverted_index_req.tablet_id;
-        schema_hash = alter_inverted_index_request.alter_inverted_index_req.schema_hash;
-        EngineAlterInvertedIndexTask engine_task(
-                alter_inverted_index_request.alter_inverted_index_req);
-        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
-        if (!sc_status.ok()) {
-            status = Status::DataQualityError("The data quality does not satisfy");
-        } else {
-            status = Status::OK();
-        }
-    }
-
-    if (status.ok()) {
-        ++_s_report_version;
-        LOG(INFO) << process_name << " finished. signature: " << signature;
-    }
-
-    // Return result to fe
-    finish_task_request->__set_backend(BackendOptions::get_local_backend());
-    finish_task_request->__set_report_version(_s_report_version);
-    finish_task_request->__set_task_type(task_type);
-    finish_task_request->__set_signature(signature);
-
-    std::vector<TTabletInfo> finish_tablet_infos;
-    if (status.ok()) {
-        TTabletInfo tablet_info;
-        status = _get_tablet_info(tablet_id, schema_hash, signature, &tablet_info);
-
-        if (!status.ok()) {
-            LOG(WARNING) << process_name << " success, but get tablet info failed."
-                         << "tablet_id: " << tablet_id << ", schema_hash: " << schema_hash
-                         << ", signature: " << signature;
-        } else {
-            finish_tablet_infos.push_back(tablet_info);
-        }
-    }
-
-    if (status.ok()) {
-        finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
-        LOG_INFO("successfully {}", process_name)
-                .tag("signature", signature)
-                .tag("tablet_id", tablet_id);
-    } else {
-        LOG_WARNING("failed to {}", process_name)
-                .tag("signature", signature)
-                .tag("tablet_id", tablet_id)
-                .error(status);
-    }
-    finish_task_request->__set_task_status(status.to_thrift());
 }
 
 void TaskWorkerPool::_alter_tablet_worker_thread_callback() {

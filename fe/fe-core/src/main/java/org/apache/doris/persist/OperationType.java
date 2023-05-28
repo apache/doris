@@ -79,6 +79,7 @@ public class OperationType {
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+    public static final short OP_INVERTED_INDEX_JOB = 221;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
