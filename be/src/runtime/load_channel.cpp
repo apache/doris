@@ -59,7 +59,8 @@ void LoadChannel::_init_profile() {
     _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
-    _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTimer");
+    _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
+    _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -143,6 +144,7 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
+    COUNTER_UPDATE(_add_batch_times, 1);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;

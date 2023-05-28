@@ -160,6 +160,7 @@ private:
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_times = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
     RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
 
