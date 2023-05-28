@@ -96,6 +96,7 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTimer");
     _wait_flush_timer = ADD_TIMER(_profile, "WaitFlushTimer");
     _put_into_output_timer = ADD_TIMER(_profile, "PutIntoOutputTimer");
+    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTimer");
     _sort_times = ADD_COUNTER(_profile, "SortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "AggTimes", TUnit::UNIT);
 }
