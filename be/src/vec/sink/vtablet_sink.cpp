@@ -359,6 +359,7 @@ void VNodeChannel::open() {
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(true);
     request.set_backend_id(_node_id);
+    request.set_enable_profile(_state->enable_profile());
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
