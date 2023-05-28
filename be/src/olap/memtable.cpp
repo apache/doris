@@ -210,7 +210,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
 
-    _stat.raw_rows++;
+    _stat.raw_rows += num_rows;
 }
 
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
