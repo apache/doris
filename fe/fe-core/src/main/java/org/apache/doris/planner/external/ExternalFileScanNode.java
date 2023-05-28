@@ -623,7 +623,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                     TFileRangeDesc file = files.get(i);
                     output.append(prefix).append("    ").append(file.getPath())
                             .append(" start: ").append(file.getStartOffset())
-                            .append(" length: ").append(file.getFileSize())
+                            .append(" length: ").append(file.getSize())
                             .append("\n");
                 }
             }
@@ -641,6 +641,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         return output.toString();
     }
 }
+
 
 
 

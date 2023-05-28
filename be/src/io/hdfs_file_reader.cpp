@@ -75,6 +75,12 @@ Status HdfsFileReader::open() {
     RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     _hdfs_fs = _fs_handle->hdfs_fs;
     if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
+#ifdef USE_HADOOP_HDFS
+        char* root_cause = hdfsGetLastExceptionRootCause();
+        if (root_cause != nullptr) {
+            return Status::InternalError("fail to check path exist {}, reason: {}", _path, root_cause);
+        }
+#endif
         if (_fs_handle->from_cache) {
             // hdfsFS may be disconnected if not used for a long time or kerberos token is expired
             _fs_handle->set_invalid();
@@ -83,10 +89,19 @@ Status HdfsFileReader::open() {
             RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
             _hdfs_fs = _fs_handle->hdfs_fs;
             if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
-                return Status::NotFound("{} not exists!", _path);
+#ifdef USE_HADOOP_HDFS
+                root_cause = hdfsGetLastExceptionRootCause();
+                if (root_cause != nullptr) {
+                    return Status::InternalError("fail to check path exist {}, reason: {}", _path, root_cause);
+                }
+#endif
+                // code != 0 and root_cause is nullptr, mean this file does not exist.
+                LOG(INFO) << "hdfs file " << _path << " does not exist";
+                return Status::NotFound("{} does not exist", _path);
             }
         } else {
-            return Status::NotFound("{} not exists!", _path);
+            LOG(INFO) << "hdfs file " << _path << " does not exist";
+            return Status::NotFound("{} does not exist", _path);
         }
     }
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
