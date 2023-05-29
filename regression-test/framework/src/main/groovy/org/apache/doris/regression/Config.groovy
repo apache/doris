@@ -22,17 +22,16 @@ import groovy.util.logging.Slf4j
 
 import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
-import org.apache.commons.cli.Option
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
-import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
-import static java.lang.Math.random
 import static org.apache.doris.regression.ConfigOptions.*
+
+import org.apache.doris.thrift.TNetworkAddress;
 
 @Slf4j
 @CompileStatic
@@ -41,6 +40,10 @@ class Config {
     public String jdbcUser
     public String jdbcPassword
     public String defaultDb
+
+    public String feSourceThriftAddress
+    public String feSyncerUser
+    public String feSyncerPassword
 
     public String feHttpAddress
     public String feHttpUser
@@ -77,6 +80,7 @@ class Config {
     public Set<String> excludeGroupSet = new HashSet<>()
     public Set<String> excludeDirectorySet = new HashSet<>()
 
+    public TNetworkAddress feSourceThriftNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -177,6 +181,15 @@ class Config {
             config.groups = ["p0"].toSet()
         }
 
+        config.feSourceThriftAddress = cmd.getOptionValue(feThriftAddressOpt, config.feSourceThriftAddress)
+        try {
+            String host = config.feSourceThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feSourceThriftAddress.split(":")[1])
+            config.feSourceThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feSourceThriftAddress}", t)
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -200,6 +213,8 @@ class Config {
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
         config.jdbcPassword = cmd.getOptionValue(passwordOpt, config.jdbcPassword)
+        config.feSyncerUser = cmd.getOptionValue(feSyncerUserOpt, config.feSyncerUser)
+        config.feSyncerPassword = cmd.getOptionValue(feSyncerPasswordOpt, config.feSyncerPassword)
         config.feHttpUser = cmd.getOptionValue(feHttpUserOpt, config.feHttpUser)
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
@@ -286,6 +301,11 @@ class Config {
             log.info("Set jdbcPassword to empty because not specify.".toString())
         }
 
+        if (config.feSourceThriftAddress == null) {
+            config.feSourceThriftAddress = "127.0.0.1:9020"
+            log.info("Set feThriftAddress to '${config.feSourceThriftAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpAddress == null) {
             config.feHttpAddress = "127.0.0.1:8030"
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
@@ -294,6 +314,16 @@ class Config {
         if (config.metaServiceHttpAddress == null) {
             config.metaServiceHttpAddress = "127.0.0.1:5000"
             log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.feSyncerUser == null) {
+            config.feSyncerUser = "root"
+            log.info("Set feSyncerUser to '${config.feSyncerUser}' because not specify.".toString())
+        }
+
+        if (config.feSyncerPassword == null) {
+            config.feSyncerPassword = ""
+            log.info("Set feSyncerPassword to empty because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {

@@ -32,6 +32,9 @@ class ConfigOptions {
     static Option jdbcOpt
     static Option userOpt
     static Option passwordOpt
+    static Option feThriftAddressOpt
+    static Option feSyncerUserOpt
+    static Option feSyncerPasswordOpt
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
@@ -213,6 +216,30 @@ class ConfigOptions {
                 .longOpt("excludeDirectories")
                 .desc("the use cases in these directories will not be tested")
                 .build()
+        feThriftAddressOpt = Option.builder("tfa")
+                .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("feThriftAddress")
+                .desc("the fe thrift address, format is ip:port")
+                .build()
+        feSyncerUserOpt = Option.builder("tfu")
+                .argName("userName")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("eSyncerUser")
+                .desc("the user of syncer")
+                .build()
+        feSyncerPasswordOpt = Option.builder("tfp")
+                .argName("password")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("feSyncerPassword")
+                .desc("the password of syncer")
+                .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
                 .required(false)
@@ -335,6 +362,9 @@ class ConfigOptions {
                 .addOption(excludeGroupsOpt)
                 .addOption(directoriesOpt)
                 .addOption(excludeDirectoriesOpt)
+                .addOption(feThriftAddressOpt)
+                .addOption(feSyncerUserOpt)
+                .addOption(feSyncerPasswordOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
