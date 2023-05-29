@@ -215,7 +215,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "mysql"
 )
 
@@ -225,7 +225,7 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "oracle"
 )
 ```
