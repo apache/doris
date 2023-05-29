@@ -59,7 +59,7 @@ public:
     static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
                                       int32_t version, Type type);
 
-    // Get a shared cached Schema from resource pool, schema_key is a subset of column unique ids
+    // Get a shared cached schema from cache, schema_key is a subset of column unique ids
     template <typename SchemaType>
     SchemaType get_schema(const std::string& schema_key) {
         if (!_s_instance || schema_key.empty()) {
@@ -82,7 +82,7 @@ public:
         return {};
     }
 
-    // Get a shared cached tablet Schema from resource pool, schema_key is full column unique ids
+    // Insert a shared Schema into cache, schema_key is full column unique ids
     template <typename SchemaType>
     void insert_schema(const std::string& key, SchemaType schema) {
         if (!_s_instance || key.empty()) {

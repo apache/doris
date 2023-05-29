@@ -207,11 +207,11 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
+    // get file handle from file descriptor of segment
     if (_inited) {
         return Status::OK();
     }
     _inited = true;
-    // get file handle from file descriptor of segment
     _file_reader = _segment->_file_reader;
     _opts = opts;
     _col_predicates.clear();
@@ -232,19 +232,9 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
         _col_preds_except_leafnode_of_andnode = opts.column_predicates_except_leafnode_of_andnode;
     }
 
-<<<<<<< HEAD
-    if (opts.output_columns != nullptr) {
-        _output_columns = *(opts.output_columns);
-    }
-
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
     _common_expr_ctxs_push_down = opts.common_expr_ctxs_push_down;
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
-=======
-    _remaining_vconjunct_root = opts.remaining_vconjunct_root;
-    _common_vexpr_ctxs_pushdown = opts.common_vexpr_ctxs_pushdown;
-    _enable_common_expr_pushdown = _common_vexpr_ctxs_pushdown ? true : false;
->>>>>>> ce8392a710 ([Improve](performance) introduce SchemaCache to cache TabletSchame & Schema)
     _column_predicate_info.reset(new ColumnPredicateInfo());
 
     for (auto& expr : _remaining_conjunct_roots) {
@@ -747,13 +737,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     }
 
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
-<<<<<<< HEAD
-        auto column_name = _schema.column(pred->column_id())->name();
-        if (!_remaining_conjunct_roots.empty() &&
-=======
         auto column_name = _schema->column(pred->column_id())->name();
-        if (_remaining_vconjunct_root != nullptr &&
->>>>>>> ce8392a710 ([Improve](performance) introduce SchemaCache to cache TabletSchame & Schema)
+        if (!_remaining_conjunct_roots.empty() &&
             _check_column_pred_all_push_down(column_name, true) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             int32_t unique_id = _schema->unique_id(pred->column_id());
@@ -1304,17 +1289,11 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // Step2: extract columns that can execute expr context
-<<<<<<< HEAD
-    _is_common_expr_column.resize(_schema.columns().size(), false);
+    _is_common_expr_column.resize(_schema->columns().size(), false);
     if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
         for (auto expr : _remaining_conjunct_roots) {
             RETURN_IF_ERROR(_extract_common_expr_columns(expr));
         }
-=======
-    _is_common_expr_column.resize(_schema->columns().size(), false);
-    if (_enable_common_expr_pushdown && _remaining_vconjunct_root != nullptr) {
-        RETURN_IF_ERROR(_extract_common_expr_columns(_remaining_vconjunct_root));
->>>>>>> ce8392a710 ([Improve](performance) introduce SchemaCache to cache TabletSchame & Schema)
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
