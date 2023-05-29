@@ -1018,9 +1018,7 @@ public:
         return Status::OK();
     }
 
-    PrimitiveType column_type() {
-        return _column_return_type;
-    }
+    PrimitiveType column_type() { return _column_return_type; }
 
     void ready_for_publish() {
         if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
