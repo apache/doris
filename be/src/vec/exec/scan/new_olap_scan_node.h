@@ -189,9 +189,6 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    // for debugging or profiling, record any info as you want
-    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
 };
 
 } // namespace doris::vectorized

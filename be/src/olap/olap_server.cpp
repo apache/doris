@@ -217,9 +217,6 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_fd_cache_clean_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         interval = config::cache_clean_interval;
@@ -241,9 +238,6 @@ void StorageEngine::_start_clean_lookup_cache() {
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     uint32_t max_interval = config::max_garbage_sweep_interval;
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
@@ -284,10 +278,6 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 }
 
 void StorageEngine::_disk_stat_monitor_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int32_t interval = config::disk_stat_monitor_interval;
     do {
         _start_disk_stat_monitor();
@@ -319,9 +309,6 @@ void StorageEngine::check_cumulative_compaction_config() {
 }
 
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     int32_t interval = config::unused_rowset_monitor_interval;
     do {
         start_delete_unused_rowset();
@@ -336,10 +323,6 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
 }
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     LOG(INFO) << "try to start path gc thread!";
     int32_t interval = config::path_gc_check_interval_second;
     do {
@@ -359,10 +342,6 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int32_t interval = config::path_scan_interval_second;
     do {
         LOG(INFO) << "try to perform path scan!";
@@ -381,10 +360,6 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
@@ -440,9 +415,6 @@ void StorageEngine::_adjust_compaction_thread_num() {
 }
 
 void StorageEngine::_compaction_tasks_producer_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     LOG(INFO) << "try to start compaction producer process!";
 
     std::unordered_set<TTabletId> tablet_submitted_cumu;
