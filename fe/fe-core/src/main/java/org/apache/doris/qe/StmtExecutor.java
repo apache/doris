@@ -1097,7 +1097,7 @@ public class StmtExecutor {
             if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
                     && context.sessionVariable.enablePipelineEngine()) {
                 analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
+                        .getResourceGroup(context));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
