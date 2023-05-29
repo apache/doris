@@ -55,8 +55,8 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
     //partition by key
     if (tnode.partition_sort_node.__isset.partition_exprs) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, tnode.partition_sort_node.partition_exprs,
-                                                 &_partition_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.partition_sort_node.partition_exprs,
+                                                 _partition_expr_ctxs));
         _partition_exprs_num = _partition_expr_ctxs.size();
         _partition_columns.resize(_partition_exprs_num);
     }

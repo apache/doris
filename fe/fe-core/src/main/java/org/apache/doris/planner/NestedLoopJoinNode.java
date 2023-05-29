@@ -66,8 +66,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     private List<Expr> runtimeFilterExpr = Lists.newArrayList();
     private List<Expr> joinConjuncts;
 
-    private Expr vJoinConjunct;
-
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
         tupleIds.addAll(outer.getOutputTupleIds());
@@ -160,20 +158,6 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     @Override
     protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
         joinConjuncts = Expr.substituteList(joinConjuncts, originToIntermediateSmap, analyzer, false);
-        if (vJoinConjunct != null) {
-            vJoinConjunct =
-                    Expr.substituteList(Collections.singletonList(vJoinConjunct), originToIntermediateSmap, analyzer,
-                                    false).get(0);
-        }
-    }
-
-    @Override
-    public void convertToVectorized() {
-        if (!joinConjuncts.isEmpty()) {
-            vJoinConjunct = convertConjunctsToAndCompoundPredicate(joinConjuncts);
-            initCompoundPredicate(vJoinConjunct);
-        }
-        super.convertToVectorized();
     }
 
     @Override
@@ -185,8 +169,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     protected void toThrift(TPlanNode msg) {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
-        if (vJoinConjunct != null) {
-            msg.nested_loop_join_node.setVjoinConjunct(vJoinConjunct.treeToThrift());
+        for (Expr conjunct : joinConjuncts) {
+            msg.nested_loop_join_node.addToJoinConjuncts(conjunct.treeToThrift());
         }
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
         if (vSrcToOutputSMap != null) {

@@ -66,6 +66,7 @@
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
@@ -78,10 +79,6 @@ class ThreadPoolToken;
 class TupleDescriptor;
 template <typename T>
 class RefCountClosure;
-
-namespace vectorized {
-class VExprContext;
-}
 
 namespace stream_load {
 
@@ -358,7 +355,8 @@ protected:
 
 class IndexChannel {
 public:
-    IndexChannel(VOlapTableSink* parent, int64_t index_id, vectorized::VExprContext* where_clause)
+    IndexChannel(VOlapTableSink* parent, int64_t index_id,
+                 const vectorized::VExprContextSPtr& where_clause)
             : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
@@ -397,7 +395,7 @@ public:
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
 
-    vectorized::VExprContext* get_where_clause() { return _where_clause; }
+    vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
     friend class VNodeChannel;
@@ -405,7 +403,7 @@ private:
 
     VOlapTableSink* _parent;
     int64_t _index_id;
-    vectorized::VExprContext* _where_clause;
+    vectorized::VExprContextSPtr _where_clause;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -607,7 +605,7 @@ private:
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
 
