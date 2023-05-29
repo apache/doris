@@ -33,9 +33,9 @@ public class JniScannerTest {
         MockJniScanner scanner = new MockJniScanner(32, new HashMap<String, String>() {
             {
                 put("mock_rows", "128");
-                put("required_fields", "boolean,tinyint,smallint,int,bigint,float,double,"
+                put("required_fields", "boolean,tinyint,smallint,int,bigint,largeint,float,double,"
                         + "date,timestamp,char,varchar,string,decimalv2,decimal64");
-                put("columns_types", "boolean#tinyint#smallint#int#bigint#float#double#"
+                put("columns_types", "boolean#tinyint#smallint#int#bigint#largeint#float#double#"
                         + "date#timestamp#char(10)#varchar(10)#string#decimalv2(12,4)#decimal64(10,3)");
             }
         });

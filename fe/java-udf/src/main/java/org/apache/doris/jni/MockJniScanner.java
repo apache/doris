@@ -86,7 +86,7 @@ public class MockJniScanner extends JniScanner {
 
         @Override
         public BigInteger getBigInteger() {
-            return null;
+            return BigInteger.valueOf(getLong());
         }
 
         @Override
