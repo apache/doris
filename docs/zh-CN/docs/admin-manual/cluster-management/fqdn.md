@@ -1,7 +1,7 @@
 ---
 {
-"title": "FQDN",
-"language": "zh-CN"
+   "title": "FQDN",
+   "language": "zh-CN"
 }
 ---
 
