@@ -53,10 +53,11 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
             }
 
             List<Plan> newChildren = new ArrayList<>();
-            boolean allOneRowRelation = true;
+            boolean allOneRowRelation = true, hasOneRowRelation = false;
             for (Plan child : setOperation.children()) {
                 if (child instanceof OneRowRelation) {
                     // We shouldn't push down the 'filter' to 'oneRowRelation'.
+                    hasOneRowRelation = true;
                     newChildren.add(child);
                     continue;
                 } else {
@@ -80,6 +81,11 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
             if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {
                 return new LogicalFilter<>(filter.getConjuncts(),
                         ((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
+            }
+
+            if (hasOneRowRelation) {
+                // If there are some `OneRowRelation` exists, we need to keep the `filter`.
+                return filter.withChildren(setOperation.withNewChildren(newChildren));
             }
             return setOperation.withNewChildren(newChildren);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
