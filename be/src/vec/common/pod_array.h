@@ -425,7 +425,6 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
-
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
 
         insert_assume_reserved(from_begin, from_end);
