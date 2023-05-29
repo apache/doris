@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -31,6 +37,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -99,7 +106,12 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testInsertIntoSomeColumns() throws Exception {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
-        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(
+                Lists.newArrayList(
+                        NullLiteral.create(Type.INT), 
+                        NullLiteral.create(Type.INT)
+                ),
+                getOutputFragment(sql).getOutputExprs().subList(0, 2));
     }
 
     @Test
