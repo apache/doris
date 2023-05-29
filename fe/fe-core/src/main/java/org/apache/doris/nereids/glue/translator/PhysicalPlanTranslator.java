@@ -286,7 +286,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        if (isFragmentPartitioned(rootFragment)) {
+        if (context.getHasInsertSink() == null && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
