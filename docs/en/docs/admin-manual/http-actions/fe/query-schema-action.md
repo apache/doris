@@ -42,7 +42,7 @@ The API was released in version 1.2.
 ## Path parameters
 * `<ns_name>`
 
-    Specify cluster name, default value is 'default_cluster'
+    Specify cluster name, default value is 'default_cluster' or 'internal'
 
 * `<db_name>`
 
