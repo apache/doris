@@ -39,16 +39,17 @@ Status JoinPartition::prepare(RuntimeState* state, RuntimeProfile* profile,
 
 Status JoinPartition::add_build_rows(Block* block, std::vector<int>& rows) {
     build_row_count_ += rows.size();
-    if (_mutable_block == nullptr) {
-        _mutable_block = MutableBlock::create_unique(block->clone_empty());
+    if (mutable_build_block_ == nullptr) {
+        mutable_build_block_ = MutableBlock::create_unique(block->clone_empty());
     }
     // TODO: ColumnString::reserver is not accurate
-    auto status = _mutable_block->reserve(_mutable_block->rows() + rows.size());
+    auto status = mutable_build_block_->reserve(mutable_build_block_->rows() + rows.size());
     // If add rows will cause MEM_LIMIT_EXCEEDED: temporarily skip memcheck, add build rows to _mutable block
     // and then spill build blocks to release memory.
+    // TODO: spill the biggest partition
     if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-        SKIP_MEMORY_CHECK(
-                RETURN_IF_ERROR(_mutable_block->reserve(_mutable_block->rows() + rows.size())));
+        SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
+                mutable_build_block_->reserve(mutable_build_block_->rows() + rows.size())));
         RETURN_IF_ERROR(_add_rows_skip_mem_check(block, rows));
         return flush_build_stream();
     }
@@ -56,14 +57,39 @@ Status JoinPartition::add_build_rows(Block* block, std::vector<int>& rows) {
 }
 
 Status JoinPartition::_add_rows_skip_mem_check(Block* block, std::vector<int>& rows) {
-    auto pre_bytes_ = _mutable_block->bytes();
-    RETURN_IF_CATCH_EXCEPTION(_mutable_block->add_rows(block, &rows[0], &rows[0] + rows.size()));
-    auto new_bytes = _mutable_block->bytes();
+    auto pre_bytes_ = mutable_build_block_->bytes();
+    RETURN_IF_CATCH_EXCEPTION(
+            mutable_build_block_->add_rows(block, &rows[0], &rows[0] + rows.size()));
+    auto new_bytes = mutable_build_block_->bytes();
     build_data_bytes_ += new_bytes - pre_bytes_;
-    if (_reach_limit()) {
-        auto block = _mutable_block->to_block();
+    if (_block_reach_limit(mutable_build_block_.get())) {
+        auto block = mutable_build_block_->to_block();
         build_stream_->add_block(block);
-        _mutable_block->clear_column_data();
+        mutable_build_block_->clear_column_data();
+    }
+    return Status::OK();
+}
+
+Status JoinPartition::prepare_add_probe_rows(Block* block, std::vector<int>& rows) {
+    if (mutable_probe_block_ == nullptr) {
+        mutable_probe_block_ = MutableBlock::create_unique(block->clone_empty());
+    }
+
+    return mutable_probe_block_->reserve(mutable_probe_block_->rows() + rows.size());
+}
+
+Status JoinPartition::add_probe_rows(RuntimeState* state, Block* block, std::vector<int>& rows,
+                                     bool eos) {
+    probe_row_count_ += rows.size();
+    if (mutable_probe_block_ == nullptr) {
+        mutable_probe_block_ = MutableBlock::create_unique(block->clone_empty());
+    }
+
+    RETURN_IF_CATCH_EXCEPTION(
+            mutable_build_block_->add_rows(block, &rows[0], &rows[0] + rows.size()));
+    if (is_ready_for_probe()) {
+        auto block = mutable_build_block_->to_block();
+        RETURN_IF_ERROR(in_mem_hash_join_node_->push(state, &block, eos));
     }
     return Status::OK();
 }
@@ -75,28 +101,27 @@ Status JoinPartition::restore_build_data() {
     return build_stream_->restore();
 }
 
-Status JoinPartition::build_hash_table(RuntimeState* state, ObjectPool* pool,
-                                       const TPlanNode& t_plan_node,
-                                       const DescriptorTbl& desc_tbl) {
+Status JoinPartition::_build_hash_table(RuntimeState* state, ObjectPool* pool,
+                                        const TPlanNode& t_plan_node,
+                                        const DescriptorTbl& desc_tbl) {
     bool eos = false;
-    DCHECK(!build_stream_->is_spilled());
-    DCHECK(!is_building_hash_table_);
-    is_building_hash_table_ = true;
     in_mem_hash_join_node_ = std::make_unique<HashJoinNode>(pool, t_plan_node, desc_tbl);
     while (!eos) {
         Block block;
-        build_stream_->get_next(&block, &eos);
+        RETURN_IF_ERROR(build_stream_->get_next(&block, &eos));
         auto status = in_mem_hash_join_node_->sink(state, &block, eos);
         if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+            build_status_ = status;
             auto build_blocks = in_mem_hash_join_node_->release_build_blocks();
             in_mem_hash_join_node_->close(state);
             in_mem_hash_join_node_.reset();
             build_stream_->add_blocks(std::move(*build_blocks));
-            RETURN_IF_ERROR(flush_build_stream());
-            return status;
+            // return flush_build_stream();
+            return Status::OK();
         }
         RETURN_IF_ERROR(status);
     }
+    is_ready_for_probe_ = true;
     return Status::OK();
 }
 
@@ -137,77 +162,81 @@ Status GraceHashJoinNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
+void GraceHashJoinNode::_calc_columns_hash(vectorized::Block* input_block,
+                                           const std::vector<int>& column_ids,
+                                           std::vector<int> (&partition2rows)[PARTITION_COUNT]) {
+    int rows = input_block->rows();
+    std::vector<uint64_t> hash_vals(rows);
+    auto* __restrict hashes = hash_vals.data();
+    std::vector<SipHash> siphashs(rows);
+    // result[j] means column index, i means rows index
+    for (int i = 0; i < column_ids.size(); ++i) {
+        input_block->get_by_position(column_ids[i]).column->update_hashes_with_value(siphashs);
+    }
+    for (int i = 0; i < rows; i++) {
+        hashes[i] = siphashs[i].get64() % PARTITION_COUNT;
+    }
+
+    for (int i = 0; i < rows; i++) {
+        partition2rows[hashes[i]].emplace_back(i);
+    }
+}
+
 Status GraceHashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* input_block,
                                bool eos) {
     std::vector<int> res_col_ids(build_expr_ctxs_.size());
     RETURN_IF_ERROR(HashJoinNode::evaluate_exprs(*input_block, build_expr_ctxs_,
                                                  *_build_expr_call_timer, res_col_ids));
 
-    int rows = input_block->rows();
-    std::vector<uint64_t> hash_vals(rows);
-    auto* __restrict hashes = hash_vals.data();
-    std::vector<SipHash> siphashs(rows);
-    // result[j] means column index, i means rows index
-    for (int i = 0; i < res_col_ids.size(); ++i) {
-        input_block->get_by_position(res_col_ids[i]).column->update_hashes_with_value(siphashs);
-    }
-    for (int i = 0; i < rows; i++) {
-        hashes[i] = siphashs[i].get64() % PARTITION_COUNT;
-    }
-
     std::vector<int> partition2rows[PARTITION_COUNT];
-    for (int i = 0; i < rows; i++) {
-        partition2rows[hashes[i]].emplace_back(i);
-    }
+    _calc_columns_hash(input_block, res_col_ids, partition2rows);
     for (int i = 0; i < PARTITION_COUNT; ++i) {
-        RETURN_IF_ERROR(current_partitions_[i]->add_build_rows(input_block, partition2rows[i]));
-    }
-    return Status::OK();
-}
-
-Status GraceHashJoinNode::_trigger_build_hash_tables(RuntimeState* state) {
-    int n = 0;
-    for (int i = 0; i < PARTITION_COUNT; ++i) {
-        // build hash table for not spilled partitions first
-        if (!current_partitions_[i]->is_spilled()) {
-            ++n;
-            processing_partitions_.emplace_back(current_partitions_[i]);
+        if (!partition2rows[i].empty()) {
+            RETURN_IF_ERROR(current_partitions_[i]->add_build_rows(input_block, partition2rows[i]));
         }
     }
-    if (0 == n) {
-        build_hash_table_latch_.reset(1);
-        auto index = _smallest_join_partition();
-        RETURN_IF_ERROR(current_partitions_[index]->restore_build_data());
-        processing_partitions_.emplace_back(current_partitions_[index]);
-    } else {
-        build_hash_table_latch_.reset(n);
-        auto status = io_thread_pool_->submit_func([this, state] {
-            for (int i = 0; i < PARTITION_COUNT; ++i) {
-                // build hash table for not spilled partitions first
-                if (current_partitions_[i]->is_spilled()) {
-                    continue;
-                }
-                auto st = current_partitions_[i]->build_hash_table(state, _pool, t_plan_node_,
-                                                                   desc_tbl_);
-                build_hash_table_latch_.count_down();
-                if (st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-                    break;
-                }
-                RETURN_IF_ERROR(st);
-            }
-            return Status::OK();
-        });
+    if (eos) {
+        return _build_hash_tables(state);
     }
-
-    // need to build hash table for at least one partition
     return Status::OK();
 }
 
-Status GraceHashJoinNode::_build_partition_hash_table(RuntimeState* state, int i) {
-    auto status = current_partitions_[i]->build_hash_table(state, _pool, t_plan_node_, desc_tbl_);
-    RETURN_IF_ERROR(status);
-    processing_partitions_.emplace_back(current_partitions_[i]);
+Status GraceHashJoinNode::_build_hash_tables(RuntimeState* state) {
+    std::vector<int> build_partition_indice;
+    for (int i = 0; i < PARTITION_COUNT; ++i) {
+        if (!current_partitions_[i]->is_spilled()) {
+            build_partition_indice.push_back(i);
+        }
+    }
+    if (build_partition_indice.empty()) {
+        // If all build partitions are spilled,
+        // need to build hash table for at least one partition
+        auto index = _smallest_join_partition();
+        build_partition_indice.push_back(index);
+    }
+
+    build_hash_table_latch_.reset(build_partition_indice.size());
+
+    for (auto i : build_partition_indice) {
+        auto status = io_thread_pool_->submit_func([this, state, i] {
+            _update_status(current_partitions_[i]->_build_hash_table(state, _pool, t_plan_node_,
+                                                                     desc_tbl_));
+
+            build_hash_table_latch_.count_down();
+
+            processing_partitions_.emplace_back(current_partitions_[i]);
+        });
+        RETURN_IF_ERROR(status);
+    }
+
     return Status::OK();
+}
+
+void GraceHashJoinNode::_update_status(Status status) {
+    if (!status.ok()) {
+        std::lock_guard guard(status_lock_);
+        status_ = std::move(status);
+    }
 }
 
 bool GraceHashJoinNode::need_more_input_data() const {
@@ -218,11 +247,16 @@ bool GraceHashJoinNode::need_more_input_data() const {
     if (!build_hash_table_latch_.ready()) {
         return false;
     }
+
     if (0 == processing_partitions_.size()) {
-        _as_mutable()->_trigger_build_hash_tables(state_);
+        _as_mutable()->_build_hash_tables(state_);
         return false;
     }
     if (!probe_block_.empty()) {
+        return false;
+    }
+
+    if (!spill_probe_latch_.ready()) {
         return false;
     }
     return true;
@@ -230,26 +264,77 @@ bool GraceHashJoinNode::need_more_input_data() const {
 
 Status GraceHashJoinNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     DCHECK(probe_block_.empty());
+    probe_eos_ = eos;
 
     if (input_block->rows() == 0) {
         return Status::OK();
     }
-    int probe_expr_ctxs_sz = probe_expr_ctxs_.size();
 
-    std::vector<int> res_col_ids(probe_expr_ctxs_sz);
+    std::vector<int> res_col_ids(probe_expr_ctxs_.size());
     RETURN_IF_ERROR(HashJoinNode::evaluate_exprs(*input_block, probe_expr_ctxs_,
                                                  *_probe_expr_call_timer, res_col_ids));
+    _calc_columns_hash(input_block, res_col_ids, probe_partition2rows_);
+
+    // waiting for hash table(s) ready
     if (!build_hash_table_latch_.ready()) {
         input_block->swap(probe_block_);
+        return Status::OK();
     }
 
     if (0 == processing_partitions_.size()) {
         input_block->swap(probe_block_);
-        return _trigger_build_hash_tables(state);
+        return _build_hash_tables(state);
+    }
+    if (0 == _ready_build_partitions_count()) {
+        // failed to build hash table for all current processing paritions,
+        // repartition
+        DCHECK(0);
+    }
+
+    return _push_probe_block(state, &probe_block_);
+}
+
+Status GraceHashJoinNode::_push_probe_block(RuntimeState* state, Block* input_block) {
+    bool need_spill = false;
+    for (int i = 0; i < PARTITION_COUNT; ++i) {
+        if (!probe_partition2rows_[i].empty()) {
+            auto status = current_partitions_[i]->prepare_add_probe_rows(input_block,
+                                                                         probe_partition2rows_[i]);
+            if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+                need_spill = true;
+                break;
+            }
+        }
+    }
+
+    if (need_spill) {
+        int n = 0;
+        for (int i = 0; i < PARTITION_COUNT; ++i) {
+            if (!current_partitions_[i]->is_ready_for_probe()) {
+                RETURN_IF_ERROR(current_partitions_[i]->flush_probe_stream());
+                ++n;
+            }
+        }
+        spill_probe_latch_.reset(n);
+        return Status::OK();
+    }
+
+    for (int i = 0; i < PARTITION_COUNT; ++i) {
+        if (!probe_partition2rows_[i].empty()) {
+            RETURN_IF_ERROR(current_partitions_[i]->add_probe_rows(
+                    state, input_block, probe_partition2rows_[i], probe_eos_));
+        }
     }
     return Status::OK();
 }
+
 Status GraceHashJoinNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    if (!probe_block_.empty()) {
+        RETURN_IF_ERROR(_push_probe_block(state, &probe_block_));
+    }
+    if (!spill_probe_latch_.ready()) {
+        return Status::OK();
+    }
     return Status::OK();
 }
 

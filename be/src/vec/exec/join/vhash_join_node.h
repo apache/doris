@@ -257,6 +257,8 @@ public:
 
     std::shared_ptr<std::vector<Block>> release_build_blocks() { return std::move(_build_blocks); }
 
+    bool current_probe_finished() const { return _probe_index == _probe_block.rows(); }
+
 private:
     using VExprContexts = std::vector<VExprContext*>;
     // probe expr

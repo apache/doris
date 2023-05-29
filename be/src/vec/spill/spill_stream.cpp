@@ -44,7 +44,6 @@ Status SpillStream::flush() {
             if (!st.ok()) {
                 io_status_.set_value(st);
                 break;
-                ;
             }
             it = blocks_.erase(it);
         }
@@ -75,20 +74,22 @@ Status SpillStream::restore() {
     return Status::OK();
 }
 Status SpillStream::get_next(Block* block, bool* eos) {
-    Status status;
     if (!spilled_) {
         *block = std::move(blocks_.front());
         blocks_.pop_front();
+        return Status::OK();
     } else {
         DCHECK(!is_reading_);
         is_reading_ = true;
+        /*
         status = io_thread_pool_->submit_func([this, block, eos] {
             auto st = reader_->read(block, eos);
             io_status_.set_value(st);
             is_reading_ = false;
         });
+        */
+        return reader_->read(block, eos);
     }
-    return status;
 }
 
 } // namespace vectorized

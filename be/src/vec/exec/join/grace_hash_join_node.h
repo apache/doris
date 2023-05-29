@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "util/countdown_latch.h"
@@ -30,12 +31,18 @@ namespace vectorized {
 
 using InMemoryHashJoinNodeUPtr = std::unique_ptr<HashJoinNode>;
 
+class GraceHashJoinNode;
+
 class JoinPartition {
 public:
     Status prepare(RuntimeState* state, RuntimeProfile* profile, const std::string& operator_name,
                    int node_id);
 
     Status add_build_rows(Block* block, std::vector<int>& rows);
+
+    Status prepare_add_probe_rows(Block* block, std::vector<int>& rows);
+
+    Status add_probe_rows(RuntimeState* state, Block* block, std::vector<int>& rows, bool eos);
 
     Status add_probe_block(Block& block) {
         probe_stream_->add_block(block);
@@ -46,13 +53,24 @@ public:
         return Status::OK();
     }
 
-    Status build_hash_table(RuntimeState* state, ObjectPool* pool, const TPlanNode& t_plan_node,
-                            const DescriptorTbl& desc_tbl);
-
     // force spill build blocks
-    Status flush_build_stream() { return build_stream_->flush(); }
+    Status flush_build_stream() {
+        if (!mutable_build_block_->empty()) {
+            auto block = mutable_build_block_->to_block();
+            build_stream_->add_block(block);
+            mutable_build_block_->clear_column_data();
+        }
+        return build_stream_->flush();
+    }
 
-    Status flush_probe_stream() { return probe_stream_->flush(); }
+    Status flush_probe_stream() {
+        if (!mutable_probe_block_->empty()) {
+            auto block = mutable_probe_block_->to_block();
+            probe_stream_->add_block(block);
+            mutable_probe_block_->clear_column_data();
+        }
+        return probe_stream_->flush();
+    }
 
     bool build_stream_can_write() const { return !is_flushing_build_stream(); }
 
@@ -64,19 +82,23 @@ public:
 
     bool has_hash_table() const { return in_mem_hash_join_node_ != nullptr; }
 
-    bool is_building_hash_table() const { return is_building_hash_table_; }
-
     bool is_ready_for_probe() const { return is_ready_for_probe_; }
 
     size_t build_data_bytes() const { return build_data_bytes_; }
 
     Status restore_build_data();
 
+    bool current_probe_finished() const { return in_mem_hash_join_node_->current_probe_finished(); }
+
 private:
+    friend class GraceHashJoinNode;
+    Status _build_hash_table(RuntimeState* state, ObjectPool* pool, const TPlanNode& t_plan_node,
+                             const DescriptorTbl& desc_tbl);
+
     Status _reserve(int row_count);
 
-    bool _reach_limit() const {
-        return _mutable_block->rows() > BLOCK_ROWS || _mutable_block->bytes() > BLOCK_BYTES;
+    bool _block_reach_limit(MutableBlock* mutable_block) const {
+        return mutable_block->rows() > BLOCK_ROWS || mutable_block->bytes() > BLOCK_BYTES;
     }
 
     Status _add_rows_skip_mem_check(Block* block, std::vector<int>& rows);
@@ -84,6 +106,7 @@ private:
     static constexpr size_t BLOCK_ROWS = 1024 * 1024;
     static constexpr size_t BLOCK_BYTES = 64 << 20;
 
+    Status build_status_;
     InMemoryHashJoinNodeUPtr in_mem_hash_join_node_;
     SpillStreamSPtr build_stream_;
     SpillStreamSPtr probe_stream_;
@@ -92,9 +115,8 @@ private:
     int64_t probe_row_count_ = 0;
     size_t probe_data_bytes_ = 0;
 
-    std::unique_ptr<MutableBlock> _mutable_block;
-
-    bool is_building_hash_table_ = false;
+    std::unique_ptr<MutableBlock> mutable_build_block_;
+    std::unique_ptr<MutableBlock> mutable_probe_block_;
 
     std::atomic_bool is_ready_for_probe_ = false;
 };
@@ -143,6 +165,8 @@ public:
     }
 
 private:
+    static constexpr int PARTITION_COUNT = 16;
+
     GraceHashJoinNode* _as_mutable() const { return const_cast<GraceHashJoinNode*>(this); }
 
     int _ready_build_partitions_count() const {
@@ -155,8 +179,7 @@ private:
         return n;
     }
 
-    Status _trigger_build_hash_tables(RuntimeState* state);
-    Status _build_partition_hash_table(RuntimeState* state, int i);
+    Status _build_hash_tables(RuntimeState* state);
 
     int _smallest_join_partition() const {
         int index = 0;
@@ -170,9 +193,17 @@ private:
         return index;
     }
 
-    static constexpr int PARTITION_COUNT = 16;
+    Status _push_probe_block(RuntimeState* state, Block* input_block);
+
+    void _update_status(Status status);
+
+    void _calc_columns_hash(vectorized::Block* input_block, const std::vector<int>& column_ids,
+                            std::vector<int> (&partition2rows)[PARTITION_COUNT]);
 
     RuntimeState* state_;
+
+    std::mutex status_lock_;
+    Status status_;
 
     TPlanNode t_plan_node_;
     DescriptorTbl desc_tbl_;
@@ -206,6 +237,10 @@ private:
     Block build_block_;
     Block probe_block_;
     NoBlockCountDownLatch build_hash_table_latch_;
+    NoBlockCountDownLatch spill_probe_latch_;
+
+    std::vector<int> probe_partition2rows_[PARTITION_COUNT];
+    bool probe_eos_ = false;
 };
 } // namespace vectorized
 } // namespace doris
