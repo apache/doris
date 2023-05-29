@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
@@ -97,9 +96,6 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         }
                     }
 
-                    LogicalProject<?> project = ProjectCollector.INSTANCE.collect(sink);
-                    newOutput.addAll(project.getOutput());
-
                     return boundSink.withChildren(new LogicalProject<>(newOutput, boundSink.child()));
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
@@ -140,24 +136,5 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     }
                     return column;
                 }).collect(Collectors.toList());
-    }
-
-    private static class ProjectCollector extends DefaultPlanVisitor<LogicalPlan, Void> {
-        public static final ProjectCollector INSTANCE = new ProjectCollector();
-        private LogicalProject firstProject = null;
-
-        public LogicalProject collect(Plan plan) {
-            firstProject = null;
-            plan.accept(this, null);
-            return firstProject;
-        }
-
-        @Override
-        public LogicalPlan visitLogicalProject(LogicalProject<?> project, Void unused) {
-            if (firstProject == null) {
-                firstProject = project;
-            }
-            return project;
-        }
     }
 }
