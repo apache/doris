@@ -83,9 +83,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visit(Plan plan, PruneContext context) {
-        if (plan instanceof LogicalOlapTableSink) {
-            return plan;
-        }
         if (plan instanceof OutputPrunable) {
             // the case 1 in the class comment
             // two steps: prune current output and prune children
