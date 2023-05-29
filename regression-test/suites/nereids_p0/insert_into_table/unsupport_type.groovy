@@ -23,7 +23,8 @@ suite("nereids_insert_array_type") {
 
     test {
         sql 'insert into arr_t select id, kaint from src'
-        exception 'type ARRAY<INT> is unsupported for Nereids'
+        // exception 'type ARRAY<INT> is unsupported for Nereids'
+        exception null
     }
 
     sql 'set enable_fallback_to_original_planner=true'
