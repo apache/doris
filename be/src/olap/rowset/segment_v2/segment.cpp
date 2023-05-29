@@ -22,9 +22,12 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
+#include "common/logging.h"
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -32,12 +35,14 @@
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
 #include "olap/primary_key_index.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
+#include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
@@ -110,7 +115,7 @@ Status Segment::_open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
+Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
@@ -127,7 +132,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
-            iter->reset(new EmptySegmentIterator(schema));
+            iter->reset(new EmptySegmentIterator(*schema));
             read_options.stats->filtered_segment_number++;
             return Status::OK();
         }
@@ -144,7 +149,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             and_predicate.add_column_predicate(single_predicate);
             if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(schema));
+                iter->reset(new EmptySegmentIterator(*schema));
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
@@ -154,7 +159,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
-        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
+        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
@@ -297,7 +302,8 @@ Status Segment::_create_column_readers() {
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
+Status Segment::new_column_iterator(const TabletColumn& tablet_column,
+                                    std::unique_ptr<ColumnIterator>* iter) {
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
@@ -311,18 +317,24 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
         ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
-        *iter = default_value_iter.release();
+        *iter = std::move(default_value_iter);
         return Status::OK();
     }
-    return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
+    ColumnIterator* it;
+    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    iter->reset(it);
+    return Status::OK();
 }
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                          BitmapIndexIterator** iter) {
+                                          std::unique_ptr<BitmapIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 &&
         _column_readers.at(col_unique_id)->has_bitmap_index()) {
-        return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);
+        BitmapIndexIterator* it;
+        RETURN_IF_ERROR(_column_readers.at(col_unique_id)->new_bitmap_index_iterator(&it));
+        iter->reset(it);
+        return Status::OK();
     }
     return Status::OK();
 }
@@ -330,11 +342,14 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             OlapReaderStatistics* stats,
-                                            InvertedIndexIterator** iter) {
+                                            std::unique_ptr<InvertedIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)
-                ->new_inverted_index_iterator(index_meta, stats, iter);
+        InvertedIndexIterator* it;
+        RETURN_IF_ERROR(_column_readers.at(col_unique_id)
+                                ->new_inverted_index_iterator(index_meta, stats, &it));
+        iter->reset(it);
+        return Status::OK();
     }
     return Status::OK();
 }

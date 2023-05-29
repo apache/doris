@@ -49,6 +49,7 @@ add_library(Olap STATIC
     null_predicate.cpp
     olap_meta.cpp
     olap_server.cpp
+    schema_cache.cpp
     options.cpp
     page_cache.cpp
     push_handler.cpp

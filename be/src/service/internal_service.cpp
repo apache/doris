@@ -1562,12 +1562,11 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                    << ", field_name_to_index=" << full_read_schema.get_all_field_names();
                 return Status::InternalError(ss.str());
             }
-            segment_v2::ColumnIterator* column_iterator = nullptr;
+            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
             segment_v2::ColumnIteratorOptions opt;
             OlapReaderStatistics stats;
             opt.file_reader = segment->file_reader().get();

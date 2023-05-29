@@ -35,6 +35,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -51,6 +52,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -1289,6 +1291,22 @@ public class OlapScanNode extends ScanNode {
         getColumnDesc(columnsDesc, keyColumnNames, keyColumnTypes);
         List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
+        // Add extra row id column
+        ArrayList<SlotDescriptor> slots = desc.getSlots();
+        Column lastColumn = slots.get(slots.size() - 1).getColumn();
+        if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
+            TColumn tColumn = new TColumn();
+            tColumn.setColumnName(Column.ROWID_COL);
+            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
+            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
+            tColumn.setIsKey(false);
+            tColumn.setIsAllowNull(false);
+            // keep compatibility
+            tColumn.setVisible(false);
+            tColumn.setColUniqueId(Integer.MAX_VALUE);
+            columnsDesc.add(tColumn);
+        }
+
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift();
             indexDesc.add(tIndex);
@@ -1298,6 +1316,9 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
+        }
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }

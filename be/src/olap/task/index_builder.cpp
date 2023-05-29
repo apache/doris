@@ -176,10 +176,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             OlapReaderStatistics stats;
             read_options.stats = &stats;
             read_options.tablet_schema = output_rowset_schema;
-            std::unique_ptr<Schema> schema =
-                    std::make_unique<Schema>(output_rowset_schema->columns(), return_columns);
+            std::shared_ptr<Schema> schema =
+                    std::make_shared<Schema>(output_rowset_schema->columns(), return_columns);
             std::unique_ptr<RowwiseIterator> iter;
-            auto res = seg_ptr->new_iterator(*schema, read_options, &iter);
+            auto res = seg_ptr->new_iterator(schema, read_options, &iter);
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();

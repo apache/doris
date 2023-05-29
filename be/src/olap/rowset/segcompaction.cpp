@@ -79,7 +79,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<INIT_FAILED>();

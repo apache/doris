@@ -25,6 +25,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -747,7 +748,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    Schema schema(rowset->tablet_schema());
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
