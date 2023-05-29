@@ -378,10 +378,10 @@ TEST(BitmapValueTest, bitmap_single_convert) {
     EXPECT_EQ(BitmapValue::SINGLE, bitmap._type);
 
     bitmap_u.add(2);
-    EXPECT_EQ(BitmapValue::SET, bitmap_u._type);
+    EXPECT_EQ(BitmapValue::BITMAP, bitmap_u._type);
 
     bitmap |= bitmap_u;
-    EXPECT_EQ(BitmapValue::SET, bitmap._type);
+    EXPECT_EQ(BitmapValue::BITMAP, bitmap._type);
 }
 
 TEST(BitmapValueTest, bitmap_value_iterator_test) {
