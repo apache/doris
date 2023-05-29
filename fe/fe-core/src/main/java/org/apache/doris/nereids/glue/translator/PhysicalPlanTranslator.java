@@ -1791,10 +1791,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment childFragment = distribute.child().accept(this, context);
 
-        if (true) {
-            return childFragment;
-        }
-
         if (childFragment.getPlanRoot() instanceof AggregationNode
                 && distribute.child() instanceof PhysicalHashAggregate
                 && context.getFirstAggregateInFragment(childFragment) == distribute.child()) {
