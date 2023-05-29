@@ -26,14 +26,18 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
@@ -76,6 +80,27 @@ public class FederationBackendPolicy {
         Backend selectedBackend = backends.get(nextBe++);
         nextBe = nextBe % backends.size();
         return selectedBackend;
+    }
+
+    public Backend getNextBe(List<String> preferredLocations) {
+        if (CollectionUtils.isNotEmpty(preferredLocations)) {
+            List<Backend> preLocationFilterBackends = backends.stream().filter(backend ->
+                    preferredLocations.contains(backend.getHost())).collect(Collectors.toList());
+            int preLocationFilterBackendsSize = preLocationFilterBackends.size();
+            if (preLocationFilterBackendsSize > 0) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Hit preferred locations, preferred backends: [{}]",
+                            preLocationFilterBackends.stream().map(backend -> backend.getHost())
+                                    .collect(Collectors.joining("/")));
+                }
+                return preLocationFilterBackends.get(new Random().nextInt(preLocationFilterBackendsSize));
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Miss preferred locations, preferred locations: [{}]",
+                        Joiner.on("|").join(preferredLocations));
+            }
+        }
+        return getNextBe();
     }
 
     public int numBackends() {

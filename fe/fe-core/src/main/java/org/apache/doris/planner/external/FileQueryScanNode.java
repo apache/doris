@@ -63,6 +63,8 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -260,7 +262,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeParams = new TFileScanRangeParams(params);
                 scanRangeParams.setCompressType(getFileCompressType(fileSplit));
             }
-            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy);
+
+            // If enable hdfs shortcircuit read, try to choose a backend which is at the same node of this fileSplit
+            List<String> preferredLocations = (fileSplit.getHosts() != null && fileSplit.getHosts().length > 0
+                    && HdfsResource.enableShortcircuitRead(locationProperties))
+                    ? Arrays.asList(fileSplit.getHosts())
+                    : Collections.emptyList();
+            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy, preferredLocations);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
             // Otherwise, use the values in file path.
@@ -289,7 +297,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, FederationBackendPolicy backendPolicy) {
+    private TScanRangeLocations newLocations(TFileScanRangeParams params,
+                                             FederationBackendPolicy backendPolicy,
+                                             List<String> preferredLocations) {
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);
@@ -305,7 +315,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         locations.setScanRange(scanRange);
 
         TScanRangeLocation location = new TScanRangeLocation();
-        Backend selectedBackend = backendPolicy.getNextBe();
+        Backend selectedBackend = backendPolicy.getNextBe(preferredLocations);
         location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
         locations.addToLocations(location);
