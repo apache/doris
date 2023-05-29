@@ -84,10 +84,10 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     return exists;
 }
 
-std::vector<std::string> InvertedIndexReader::get_analyse_result(
+std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         const std::string& field_name, const std::string& value, InvertedIndexQueryType query_type,
         InvertedIndexParserType analyser_type) {
-    std::vector<std::string> analyse_result;
+    std::vector<std::wstring> analyse_result;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     std::unique_ptr<lucene::util::Reader> reader;
     if (analyser_type == InvertedIndexParserType::PARSER_STANDARD) {
@@ -117,8 +117,8 @@ std::vector<std::string> InvertedIndexReader::get_analyse_result(
 
     while (token_stream->next(&token)) {
         if (token.termLength<TCHAR>() != 0) {
-            auto str = std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>());
-            analyse_result.emplace_back(std::string(str.begin(), str.end()));
+            analyse_result.emplace_back(
+                    std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>()));
         }
     }
 
@@ -128,7 +128,7 @@ std::vector<std::string> InvertedIndexReader::get_analyse_result(
 
     if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
         query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
-        std::set<std::string> unrepeated_result(analyse_result.begin(), analyse_result.end());
+        std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
         analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
 
@@ -288,9 +288,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
         roaring::Roaring query_match_bitmap;
         bool first = true;
         bool null_bitmap_already_read = false;
-        for (auto token : analyse_result) {
+        for (auto token_ws : analyse_result) {
             std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
-            std::wstring token_ws = std::wstring(token.begin(), token.end());
             // try to get term bitmap match result from cache to avoid query index on cache hit
             auto cache = InvertedIndexQueryCache::instance();
             // use EQUAL_QUERY type here since cache is for each term/token

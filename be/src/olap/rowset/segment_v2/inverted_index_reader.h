@@ -99,7 +99,7 @@ public:
 
     uint32_t get_index_id() const { return _index_meta.index_id(); }
 
-    static std::vector<std::string> get_analyse_result(const std::string& field_name,
+    static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
                                                        const std::string& value,
                                                        InvertedIndexQueryType query_type,
                                                        InvertedIndexParserType analyser_type);

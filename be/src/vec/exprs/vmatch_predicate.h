@@ -21,6 +21,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
@@ -37,7 +38,7 @@ class VExprContext;
 
 namespace doris::vectorized {
 struct InvertedIndexCtx {
-    std::string _parser_type;
+    doris::InvertedIndexParserType _parser_type;
 };
 
 class VMatchPredicate final : public VExpr {
@@ -54,8 +55,8 @@ public:
                        FunctionContext::FunctionStateScope scope) override;
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VMatchPredicate::create_unique(*this).release());
+    VExprSPtr* clone() const override {
+        return VMatchPredicate::create_shared(*this);
     }
     const std::string& expr_name() const override;
     const std::string& function_name() const;

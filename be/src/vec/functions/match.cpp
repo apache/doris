@@ -30,7 +30,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block, c
     auto match_pred_column_name =
             BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
     if (!block.has(match_pred_column_name)) {
-        LOG(INFO) << "begin to execute match directly, column_name=" << column_name
+        LOG(DEBUG) << "begin to execute match directly, column_name=" << column_name
                 << ", match_query_str=" << match_query_str;
         InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -61,27 +61,27 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block, c
 Status FunctionMatchAny::execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
-        parser_type = get_inverted_index_parser_type_from_string(inverted_index_ctx->_parser_type);
+        parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(INFO) << "begin to run FunctionMatchAny::execute_match, parser_type: "
+    LOG(DEBUG) << "begin to run FunctionMatchAny::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
-    std::vector<std::string> tokens =
+    std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, match_query_str, doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, parser_type);
     for (int i = 0; i < input_rows_count; i++) {
-        const auto& str_ref = query_values->get_data_at(i);
-        std::vector<std::string> values =
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, str_ref.to_string(), doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, parser_type);
         // TODO: more efficient impl
-        for (auto& token : tokens) {
-            auto it = std::find(values.begin(), values.end(), token);
-            if (it != values.end()) {
+        for (auto& token : query_tokens) {
+            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+            if (it != data_tokens.end()) {
                 result[i] = true;
                 break;
             }
@@ -94,34 +94,36 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
 Status FunctionMatchAll::execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
-        parser_type = get_inverted_index_parser_type_from_string(inverted_index_ctx->_parser_type);
+        parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(INFO) << "begin to run FunctionMatchAll::execute_match, parser_type: "
+    LOG(DEBUG) << "begin to run FunctionMatchAll::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
-    std::vector<std::string> tokens =
+    std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, match_query_str, doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, parser_type);
 
     for (int i = 0; i < input_rows_count; i++) {
-        const auto& str_ref = query_values->get_data_at(i);
-        std::vector<std::string> values =
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, str_ref.to_string(), doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, parser_type);
         // TODO: more efficient impl
         auto find_count = 0;
-        for (auto& token : tokens) {
-            auto it = std::find(values.begin(), values.end(), token);
-            if (it != values.end()) {
+        for (auto& token : query_tokens) {
+            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+            if (it != data_tokens.end()) {
                 ++find_count;
+            } else {
+                break;
             }
         }
 
-        if (find_count == tokens.size()) {
+        if (find_count == query_tokens.size()) {
             result[i] = true;
         }
     }
@@ -132,49 +134,54 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
 Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result)  {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
-        parser_type = get_inverted_index_parser_type_from_string(inverted_index_ctx->_parser_type);
+        parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(INFO) << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
+    LOG(DEBUG) << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
-    std::vector<std::string> tokens =
+    std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, match_query_str, doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, parser_type);
 
     for (int i = 0; i < input_rows_count; i++) {
-        const auto& str_ref = query_values->get_data_at(i);
-        std::vector<std::string> values =
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
                 column_name, str_ref.to_string(), doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, parser_type);
         // TODO: more efficient impl
-        std::vector<int> token_positions;
-        for (auto& token : tokens) {
-            auto it = std::find(values.begin(), values.end(), token);
-            if (it != values.end()) {
-                token_positions.emplace_back(std::distance(values.begin(),it));
+        bool matched = false;
+        auto it = data_tokens.begin();
+        while (it != data_tokens.end()) {
+            // find position of first token
+            it = std::find(it, data_tokens.end(), query_tokens[0]);
+            if (it != data_tokens.end()) {
+                matched = true;
+                it++;
+                auto it_more = it;
+                // compare query_tokens after the first to data_tokens one by one
+                for (size_t idx = 1; idx < query_tokens.size(); idx++) {
+                    if (it_more == data_tokens.end() || *it_more != query_tokens[idx]) {
+                        matched = false;
+                    }
+                    it_more++;
+                }
+                if (matched) {
+                    break;
+                }
             }
         }
 
-        if (token_positions.size() == tokens.size() &&
-                _is_continue(token_positions, token_positions.size())) {
+        // check matched
+        if (matched) {
             result[i] = true;
         }
     }
 
     return Status::OK();
-}
-
-bool FunctionMatchPhrase::_is_continue(const std::vector<int>& token_positions, int32_t len, int32_t slot) {
-    if (len <= 1) {
-        return true;
-    } else {
-        return (token_positions[len - 1] == token_positions[len - 2] + 1 + slot) &&
-                _is_continue(token_positions, len - 1);
-    }
 }
 
 void register_function_match(SimpleFunctionFactory& factory) {

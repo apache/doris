@@ -67,7 +67,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) = 0;
 };
@@ -82,7 +82,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override;
 };
@@ -97,7 +97,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override;
 
@@ -113,12 +113,9 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override;
-
-private:
-    bool _is_continue(const std::vector<int>& token_positions, int32_t len, int32_t slot = 0);
 };
 
 class FunctionMatchElementEQ : public FunctionMatchBase {
@@ -131,7 +128,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
@@ -148,7 +145,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
@@ -165,7 +162,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
@@ -182,7 +179,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
@@ -199,7 +196,7 @@ public:
     virtual Status execute_match(const std::string& column_name,
                         const std::string& match_query_str,
                         size_t input_rows_count,
-                        const ColumnString* query_values,
+                        const ColumnString* datas,
                         InvertedIndexCtx* inverted_index_ctx,
                         ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
