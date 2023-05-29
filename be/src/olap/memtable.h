@@ -20,14 +20,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
-#include "olap/skiplist.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
@@ -49,15 +50,21 @@ struct RowInBlock {
     size_t _row_pos;
     char* _agg_mem;
     size_t* _agg_state_offset;
+    bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row) {}
+    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
 
     void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
+        _has_init_agg = true;
         _agg_mem = agg_mem;
         _agg_state_offset = agg_state_offset;
     }
 
     char* agg_places(size_t offset) const { return _agg_mem + _agg_state_offset[offset]; }
+
+    inline bool has_init_agg() const { return _has_init_agg; }
+
+    inline void remove_init_agg() { _has_init_agg = false; }
 };
 
 class RowInBlockComparator {
@@ -72,6 +79,35 @@ public:
 private:
     const Schema* _schema;
     vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
+};
+
+class MemTableStat {
+public:
+    MemTableStat& operator+=(MemTableStat& stat) {
+        raw_rows += stat.raw_rows;
+        merged_rows += stat.merged_rows;
+        sort_ns += stat.sort_ns;
+        agg_ns += stat.agg_ns;
+        put_into_output_ns += stat.put_into_output_ns;
+        delete_bitmap_ns += stat.delete_bitmap_ns;
+        segment_writer_ns += stat.segment_writer_ns;
+        duration_ns += stat.duration_ns;
+        sort_times += stat.sort_times;
+        agg_times += stat.agg_times;
+
+        return *this;
+    }
+
+    int64_t raw_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t sort_ns = 0;
+    int64_t agg_ns = 0;
+    int64_t put_into_output_ns = 0;
+    int64_t delete_bitmap_ns = 0;
+    int64_t segment_writer_ns = 0;
+    int64_t duration_ns = 0;
+    int32_t sort_times = 0;
+    int32_t agg_times = 0;
 };
 
 class MemTable {
@@ -103,18 +139,18 @@ public:
     Status close();
 
     int64_t flush_size() const { return _flush_size; }
-    int64_t merged_rows() const { return _merged_rows; }
+
+    void set_callback(std::function<void(MemTableStat&)> callback) {
+        _delta_writer_callback = callback;
+    }
 
 private:
-    Status _do_flush(int64_t& duration_ns);
-
-private:
-    using VecTable = SkipList<RowInBlock*, RowInBlockComparator>;
+    Status _do_flush();
 
 private:
     // for vectorized
-    void _insert_one_row_from_block(RowInBlock* row_in_block);
-    void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
+                                     RowInBlock* row_in_skiplist);
 
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                    int64_t atomic_num_segments_after_flush);
@@ -159,8 +195,6 @@ private:
 
     size_t _schema_size;
 
-    std::unique_ptr<VecTable> _vec_skip_list;
-    VecTable::Hint _vec_hint;
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
@@ -172,16 +206,23 @@ private:
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.
-    int64_t _rows = 0;
-    int64_t _merged_rows = 0;
+    MemTableStat _stat;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
+    size_t _last_sorted_pos = 0;
 
+    //return number of same keys
+    int _sort();
     template <bool is_final>
-    void _collect_vskiplist_results();
+    void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
+                           int row_pos);
+    template <bool is_final>
+    void _aggregate();
+    void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
+    std::function<void(MemTableStat&)> _delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

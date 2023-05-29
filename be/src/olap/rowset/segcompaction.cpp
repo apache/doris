@@ -127,8 +127,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         // Even if an error is encountered, these files that have not been cleaned up
         // will be cleaned up by the GC background. So here we only print the error
         // message when we encounter an error.
-        RETURN_NOT_OK_LOG(fs->delete_file(seg_path),
-                          strings::Substitute("Failed to delete file=$0", seg_path));
+        RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
+                                       strings::Substitute("Failed to delete file=$0", seg_path));
         // Delete inverted index files
         for (auto column : schema->columns()) {
             if (schema->has_inverted_index(column.unique_id())) {
@@ -136,8 +136,9 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                 auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
                         ctx.rowset_dir, ctx.rowset_id, i, index_id);
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
-                RETURN_NOT_OK_LOG(fs->delete_file(idx_path),
-                                  strings::Substitute("Failed to delete file=$0", idx_path));
+                RETURN_NOT_OK_STATUS_WITH_WARN(
+                        fs->delete_file(idx_path),
+                        strings::Substitute("Failed to delete file=$0", idx_path));
                 // Erase the origin index file cache
                 InvertedIndexSearcherCache::instance()->erase(idx_path);
             }
@@ -214,7 +215,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 READER_SEGMENT_COMPACTION);
+                                                 ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     Merger::Statistics key_merger_stats;
@@ -239,8 +240,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
-                tablet, READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key, column_ids,
-                &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
+                tablet, ReaderType::READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key,
+                column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
                 key_bounds));
         total_index_size += index_size;
         if (is_key) {
@@ -252,21 +253,22 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     /* check row num after merge/aggregation */
-    RETURN_NOT_OK_LOG(_check_correctness(key_reader_stats, key_merger_stats, begin, end),
-                      "check correctness failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            _check_correctness(key_reader_stats, key_merger_stats, begin, end),
+            "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);
     }
-    RETURN_NOT_OK(
+    RETURN_IF_ERROR(
             _writer->flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
     if (_file_writer != nullptr) {
         _file_writer->close();
     }
 
-    RETURN_NOT_OK(_delete_original_segments(begin, end));
-    RETURN_NOT_OK(_writer->_rename_compacted_segments(begin, end));
+    RETURN_IF_ERROR(_delete_original_segments(begin, end));
+    RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
 
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();

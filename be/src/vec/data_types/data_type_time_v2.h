@@ -65,11 +65,19 @@ public:
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDateV2SerDe>(); }
 
+    Field get_field(const TExprNode& node) const override {
+        DateV2Value<DateV2ValueType> value;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+            return value.to_date_int_val();
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type DateV2", node.date_literal.value);
+        }
+    }
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
@@ -109,7 +117,6 @@ public:
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
@@ -117,9 +124,19 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDateTimeV2SerDe>();
+        return std::make_shared<DataTypeDateTimeV2SerDe>(_scale);
     };
 
+    Field get_field(const TExprNode& node) const override {
+        DateV2Value<DateTimeV2ValueType> value;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+            return value.to_date_int_val();
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type DateTimeV2",
+                                   node.date_literal.value);
+        }
+    }
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const { return _scale; }

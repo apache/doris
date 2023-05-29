@@ -67,8 +67,7 @@ public class InsertStreamTxnExecutor {
                 txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         // Will using load id as query id in fragment
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
-                .needLoadAvailable().needQueryAvailable().build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
         List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (beIds.isEmpty()) {
             throw new UserException("No available backend to match the policy: " + policy);
@@ -90,9 +89,9 @@ public class InsertStreamTxnExecutor {
                 .setLo(loadId.getLo()).build());
 
         Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beIds.get(0));
-        txnConf.setUserIp(backend.getIp());
+        txnConf.setUserIp(backend.getHost());
         txnEntry.setBackend(backend);
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
             paramsList.addToParamsList(tRequest);
@@ -117,7 +116,7 @@ public class InsertStreamTxnExecutor {
 
 
         Backend backend = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PCommitResult> future = BackendServiceProxy
                     .getInstance().commit(address, fragmentInstanceId, this.txnEntry.getpLoadId());
@@ -139,7 +138,7 @@ public class InsertStreamTxnExecutor {
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend be = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             Future<InternalService.PRollbackResult> future = BackendServiceProxy.getInstance().rollback(address,
                     fragmentInstanceId, this.txnEntry.getpLoadId());
@@ -165,7 +164,7 @@ public class InsertStreamTxnExecutor {
                 .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend backend = txnEntry.getBackend();
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PSendDataResult> future = BackendServiceProxy.getInstance().sendData(
                     address, fragmentInstanceId, this.txnEntry.getpLoadId(), txnEntry.getDataToSend());

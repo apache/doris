@@ -24,6 +24,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -31,6 +32,7 @@
 
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/logging.h"
 #include "exec/olap_utils.h"
 #include "exprs/function_filter.h"
 #include "io/cache/block/block_file_cache_profile.h"
@@ -67,6 +69,7 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
           _version(-1),
           _scan_range(scan_range),
           _key_ranges(key_ranges) {
+    DCHECK(rs_readers.size() == rs_reader_seg_offsets.size());
     _tablet_reader_params.rs_readers = rs_readers;
     _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
     _tablet_schema = std::make_shared<TabletSchema>();
@@ -100,11 +103,12 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr));
-    if (parent->_common_vexpr_ctxs_pushdown != nullptr) {
-        // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
-        RETURN_IF_ERROR(
-                parent->_common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
+    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_conjuncts));
+
+    for (auto& ctx : parent->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
     }
 
     // set limit to reduce end of rowset and segment mem use
@@ -254,21 +258,26 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
-    _tablet_reader_params.reader_type = READER_QUERY;
+    _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
         _tablet_reader_params.push_down_agg_type_opt =
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
-    // TODO: If a new runtime filter arrives after `_vconjunct_ctx` move to `_common_vexpr_ctxs_pushdown`,
-    // `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` will have values at the same time,
-    // and the root() of `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` should be merged as `remaining_vconjunct_root`
-    _tablet_reader_params.remaining_vconjunct_root =
-            (_common_vexpr_ctxs_pushdown == nullptr)
-                    ? (_vconjunct_ctx == nullptr ? nullptr : _vconjunct_ctx->root())
-                    : _common_vexpr_ctxs_pushdown->root();
-    _tablet_reader_params.common_vexpr_ctxs_pushdown = _common_vexpr_ctxs_pushdown;
+
+    // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
+    if (_common_expr_ctxs_push_down.empty()) {
+        for (auto& conjunct : _conjuncts) {
+            _tablet_reader_params.remaining_conjunct_roots.emplace_back(conjunct->root());
+        }
+    } else {
+        for (auto& ctx : _common_expr_ctxs_push_down) {
+            _tablet_reader_params.remaining_conjunct_roots.emplace_back(ctx->root());
+        }
+    }
+
+    _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
@@ -400,7 +409,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
-            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
+            _tablet_reader_params.filter_block_conjuncts = _conjuncts;
         }
 
         // runtime predicate push down optimization for topn
@@ -551,6 +560,10 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(olap_parent->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
+
+    for (auto& [id, info] : stats.filter_info) {
+        olap_parent->add_filter_info(id, info);
+    }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);

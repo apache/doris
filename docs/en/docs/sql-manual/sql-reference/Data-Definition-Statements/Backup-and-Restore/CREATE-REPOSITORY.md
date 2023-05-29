@@ -101,10 +101,10 @@ WITH S3
 ON LOCATION "s3://s3-repo"
 PROPERTIES
 (
-    "AWS_ENDPOINT" = "http://s3-REGION.amazonaws.com",
-    "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
-    "AWS_SECRET_KEY"="AWS_SECRET_KEY",
-    "AWS_REGION" = "REGION"
+    "s3.endpoint" = "http://s3-REGION.amazonaws.com",
+    "s3.access_key" = "AWS_ACCESS_KEY",
+    "s3.secret_key"="AWS_SECRET_KEY",
+    "s3.region" = "REGION"
 );
 ```
 
@@ -131,10 +131,10 @@ WITH S3
 ON LOCATION "s3://minio_repo"
 PROPERTIES
 (
-    "AWS_ENDPOINT" = "http://minio.com",
-    "AWS_ACCESS_KEY" = "MINIO_USER",
-    "AWS_SECRET_KEY"="MINIO_PASSWORD",
-    "AWS_REGION" = "REGION",
+    "s3.endpoint" = "http://minio.com",
+    "s3.access_key" = "MINIO_USER",
+    "s3.secret_key"="MINIO_PASSWORD",
+    "s3.region" = "REGION"
     "use_path_style" = "true"
 );
 ```
@@ -150,11 +150,11 @@ WITH S3
 ON LOCATION "s3://minio_repo"
 PROPERTIES
 ( 
-    "AWS_ENDPOINT" = "AWS_ENDPOINT",
-    "AWS_ACCESS_KEY" = "AWS_TEMP_ACCESS_KEY",
-    "AWS_SECRET_KEY" = "AWS_TEMP_SECRET_KEY",
-    "AWS_TOKEN" = "AWS_TEMP_TOKEN",
-    "AWS_REGION" = "AWS_REGION"
+    "s3.endpoint" = "AWS_ENDPOINT",
+    "s3.access_key" = "AWS_TEMP_ACCESS_KEY",
+    "s3.secret_key" = "AWS_TEMP_SECRET_KEY",
+    "s3.session_token" = "AWS_TEMP_TOKEN",
+    "s3.region" = "AWS_REGION"
 )
 ```
 
@@ -166,10 +166,10 @@ WITH S3
 ON LOCATION "s3://backet1/"
 PROPERTIES
 (
-    "AWS_ACCESS_KEY" = "ak",
-    "AWS_SECRET_KEY" = "sk",
-    "AWS_ENDPOINT" = "http://cos.ap-beijing.myqcloud.com",
-    "AWS_REGION" = "ap-beijing"
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk",
+    "s3.endpoint" = "http://cos.ap-beijing.myqcloud.com",
+    "s3.region" = "ap-beijing"
 );
 ```
 

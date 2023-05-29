@@ -101,7 +101,7 @@ suite("test_query_sys_tables", "query,p0") {
     sql("CREATE DATABASE IF NOT EXISTS ${dbName3}")
 
     sql("use information_schema")
-    qt_schemata("select CATALOG_NAME, SCHEMA_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}'");
+    qt_schemata("select CATALOG_NAME, SCHEMA_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}' order by SCHEMA_NAME");
 
     // test statistics
     // have no impl
@@ -160,7 +160,7 @@ suite("test_query_sys_tables", "query,p0") {
     """
 
     sql("use information_schema")
-    qt_tables("select TABLE_CATALOG, TABLE_NAME, TABLE_TYPE, AVG_ROW_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH from tables where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}'");
+    qt_tables("select TABLE_CATALOG, TABLE_NAME, TABLE_TYPE, AVG_ROW_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH from tables where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}' order by TABLE_NAME");
 
     // test variables
     // session_variables
@@ -174,7 +174,11 @@ suite("test_query_sys_tables", "query,p0") {
     qt_global_variables("select VARIABLE_NAME, VARIABLE_VALUE from global_variables where VARIABLE_NAME = 'wait_timeout'")
 
     // test user_privileges
-    sql("CREATE USER 'test_sys_tables'")
+    try {
+        sql("CREATE USER 'test_sys_tables'")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("already exist"), e.getMessage())
+    }
     sql("GRANT SELECT_PRIV ON *.*.* TO 'test_sys_tables'")
     sql("use information_schema")
     qt_user_privileges """

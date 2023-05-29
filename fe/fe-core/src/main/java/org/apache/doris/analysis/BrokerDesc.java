@@ -101,8 +101,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public static BrokerDesc createForStreamLoad() {
-        BrokerDesc brokerDesc = new BrokerDesc("", StorageType.STREAM, null);
-        return brokerDesc;
+        return new BrokerDesc("", StorageType.STREAM, null);
     }
 
     public boolean isMultiLoadBroker() {

@@ -18,11 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
+import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
@@ -91,19 +93,28 @@ public class StatisticsRepository {
     private static final String DROP_TABLE_STATISTICS_TEMPLATE = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + "${tblName}" + " WHERE ${condition}";
 
-    private static final String FIND_EXPIRED_JOBS = "SELECT job_id FROM "
+    private static final String FIND_EXPIRED_ONCE_JOBS = "SELECT job_id FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
             + " WHERE task_id = -1 AND ${now} - last_exec_time_in_ms  > "
             + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
+            + " AND schedule_type = 'ONCE'"
             + " ORDER BY last_exec_time_in_ms"
             + " LIMIT ${limit} OFFSET ${offset}";
+
+    private static final String FIND_EXPIRED_AUTO_JOBS = "SELECT DISTINCT(job_id) FROM (SELECT job_id FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + "WHERE task_id != -1 AND ${now} - last_exec_time_in_ms  > "
+            + TimeUnit.HOURS.toMillis(StatisticConstants.ANALYSIS_JOB_INFO_EXPIRATION_TIME_IN_DAYS)
+            + " AND schedule_type = 'PERIOD' OR schedule_type = 'AUTOMATIC'"
+            + " ORDER BY last_exec_time_in_ms"
+            + " LIMIT ${limit} OFFSET ${offset}) t";
 
     private static final String FETCH_RECENT_STATS_UPDATED_COL =
             "SELECT * FROM "
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
                     + " WHERE part_id is NULL "
                     + " ORDER BY update_time DESC LIMIT "
-                    + StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE;
+                    + Config.stats_cache_size;
 
     private static final String FETCH_STATS_FULL_NAME =
             "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
@@ -116,13 +127,39 @@ public class StatisticsRepository {
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
-    private static final String FETCH_PERIODIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
+    private static final String FETCH_PERIODIC_ANALYSIS_JOB_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
             + " WHERE task_id = -1 "
             + " AND schedule_type = 'PERIOD' "
             + " AND state = 'FINISHED' "
-            + " AND last_exec_time_in_ms > 0 "
             + " AND (${currentTimeStamp} - last_exec_time_in_ms >= period_time_in_ms)";
+
+    private static final String FETCH_AUTOMATIC_ANALYSIS_JOB_SQL = "SELECT * FROM "
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME
+            + " WHERE task_id = -1 "
+            + " AND schedule_type = 'AUTOMATIC' "
+            + " AND state = 'FINISHED' "
+            + " AND last_exec_time_in_ms > 0";
+
+    private static final String PERSIST_TABLE_STATS_TEMPLATE = "INSERT INTO "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, ${indexId}, ${partId}, ${rowCount},"
+            + " ${lastAnalyzeTimeInMs}, NOW())";
+
+    private static final String FETCH_TABLE_LEVEL_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NULL";
+
+    private static final String FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE part_id = ${partId}";
+
+
+    private static final String FETCH_PART_TABLE_STATS_TEMPLATE = "SELECT * FROM "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NOT NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
@@ -197,6 +234,7 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(Set<Long> partIds) throws DdlException {
+        dropStatisticsByPartId(partIds, StatisticConstants.ANALYSIS_TBL_NAME);
         dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
@@ -256,6 +294,34 @@ public class StatisticsRepository {
         params.put("message", "");
         StatisticsUtil.execUpdate(
                 new StringSubstitutor(params).replace(PERSIST_ANALYSIS_TASK_SQL_TEMPLATE));
+    }
+
+    public static void persistTableStats(Map<String, String> params) throws Exception {
+        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+    }
+
+    public static void alterTableStatistics(AlterTableStatsStmt alterTableStatsStmt) throws Exception {
+        TableName tableName = alterTableStatsStmt.getTableName();
+        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
+        String rowCount = alterTableStatsStmt.getValue(StatsType.ROW_COUNT);
+        TableStatisticBuilder builder = new TableStatisticBuilder();
+        builder.setRowCount(Long.parseLong(rowCount));
+        builder.setLastAnalyzeTimeInMs(0);
+        TableStatistic tableStatistic = builder.build();
+        Map<String, String> params = new HashMap<>();
+        String id = StatisticsUtil.constructId(objects.table.getId(), -1);
+        params.put("id", id);
+        params.put("catalogId", String.valueOf(objects.catalog.getId()));
+        params.put("dbId", String.valueOf(objects.db.getId()));
+        params.put("tblId", String.valueOf(objects.table.getId()));
+        params.put("indexId", "-1");
+        params.put("partId", "NULL");
+        params.put("rowCount", String.valueOf(tableStatistic.rowCount));
+        params.put("lastAnalyzeTimeInMs", "0");
+        StatisticsUtil.execUpdate(PERSIST_TABLE_STATS_TEMPLATE, params);
+        // TODO update statistics cache
+        // Env.getCurrentEnv().getStatisticsCache()
+        //         .updateColStatsCache(objects.table.getId(), -1, builder.build());
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
@@ -324,12 +390,20 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 
-    public static List<ResultRow> fetchExpiredJobs(long limit, long offset) {
+    public static List<ResultRow> fetchExpiredOnceJobs(long limit, long offset) {
         Map<String, String> params = new HashMap<>();
         params.put("limit", String.valueOf(limit));
         params.put("offset", String.valueOf(offset));
         params.put("now", String.valueOf(System.currentTimeMillis()));
-        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_JOBS));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_ONCE_JOBS));
+    }
+
+    public static List<ResultRow> fetchExpiredAutoJob(long limit, long offset) {
+        Map<String, String> params = new HashMap<>();
+        params.put("limit", String.valueOf(limit));
+        params.put("offset", String.valueOf(offset));
+        params.put("now", String.valueOf(System.currentTimeMillis()));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FIND_EXPIRED_AUTO_JOBS));
     }
 
     public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
@@ -361,11 +435,64 @@ public class StatisticsRepository {
                 .of("currentTimeStamp", String.valueOf(System.currentTimeMillis()));
         try {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(FETCH_PERIODIC_ANALYSIS_JOB_SQL);
+            String sql = stringSubstitutor.replace(FETCH_PERIODIC_ANALYSIS_JOB_TEMPLATE);
             return StatisticsUtil.execStatisticQuery(sql);
         } catch (Exception e) {
             LOG.warn("Failed to update status", e);
             return Collections.emptyList();
         }
+    }
+
+    public static List<ResultRow> fetchAutomaticAnalysisJobs() {
+        try {
+            return StatisticsUtil.execStatisticQuery(FETCH_AUTOMATIC_ANALYSIS_JOB_SQL);
+        } catch (Exception e) {
+            LOG.warn("Failed to update status", e);
+            return Collections.emptyList();
+        }
+    }
+
+    public static TableStatistic fetchTableLevelStats(long tblId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("tblId", String.valueOf(tblId));
+        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_STATS_TEMPLATE, params);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+        if (resultRows.size() == 1) {
+            return TableStatistic.fromResultRow(resultRows.get(0));
+        }
+        throw new DdlException("Query result is not as expected: " + sql);
+    }
+
+    public static TableStatistic fetchTableLevelOfPartStats(long partId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("partId", String.valueOf(partId));
+        String sql = StatisticsUtil.replaceParams(FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE, params);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+        if (resultRows.size() == 1) {
+            return TableStatistic.fromResultRow(resultRows.get(0));
+        }
+        throw new DdlException("Query result is not as expected: " + sql);
+    }
+
+    public static Map<Long, TableStatistic> fetchTableLevelOfIdPartStats(long tblId) throws DdlException {
+        ImmutableMap<String, String> params = ImmutableMap
+                .of("tblId", String.valueOf(tblId));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(FETCH_PART_TABLE_STATS_TEMPLATE);
+        List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(sql);
+
+        if (resultRows.size() == 0) {
+            return Collections.emptyMap();
+        }
+
+        Map<Long, TableStatistic> idToPartitionTableStats = Maps.newHashMap();
+
+        for (ResultRow resultRow : resultRows) {
+            long partId = Long.parseLong(resultRow.getColumnValue("part_id"));
+            TableStatistic partStats = TableStatistic.fromResultRow(resultRow);
+            idToPartitionTableStats.put(partId, partStats);
+        }
+
+        return idToPartitionTableStats;
     }
 }

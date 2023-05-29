@@ -27,13 +27,14 @@ namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                         int64_t backend_id)
+                         int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
-          _backend_id(backend_id) {
+          _backend_id(backend_id),
+          _enable_profile(enable_profile) {
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -49,6 +50,8 @@ LoadChannel::~LoadChannel() {
 
 void LoadChannel::_init_profile() {
     _profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    _mgr_add_batch_timer = ADD_TIMER(_profile, "LoadChannelMgrAddBatchTime");
+    _handle_mem_limit_timer = ADD_TIMER(_profile, "HandleMemLimitTime");
     _self_profile =
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),
@@ -56,6 +59,8 @@ void LoadChannel::_init_profile() {
     _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
+    _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
+    _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -69,7 +74,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _self_profile));
+            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
+                                                       _self_profile);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -81,6 +87,37 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
 
     _opened = true;
     _last_updated_time.store(time(nullptr));
+    return Status::OK();
+}
+
+Status LoadChannel::open_partition(const OpenPartitionRequest& params) {
+    int64_t index_id = params.index_id();
+
+    // check finish
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _finished_channel_ids.find(index_id);
+        if (it != _finished_channel_ids.end()) {
+            return Status::OK();
+        }
+    }
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _tablets_channels.find(index_id);
+        if (it != _tablets_channels.end()) {
+            channel = it->second;
+        } else {
+            fmt::memory_buffer buf;
+            for (auto tablet : params.tablets()) {
+                fmt::format_to(buf, "tablet id:{}", tablet.tablet_id());
+            }
+            LOG(WARNING) << "should be opened partition index id=" << params.index_id()
+                         << "tablet ids=" << fmt::to_string(buf);
+            return Status::InternalError("Partition should be opened");
+        }
+    }
+    RETURN_IF_ERROR(channel->open_all_writers_for_partition(params));
     return Status::OK();
 }
 
@@ -106,6 +143,8 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    SCOPED_TIMER(_add_batch_timer);
+    COUNTER_UPDATE(_add_batch_times, 1);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -128,7 +167,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         if (!st.ok()) {
             return st;
         }
-    } else if (_add_batch_number_counter->value() % 10 == 1) {
+    } else if (_add_batch_number_counter->value() % 100 == 1) {
         _report_profile(response);
     }
     _last_updated_time.store(time(nullptr));
@@ -136,6 +175,10 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 }
 
 void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
+    if (!_enable_profile) {
+        return;
+    }
+
     COUNTER_SET(_peak_memory_usage_counter, _mem_tracker->peak_consumption());
     // TabletSink and LoadChannel in BE are M: N relationship,
     // Every once in a while LoadChannel will randomly return its own runtime profile to a TabletSink,

@@ -452,7 +452,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
-    public static int insert_load_default_timeout_second = 3600; // 1 hour
+    public static int insert_load_default_timeout_second = 14400; // 4 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -943,6 +943,10 @@ public class Config extends ConfigBase {
     // Valid only if use PartitionRebalancer
     @ConfField(mutable = true, masterOnly = true)
     public static int partition_rebalance_max_moves_num_per_selection = 10;
+
+    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
+    @ConfField(masterOnly = true, mutable = true)
+    public static int balance_slot_num_per_path = 1;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
@@ -1505,8 +1509,8 @@ public class Config extends ConfigBase {
     /**
      * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_date_conversion = false;
+    @ConfField(mutable = true)
+    public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
@@ -1679,6 +1683,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
+        "Max cache number of hive table to partition names list."})
+    public static long max_hive_table_catch_num = 1000;
+
+    @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
+        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+    public static short max_hive_list_partition_num = -1;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
@@ -1748,7 +1760,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1894,7 +1906,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = false;
+    public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
@@ -1925,11 +1937,60 @@ public class Config extends ConfigBase {
     public static boolean disable_datev1  = true;
 
     /**
+     * Now we not fully support array/struct/map nesting complex type in many situation,
+     * so just disable creating nesting complex data type when create table.
+     * We can make it able after we fully support
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_nested_complex_type  = true;
+    /*
+     * "max_instance_num" is used to set the maximum concurrency. When the value set
+     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
+     * an error will be reported.
+     */
+    @ConfField(mutable = true)
+    public static int max_instance_num = 128;
+
+    /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.
      * It is a very dangerous operation, should only be used in test env.
      */
+
     @ConfField(mutable = false)
     public static boolean enable_delete_existing_files  = false;
-}
+    /*
+     * The actual memory size taken by stats cache highly depends on characteristics of data, since on the different
+     * dataset and scenarios the max/min literal's average size and buckets count of histogram would be highly
+     * different. Besides, JVM version etc. also has influence on it, though not much as data itself.
+     * Here I would give the mem size taken by stats cache with 10_0000 items.Each item's avg length of max/min literal
+     * is 32, and the avg column name length is 16, and each column has a histogram with 128 buckets
+     * In this case, stats cache takes total 911.954833984MiB mem.
+     * If without histogram, stats cache takes total 61.2777404785MiB mem.
+     * It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause
+     * FE OOM.
+     */
+    @ConfField
+    public static long stats_cache_size = 10_0000;
 
+    /**
+     * This configuration is used to enable the statistics of query information, which will record
+     * the access status of databases, tables, and columns, and can be used to guide the
+     * optimization of table structures
+     *
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_query_hit_stats = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，" + "以及不可查询的具体原因。",
+            "When set to true, if a query is unable to select a healthy replica, "
+                    + "the detailed information of all the replicas of the tablet,"
+                    + " including the specific reason why they are unqueryable, will be printed out."})
+    public static boolean show_details_for_unaccessible_tablet = false;
+
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
+            "是否启用binlog特性",
+            "Whether to enable binlog feature"})
+    public static boolean enable_feature_binlog = false;
+}

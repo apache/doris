@@ -40,7 +40,7 @@
 namespace doris {
 namespace vectorized {
 class Block;
-}
+} // namespace vectorized
 
 struct OlapTableIndexSchema;
 class TColumn;
@@ -77,7 +77,8 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
                _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
-               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
+               _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
+               _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
@@ -88,8 +89,9 @@ public:
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
-                                                            std::string suffix) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function_union(
+            vectorized::DataTypePtr type) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -120,6 +122,7 @@ private:
     FieldType _type;
     bool _is_key = false;
     FieldAggregationMethod _aggregation;
+    std::string _aggregation_name;
     bool _is_nullable = false;
 
     bool _has_default_value = false;
@@ -191,6 +194,7 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
+    void append_index(TabletIndex index);
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
@@ -237,6 +241,7 @@ public:
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
     bool has_inverted_index(int32_t col_unique_id) const;
+    bool has_inverted_index_with_index_id(int32_t index_id) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
@@ -299,7 +304,6 @@ private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
-private:
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;

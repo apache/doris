@@ -136,7 +136,7 @@ sys_log_level = INFO
 sys_log_verbose_modules = org.apache.doris
 
 mysql_service_nio_enabled = true
-
+enable_ssl = false
 priority_networks = 127.0.0.1/32
 EOF
 }
@@ -156,7 +156,8 @@ function create_role_and_version() {
 
 	http_port="$(grep 'http_port' "${CURRENT_PATH}/fe1/conf/fe.conf" | sed 's/http_port[[:space:]]*=[[:space:]]*//')"
 	while true; do
-		if header="$(curl --noproxy '127.0.0.1' --silent --head --fail "http://127.0.0.1:${http_port}/check")"; then
+		mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1 || true
+		if header="$(curl --noproxy '127.0.0.1' --silent --head --fail -H "CLIENT_NODE_HOST:127.0.0.1" -H "CLIENT_NODE_PORT:$((PORT + id))" "http://127.0.0.1:${http_port}/check")"; then
 			break
 		fi
 		log_info "Waiting for the Master FE to be ready ..."
@@ -168,7 +169,6 @@ function create_role_and_version() {
 	echo "${header}" | sed -n '/cluster_id/,/token/p' | sed '{s/cluster_id: /clusterId=/;s/token: /token=/;}' \
 		>"${meta_dir}/image/VERSION"
 
-	mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1 || true
 	cat >"${meta_dir}/image/ROLE" <<EOF
 role=FOLLOWER
 name=$(

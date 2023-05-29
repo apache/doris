@@ -182,7 +182,7 @@ public class DeleteHandlerTest {
                 minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.getBackendIds(false);
+                systemInfoService.getAllBackendIds(false);
                 minTimes = 0;
                 result = Lists.newArrayList(1L);
             }

@@ -33,28 +33,13 @@ class EngineAlterTabletTask : public EngineTask {
 public:
     Status execute() override;
 
-public:
     EngineAlterTabletTask(const TAlterTabletReqV2& alter_tablet_request);
-    ~EngineAlterTabletTask() = default;
+    ~EngineAlterTabletTask() override = default;
 
 private:
     const TAlterTabletReqV2& _alter_tablet_req;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // EngineTask
-
-class EngineAlterInvertedIndexTask : public EngineTask {
-public:
-    virtual Status execute();
-
-public:
-    EngineAlterInvertedIndexTask(const TAlterInvertedIndexReq& alter_inverted_index_request);
-    ~EngineAlterInvertedIndexTask() = default;
-
-private:
-    const TAlterInvertedIndexReq& _alter_inverted_index_req;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-};
 
 } // namespace doris

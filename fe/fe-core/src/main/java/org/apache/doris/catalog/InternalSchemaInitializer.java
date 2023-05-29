@@ -88,6 +88,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     private void createTbl() throws UserException {
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisJobTblStmt());
@@ -108,6 +109,40 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     @VisibleForTesting
+    public CreateTableStmt buildAnalysisTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_TBL_NAME);
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
+        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
+        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
+        partId.setAllowNull(true);
+        columnDefs.add(partId);
+        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("last_analyze_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        String engineName = "olap";
+        ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
+                "db_id", "tbl_id", "idx_id", "part_id");
+        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
+        DistributionDesc distributionDesc = new HashDistributionDesc(
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+            }
+        };
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                properties, null, "Doris internal statistics table, don't modify it", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
+    }
+
+    @VisibleForTesting
     public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
@@ -124,8 +159,8 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
-        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
+        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
@@ -248,6 +283,7 @@ public class InternalSchemaInitializer extends Thread {
             // CHECKSTYLE IGNORE THIS LINE
         }
         return !isSchemaChanged
+                && db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.ANALYSIS_JOB_TABLE).isPresent();

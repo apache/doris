@@ -256,6 +256,8 @@ E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
 E(PIP_WAIT_FOR_SC, -3121);
+E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
+E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
@@ -293,7 +295,11 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
         && code != ErrorCode::META_KEY_NOT_FOUND
-        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
 }
 // clang-format on
 
@@ -440,11 +446,6 @@ public:
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
-
     std::string to_string() const;
 
     /// @return A json representation of this status.
@@ -492,6 +493,11 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
+
+    std::string code_as_string() const {
+        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                               : fmt::format("E{}", (int16_t)_code);
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
@@ -522,19 +528,6 @@ inline std::string Status::to_string() const {
 
 #define RETURN_ERROR_IF_NON_VEC \
     return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
-
-// End _get_next_span after last call to get_next method
-#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
-    do {                                                          \
-        Status _status_ = (stmt);                                 \
-        auto _span = (get_next_span);                             \
-        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
-            _span->End();                                         \
-        }                                                         \
-        if (UNLIKELY(!_status_.ok())) {                           \
-            return _status_;                                      \
-        }                                                         \
-    } while (false)
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \
@@ -582,6 +575,15 @@ inline std::string Status::to_string() const {
 
 template <typename T>
 using Result = expected<T, Status>;
+
+#define RETURN_IF_ERROR_RESULT(stmt)                \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            return unexpected(std::move(_status_)); \
+        }                                           \
+    } while (false)
+
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

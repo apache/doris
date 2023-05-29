@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/macros.h"
 #include "runtime/exec_env.h"
@@ -35,26 +36,8 @@
 #include "runtime/threadlocal.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
-#define RETURN_IF_CATCH_EXCEPTION(stmt)                                                      \
-    do {                                                                                     \
-        try {                                                                                \
-            doris::enable_thread_catch_bad_alloc++;                                          \
-            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                 \
-            { stmt; }                                                                        \
-        } catch (std::bad_alloc const& e) {                                                  \
-            return Status::MemoryLimitExceeded(fmt::format("PreCatch {}", e.what()));        \
-        } catch (const doris::Exception& e) {                                                \
-            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                            \
-                return Status::MemoryLimitExceeded(                                          \
-                        fmt::format("PreCatch error code:{}, {}", e.code(), e.to_string())); \
-            } else {                                                                         \
-                return Status::Error(e.code(), e.to_string());                               \
-            }                                                                                \
-        }                                                                                    \
-    } while (0)
-
 // Used to observe the memory usage of the specified code segment
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT(scope_mem) \
@@ -73,7 +56,7 @@
 #endif
 
 // Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // And count the memory during thread execution (is actually also the code segment that executes the function)
@@ -142,7 +125,6 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local int enable_thread_catch_bad_alloc = 0;
 inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
@@ -167,7 +149,7 @@ public:
 
     ~ThreadContext() { thread_context_ptr.init = false; }
 
-    void attach_task(const std::string& task_id, const TUniqueId& fragment_instance_id,
+    void attach_task(const TUniqueId& task_id, const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
@@ -182,11 +164,12 @@ public:
     }
 
     void detach_task() {
-        _task_id = "";
+        _task_id = TUniqueId();
         _fragment_instance_id = TUniqueId();
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
+    const TUniqueId& task_id() const { return _task_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     std::string get_thread_id() {
@@ -207,7 +190,7 @@ public:
     }
 
 private:
-    std::string _task_id = "";
+    TUniqueId _task_id;
     TUniqueId _fragment_instance_id;
 };
 
@@ -270,7 +253,7 @@ private:
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const std::string& task_id = "",
+                        const TUniqueId& task_id = TUniqueId(),
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);

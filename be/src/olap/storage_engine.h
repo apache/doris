@@ -43,6 +43,7 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
+#include "olap/task/index_builder.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -188,7 +189,8 @@ public:
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
-    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                  bool force);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -197,6 +199,8 @@ public:
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
+
+    Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
 private:
     // Instance should be inited from `static open()`
@@ -271,7 +275,8 @@ private:
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
-    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                   bool force);
 
     void _adjust_compaction_thread_num();
 
@@ -283,6 +288,9 @@ private:
 
     Status _handle_seg_compaction(BetaRowsetWriter* writer,
                                   SegCompactionCandidatesSharedPtr segments);
+
+    Status _handle_index_change(IndexBuilderSharedPtr index_builder);
+    void _gc_binlogs();
 
 private:
     struct CompactionCandidate {

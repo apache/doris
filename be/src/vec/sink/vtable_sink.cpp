@@ -41,7 +41,7 @@ VTableSink::VTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
 Status VTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(DataSink::init(t_sink));
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
@@ -57,14 +57,12 @@ Status VTableSink::prepare(RuntimeState* state) {
 }
 
 Status VTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
     return Status::OK();
 }
 
 Status VTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VTableSink::send");
     return Status::OK();
 }
 Status VTableSink::close(RuntimeState* state, Status exec_status) {

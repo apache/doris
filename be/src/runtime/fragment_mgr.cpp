@@ -56,7 +56,6 @@
 #include "io/fs/stream_load_pipe.h"
 #include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "pipeline/task_scheduler.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -516,14 +515,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                                const FinishCallback& cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
-    auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
     SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
-#else
-    auto span = telemetry::get_noop_tracer()->StartSpan(func_name);
 #endif
-    auto scope = opentelemetry::trace::Scope {span};
-    span->SetAttribute("query_id", print_id(exec_state->query_id()));
-    span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
 
     LOG_INFO(func_name)
             .tag("query_id", exec_state->query_id())
@@ -691,6 +684,25 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
+        if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
+            if (params.__isset.resource_groups && !params.resource_groups.empty()) {
+                taskgroup::TaskGroupInfo task_group_info;
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
+                                                                         &task_group_info);
+                if (status.ok()) {
+                    auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
+                            task_group_info);
+                    tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                    query_ctx->set_task_group(tg);
+                    LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id)
+                              << " use task group: " << tg->debug_string();
+                }
+            } else {
+                VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id)
+                           << " does not use task group.";
+            }
+        }
+
         {
             // Find _query_ctx_map again, in case some other request has already
             // create the query fragments context.
@@ -714,13 +726,16 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    cur_span->SetAttribute("query_id", print_id(params.params.query_id));
+    cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
+
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
-    START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -791,34 +806,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    cur_span->SetAttribute("query_id", print_id(params.query_id));
+
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
-    START_AND_SCOPE_SPAN(tracer, span, "FragmentMgr::exec_plan_fragment");
 
     std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-
-    if (params.__isset.resource_groups && !params.resource_groups.empty()) {
-        taskgroup::TaskGroupInfo task_group_info;
-        auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
-                                                                 &task_group_info);
-        if (status.ok()) {
-            auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
-                    task_group_info);
-            _exec_env->pipeline_task_group_scheduler()->try_update_task_group(task_group_info, tg);
-            query_ctx->set_task_group(tg);
-            LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id)
-                      << " use task group: " << tg->debug_string();
-        }
-    } else {
-        VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id)
-                   << " does not use task group.";
-    }
 
     for (size_t i = 0; i < params.local_params.size(); i++) {
         const auto& local_params = params.local_params[i];
@@ -832,6 +832,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 continue;
             }
         }
+        START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
+        span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
         query_ctx->fragment_ids.push_back(fragment_instance_id);
 
@@ -898,6 +900,8 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg) {
+    bool find_the_fragment = false;
+
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -907,6 +911,7 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
         }
     }
     if (exec_state) {
+        find_the_fragment = true;
         exec_state->cancel(reason, msg);
     }
 
@@ -919,7 +924,12 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
         }
     }
     if (pipeline_fragment_ctx) {
+        find_the_fragment = true;
         pipeline_fragment_ctx->cancel(reason, msg);
+    }
+
+    if (!find_the_fragment) {
+        LOG(WARNING) << "Do not find the fragment instance id:" << fragment_id << " to cancel";
     }
 }
 

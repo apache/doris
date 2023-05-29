@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
@@ -45,6 +46,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
@@ -64,12 +66,14 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile* profile,
+                         const UniqueId& load_id) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), profile, load_id);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
+                         const UniqueId& load_id)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -77,7 +81,28 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _load_id(load_id) {}
+          _load_id(load_id) {
+    _init_profile(profile);
+}
+
+void DeltaWriter::_init_profile(RuntimeProfile* profile) {
+    _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
+    profile->add_child(_profile, false, nullptr);
+    _lock_timer = ADD_TIMER(_profile, "LockTime");
+    _sort_timer = ADD_TIMER(_profile, "MemTableSortTime");
+    _agg_timer = ADD_TIMER(_profile, "MemTableAggTime");
+    _memtable_duration_timer = ADD_TIMER(_profile, "MemTableDurationTime");
+    _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTime");
+    _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
+    _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
+    _delete_bitmap_timer = ADD_TIMER(_profile, "MemTableDeleteBitmapTime");
+    _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
+    _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
+    _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
+    _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
+    _raw_rows_num = ADD_COUNTER(_profile, "RawRowNum", TUnit::UNIT);
+    _merged_rows_num = ADD_COUNTER(_profile, "MergedRowNum", TUnit::UNIT);
+}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -141,8 +166,8 @@ Status DeltaWriter::init() {
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100)) {
         //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(_tablet,
-                                                          CompactionType::CUMULATIVE_COMPACTION);
+        StorageEngine::instance()->submit_compaction_task(
+                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
             LOG(WARNING) << "failed to init delta writer. version count: "
                          << _tablet->version_count()
@@ -158,8 +183,8 @@ Status DeltaWriter::init() {
             return Status::Error<TRY_LOCK_FAILED>();
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
-                                                                  _req.txn_id, _req.load_id));
+        RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
+                                                                    _req.txn_id, _req.load_id));
     }
     if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
@@ -178,7 +203,7 @@ Status DeltaWriter::init() {
     context.is_direct_write = true;
     context.mow_context =
             std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
-    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
+    RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
@@ -187,7 +212,7 @@ Status DeltaWriter::init() {
     // unique key should flush serial because we need to make sure same key should sort
     // in the same order in all replica.
     bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+    RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
@@ -203,9 +228,11 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
+    _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
+    _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -225,7 +252,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     _mem_table->insert(block, row_idxs, is_append);
 
-    if (UNLIKELY(_mem_table->need_agg())) {
+    if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
@@ -240,7 +267,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    _merged_rows += _mem_table->merged_rows();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -269,7 +295,8 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
-        RETURN_NOT_OK(_flush_token->wait());
+        SCOPED_TIMER(_wait_flush_timer);
+        RETURN_IF_ERROR(_flush_token->wait());
     }
     return Status::OK();
 }
@@ -286,7 +313,8 @@ Status DeltaWriter::wait_flush() {
             return _cancel_status;
         }
     }
-    RETURN_NOT_OK(_flush_token->wait());
+    SCOPED_TIMER(_wait_flush_timer);
+    RETURN_IF_ERROR(_flush_token->wait());
     return Status::OK();
 }
 
@@ -317,17 +345,34 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
+
+    COUNTER_UPDATE(_segment_num, 1);
+    _mem_table->set_callback([this](MemTableStat& stat) {
+        _memtable_stat += stat;
+        COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);
+        COUNTER_UPDATE(_agg_timer, _memtable_stat.agg_ns);
+        COUNTER_UPDATE(_memtable_duration_timer, _memtable_stat.duration_ns);
+        COUNTER_UPDATE(_segment_writer_timer, _memtable_stat.segment_writer_ns);
+        COUNTER_UPDATE(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
+        COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
+        COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
+        COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
+        COUNTER_UPDATE(_raw_rows_num, _memtable_stat.raw_rows);
+        COUNTER_UPDATE(_merged_rows_num, _memtable_stat.merged_rows);
+    });
 }
 
 Status DeltaWriter::close() {
+    _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
+    _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
         // in same partition has data loaded.
         // so we have to also init this DeltaWriter, so that it can create an empty rowset
         // for this tablet when being closed.
-        RETURN_NOT_OK(init());
+        RETURN_IF_ERROR(init());
     }
 
     if (_is_cancelled) {
@@ -343,7 +388,7 @@ Status DeltaWriter::close() {
     auto s = _flush_memtable_async();
     _mem_table.reset();
     _is_closed = true;
-    if (OLAP_UNLIKELY(!s.ok())) {
+    if (UNLIKELY(!s.ok())) {
         return s;
     } else {
         return Status::OK();
@@ -352,6 +397,7 @@ Status DeltaWriter::close() {
 
 Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
+    SCOPED_TIMER(_close_wait_timer);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -360,21 +406,23 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         return _cancel_status;
     }
 
-    MonotonicStopWatch timer;
-    timer.start();
+    Status st;
     // return error if previous flush failed
-    auto st = _flush_token->wait();
+    {
+        SCOPED_TIMER(_wait_flush_timer);
+        st = _flush_token->wait();
+    }
     if (UNLIKELY(!st.ok())) {
         LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
         return st;
     }
-    uint64_t wait_time_ns = timer.elapsed_time();
 
     _mem_table.reset();
 
-    if (_rowset_writer->num_rows() + _merged_rows != _total_received_rows) {
+    if (_rowset_writer->num_rows() + _memtable_stat.merged_rows != _total_received_rows) {
         LOG(WARNING) << "the rows number written doesn't match, rowset num rows written to file: "
-                     << _rowset_writer->num_rows() << ", merged_rows: " << _merged_rows
+                     << _rowset_writer->num_rows()
+                     << ", merged_rows: " << _memtable_stat.merged_rows
                      << ", total received rows: " << _total_received_rows;
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
@@ -400,29 +448,32 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr, _delete_bitmap,
-                                                    _cur_max_version, true));
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr,
+                                                        _delete_bitmap, _cur_max_version, true));
+        }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
-                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;
 
-    const FlushStatistic& stat = _flush_token->get_stats();
+    // const FlushStatistic& stat = _flush_token->get_stats();
     // print slow log if wait more than 1s
-    if (wait_time_ns > 1000UL * 1000 * 1000) {
+    /*if (_wait_flush_timer->elapsed_time() > 1000UL * 1000 * 1000) {
         LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id()
-                  << ", load id: " << print_id(_req.load_id) << ", wait close for " << wait_time_ns
-                  << "(ns), stats: " << stat;
-    }
+                  << ", load id: " << print_id(_req.load_id) << ", wait close for "
+                  << _wait_flush_timer->elapsed_time() << "(ns), stats: " << stat;
+    }*/
 
     if (write_single_replica) {
         for (auto node_info : slave_tablet_nodes.slave_nodes()) {
             _request_slave_tablet_pull_rowset(node_info);
         }
     }
+    COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
     return Status::OK();
 }
 
@@ -475,7 +526,9 @@ void DeltaWriter::save_mem_consumption_snapshot() {
 }
 
 int64_t DeltaWriter::get_memtable_consumption_inflush() const {
-    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) return 0;
+    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) {
+        return 0;
+    }
     return _mem_consumption_snapshot - _memtable_consumption_snapshot;
 }
 
@@ -557,6 +610,14 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         _unfinished_slave_node.insert(node_info.id());
     }
 
+    std::vector<int64_t> indices_ids;
+    auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
+    for (auto& column : tablet_schema->columns()) {
+        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+        if (index_meta) {
+            indices_ids.emplace_back(index_meta->index_id());
+        }
+    }
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);
@@ -573,6 +634,22 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         segment_name << _cur_rowset->rowset_id() << "_" << segment_id << ".dat";
         int64_t segment_size = std::filesystem::file_size(tablet_path + "/" + segment_name.str());
         request.mutable_segments_size()->insert({segment_id, segment_size});
+
+        if (!indices_ids.empty()) {
+            for (auto index_id : indices_ids) {
+                std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                        tablet_path + "/" + segment_name.str(), index_id);
+                int64_t size = std::filesystem::file_size(inverted_index_file);
+                PTabletWriteSlaveRequest::IndexSize index_size;
+                index_size.set_indexid(index_id);
+                index_size.set_size(size);
+                // Fetch the map value for the current segment_id.
+                // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];
+                // Add the new index size to the map value.
+                *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+            }
+        }
     }
     RefCountClosure<PTabletWriteSlaveResult>* closure =
             new RefCountClosure<PTabletWriteSlaveResult>();

@@ -25,6 +25,7 @@
 #include "arrow/status.h"
 #include "common/status.h"
 #include "util/jsonb_writer.h"
+#include "util/mysql_row_buffer.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
 
@@ -39,10 +40,12 @@ class time_zone;
 namespace doris {
 class PValues;
 class JsonbValue;
+class SlotDescriptor;
 
 namespace vectorized {
 class IColumn;
 class Arena;
+class IDataType;
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another
@@ -71,7 +74,13 @@ public:
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
+    virtual Status write_column_to_mysql(const IColumn& column,
+                                         std::vector<MysqlRowBuffer<false>>& result, int row_idx,
+                                         int start, int end, bool col_const) const = 0;
 
+    virtual Status write_column_to_mysql(const IColumn& column,
+                                         std::vector<MysqlRowBuffer<true>>& result, int start,
+                                         int row_idx, int end, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
     // ORC serializer and deserializer
@@ -98,6 +107,10 @@ inline void checkArrowStatus(const arrow::Status& status, const std::string& col
 
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+
+DataTypeSerDeSPtrs create_data_type_serdes(
+        const std::vector<std::shared_ptr<const IDataType>>& types);
+DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots);
 
 } // namespace vectorized
 } // namespace doris

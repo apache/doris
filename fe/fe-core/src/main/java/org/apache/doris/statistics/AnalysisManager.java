@@ -23,14 +23,18 @@ import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -45,16 +49,18 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -120,11 +126,18 @@ public class AnalysisManager {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, isSync);
+        createTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
 
         ConnectContext ctx = ConnectContext.get();
         if (!isSync || ctx.getSessionVariable().enableSaveStatisticsSyncJob) {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+        }
+
+        try {
+            updateTableStats(jobInfo);
+        } catch (Throwable e) {
+            throw new DdlException("Failed to update Table statistics");
         }
 
         if (isSync) {
@@ -150,6 +163,13 @@ public class AnalysisManager {
 
         persistAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+
+        try {
+            updateTableStats(jobInfo);
+        } catch (Throwable e) {
+            LOG.warn("Failed to update Table statistics in job: {}", info.toString());
+        }
+
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
 
@@ -408,6 +428,31 @@ public class AnalysisManager {
         }
     }
 
+    private void createTaskForExternalTable(AnalysisTaskInfo jobInfo,
+                                            Map<Long, BaseAnalysisTask> analysisTasks,
+                                            boolean isSync) throws DdlException {
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return;
+        }
+        if (jobInfo.analysisType == AnalysisType.HISTOGRAM || table.getType() != TableType.HMS_EXTERNAL_TABLE) {
+            return;
+        }
+        AnalysisTaskInfoBuilder colTaskInfoBuilder = new AnalysisTaskInfoBuilder(jobInfo);
+        long taskId = Env.getCurrentEnv().getNextId();
+        AnalysisTaskInfo analysisTaskInfo = colTaskInfoBuilder.setIndexId(-1L)
+                .setTaskId(taskId).setExternalTableLevelTask(true).build();
+        analysisTasks.put(taskId, createTask(analysisTaskInfo));
+        try {
+            StatisticsRepository.persistAnalysisTask(analysisTaskInfo);
+        } catch (Exception e) {
+            throw new DdlException("Failed to create analysis task", e);
+        }
+    }
+
     public void updateTaskStatus(AnalysisTaskInfo info, AnalysisState jobState, String message, long time) {
         if (analysisJobIdToTaskMap.get(info.jobId) == null) {
             return;
@@ -439,6 +484,55 @@ public class AnalysisManager {
         }
     }
 
+    private void updateTableStats(AnalysisTaskInfo jobInfo) throws Throwable {
+        Map<String, String> params = buildTableStatsParams(jobInfo);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName,
+                jobInfo.dbName, jobInfo.tblName);
+
+        // update olap table stats
+        if (tbl.getType() == TableType.OLAP) {
+            OlapTable table = (OlapTable) tbl;
+            updateOlapTableStats(table, params);
+        }
+
+        // TODO support external table
+    }
+
+    @SuppressWarnings("rawtypes")
+    private Map<String, String> buildTableStatsParams(AnalysisTaskInfo jobInfo) throws Throwable {
+        CatalogIf catalog = StatisticsUtil.findCatalog(jobInfo.catalogName);
+        DatabaseIf db = StatisticsUtil.findDatabase(jobInfo.catalogName, jobInfo.dbName);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
+        String indexId = jobInfo.indexId == null ? "-1" : String.valueOf(jobInfo.indexId);
+        String id = StatisticsUtil.constructId(tbl.getId(), indexId);
+        Map<String, String> commonParams = new HashMap<>();
+        commonParams.put("id", id);
+        commonParams.put("catalogId", String.valueOf(catalog.getId()));
+        commonParams.put("dbId", String.valueOf(db.getId()));
+        commonParams.put("tblId", String.valueOf(tbl.getId()));
+        commonParams.put("indexId", indexId);
+        commonParams.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
+        return commonParams;
+    }
+
+    private void updateOlapTableStats(OlapTable table, Map<String, String> params) throws Throwable {
+        for (Partition partition : table.getPartitions()) {
+            HashMap<String, String> partParams = Maps.newHashMap(params);
+            long rowCount = partition.getBaseIndex().getRowCount();
+            partParams.put("id", StatisticsUtil
+                    .constructId(params.get("id"), partition.getId()));
+            partParams.put("partId", String.valueOf(partition.getId()));
+            partParams.put("rowCount", String.valueOf(rowCount));
+            StatisticsRepository.persistTableStats(partParams);
+        }
+
+        HashMap<String, String> tblParams = Maps.newHashMap(params);
+        long rowCount = table.getRowCount();
+        tblParams.put("partId", "NULL");
+        tblParams.put("rowCount", String.valueOf(rowCount));
+        StatisticsRepository.persistTableStats(tblParams);
+    }
+
     public List<List<Comparable>> showAnalysisJob(ShowAnalyzeStmt stmt) throws DdlException {
         String whereClause = stmt.getWhereClause();
         long limit = stmt.getLimit();
@@ -450,15 +544,14 @@ public class AnalysisManager {
         ImmutableList<String> titleNames = stmt.getTitleNames();
         List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(executeSql);
 
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
         for (ResultRow resultRow : resultRows) {
             List<Comparable> result = Lists.newArrayList();
             for (String column : titleNames) {
                 String value = resultRow.getColumnValue(column);
                 if (LAST_EXEC_TIME_IN_MS.equals(column)) {
                     long timeMillis = Long.parseLong(value);
-                    value = dateFormat.format(new Date(timeMillis));
+                    value = TimeUtils.DATETIME_FORMAT.format(
+                            LocalDateTime.ofInstant(Instant.ofEpochMilli(timeMillis), ZoneId.systemDefault()));
                 }
                 result.add(value);
             }

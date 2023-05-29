@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -120,7 +121,11 @@ public:
     void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
-    ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
+    ColumnWithTypeAndName& get_by_position(size_t position) {
+        DCHECK(data.size() > position)
+                << ", data.size()=" << data.size() << ", position=" << position;
+        return data[position];
+    }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
     // need exception safety
@@ -508,7 +513,12 @@ public:
     }
 
     template <typename T>
-    Status merge(T&& block) {
+    [[nodiscard]] Status merge(T&& block) {
+        RETURN_IF_CATCH_EXCEPTION(return merge_impl(block););
+    }
+
+    template <typename T>
+    [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();

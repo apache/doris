@@ -586,7 +586,7 @@ int main(int argc, char** argv) {
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10, 0);
 
     doris::MultiBenchmark multi_bm;
     multi_bm.add_bm();

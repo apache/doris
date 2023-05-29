@@ -130,13 +130,10 @@ import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.charset.StandardCharsets;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -155,8 +152,6 @@ import java.util.stream.Collectors;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
-
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     private static final String localIP = FrontendOptions.getLocalHostAddress();
 
@@ -336,7 +331,7 @@ public class Coordinator {
 
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
@@ -365,7 +360,7 @@ public class Coordinator {
         this.fragments = fragments;
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
-        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
@@ -526,7 +521,7 @@ public class Coordinator {
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("backend: {}-{}-{}", backendID, backend.getIp(), backend.getBePort());
+                LOG.debug("backend: {}-{}-{}", backendID, backend.getHost(), backend.getBePort());
             }
         }
     }
@@ -592,7 +587,7 @@ public class Coordinator {
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
+            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
@@ -605,7 +600,7 @@ public class Coordinator {
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
                         .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
-                topResultFileSink.setBrokerAddr(broker.ip, broker.port);
+                topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
             // This is a load process.
@@ -829,7 +824,8 @@ public class Coordinator {
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap);
+                            profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap,
+                            executionProfile.getLoadChannelProfile());
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -1144,7 +1140,11 @@ public class Coordinator {
                             + " query id: {}, instance id: {}, error message: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN",
                     status.getErrorMsg());
-            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            }
         } finally {
             lock.unlock();
         }
@@ -1396,7 +1396,7 @@ public class Coordinator {
         if (backend == null) {
             throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
         }
-        TNetworkAddress dest = new TNetworkAddress(backend.getIp(), backend.getBeRpcPort());
+        TNetworkAddress dest = new TNetworkAddress(backend.getHost(), backend.getBeRpcPort());
         return dest;
     }
 
@@ -1409,7 +1409,7 @@ public class Coordinator {
         if (backend.getBrpcPort() < 0) {
             return null;
         }
-        return new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+        return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }
 
     // estimate if this fragment contains UnionNode
@@ -1957,7 +1957,7 @@ public class Coordinator {
         Reference<Long> backendIdRef = new Reference<Long>();
         selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
         Backend backend = this.idToBackend.get(backendIdRef.getRef());
-        TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+        TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
         this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
         this.fragmentIdToSeqToAddressMap.get(fragmentId).put(bucketSeq, execHostPort);
     }
@@ -2036,7 +2036,7 @@ public class Coordinator {
         for (TScanRangeLocations scanRangeLocations : locations) {
             TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
             Backend backend = consistentHash.getNode(scanRangeLocations);
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backend.getId());
             // Why only increase 1 in other implementations ?
             if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
@@ -2075,7 +2075,7 @@ public class Coordinator {
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
                     assignedBytesPerHost, replicaNumPerHost, backendIdRef);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getIp(), backend.getBePort());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
             Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort,
@@ -2563,7 +2563,7 @@ public class Coordinator {
             this.instanceId = fi.instanceId;
             this.address = fi.host;
             this.backend = idToBackend.get(addressToBackendID.get(address));
-            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.loadChannelProfile = loadChannelProfile;
@@ -2691,6 +2691,7 @@ public class Coordinator {
         volatile boolean done;
         boolean hasCanceled;
         Map<TUniqueId, RuntimeProfile> fragmentInstancesMap;
+        RuntimeProfile loadChannelProfile;
         int cancelProgress = 0;
         int profileFragmentId;
         TNetworkAddress brpcAddress;
@@ -2702,19 +2703,21 @@ public class Coordinator {
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
-                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap) {
+                Map<TUniqueId, RuntimeProfile> fragmentInstancesMap,
+                RuntimeProfile loadChannelProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
             this.numInstances = rpcParams.local_params.size();
             this.fragmentInstancesMap = fragmentInstancesMap;
+            this.loadChannelProfile = loadChannelProfile;
 
             this.initiated = false;
             this.done = false;
 
             this.backend = idToBackend.get(backendId);
-            this.address = new TNetworkAddress(backend.getIp(), backend.getBePort());
-            this.brpcAddress = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+            this.address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
 
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
@@ -2745,6 +2748,9 @@ public class Coordinator {
 
             if (params.isSetProfile()) {
                 profile.update(params.profile);
+            }
+            if (params.isSetLoadChannelProfile()) {
+                loadChannelProfile.update(params.loadChannelProfile);
             }
             if (params.done) {
                 profile.setIsDone(true);
@@ -3081,6 +3087,7 @@ public class Coordinator {
                 params.setBackendNum(backendNum++);
                 params.setQueryGlobals(queryGlobals);
                 params.setQueryOptions(queryOptions);
+                params.query_options.setEnablePipelineEngine(false);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3145,6 +3152,7 @@ public class Coordinator {
                     params.setCoord(coordAddress);
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
+                    params.query_options.setEnablePipelineEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

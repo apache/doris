@@ -87,8 +87,7 @@ public class MultiLoadMgr {
             if (infoMap.containsKey(multiLabel)) {
                 throw new LabelAlreadyUsedException(label);
             }
-            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(ConnectContext.get().getClusterName())
-                    .needLoadAvailable().build();
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (backendIds.isEmpty()) {
                 throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + " policy: " + policy);
@@ -228,7 +227,7 @@ public class MultiLoadMgr {
                 throw new DdlException("Unknown multiLabel(" + multiLabel + ")");
             }
             Backend backend = Env.getCurrentSystemInfo().getBackend(desc.getBackendId());
-            return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
+            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         } finally {
             lock.writeLock().unlock();
         }
@@ -354,7 +353,7 @@ public class MultiLoadMgr {
             }
 
             properties.remove(LoadStmt.KEY_COMMENT);
-            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, null, properties, comment);
+            LoadStmt loadStmt = new LoadStmt(commitLabel, dataDescriptions, brokerDesc, properties, comment);
             loadStmt.setEtlJobType(EtlJobType.BROKER);
             loadStmt.setOrigStmt(new OriginStatement("", 0));
             loadStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
@@ -498,7 +497,7 @@ public class MultiLoadMgr {
             if (backend == null) {
                 throw new DdlException("Backend [" + backendId + "] not found. ");
             }
-            dataDescription.setBeAddr(new TNetworkAddress(backend.getIp(), backend.getHeartbeatPort()));
+            dataDescription.setBeAddr(new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort()));
             dataDescription.setFileSize(fileSizes);
             dataDescription.setBackendId(backendId);
             dataDescription.setJsonPaths(jsonPaths);

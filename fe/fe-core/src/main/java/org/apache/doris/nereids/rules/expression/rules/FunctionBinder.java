@@ -58,6 +58,7 @@ import java.util.stream.Collectors;
  * function binder
  */
 public class FunctionBinder extends AbstractExpressionRewriteRule {
+
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     @Override
@@ -84,7 +85,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .map(e -> e.accept(this, context)).collect(Collectors.toList()));
 
         // bind function
-        FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
+        FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
         String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()

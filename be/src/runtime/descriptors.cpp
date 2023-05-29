@@ -517,11 +517,11 @@ std::string RowDescriptor::debug_string() const {
     return ss.str();
 }
 
-int RowDescriptor::get_column_id(int slot_id) const {
+int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const {
     int column_id_counter = 0;
     for (const auto tuple_desc : _tuple_desc_map) {
         for (const auto slot : tuple_desc->slots()) {
-            if (!slot->need_materialize()) {
+            if (!force_materialize_slot && !slot->need_materialize()) {
                 continue;
             }
             if (slot->id() == slot_id) {

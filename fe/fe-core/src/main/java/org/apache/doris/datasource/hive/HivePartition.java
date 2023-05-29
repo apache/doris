@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.Column;
+
+import com.google.common.base.Preconditions;
 import lombok.Data;
 
 import java.util.List;
@@ -41,6 +44,19 @@ public class HivePartition {
         this.path = path;
         // eg: cn, beijing
         this.partitionValues = partitionValues;
+    }
+
+    // return partition name like: nation=cn/city=beijing
+    public String getPartitionName(List<Column> partColumns) {
+        Preconditions.checkState(partColumns.size() == partitionValues.size());
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < partColumns.size(); ++i) {
+            if (i != 0) {
+                sb.append("/");
+            }
+            sb.append(partColumns.get(i).getName()).append("=").append(partitionValues.get(i));
+        }
+        return sb.toString();
     }
 
     public boolean isDummyPartition() {

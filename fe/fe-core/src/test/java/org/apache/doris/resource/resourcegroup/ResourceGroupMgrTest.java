@@ -82,6 +82,7 @@ public class ResourceGroupMgrTest {
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         CreateResourceGroupStmt stmt1 = new CreateResourceGroupStmt(false, name1, properties1);
         resourceGroupMgr.createResourceGroup(stmt1);
@@ -98,6 +99,7 @@ public class ResourceGroupMgrTest {
 
         Map<String, String> properties2 = Maps.newHashMap();
         properties2.put(ResourceGroup.CPU_SHARE, "20");
+        properties2.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name2 = "g2";
         CreateResourceGroupStmt stmt2 = new CreateResourceGroupStmt(false, name2, properties2);
         resourceGroupMgr.createResourceGroup(stmt2);
@@ -129,6 +131,7 @@ public class ResourceGroupMgrTest {
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
+        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         CreateResourceGroupStmt stmt1 = new CreateResourceGroupStmt(false, name1, properties1);
         resourceGroupMgr.createResourceGroup(stmt1);
@@ -152,6 +155,7 @@ public class ResourceGroupMgrTest {
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(ResourceGroup.CPU_SHARE, "10");
+        properties.put(ResourceGroup.MEMORY_LIMIT, "30%");
         String name = "g1";
         CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
         resourceGroupMgr.createResourceGroup(createStmt);
@@ -188,11 +192,13 @@ public class ResourceGroupMgrTest {
         }
 
         properties.put(ResourceGroup.CPU_SHARE, "10");
+        properties.put(ResourceGroup.MEMORY_LIMIT, "30%");
         CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
         resourceGroupMgr.createResourceGroup(createStmt);
 
         Map<String, String> newProperties = Maps.newHashMap();
         newProperties.put(ResourceGroup.CPU_SHARE, "5");
+        newProperties.put(ResourceGroup.MEMORY_LIMIT, "30%");
         AlterResourceGroupStmt stmt2 = new AlterResourceGroupStmt(name, newProperties);
         resourceGroupMgr.alterResourceGroup(stmt2);
 

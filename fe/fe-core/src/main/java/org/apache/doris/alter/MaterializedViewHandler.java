@@ -41,6 +41,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -449,6 +450,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.hasMaterializedIndex(addMVClause.getMVName())) {
             throw new DdlException("Materialized view[" + addMVClause.getMVName() + "] already exists");
         }
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new DdlException("MergeOnWrite table can't create materialized view.");
+        }
         // check if mv columns are valid
         // a. Aggregate or Unique table:
         //     1. For aggregate table, mv columns with aggregate function should be same as base schema
@@ -554,10 +558,14 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
-            newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
+            Column newColumn = new Column(olapTable.getDeleteSignColumn());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
-            newMVColumns.add(new Column(olapTable.getSequenceCol()));
+            Column newColumn = new Column(olapTable.getSequenceCol());
+            newColumn.setAggregationType(AggregateType.REPLACE, true);
+            newMVColumns.add(newColumn);
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
@@ -589,6 +597,9 @@ public class MaterializedViewHandler extends AlterHandler {
     public List<Column> checkAndPrepareMaterializedView(AddRollupClause addRollupClause, OlapTable olapTable,
             long baseIndexId, boolean changeStorageFormat)
             throws DdlException {
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new DdlException("MergeOnWrite table can't create materialized view.");
+        }
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
         if (changeStorageFormat) {
@@ -966,6 +977,13 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         olapTable.deleteIndexInfo(mvName);
+        try {
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(),
+                    Env.getCurrentInternalCatalog().getDbOrDdlException(olapTable.getQualifiedDbName()).getId(),
+                    olapTable.getId(), mvIndexId);
+        } catch (DdlException e) {
+            LOG.info("failed to clean stats for mv {} from {}", mvName, olapTable.getName(), e);
+        }
         return mvIndexId;
     }
 
@@ -989,9 +1007,11 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                 }
             }
-
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);
             olapTable.deleteIndexInfo(rollupIndexName);
+
+            env.getQueryStats().clear(env.getCurrentCatalog().getId(), db.getId(),
+                    olapTable.getId(), rollupIndexId);
         } finally {
             olapTable.writeUnlock();
         }
@@ -1253,12 +1273,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        Map<String, Table> olapTables = addMVClause.getTables();
+        Map<String, TableIf> olapTables = addMVClause.getTables();
         try {
-            olapTables.values().forEach(Table::readLock);
+            olapTables.values().forEach(TableIf::readLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.values().forEach(Table::readUnlock);
+            olapTables.values().forEach(TableIf::readUnlock);
         }
     }
 }

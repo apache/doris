@@ -78,6 +78,10 @@ suite("test_bitmap_filter_nereids") {
 
     qt_sql15 "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
 
+    sql "set enable_pipeline_engine=true;"
+    qt_sql15 "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
+    sql "set enable_pipeline_engine=false;"
+
     explain{
         sql "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) order by k1;"
         contains "RF000[bitmap]"

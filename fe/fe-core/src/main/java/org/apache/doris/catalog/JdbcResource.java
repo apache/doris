@@ -61,6 +61,7 @@ import java.util.Map;
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
 
+    public static final String JDBC_NEBULA = "jdbc:nebula";
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
@@ -72,6 +73,7 @@ public class JdbcResource extends Resource {
     public static final String JDBC_PRESTO = "jdbc:presto";
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
 
+    public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
@@ -296,6 +298,8 @@ public class JdbcResource extends Resource {
             } else {
                 throw new DdlException("Invalid OceanBase mode: " + oceanbaseMode + ". Must be 'mysql' or 'oracle'");
             }
+        } else if (url.startsWith(JDBC_NEBULA)) {
+            return NEBULA;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
@@ -308,13 +312,20 @@ public class JdbcResource extends Resource {
             // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
-            // `tinyInt1isBit` is a parameter of JDBC, and the default is true.
-            // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
-            // it will convert to Doris tinyint, not bit.
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            // MySQL Types and Return Values for GetColumnTypeName and GetColumnClassName
+            // are presented in https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+            // However when tinyInt1isBit=false, GetColumnClassName of MySQL returns java.lang.Boolean,
+            // while that of Doris returns java.lang.Integer. In order to be compatible with both MySQL and Doris,
+            // Jdbc params should set tinyInt1isBit=true&transformedBitIsBoolean=true
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "transformedBitIsBoolean", "true", "true");
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
+            if (dbType.equals(OCEANBASE)) {
+                // set useCursorFetch to true
+                newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            }
         }
         if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");

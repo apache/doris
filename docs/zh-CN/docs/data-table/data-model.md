@@ -33,7 +33,7 @@ under the License.
 在 Doris 中，数据以表（Table）的形式进行逻辑上的描述。
 一张表包括行（Row）和列（Column）。Row 即用户的一行数据。Column 用于描述一行数据中不同的字段。
 
-Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。
+Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。Doris的key列是建表语句中指定的列，建表语句中的关键字'unique key'或'aggregate key'或'duplicate key'后面的列就是 Key 列，除了 Key 列剩下的就是 Value 列。
 
 Doris 的数据模型主要分为3类:
 
@@ -354,6 +354,9 @@ Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种�
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+> 注意：
+> 1. 建议使用1.2.4及以上版本，该版本修复了一些bug和稳定性问题
+> 2. 在be.conf中添加配置项：disable_storage_page_cache=false。不添加该配置项可能会对数据导入性能产生较大影响
 
 仍然以上面的表为例，建表语句为
 

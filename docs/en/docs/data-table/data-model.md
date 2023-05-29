@@ -32,7 +32,7 @@ This topic introduces the data models in Doris from a logical perspective so you
 
 In Doris, data is logically described in the form of tables. A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively.
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column .
 
 Data models in Doris fall into three types:
 
@@ -339,7 +339,9 @@ PROPERTIES (
 
 That is to say, the Merge on Read implementation of the Unique Model is equivalent to the REPLACE aggregation type in the Aggregate Model. The internal implementation and data storage are exactly the same.
 
-### Merge on Write (Since Doris 1.2)
+<version since="1.2">
+
+### Merge on Write
 
 The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
 
@@ -348,6 +350,10 @@ In Doris 1.2.0, as a new feature, Merge on Write is disabled by default, and use
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+
+> NOTE:
+> 1. It is recommended to use version 1.2.4 or above, as this version has fixed some bugs and stability issues.
+> 2. Add the configuration item "disable_storage_page_cache=false" to the be.conf file. Failure to add this configuration item may have a significant impact on data load performance.
 
 Take the previous table as an example, the corresponding CREATE TABLE statement should be:
 
@@ -393,6 +399,8 @@ On a Unique table with the Merge on Write option enabled, during the import stag
 2. The old Merge on Read cannot be seamlessly upgraded to the new implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
 3. The two unique features `delete sign` and `sequence col` of the Unique Model can be used as normal in the new implementation, and their usage remains unchanged.
 
+</version>
+
 ## Duplicate Model
 
 In some multi-dimensional analysis scenarios, there is no need for primary keys or data aggregation. For these cases, we introduce the Duplicate Model to. Here is an example:
@@ -427,7 +435,7 @@ PROPERTIES (
 
 Different from the Aggregate and Unique Models, the Duplicate Model stores the data as they are and executes no aggregation. Even if there are two identical rows of data, they will both be retained. The DUPLICATE KEY in the CREATE TABLE statement is only used to specify based on which columns the data are sorted. (A more appropriate name than DUPLICATE KEY would be SORTING COLUMN, but it is named as such to specify the data model used. For more information, see [Prefix Index](https://doris.apache.org/docs/dev/data-table/index/prefix-index/).) For the choice of DUPLICATE KEY, we recommend the first 2-4 columns.
 
-The Duplicate Mode l is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
+The Duplicate Model is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
 
 ## Limitations of Aggregate Model
 

@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -160,6 +161,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     public Memo getMemo() {
         return memo;
+    }
+
+    public void setTables(List<Table> tables) {
+        this.tables = tables;
     }
 
     public ConnectContext getConnectContext() {
@@ -332,6 +337,21 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         }
     }
 
+    /** get table by table name, try to get from information from dumpfile first */
+    public Table getTableByName(String tableName) {
+        Preconditions.checkState(tables != null);
+        for (Table table : tables) {
+            if (table.getName().equals(tableName)) {
+                return table;
+            }
+        }
+        return null;
+    }
+
+    public List<Table> getTables() {
+        return tables;
+    }
+
     private Set<UnboundRelation> getTables(LogicalPlan logicalPlan) {
         Set<UnboundRelation> unboundRelations = new HashSet<>();
         logicalPlan.foreach(p -> {
@@ -414,7 +434,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
          */
         public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
             this.cascadesContext = cascadesContext;
-            cascadesContext.extractTables(plan);
+            // tables can also be load from dump file
+            if (cascadesContext.getTables() == null) {
+                cascadesContext.extractTables(plan);
+            }
             for (Table table : cascadesContext.tables) {
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();

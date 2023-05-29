@@ -97,7 +97,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 }
 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
-                              const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                              const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                               uint32_t start_send_row, uint32_t* num_rows_sent,
                               TOdbcTableType::type table_type) {
     _insert_stmt_buffer.clear();
@@ -153,10 +153,10 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
     return Status::OK();
 }
 
-Status TableConnector::oracle_type_append(
-        const std::string& table_name, vectorized::Block* block,
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, uint32_t start_send_row,
-        uint32_t* num_rows_sent, TOdbcTableType::type table_type) {
+Status TableConnector::oracle_type_append(const std::string& table_name, vectorized::Block* block,
+                                          const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                          uint32_t start_send_row, uint32_t* num_rows_sent,
+                                          TOdbcTableType::type table_type) {
     fmt::format_to(_insert_stmt_buffer, "INSERT ALL ");
     int num_rows = block->rows();
     int num_columns = block->columns();
@@ -185,10 +185,10 @@ Status TableConnector::oracle_type_append(
     return Status::OK();
 }
 
-Status TableConnector::sap_hana_type_append(
-        const std::string& table_name, vectorized::Block* block,
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, uint32_t start_send_row,
-        uint32_t* num_rows_sent, TOdbcTableType::type table_type) {
+Status TableConnector::sap_hana_type_append(const std::string& table_name, vectorized::Block* block,
+                                            const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                            uint32_t start_send_row, uint32_t* num_rows_sent,
+                                            TOdbcTableType::type table_type) {
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} ", table_name);
     int num_rows = block->rows();
     int num_columns = block->columns();
@@ -231,6 +231,9 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
             }
         } else if (table_type == TOdbcTableType::POSTGRESQL) {
             fmt::format_to(_insert_stmt_buffer, "'{}'::date", str);
+        } else if (table_type == TOdbcTableType::SQLSERVER) {
+            // Values in sqlserver should be enclosed by single quotes
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }

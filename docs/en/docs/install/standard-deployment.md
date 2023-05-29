@@ -48,7 +48,7 @@ Doris, as an open source OLAP database with an MPP architecture, can run on most
 
 | Soft | Version | 
 |---|---|
-| Java | 1.8 and above |
+| Java | 1.8  |
 | GCC  | 4.8.2 and above |
 
 #### OS Installation Requirements
@@ -326,7 +326,7 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 
 	You can also check whether the startup was successful by connecting as follows:
 	
-	`http://be_host:be_http_port/api/health`
+	`http://be_host:webserver_port/api/health`
 
 	If it returns:
 	

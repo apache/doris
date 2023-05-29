@@ -29,7 +29,9 @@
 #include <utility>
 
 #include "gutil/strings/numbers.h"
+#include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
+#include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -99,6 +101,42 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
 template <typename T>
 Field DataTypeNumberBase<T>::get_default() const {
     return NearestFieldType<FieldType>();
+}
+
+template <typename T>
+Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+        return UInt8(node.bool_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+        return Int8(node.int_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+        return Int16(node.int_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+        return Int32(node.int_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+        return Int64(node.int_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        __int128_t value = StringParser::string_to_int<__int128>(
+                node.large_int_literal.value.c_str(), node.large_int_literal.value.size(),
+                &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            value = MAX_INT128;
+        }
+        return Int128(value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+        return Float32(node.float_literal.value);
+    }
+    if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+        return Float64(node.float_literal.value);
+    }
+    __builtin_unreachable();
 }
 
 template <typename T>

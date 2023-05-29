@@ -301,6 +301,18 @@ struct GlobalRowLoacation {
             : tablet_id(tid), row_location(rsid, sid, rid) {}
     uint32_t tablet_id;
     RowLocation row_location;
+
+    bool operator==(const GlobalRowLoacation& rhs) const {
+        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
+    }
+
+    bool operator<(const GlobalRowLoacation& rhs) const {
+        if (tablet_id != rhs.tablet_id) {
+            return tablet_id < rhs.tablet_id;
+        } else {
+            return row_location < rhs.row_location;
+        }
+    }
 };
 
 } // namespace doris

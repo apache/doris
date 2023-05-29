@@ -17,7 +17,7 @@
 
 drop table if exists lineitem;
 CREATE TABLE lineitem (
-    l_shipdate    DATEV2 NOT NULL,
+    l_shipdate    DATE NOT NULL,
     l_orderkey    bigint NOT NULL,
     l_linenumber  int not null,
     l_partkey     int NOT NULL,
@@ -28,8 +28,8 @@ CREATE TABLE lineitem (
     l_tax         decimalv3(15, 2) NOT NULL,
     l_returnflag  VARCHAR(1) NOT NULL,
     l_linestatus  VARCHAR(1) NOT NULL,
-    l_commitdate  DATEV2 NOT NULL,
-    l_receiptdate DATEV2 NOT NULL,
+    l_commitdate  DATE NOT NULL,
+    l_receiptdate DATE NOT NULL,
     l_shipinstruct VARCHAR(25) NOT NULL,
     l_shipmode     VARCHAR(10) NOT NULL,
     l_comment      VARCHAR(44) NOT NULL
@@ -45,7 +45,7 @@ PROPERTIES (
 drop table if exists orders;
 CREATE TABLE orders  (
     o_orderkey       bigint NOT NULL,
-    o_orderdate      DATEV2 NOT NULL,
+    o_orderdate      DATE NOT NULL,
     o_custkey        int NOT NULL,
     o_orderstatus    VARCHAR(1) NOT NULL,
     o_totalprice     decimalv3(15, 2) NOT NULL,

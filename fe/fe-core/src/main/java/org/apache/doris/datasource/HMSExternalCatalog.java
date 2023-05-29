@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -31,7 +32,6 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -70,8 +70,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * Default constructor for HMSExternalCatalog.
      */
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
-        this.type = "hms";
+        super(catalogId, name, InitCatalogLog.Type.HMS);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -122,44 +121,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
-    @Override
-    protected void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.HMS);
-        List<String> allDatabases = client.getAllDatabases();
-        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
-        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
-        // Update the db name to id map.
-        for (String dbName : allDatabases) {
-            // Exclude database map take effect with higher priority over include database map
-            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                continue;
-            }
-            if (!includeDatabaseMap.isEmpty() && includeDatabaseMap.containsKey(dbName)) {
-                continue;
-            }
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
+    protected List<String> listDatabaseNames() {
+        return client.getAllDatabases();
     }
 
     @Override
@@ -191,12 +154,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
 
         client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.keySet());
     }
 
     @Override
@@ -292,7 +249,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
-        HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
         idToDb.put(dbId, db);
     }
 
