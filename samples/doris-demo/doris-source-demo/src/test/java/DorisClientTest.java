@@ -62,7 +62,7 @@ public class DorisClientTest {
         requiredParams.put("table", "test_source");
         requiredParams.put("username", "root");
         requiredParams.put("password", "");
-        requiredParams.put("sql", "select * from test.ods_tbox_signal_status_parsed_t5_c01_dht_phev_hev_di");
+        requiredParams.put("sql", "select * from test.test_source");
         return requiredParams;
     }
 
