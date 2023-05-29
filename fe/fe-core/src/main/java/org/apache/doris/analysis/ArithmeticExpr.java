@@ -543,11 +543,6 @@ public class ArithmeticExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
-            for (Expr child : children) {
-                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
-                    ((DecimalLiteral) child).tryToReduceType();
-                }
-            }
             // bitnot is the only unary op, deal with it here
             if (op == Operator.BITNOT) {
                 Type t = getChild(0).getType();
