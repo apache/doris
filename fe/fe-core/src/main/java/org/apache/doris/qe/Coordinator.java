@@ -98,6 +98,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
+import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -3093,26 +3094,41 @@ public class Coordinator {
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
-                    for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry
-                            : ridToTargetParam.entrySet()) {
-                        Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParams = new HashMap<>();
-                        for (FRuntimeFilterTargetParam targetParam : entry.getValue()) {
-                            if (targetParams.containsKey(targetParam.targetFragmentInstanceAddr)) {
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        .add(targetParam.targetFragmentInstanceId);
-                            } else {
-                                targetParams.put(targetParam.targetFragmentInstanceAddr,
-                                        new TRuntimeFilterTargetParamsV2());
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_addr
-                                        = targetParam.targetFragmentInstanceAddr;
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        = new ArrayList<>();
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        .add(targetParam.targetFragmentInstanceId);
+                    for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
+                        rf.computeUseRemoteRfOpt();
+                        if (rf.getUseRemoteRfOpt()) {
+                            Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParamsV2 = new HashMap<>();
+                            for (FRuntimeFilterTargetParam targetParam : fParams) {
+                                if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            .add(targetParam.targetFragmentInstanceId);
+                                } else {
+                                    targetParamsV2.put(targetParam.targetFragmentInstanceAddr,
+                                            new TRuntimeFilterTargetParamsV2());
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_addr
+                                            = targetParam.targetFragmentInstanceAddr;
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            = new ArrayList<>();
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            .add(targetParam.targetFragmentInstanceId);
+                                }
                             }
+                            params.params.runtime_filter_params.putToRidToTargetParamv2(rf.getFilterId().asInt(),
+                                    new ArrayList<TRuntimeFilterTargetParamsV2>(targetParamsV2.values()));
+                        } else {
+                            List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
+                            for (FRuntimeFilterTargetParam targetParam : fParams) {
+                                targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
+                                        targetParam.targetFragmentInstanceAddr));
+                            }
+                            params.params.runtime_filter_params.putToRidToTargetParam(rf.getFilterId().asInt(),
+                                    targetParams);
                         }
-                        params.params.runtime_filter_params.putToRidToTargetParamv2(entry.getKey().asInt(),
-                                new ArrayList<TRuntimeFilterTargetParamsV2>(targetParams.values()));
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(
@@ -3181,27 +3197,42 @@ public class Coordinator {
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
-                    for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry
-                            : ridToTargetParam.entrySet()) {
-                        Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParams = new HashMap<>();
-                        for (FRuntimeFilterTargetParam targetParam : entry.getValue()) {
-                            if (targetParams.containsKey(targetParam.targetFragmentInstanceAddr)) {
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        .add(targetParam.targetFragmentInstanceId);
-                            } else {
-                                targetParams.put(targetParam.targetFragmentInstanceAddr,
-                                        new TRuntimeFilterTargetParamsV2());
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_addr
-                                        = targetParam.targetFragmentInstanceAddr;
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        = new ArrayList<>();
-                                targetParams.get(targetParam.targetFragmentInstanceAddr).target_fragment_instance_ids
-                                        .add(targetParam.targetFragmentInstanceId);
+                    for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
+                        rf.computeUseRemoteRfOpt();
+                        if (rf.getUseRemoteRfOpt()) {
+                            Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParamsV2 = new HashMap<>();
+                            for (FRuntimeFilterTargetParam targetParam : fParams) {
+                                if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            .add(targetParam.targetFragmentInstanceId);
+                                } else {
+                                    targetParamsV2.put(targetParam.targetFragmentInstanceAddr,
+                                            new TRuntimeFilterTargetParamsV2());
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_addr
+                                            = targetParam.targetFragmentInstanceAddr;
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            = new ArrayList<>();
+                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
+                                            .target_fragment_instance_ids
+                                            .add(targetParam.targetFragmentInstanceId);
+                                }
                             }
-                        }
 
-                        localParams.runtime_filter_params.putToRidToTargetParamv2(entry.getKey().asInt(),
-                                new ArrayList<TRuntimeFilterTargetParamsV2>(targetParams.values()));
+                            localParams.runtime_filter_params.putToRidToTargetParamv2(rf.getFilterId().asInt(),
+                                    new ArrayList<TRuntimeFilterTargetParamsV2>(targetParamsV2.values()));
+                        } else {
+                            List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
+                            for (FRuntimeFilterTargetParam targetParam : fParams) {
+                                targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
+                                        targetParam.targetFragmentInstanceAddr));
+                            }
+                            localParams.runtime_filter_params.putToRidToTargetParam(rf.getFilterId().asInt(),
+                                    targetParams);
+                        }
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         localParams.runtime_filter_params.putToRuntimeFilterBuilderNum(

@@ -103,6 +103,8 @@ public final class RuntimeFilter {
 
     private boolean bitmapFilterNotIn = false;
 
+    private boolean useRemoteRfOpt = true;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -180,6 +182,17 @@ public final class RuntimeFilter {
 
     public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
         this.bitmapFilterNotIn = bitmapFilterNotIn;
+    }
+
+    public void computeUseRemoteRfOpt() {
+        for (RuntimeFilterTarget target : targets) {
+            useRemoteRfOpt = useRemoteRfOpt && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
+        }
+    }
+
+    public boolean getUseRemoteRfOpt() {
+        return useRemoteRfOpt;
     }
 
     /**
