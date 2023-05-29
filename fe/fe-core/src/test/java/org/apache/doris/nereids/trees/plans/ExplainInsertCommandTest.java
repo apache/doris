@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.analysis.ArithmeticExpr;
-import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
