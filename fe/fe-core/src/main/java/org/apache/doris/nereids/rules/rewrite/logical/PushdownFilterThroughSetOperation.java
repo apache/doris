@@ -53,7 +53,8 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
             }
 
             List<Plan> newChildren = new ArrayList<>();
-            boolean allOneRowRelation = true, hasOneRowRelation = false;
+            boolean allOneRowRelation = true;
+            boolean hasOneRowRelation = false;
             for (Plan child : setOperation.children()) {
                 if (child instanceof OneRowRelation) {
                     // We shouldn't push down the 'filter' to 'oneRowRelation'.
