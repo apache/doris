@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
@@ -75,7 +76,7 @@ public class MergeProjectPostProcessTest {
         t1Output.add(c);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
         PhysicalOlapScan scan = new PhysicalOlapScan(ObjectId.createGenerator().getNextId(), t1, qualifier, 0L,
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), ImmutableList.of(),
                 Optional.empty(), t1Properties);
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
