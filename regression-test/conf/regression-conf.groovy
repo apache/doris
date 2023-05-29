@@ -19,16 +19,21 @@
 
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
+feAddress = "127.0.0.1"
 
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://${feAddress}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feThriftAddress = "${feAddress}:9020"
+feSyncerUser = "root"
+feSyncerPassword = ""
+
+feHttpAddress = "${feAddress}:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 

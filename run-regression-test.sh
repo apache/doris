@@ -135,10 +135,16 @@ LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
 
 FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
 REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
+FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
 RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
+
+rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift ${FRAMEWORK_APACHE_DIR}/parquet"
+
+cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
+cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
 
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${REGRESSION_TEST_BUILD_DIR}"

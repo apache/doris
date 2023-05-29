@@ -35,6 +35,10 @@ import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
+import org.apache.doris.regression.util.SyncerUtils
+import org.apache.doris.thrift.TBinlog
+import org.apache.doris.thrift.TGetBinlogResult
+import org.apache.doris.thrift.TStatusCode
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -43,7 +47,6 @@ import groovy.util.logging.Slf4j
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.Map;
 import java.util.stream.Collectors
 import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
@@ -189,6 +192,42 @@ class Suite implements GroovyInterceptable {
     public <T> T connect(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
                          String url = context.config.jdbcUrl, Closure<T> actionSupplier) {
         return context.connect(user, password, url, actionSupplier)
+    }
+
+     TBinlog binlog() {
+         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}")
+         TBinlog binlog = null
+         FrontendClientImpl clientImpl = context.getSourceClient()
+         TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl)
+         if (result != null && result.isSetStatus()) {
+            TStatusCode code = result.getStatus().getStatusCode()
+            switch (code) {
+                case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
+                case TStatusCode.OK:
+                    if (result.isSetBinlogs()) {
+                        binlog = result.getBinlogs().first()
+                    }
+                    break
+                case TStatusCode.BINLOG_DISABLE:
+                    logger.error("Binlog is disabled!")
+                    break
+                case TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ:
+                    logger.error("Binlog is too new! seq: ${clientImpl.getSeq()}")
+                    break
+                case TStatusCode.BINLOG_NOT_FOUND_DB:
+                    logger.error("Binlog not found DB! DB: ${clientImpl.getDb()}")
+                    break
+                case TStatusCode.BINLOG_NOT_FOUND_TABLE:
+                    logger.error("Binlog not found table! table is not define.")
+                    break
+                default:
+                    logger.error("Binlog result is an unexpected code: ${code}")
+                    break
+            }
+         } else {
+            logger.error("Invalid TGetBinlogResult! result: ${result}")
+         }
+        return binlog
     }
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {

@@ -18,15 +18,27 @@
 package org.apache.doris.regression.suite
 
 import groovy.transform.CompileStatic
+import org.apache.doris.thrift.FrontendService
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
 import groovy.util.logging.Slf4j
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.thrift.protocol.TBinaryProtocol
+import org.apache.thrift.transport.TSocket
 
 import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
+
+class FrontendClientImpl {
+    FrontendService.Client client
+    String user
+    String passwd
+    String db
+    long seq
+}
 
 @Slf4j
 @CompileStatic
@@ -36,6 +48,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<FrontendClientImpl> sourceClient = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
@@ -114,6 +127,25 @@ class SuiteContext implements Closeable {
             threadLocalConn.set(threadConn)
         }
         return threadConn
+    }
+
+    private FrontendService.Client initFrontClient(TNetworkAddress address) {
+        TSocket tSocket = new TSocket(address.hostname, address.port)
+        TBinaryProtocol protocol = new TBinaryProtocol(tSocket)
+        return new FrontendService.Client(protocol)
+    }
+
+    FrontendClientImpl getSourceClient() {
+        def clientImpl = sourceClient.get()
+        if (clientImpl == null) {
+            clientImpl.client = initFrontClient(config.feSourceThriftNetworkAddress)
+            clientImpl.user = config.feSyncerUser
+            clientImpl.passwd = config.feSyncerPassword
+            clientImpl.db = dbName
+            clientImpl.seq = -1
+            sourceClient.set(clientImpl)
+        }
+        return clientImpl
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
