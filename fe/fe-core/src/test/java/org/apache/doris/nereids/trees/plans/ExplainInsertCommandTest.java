@@ -104,7 +104,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
         Assertions.assertEquals(
                 Lists.newArrayList(
-                        NullLiteral.create(Type.INT), 
+                        NullLiteral.create(Type.INT),
                         NullLiteral.create(Type.INT)
                 ),
                 getOutputFragment(sql).getOutputExprs().subList(0, 2));
