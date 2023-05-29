@@ -345,11 +345,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // get The first Project.
         PhysicalPlan plan = olapTableSink;
-        while (!(plan instanceof PhysicalProject)) {
+        while (!(plan instanceof PhysicalProject) && !(plan instanceof PhysicalOlapScan)) {
             plan = ((PhysicalPlan) plan.child(0));
         }
 
-        List<Expr> outputExprs = ((PhysicalProject<?>) plan).getProjects().stream()
+        List<NamedExpression> ne;
+        if (plan instanceof PhysicalProject) {
+            ne = ((PhysicalProject<?>) plan).getProjects();
+        } else {
+            ne = plan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList());
+        }
+
+        List<Expr> outputExprs = ne.stream()
                 .map(slot -> ExpressionTranslator.translate(slot, context))
                 .collect(Collectors.toList());
         rootFragment.setOutputExprs(outputExprs);
