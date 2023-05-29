@@ -352,8 +352,7 @@ public class HMSExternalTable extends ExternalTable {
         List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
         if (dlaType.equals(DLAType.ICEBERG)) {
             columns = getIcebergSchema(schema);
-        }
-        if (dlaType.equals(DLAType.HUDI)) {
+        } else if (dlaType.equals(DLAType.HUDI)) {
             columns = getHudiSchema(schema);
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
