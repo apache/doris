@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -49,7 +50,8 @@ public class MTMVTaskProcessor {
             return false;
         }
         try {
-            String insertOverwriteSelectStatement = generateInsertOverwriteSelectStmt(context, mvName);
+            String insertOverwriteSelectStatement = generateInsertOverwriteSelectStmt(context,
+                    ClusterNamespace.getNameFromFullName(mv.getQualifiedName()));
             if (!executeSQL(context, insertOverwriteSelectStatement)) {
                 throw new RuntimeException(
                         "Failed to insert overwrite, sql=" + insertOverwriteSelectStatement
@@ -96,6 +98,6 @@ public class MTMVTaskProcessor {
     }
 
     private String generateInsertOverwriteSelectStmt(MTMVTaskContext context, String mVName) {
-        return "INSERT OVERWRITE " + mVName + " " + context.getQuery();
+        return "INSERT OVERWRITE table " + mVName + " " + context.getQuery();
     }
 }
