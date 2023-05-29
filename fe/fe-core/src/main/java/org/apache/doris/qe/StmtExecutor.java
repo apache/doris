@@ -2176,7 +2176,7 @@ public class StmtExecutor {
     private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
         UUID uuid = UUID.randomUUID();
         // to comply with naming rules
-        TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_table_" + uuid.toString().replace('-', '_'));
+        TableName tmpTableName = new TableName(null, iotStmt.getDb(), FeConstants.TEMP_TABLE_PREFIX + uuid.toString().replace('-', '_'));
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             // create a tmp table with uuid

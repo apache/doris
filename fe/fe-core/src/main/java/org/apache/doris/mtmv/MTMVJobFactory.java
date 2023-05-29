@@ -46,7 +46,7 @@ public class MTMVJobFactory {
         BuildMode buildMode = materializedView.getBuildMode();
         MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
         //can not generate a job when creating a temp materialized view.
-        if (materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
+        if (materializedView.getName().startsWith(FeConstants.TEMP_TABLE_PREFIX)) {
             return false;
         }
         if (buildMode == BuildMode.IMMEDIATE) {

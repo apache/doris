@@ -1901,7 +1901,7 @@ create_stmt ::=
     {:
         RESULT = new CreateFileStmt(fileName, db, properties);
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
+    | KW_CREATE KW_MATERIALIZED KW_VIEW opt_if_not_exists:ifNotExists ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
