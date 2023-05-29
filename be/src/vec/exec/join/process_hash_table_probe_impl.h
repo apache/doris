@@ -677,11 +677,20 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         // dispose the other join conjunct exec
         auto row_count = output_block->rows();
         if (row_count) {
-            int result_column_id = -1;
             int orig_columns = output_block->columns();
-            RETURN_IF_ERROR((*_join_node->_vother_join_conjunct_ptr)
-                                    ->execute(output_block, &result_column_id));
+            IColumn::Filter other_conjunct_filter(row_count, 1);
+            bool can_be_filter_all;
+            RETURN_IF_ERROR(VExprContext::execute_conjuncts(
+                    _join_node->_other_join_conjuncts, nullptr, output_block,
+                    &other_conjunct_filter, &can_be_filter_all));
 
+            auto result_column_id = output_block->columns();
+            auto filter_column = ColumnVector<UInt8>::create();
+            if (can_be_filter_all) {
+                memset(other_conjunct_filter.data(), 0, row_count);
+            }
+            filter_column->get_data() = std::move(other_conjunct_filter);
+            output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
             auto column = output_block->get_by_position(result_column_id).column;
             if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == TJoinOp::FULL_OUTER_JOIN) {

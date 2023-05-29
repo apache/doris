@@ -297,15 +297,15 @@ Status VCollectIterator::_topn_next(Block* block) {
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto res = rs_reader->next_block(block);
-            if (!res.ok()) {
-                if (res.is<END_OF_FILE>()) {
+            auto status = rs_reader->next_block(block);
+            if (!status.ok()) {
+                if (status.is<END_OF_FILE>()) {
                     eof = true;
                     if (block->rows() == 0) {
                         break;
                     }
                 } else {
-                    return res;
+                    return status;
                 }
             }
 
@@ -313,8 +313,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
-                    *(_reader->_reader_context.filter_block_vconjunct_ctx_ptr), block,
-                    block->columns()));
+                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
 
             // update read rows
             read_rows += block->rows();

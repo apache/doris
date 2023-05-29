@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -35,7 +36,6 @@ class ObjectPool;
 class TPlanNode;
 
 namespace vectorized {
-class VExprContext;
 
 class VUnionNode final : public ExecNode {
 public:
@@ -67,10 +67,10 @@ public:
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
-    std::vector<std::vector<VExprContext*>> _const_expr_lists;
+    std::vector<VExprContextSPtrs> _const_expr_lists;
 
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    std::vector<std::vector<VExprContext*>> _child_expr_lists;
+    std::vector<VExprContextSPtrs> _child_expr_lists;
     /// Index of the first non-passthrough child; i.e. a child that needs materialization.
     /// 0 when all children are materialized, '_children.size()' when no children are
     /// materialized.
@@ -106,7 +106,7 @@ private:
     /// have been consumed from the current child block. Updates '_child_row_idx'.
     Status materialize_block(Block* dst_block, int child_idx, Block* res_block);
 
-    Status get_error_msg(const std::vector<VExprContext*>& exprs);
+    Status get_error_msg(const VExprContextSPtrs& exprs);
 
     /// Returns true if the child at 'child_idx' can be passed through.
     bool is_child_passthrough(int child_idx) const {

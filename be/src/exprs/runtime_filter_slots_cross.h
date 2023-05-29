@@ -35,7 +35,7 @@ template <typename ExprCtxType = vectorized::VExprContext>
 class RuntimeFilterSlotsCross {
 public:
     RuntimeFilterSlotsCross(const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
-                            const std::vector<vectorized::VExprContext*>& src_expr_ctxs)
+                            const vectorized::VExprContextSPtrs& src_expr_ctxs)
             : _runtime_filter_descs(runtime_filter_descs), filter_src_expr_ctxs(src_expr_ctxs) {}
 
     ~RuntimeFilterSlotsCross() = default;
@@ -56,7 +56,7 @@ public:
     Status insert(vectorized::Block* block) {
         for (int i = 0; i < _runtime_filters.size(); ++i) {
             auto* filter = _runtime_filters[i];
-            auto* vexpr_ctx = filter_src_expr_ctxs[i];
+            auto& vexpr_ctx = filter_src_expr_ctxs[i];
 
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
@@ -102,7 +102,7 @@ public:
 
 private:
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
-    const std::vector<vectorized::VExprContext*> filter_src_expr_ctxs;
+    const vectorized::VExprContextSPtrs filter_src_expr_ctxs;
     std::vector<IRuntimeFilter*> _runtime_filters;
 };
 

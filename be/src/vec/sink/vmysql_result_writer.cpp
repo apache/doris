@@ -74,9 +74,9 @@ namespace doris {
 namespace vectorized {
 
 template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
-        BufferControlBlock* sinker, const std::vector<VExprContext*>& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile)
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
+                                                         const VExprContextSPtrs& output_vexpr_ctxs,
+                                                         RuntimeProfile* parent_profile)
         : VResultWriter(),
           _sinker(sinker),
           _output_vexpr_ctxs(output_vexpr_ctxs),

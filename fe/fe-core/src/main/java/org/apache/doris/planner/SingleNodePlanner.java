@@ -1372,15 +1372,15 @@ public class SingleNodePlanner {
                     tupleSelectFailed = true;
                 } else {
                     try {
-                        // mv index have where clause, so where expr on scan node is unused.
-                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
-                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
-                                .getWhereClause());
-
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
                         olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                                 bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                        // mv index have where clause, so where expr on scan node is unused.
+                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
+                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
+                                .getWhereClause());
 
                         if (selectStmt.getAggInfo() != null) {
                             selectStmt.getAggInfo().updateTypeOfAggregateExprs();
@@ -2207,7 +2207,9 @@ public class SingleNodePlanner {
             Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
             Set<Expr> exprs = viewAnalyzer.findMigrateFailedConjuncts(inlineViewRef);
             if (CollectionUtils.isNotEmpty(exprs)) {
-                scanNode.setVConjunct(exprs);
+                for (Expr expr : exprs) {
+                    scanNode.addConjunct(expr);
+                }
             }
         }
         if (scanNode == null) {

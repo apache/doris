@@ -176,7 +176,7 @@ std::string VectorizedFnCall::debug_string() const {
     out << _expr_name;
     out << "]{";
     bool first = true;
-    for (VExpr* input_expr : children()) {
+    for (auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {

@@ -165,11 +165,6 @@ public class OriginalPlanner extends Planner {
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
-        // TODO change to vec should happen after distributed planner
-        if (VectorizedUtil.isVectorized()) {
-            singleNodePlan.convertToVectorized();
-        }
-
         ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
         projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
 

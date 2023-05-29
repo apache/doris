@@ -79,15 +79,15 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
         for (const auto& n : m.second) {
-            vectorized::VExprContext* ctx = nullptr;
+            vectorized::VExprContextSPtr ctx;
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
 
             // close context expr
             Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
+            RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
             vectorized::Block tmp_block;
             tmp_block.insert({vectorized::ColumnUInt8::create(1),

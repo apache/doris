@@ -63,9 +63,7 @@ public:
         return Status::OK();
     }
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VDirectInPredicate::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VDirectInPredicate::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 

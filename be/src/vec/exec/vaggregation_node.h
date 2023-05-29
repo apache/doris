@@ -889,7 +889,7 @@ private:
     friend class pipeline::AggSourceOperator;
     friend class pipeline::StreamingAggSourceOperator;
     // group by k1,k2
-    std::vector<VExprContext*> _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
@@ -999,7 +999,7 @@ private:
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
-    void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
+    void _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
     template <typename AggState, typename AggMethod>
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
@@ -1072,7 +1072,7 @@ private:
         CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
                 << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
                 << ctxs[0]->root()->debug_string();
-        return ((VSlotRef*)ctxs[0]->root())->column_id();
+        return ((VSlotRef*)ctxs[0]->root().get())->column_id();
     }
 
     template <bool limit, bool for_spill = false>

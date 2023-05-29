@@ -59,21 +59,21 @@ protected:
     void init_expr_context(int child_num) {
         clear();
 
-        _root = std::make_unique<MockVExpr>();
+        _root = std::make_shared<MockVExpr>();
         for (int i = 0; i < child_num; ++i) {
             _column_ids.push_back(i);
-            _children.push_back(std::make_unique<MockVExpr>());
+            _children.push_back(std::make_shared<MockVExpr>());
             EXPECT_CALL(*_children[i], execute(_, _, _))
                     .WillRepeatedly(DoAll(SetArgPointee<2>(_column_ids[i]), Return(Status::OK())));
-            _root->add_child(_children[i].get());
+            _root->add_child(_children[i]);
         }
-        _ctx = std::make_unique<VExprContext>(_root.get());
+        _ctx = std::make_shared<VExprContext>(_root);
     }
 
 private:
-    std::unique_ptr<VExprContext> _ctx;
-    std::unique_ptr<MockVExpr> _root;
-    std::vector<std::unique_ptr<MockVExpr>> _children;
+    VExprContextSPtr _ctx;
+    std::shared_ptr<MockVExpr> _root;
+    std::vector<std::shared_ptr<MockVExpr>> _children;
     std::vector<int> _column_ids;
 };
 
@@ -81,7 +81,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     init_expr_context(1);
     VExplodeTableFunction explode_outer;
     explode_outer.set_outer();
-    explode_outer.set_vexpr_context(_ctx.get());
+    explode_outer.set_expr_context(_ctx);
 
     // explode_outer(Array<Int32>)
     {
@@ -128,7 +128,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
 TEST_F(TableFunctionTest, vexplode) {
     init_expr_context(1);
     VExplodeTableFunction explode;
-    explode.set_vexpr_context(_ctx.get());
+    explode.set_expr_context(_ctx);
 
     // explode(Array<Int32>)
     {
@@ -171,7 +171,7 @@ TEST_F(TableFunctionTest, vexplode) {
 TEST_F(TableFunctionTest, vexplode_numbers) {
     init_expr_context(1);
     VExplodeNumbersTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
+    tfn.set_expr_context(_ctx);
 
     {
         InputTypeSet input_types = {TypeIndex::Int32};
@@ -187,7 +187,7 @@ TEST_F(TableFunctionTest, vexplode_numbers) {
 TEST_F(TableFunctionTest, vexplode_split) {
     init_expr_context(2);
     VExplodeSplitTableFunction tfn;
-    tfn.set_vexpr_context(_ctx.get());
+    tfn.set_expr_context(_ctx);
 
     {
         // Case 1: explode_split(null) --- null

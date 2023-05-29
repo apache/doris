@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/vresult_writer.h"
 
 namespace doris {
@@ -42,7 +43,6 @@ namespace pipeline {
 class ResultSinkOperator;
 }
 namespace vectorized {
-class VExprContext;
 class Block;
 class VResultWriter;
 
@@ -152,7 +152,7 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<VResultWriter> _writer;

@@ -2285,7 +2285,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+    public Expr replaceSubPredicate(Expr subExpr) {
         if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
             return null;
         }
