@@ -17,6 +17,7 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.jni.utils.TypeNativeBytes;
 import org.apache.doris.jni.vec.ColumnType;
 import org.apache.doris.jni.vec.VectorColumn;
 import org.apache.doris.jni.vec.VectorTable;
@@ -213,13 +214,15 @@ public class JdbcExecutor {
             case BIGINT:
                 preparedStatement.setLong(parameterIndex, column.getLong(rowIdx));
                 break;
+            case LARGEINT:
+                preparedStatement.setObject(parameterIndex, column.getBigInteger(rowIdx));
+                break;
             case FLOAT:
                 preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
                 break;
             case DOUBLE:
                 preparedStatement.setDouble(parameterIndex, column.getDouble(rowIdx));
                 break;
-            case LARGEINT:
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
@@ -259,6 +262,9 @@ public class JdbcExecutor {
                 break;
             case BIGINT:
                 preparedStatement.setNull(parameterIndex, Types.BIGINT);
+                break;
+            case LARGEINT:
+                preparedStatement.setNull(parameterIndex, Types.JAVA_OBJECT);
                 break;
             case FLOAT:
                 preparedStatement.setNull(parameterIndex, Types.FLOAT);

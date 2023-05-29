@@ -51,7 +51,6 @@ namespace doris::vectorized {
     M(TypeIndex::Int64, Int64)       \
     M(TypeIndex::UInt64, UInt64)     \
     M(TypeIndex::Int128, Int128)     \
-    M(TypeIndex::UInt128, UInt128)   \
     M(TypeIndex::Float32, Float32)   \
     M(TypeIndex::Float64, Float64)
 
