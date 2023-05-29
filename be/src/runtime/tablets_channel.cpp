@@ -78,6 +78,7 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
     _profile->add_child(memory_usage, false, nullptr);
+    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
     _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
@@ -208,6 +209,7 @@ Status TabletsChannel::close(
             // so that there is enough time to collect completed replica. Otherwise, the task may
             // timeout and fail even though most of the replicas are completed. Here we set 0.9
             // times the timeout as the maximum waiting time.
+            SCOPED_TIMER(_slave_replica_timer);
             while (need_wait_writers.size() > 0 &&
                    (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
                 std::set<DeltaWriter*>::iterator it;
@@ -309,7 +311,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.table_schema_param = _schema;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+        auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "open delta writer failed, tablet_id={}"
@@ -372,7 +374,7 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
 
             if (_tablet_writers.find(tablet) == _tablet_writers.end()) {
                 DeltaWriter* writer = nullptr;
-                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
                 if (!st.ok()) {
                     auto err_msg = fmt::format(
                             "open delta writer failed, tablet_id={}"
@@ -422,7 +424,7 @@ Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest
 
             if (_tablet_writers.find(tablet.tablet_id()) == _tablet_writers.end()) {
                 DeltaWriter* writer = nullptr;
-                auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
+                auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
                 if (!st.ok()) {
                     auto err_msg = fmt::format(
                             "open delta writer failed, tablet_id={}"
