@@ -101,9 +101,10 @@ struct ColumnPredicateInfo {
 
 class SegmentIterator : public RowwiseIterator {
 public:
-    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
     ~SegmentIterator() override;
 
+    [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(vectorized::Block* block) override;
 
@@ -113,9 +114,11 @@ public:
     [[nodiscard]] Status current_block_row_locations(
             std::vector<RowLocation>* block_row_locations) override;
 
-    const Schema& schema() const override { return _schema; }
+    const Schema& schema() const override { return *_schema; }
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
+    RowsetId rowset_id() const { return _segment->rowset_id(); }
+    int32_t tablet_id() const { return _tablet_id; }
 
     bool update_profile(RuntimeProfile* profile) override {
         bool updated = false;
@@ -148,7 +151,7 @@ private:
         return true;
     }
 
-    [[nodiscard]] Status _init();
+    [[nodiscard]] Status _lazy_init();
 
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
@@ -270,7 +273,7 @@ private:
 
     // todo(wb) remove this method after RowCursor is removed
     void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
-        if (_short_key.capacity() == 0) {
+        if (_short_key.size() == 0) {
             _short_key.resize(num_keys);
             for (auto cid = 0; cid < num_keys; cid++) {
                 auto* field = key.schema()->column(cid);
@@ -325,13 +328,13 @@ private:
     class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
-    const Schema& _schema;
+    SchemaSPtr _schema;
     // _column_iterators_map.size() == _schema.num_columns()
     // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
     // can use _schema get unique_id by cid
-    std::map<int32_t, ColumnIterator*> _column_iterators;
-    std::map<int32_t, BitmapIndexIterator*> _bitmap_index_iterators;
-    std::map<int32_t, InvertedIndexIterator*> _inverted_index_iterators;
+    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators;
+    std::map<int32_t, std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
+    std::map<int32_t, std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>
@@ -360,7 +363,7 @@ private:
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
-    std::vector<bool> _is_pred_column; // columns hold by segmentIter
+    std::vector<bool> _is_pred_column; // columns hold _init segmentIter
     std::map<uint32_t, bool> _need_read_data_indices;
     std::vector<bool> _is_common_expr_column;
     vectorized::MutableColumns _current_return_columns;
@@ -378,6 +381,7 @@ private:
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
+    bool _lazy_inited;
     bool _inited;
     bool _estimate_row_size;
     // Read up to 100 rows at a time while waiting for the estimated row size.
@@ -397,7 +401,6 @@ private:
     std::set<ColumnId> _not_apply_index_pred;
 
     std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};
-    std::set<int32_t> _output_columns;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
@@ -425,6 +428,8 @@ private:
 
     // used to collect filter information.
     std::vector<ColumnPredicate*> _filter_info_id;
+    bool _record_rowids = false;
+    int32_t _tablet_id = 0;
 };
 
 } // namespace segment_v2
