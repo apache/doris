@@ -1993,4 +1993,8 @@ public class Config extends ConfigBase {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
+
+    @ConfField
+    public static int analyze_task_timeout_in_minutes = 120;
+
 }

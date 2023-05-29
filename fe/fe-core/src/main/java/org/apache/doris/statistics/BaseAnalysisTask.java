@@ -182,11 +182,9 @@ public abstract class BaseAnalysisTask {
         return info.jobId;
     }
 
+    // TODO : time cost is intolerable when column is string type, return 0 directly for now.
     protected String getDataSizeFunction(Column column) {
-        if (column.getType().isStringType()) {
-            return "SUM(LENGTH(`${colName}`))";
-        }
-        return "COUNT(1) * " + column.getType().getSlotSize();
+        return "0";
     }
 
     private boolean isUnsupportedType(PrimitiveType type) {
