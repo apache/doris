@@ -19,36 +19,12 @@ package org.apache.doris.sdk.model;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class Schema {
-    private final int status = 0;
     private final List<Field> properties;
-    private String keysType;
-
-    public Schema() {
-        properties = new ArrayList<>();
-    }
 
     public Schema(int fieldCount) {
         properties = new ArrayList<>(fieldCount);
-    }
-
-    public int getStatus() {
-        return status;
-    }
-
-    public String getKeysType() {
-        return keysType;
-    }
-
-
-    public List<Field> getProperties() {
-        return properties;
-    }
-
-    public void put(String name, String type, String comment, int scale, int precision, String aggregation_type) {
-        properties.add(new Field(name, type, comment, scale, precision, aggregation_type));
     }
 
     public void put(Field f) {
@@ -66,25 +42,4 @@ public class Schema {
         return properties.size();
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(status, properties);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Schema schema = (Schema) o;
-        return status == schema.status && Objects.equals(properties, schema.properties);
-    }
-
-    @Override
-    public String toString() {
-        return "Schema{" + "status=" + status + ", properties=" + properties + '}';
-    }
 }

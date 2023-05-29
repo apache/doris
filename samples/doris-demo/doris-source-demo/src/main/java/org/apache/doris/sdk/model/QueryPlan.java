@@ -18,7 +18,6 @@
 package org.apache.doris.sdk.model;
 
 import java.util.Map;
-import java.util.Objects;
 
 public class QueryPlan {
     private int status;
@@ -37,21 +36,4 @@ public class QueryPlan {
         return partitions;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(status, opaqued_query_plan, partitions);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        QueryPlan queryPlan = (QueryPlan) o;
-        return status == queryPlan.status && Objects.equals(opaqued_query_plan, queryPlan.opaqued_query_plan)
-                && Objects.equals(partitions, queryPlan.partitions);
-    }
 }

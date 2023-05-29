@@ -18,7 +18,6 @@
 package org.apache.doris.sdk.model;
 
 import java.util.List;
-import java.util.Objects;
 
 public class Tablet {
     private List<String> routings;
@@ -38,26 +37,8 @@ public class Tablet {
         return versionHash;
     }
 
-
     public long getSchemaHash() {
         return schemaHash;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(routings, version, versionHash, schemaHash);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Tablet tablet = (Tablet) o;
-        return version == tablet.version && versionHash == tablet.versionHash && schemaHash == tablet.schemaHash
-                && Objects.equals(routings, tablet.routings);
-    }
 }

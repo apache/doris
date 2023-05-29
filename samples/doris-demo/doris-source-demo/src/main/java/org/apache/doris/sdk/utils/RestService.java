@@ -23,7 +23,6 @@ import org.apache.doris.sdk.model.Tablet;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpRequestBase;
@@ -46,8 +45,7 @@ public class RestService {
 
     private final String QUERY_PLAN = "_query_plan";
     private final String API_PREFIX = "/api";
-    private final String readField;
-    private final String filterQuery;
+    private final String sql;
     private final String table;
     private final String database;
     private final String username;
@@ -58,22 +56,25 @@ public class RestService {
     private String beInfo;
 
     public RestService(Map<String, String> params) throws IOException {
-        this.readField = params.getOrDefault("read_field", "*");
         this.database = params.get("database");
+        this.sql = params.get("sql");
         this.table = params.get("table");
         this.username = params.get("username");
         this.password = params.get("password");
-        this.filterQuery = params.get("filter_query");
         this.feNode = params.get("fe_host") + ":" + params.get("fe_http_port");
         buildQuery();
     }
 
-    static QueryPlan getQueryPlan(String response) throws JsonProcessingException {
+    public String getQueryPlan() {
+        return queryPlan;
+    }
+
+    private QueryPlan parseQueryPlan(String response) throws JsonProcessingException {
         ObjectMapper mapper = new ObjectMapper();
         return mapper.readValue(response, QueryPlan.class);
     }
 
-    private static String getConnectionPost(HttpRequestBase request, String user, String passwd) throws IOException {
+    private String getConnectionPost(HttpRequestBase request, String user, String passwd) throws IOException {
         URL url = new URL(request.getURI().toString());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
@@ -88,13 +89,12 @@ public class RestService {
         conn.setDoInput(true);
         PrintWriter out = new PrintWriter(conn.getOutputStream());
         out.print(res);
-        // flush
         out.flush();
-        // read response
+
         return parseResponse(conn);
     }
 
-    private static String parseResponse(HttpURLConnection connection) throws IOException {
+    private String parseResponse(HttpURLConnection connection) throws IOException {
         if (connection.getResponseCode() != HttpStatus.SC_OK) {
             throw new IOException("Failed to get response from Doris");
         }
@@ -108,30 +108,27 @@ public class RestService {
     }
 
     private void buildQuery() throws IOException {
-        String sql = "select " + readField + " from `" + database + "`.`" + table + "`";
-        if (!StringUtils.isEmpty(filterQuery)) {
-            sql += " where " + filterQuery;
-        }
-        HttpPost httpPost = new HttpPost(getUriStr() + QUERY_PLAN);
-        String entity = "{\"sql\": \"" + sql + "\"}";
-        StringEntity stringEntity = new StringEntity(entity, StandardCharsets.UTF_8);
-        stringEntity.setContentEncoding("UTF-8");
-        stringEntity.setContentType("application/json");
-        httpPost.setEntity(stringEntity);
+        HttpPost httpPost = buildPostEntity();
         String resStr = send(httpPost);
-        QueryPlan queryPlan = getQueryPlan(resStr);
+        QueryPlan queryPlan = parseQueryPlan(resStr);
         this.queryPlan = queryPlan.getOpaqued_query_plan();
         this.tablets = queryPlan.getPartitions().keySet().stream().map(Long::new).collect(Collectors.toList());
         Tablet tablet = queryPlan.getPartitions().get(tablets.get(0).toString());
         this.beInfo = tablet.getRoutings().get(0);
     }
 
-    public String getBeInfo() {
-        return beInfo;
+    private HttpPost buildPostEntity() {
+        HttpPost httpPost = new HttpPost(getUriStr() + QUERY_PLAN);
+        String entity = "{\"sql\": \"" + this.sql + "\"}";
+        StringEntity stringEntity = new StringEntity(entity, StandardCharsets.UTF_8);
+        stringEntity.setContentEncoding("UTF-8");
+        stringEntity.setContentType("application/json");
+        httpPost.setEntity(stringEntity);
+        return httpPost;
     }
 
-    public String getQueryPlan() {
-        return queryPlan;
+    public String getBeInfo() {
+        return beInfo;
     }
 
     public List<Long> getTablets() {

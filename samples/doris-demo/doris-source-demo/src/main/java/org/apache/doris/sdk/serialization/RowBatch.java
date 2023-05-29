@@ -54,7 +54,7 @@ import java.util.NoSuchElementException;
  * row batch data container.
  */
 public class RowBatch {
-    private static Logger logger = LoggerFactory.getLogger(RowBatch.class);
+    private static final Logger logger = LoggerFactory.getLogger(RowBatch.class);
     private final List<Row> rowBatch = new ArrayList<>();
     private final ArrowStreamReader arrowStreamReader;
     private final RootAllocator rootAllocator;
@@ -70,6 +70,7 @@ public class RowBatch {
     private int readRowCount = 0;
     private VectorSchemaRoot root;
     private List<FieldVector> fieldVectors;
+
     public RowBatch(TScanBatchResult nextResult, Schema schema) {
         this.schema = schema;
         this.rootAllocator = new RootAllocator(Integer.MAX_VALUE);
@@ -118,8 +119,7 @@ public class RowBatch {
 
     private void addValueToRow(int rowIndex, Object obj) {
         if (rowIndex > rowCountInOneBatch) {
-            String errMsg = "Get row offset: " + rowIndex + " larger than row size: " +
-                    rowCountInOneBatch;
+            String errMsg = "Get row offset: " + rowIndex + " larger than row size: " + rowCountInOneBatch;
             logger.error(errMsg);
             throw new NoSuchElementException(errMsg);
         }
