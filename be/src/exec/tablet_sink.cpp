@@ -809,7 +809,10 @@ Status IndexChannel::check_tablet_received_rows_consistency() {
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+        : _pool(pool),
+          _input_row_desc(row_desc),
+          _filter_bitmap(1024),
+          _stop_background_threads_latch(1) {
     if (!_is_vectorized) {
         if (!texprs.empty()) {
             *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
@@ -877,7 +880,6 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
 Status OlapTableSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
 
-    _state = state;
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
     _is_high_priority = (state->query_options().query_timeout <=
@@ -1004,12 +1006,6 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-static void* periodic_send_batch(void* sink) {
-    VOlapTableSink* vsink = (VOlapTableSink*)sink;
-    vsink->send_batch_process();
-    return nullptr;
-}
-
 Status OlapTableSink::open(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
@@ -1045,9 +1041,9 @@ Status OlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
-        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
-    }
+    RETURN_IF_ERROR(Thread::create(
+            "OlapTableSink", "send_batch_process",
+            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
 
     return Status::OK();
 }
@@ -1252,8 +1248,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
+    _stop_background_threads_latch.count_down();
     if (_sender_thread) {
-        bthread_join(_sender_thread, nullptr);
+        _sender_thread->join();
         // We have to wait all task in _send_batch_thread_pool_token finished,
         // because it is difficult to handle concurrent problem if we just
         // shutdown it.
@@ -1472,17 +1469,17 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
     return Status::OK();
 }
 
-void OlapTableSink::send_batch_process() {
+void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
-    SCOPED_ATTACH_TASK(_state);
+    SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num,
-                                                  this](const std::shared_ptr<NodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this,
+                                                  state](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
             });
         }
 
@@ -1492,7 +1489,8 @@ void OlapTableSink::send_batch_process() {
                       << print_id(_load_id);
             return;
         }
-    } while (bthread_usleep(config::olap_table_sink_send_interval_ms * 1000));
+    } while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load
