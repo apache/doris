@@ -171,6 +171,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
+
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
@@ -571,6 +573,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
+    public boolean enableNereidsDML = false;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
@@ -1282,6 +1287,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableFoldConstantByBe() {
         return enableFoldConstantByBe;
+    }
+
+    public boolean isEnableNereidsDML() {
+        return enableNereidsDML;
     }
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
