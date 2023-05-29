@@ -47,6 +47,12 @@
 
 namespace doris {
 
+#ifndef BE_TEST
+constexpr uint32_t START_BG_INTERVAL = 60;
+#else
+constexpr uint32_t START_BG_INTERVAL = 1;
+#endif
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "load"}}));
@@ -242,15 +248,8 @@ Status LoadChannelMgr::_start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "LoadChannelMgr", "cancel_timeout_load_channels",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
-#ifndef BE_TEST
-                uint32_t interval = 60;
-#else
-                uint32_t interval = 1;
-#endif
-                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                while (!_stop_background_threads_latch.wait_for(
+                        std::chrono::seconds(START_BG_INTERVAL))) {
                     _start_load_channels_clean();
                 }
             },
