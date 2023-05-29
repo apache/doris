@@ -73,7 +73,7 @@ public:
                           const fmt::memory_buffer& insert_stmt_buffer) override;
 
     Status exec_stmt_write(vectorized::Block* block,
-                           const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                           const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
                            uint32_t* num_rows_sent) override {
         return Status::OK();
     }

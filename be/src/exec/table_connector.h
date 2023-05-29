@@ -55,7 +55,7 @@ public:
     virtual Status finish_trans() = 0; // should be call after transaction commit
 
     virtual Status exec_stmt_write(vectorized::Block* block,
-                                   const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                                   const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
                                    uint32_t* num_rows_sent) = 0;
 
     virtual Status exec_write_sql(const std::u16string& insert_stmt,
