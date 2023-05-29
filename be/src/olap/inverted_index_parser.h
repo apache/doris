@@ -30,6 +30,10 @@ enum class InvertedIndexParserType {
     PARSER_CHINESE = 4,
 };
 
+const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
+const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
+const std::string INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
+
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
 const std::string INVERTED_INDEX_PARSER_NONE = "none";
@@ -42,5 +46,7 @@ std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
 
 std::string get_parser_string_from_properties(const std::map<std::string, std::string>& properties);
+std::string get_parser_mode_string_from_properties(
+        const std::map<std::string, std::string>& properties);
 
 } // namespace doris

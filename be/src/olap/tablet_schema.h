@@ -152,6 +152,7 @@ class TabletSchema;
 
 class TabletIndex {
 public:
+    TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
     void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
@@ -175,6 +176,13 @@ public:
         }
 
         return 0;
+    }
+    TabletIndex(const TabletIndex& other) {
+        _index_id = other._index_id;
+        _index_name = other._index_name;
+        _index_type = other._index_type;
+        _col_unique_ids = other._col_unique_ids;
+        _properties = other._properties;
     }
 
 private:

@@ -154,6 +154,12 @@ public:
             auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
             chinese_analyzer->setLanguage(L"chinese");
             chinese_analyzer->initDict(config::inverted_index_dict_path);
+            auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+            if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+            } else {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+            }
             _analyzer.reset(chinese_analyzer);
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
@@ -199,13 +205,9 @@ public:
     }
 
     void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
-        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
+        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
+            _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
-        } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            auto stringReader = _CLNEW lucene::util::SimpleInputStreamReader(
-                    new lucene::util::AStringReader(field_value_data, field_value_size),
-                    lucene::util::SimpleInputStreamReader::UTF8);
-            _field->setValue(stringReader);
         } else {
             new_field_value(field_value_data, field_value_size, _field);
         }
