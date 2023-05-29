@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -339,13 +338,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        
+
         List<Expr> outputExprs = olapTableSink.getOutput().stream()
                 .map(slot -> ExpressionTranslator.translate(slot, context))
                 .collect(Collectors.toList());
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.setSink(sink);
-        
+
         List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
                 .getDefaultDistributionInfo()).getDistributionColumns().stream()
                 .map(column -> targetTable.getFullSchema().indexOf(column))
