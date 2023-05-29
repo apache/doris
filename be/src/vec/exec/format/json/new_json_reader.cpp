@@ -844,6 +844,10 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         }
     }
     if (!has_valid_value) {
+         for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
                                           "", valid));
         return Status::OK();
@@ -990,6 +994,10 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
         }
     }
     if (!has_valid_value) {
+         for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(_append_error_msg(
                 objectValue, "All fields is null or not matched, this is a invalid row.", "",
                 valid));
@@ -1395,6 +1403,10 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
     }
     if (!has_valid_value) {
+         for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(
                 _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
         return Status::OK();
@@ -1682,6 +1694,10 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
     }
     if (!has_valid_value) {
+         for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(
                 _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
         return Status::OK();
@@ -1711,7 +1727,6 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
 
 Status NewJsonReader::_get_column_default_value(const std::vector<SlotDescriptor*>& slot_descs,
         const std::unordered_map<std::string, vectorized::VExprContext*>& col_default_value_ctx){
-    LOG(INFO) << "generate default value map";
     for (auto slot_desc : slot_descs) {
         auto it = col_default_value_ctx.find(slot_desc->col_name());
         if (it != col_default_value_ctx.end() && it->second != nullptr){
@@ -1744,12 +1759,13 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, vectorized
             nullable_column->get_null_map_data().push_back(0);
             assert_cast<ColumnString*>(column_ptr)->insert_data(v_str.c_str(), v_str.size());
         }
-        *valid = true;
     }else{
         RETURN_IF_ERROR(_append_error_msg(
                 nullptr, "The column `{}` is not nullable, but it's not found in jsondata.",
                 slot_desc->col_name(), valid));
     }
+
+    *valid = true;
     return Status::OK();
 }
 
