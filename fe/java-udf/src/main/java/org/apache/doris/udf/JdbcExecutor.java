@@ -202,10 +202,10 @@ public class JdbcExecutor {
                 preparedStatement.setBoolean(parameterIndex, column.getBoolean(rowIdx));
                 break;
             case TINYINT:
-                preparedStatement.setByte(parameterIndex, (byte) column.getInt(rowIdx));
+                preparedStatement.setByte(parameterIndex, column.getByte(rowIdx));
                 break;
             case SMALLINT:
-                preparedStatement.setShort(parameterIndex, (short) column.getInt(rowIdx));
+                preparedStatement.setShort(parameterIndex, column.getShort(rowIdx));
                 break;
             case INT:
                 preparedStatement.setInt(parameterIndex, column.getInt(rowIdx));
