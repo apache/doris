@@ -40,16 +40,17 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
-    private final TableName mvName;
     private final MVRefreshInfo.BuildMode buildMode;
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
     private final Map<String, TableIf> tables = Maps.newHashMap();
 
-    public CreateMultiTableMaterializedViewStmt(TableName mvName, MVRefreshInfo.BuildMode buildMode,
+    public CreateMultiTableMaterializedViewStmt(boolean ifNotExists, TableName mvName,
+            MVRefreshInfo.BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, QueryStmt queryStmt) {
-        this.mvName = mvName;
+        this.ifNotExists = ifNotExists;
+        this.tableName = mvName;
         this.buildMode = buildMode;
         this.refreshInfo = refreshInfo;
         this.queryStmt = queryStmt;
@@ -74,13 +75,6 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);
         }
-        //        String defaultDb = analyzer.getDefaultDb();
-        //        if (Strings.isNullOrEmpty(defaultDb)) {
-        //            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        //        }
-        //
-        //        tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, defaultDb, mvName);
-        tableName = mvName;
         if (partitionDesc != null) {
             ((ColumnPartitionDesc) partitionDesc).analyze(analyzer, this);
         }
@@ -179,7 +173,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE MATERIALIZED VIEW ").append(mvName).append(" BUILD ").append(buildMode.toString());
+        sb.append("CREATE MATERIALIZED VIEW ").append(tableName).append(" BUILD ").append(buildMode.toString());
         if (refreshInfo != null) {
             sb.append(" ").append(refreshInfo);
         }
