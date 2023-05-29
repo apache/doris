@@ -221,8 +221,8 @@ public:
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
-        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+                                         IColumn& to) const override {
+        auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         col.set_item_size(sizeof(Data));
         col.resize(1);
         *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);

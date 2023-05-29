@@ -89,7 +89,8 @@ public:
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function_merge() const;
+    vectorized::AggregateFunctionPtr get_aggregate_function_union(
+            vectorized::DataTypePtr type) const;
     vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }

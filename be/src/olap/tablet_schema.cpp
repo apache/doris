@@ -39,6 +39,7 @@
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_state_union.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -491,14 +492,21 @@ bool TabletColumn::is_row_store_column() const {
     return _col_name == BeConsts::ROW_STORE_COL;
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_merge() const {
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
+        vectorized::DataTypePtr type) const {
+    auto state_type = dynamic_cast<const vectorized::DataTypeAggState*>(type.get());
+    if (!state_type) {
+        return nullptr;
+    }
     vectorized::DataTypes argument_types;
     for (auto col : _sub_columns) {
-        argument_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(col));
+        auto sub_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        state_type->add_sub_type(sub_type);
     }
-    auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-            _aggregation_name, argument_types, false);
-    return function;
+    auto agg_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+            _aggregation_name, state_type->get_sub_types(), false);
+
+    return vectorized::AggregateStateUnion::create(agg_function, {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
@@ -514,7 +522,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     if (function) {
         return function;
     }
-    return get_aggregate_function_merge();
+    return get_aggregate_function_union(type);
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,

@@ -102,6 +102,19 @@ public:
     }
 };
 
+inline bool match_suffix(const std::string& name, const std::string& suffix) {
+    if (name.length() < suffix.length()) {
+        return false;
+    }
+    return name.substr(name.length() - suffix.length()) == suffix;
+}
+
+inline std::string remove_suffix(const std::string& name, const std::string& suffix) {
+    CHECK(match_suffix(name, suffix))
+            << ", suffix not match, name=" << name << ", suffix=" << suffix;
+    return name.substr(0, name.length() - suffix.length());
+};
+
 } // namespace doris::vectorized
 
 namespace apache::thrift {
