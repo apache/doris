@@ -48,20 +48,24 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "Not support read hll column from arrow";
     }
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
     }
 
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
     }
 
 private:
     // Hll is binary data which is not shown by mysql.
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column,
+    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
                                   int row_idx, int start, int end, bool col_const) const;
 };

@@ -84,14 +84,25 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
 
 template <bool is_binary_format>
 Status DataTypeBitMapSerDe::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, bool col_const) const {
+        const IColumn& column, bool return_object_data_as_binary,
+        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
+        bool col_const) const {
+    auto& data_column = assert_cast<const ColumnBitmap&>(column);
     int buf_ret = 0;
     for (ssize_t i = start; i < end; ++i) {
         if (0 != buf_ret) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        buf_ret = result[row_idx].push_null();
+        if (return_object_data_as_binary) {
+            const auto col_index = index_check_const(i, col_const);
+            BitmapValue bitmapValue = data_column.get_element(col_index);
+            size_t size = bitmapValue.getSizeInBytes();
+            std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+            bitmapValue.write_to(buf.get());
+            buf_ret = result[row_idx].push_string(buf.get(), size);
+        } else {
+            buf_ret = result[row_idx].push_null();
+        }
         ++row_idx;
     }
     return Status::OK();

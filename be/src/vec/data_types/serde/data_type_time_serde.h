@@ -31,18 +31,23 @@ namespace vectorized {
 class Arena;
 
 class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, result, row_idx, start, end, col_const);
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_date_time_column_to_mysql(column, return_object_data_as_binary, result,
+                                                row_idx, start, end, col_const);
     }
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, result, row_idx, start, end, col_const);
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_date_time_column_to_mysql(column, return_object_data_as_binary, result,
+                                                row_idx, start, end, col_const);
     }
 
 private:
     template <bool is_binary_format>
     Status _write_date_time_column_to_mysql(const IColumn& column,
+                                            bool return_object_data_as_binary,
                                             std::vector<MysqlRowBuffer<is_binary_format>>& result,
                                             int row_idx, int start, int end, bool col_const) const {
         int buf_ret = 0;
