@@ -287,11 +287,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        if (!context.isInsert() && isFragmentPartitioned(rootFragment)) {
+        if (context.getHasInsertSink() != null && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (physicalPlan instanceof PhysicalOlapTableSink) {
+        if (context.getHasInsertSink() != null) {
             List<Expr> exprs = physicalPlan.getOutput().stream()
                     .map(slot -> context.findSlotRef(slot.getExprId()))
                     .collect(Collectors.toList());
@@ -317,7 +317,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanTranslatorContext context) {
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
-        context.setIsInsert(true);
         context.setInsertTargetTable(olapTableSink.getTargetTable());
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
@@ -335,6 +334,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
+        context.setIsInsert(sink);
 
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
@@ -1603,11 +1603,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
 
-        if (context.isInsert()) {
-            // other fields are already handled in visitPhysicalOlapTableSink
-            return setPlanFragmentForInsert(inputFragment, execExprList);
-        }
-
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Slot> slotList = project.getProjects()
                 .stream()
@@ -2551,16 +2546,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
         OlapTable olapTable = context.getInsertTargetTable();
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
-        List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
-                .map(column -> olapTable.getFullSchema().indexOf(column))
-                .collect(Collectors.toList());
 
-        List<Expr> partitionExprs = colIdx.stream()
-                .map(idx -> execExprList.get(idx + olapTable.getFullSchema().size()))
-                .collect(Collectors.toList());
+        inputFragment.setOutputPartition(inputFragment.getDataPartition());
+        inputFragment.setSink(context.getHasInsertSink());
 
-        inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
         List<Expr> castExprs = Lists.newArrayList();
         for (int i = 0; i < olapTable.getFullSchema().size(); ++i) {
             try {

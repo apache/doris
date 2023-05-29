@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -226,5 +227,13 @@ public class PlanTranslatorContext {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public void setInsertTargetTable(OlapTable insertTargetTable) {
+        this.insertTargetTable = insertTargetTable;
+    }
+
+    public OlapTable getInsertTargetTable() {
+        return insertTargetTable;
     }
 }
