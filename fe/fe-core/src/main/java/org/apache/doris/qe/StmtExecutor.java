@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
+import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
@@ -1257,6 +1258,11 @@ public class StmtExecutor {
                     data.add(LiteralUtils.getStringValue((ArrayLiteral) expr));
                 } else {
                     data.add(expr.getStringValue());
+                }
+            } else if (expr instanceof InformationFunction) {
+                columns.add(new Column(columnName, expr.getType()));
+                if (((InformationFunction) expr).getFuncType().equals("DATABASE")) {
+                    data.add(((InformationFunction) expr).getStrValue());
                 }
             } else {
                 return false;
