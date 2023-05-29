@@ -8,7 +8,7 @@ PhysicalTopN
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[LEFT_SEMI_JOIN](j.i_category = i.i_category)(cast(i_current_price as DECIMALV3(38, 5)) > (cast(1.2 as DECIMALV3(2, 1)) * avg(i_current_price)))
+----------------hashJoin[LEFT_SEMI_JOIN](j.i_category = i.i_category)(cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(i_current_price)))
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](c.c_customer_sk = s.ss_customer_sk)
 ----------------------PhysicalProject

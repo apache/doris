@@ -7,7 +7,7 @@ PhysicalQuickSort
 --------hashJoin[RIGHT_SEMI_JOIN](supplier.s_suppkey = partsupp.ps_suppkey)
 ----------PhysicalDistribute
 ------------PhysicalProject
---------------hashJoin[RIGHT_SEMI_JOIN](lineitem.l_partkey = partsupp.ps_partkey)(lineitem.l_suppkey = partsupp.ps_suppkey)(cast(ps_availqty as DECIMAL(27, 9)) > (0.5 * sum(l_quantity)))
+--------------hashJoin[RIGHT_SEMI_JOIN](lineitem.l_partkey = partsupp.ps_partkey)(lineitem.l_suppkey = partsupp.ps_suppkey)(cast(ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(l_quantity)))
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute

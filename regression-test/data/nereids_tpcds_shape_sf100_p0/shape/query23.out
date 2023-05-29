@@ -36,7 +36,7 @@ PhysicalLimit
 ------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 5))
 --------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
-------------------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((cast((cast(95 as DECIMAL(27, 9)) / cast(100.0 as DECIMAL(27, 9))) as DECIMALV3(27, 9)) * tpcds_cmax) as DOUBLE))
+------------------NestedLoopJoin[INNER_JOIN](ssales > ((cast(95 as DECIMALV3(4, 1)) / 100.0) * max_store_sales.tpcds_cmax))
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
@@ -71,7 +71,7 @@ PhysicalLimit
 ------------PhysicalProject
 --------------hashJoin[RIGHT_SEMI_JOIN](web_sales.ws_bill_customer_sk = best_ss_customer.c_customer_sk)
 ----------------PhysicalProject
-------------------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((cast((cast(95 as DECIMAL(27, 9)) / cast(100.0 as DECIMAL(27, 9))) as DECIMALV3(27, 9)) * tpcds_cmax) as DOUBLE))
+------------------NestedLoopJoin[INNER_JOIN](ssales > ((cast(95 as DECIMALV3(4, 1)) / 100.0) * max_store_sales.tpcds_cmax))
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
 ------------------------hashAgg[LOCAL]
