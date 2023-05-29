@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.util.Map;
 
 public class DorisClient {
-    private final Map<String, String> requiredParams;
     private final RestService restService;
     private TDorisExternalService.Client client;
     private TTransport transport;
@@ -46,9 +45,16 @@ public class DorisClient {
     private TScanOpenResult tScanOpenResult;
     private Schema schema;
     private String contextId;
+    private String database;
+    private String table;
+    private String username;
+    private String password;
 
     public DorisClient(Map<String, String> requiredParams) throws IOException {
-        this.requiredParams = requiredParams;
+        this.database = requiredParams.get("database");
+        this.table = requiredParams.get("table");
+        this.username = requiredParams.get("username");
+        this.password = requiredParams.get("password");
         this.restService = new RestService(requiredParams);
     }
 
@@ -89,8 +95,8 @@ public class DorisClient {
     private TScanOpenParams buildScanOpenParams() {
         TScanOpenParams params = new TScanOpenParams();
         params.cluster = "default_cluster";
-        params.database = requiredParams.get("database");
-        params.table = requiredParams.get("table");
+        params.database = database;
+        params.table = table;
         params.tablet_ids = restService.getTablets();
         params.opaqued_query_plan = restService.getQueryPlan();
 
@@ -99,8 +105,8 @@ public class DorisClient {
         params.setQueryTimeout(3600);
         params.setMemLimit(2147483648L);
 
-        params.setUser(requiredParams.get("username"));
-        params.setPasswd(requiredParams.get("password"));
+        params.setUser(username);
+        params.setPasswd(password);
         return params;
     }
 
