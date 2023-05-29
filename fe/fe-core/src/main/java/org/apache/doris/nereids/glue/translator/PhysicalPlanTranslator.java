@@ -339,7 +339,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        List<Expr> outputExprs = olapTableSink.getOutput().stream()
+        // get The first Project.
+        PhysicalPlan plan = olapTableSink;
+        while (!(plan instanceof PhysicalProject)) {
+            plan = ((PhysicalPlan) plan.child(0));
+        }
+
+        List<Expr> outputExprs = ((PhysicalProject<?>) plan).getProjects().stream()
                 .map(slot -> ExpressionTranslator.translate(slot, context))
                 .collect(Collectors.toList());
         rootFragment.setOutputExprs(outputExprs);
