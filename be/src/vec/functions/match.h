@@ -48,8 +48,6 @@ class FunctionContext;
 
 namespace doris::vectorized {
 
-struct InvertedIndexCtx;
-
 class FunctionMatchBase : public IFunction {
 public:
     size_t get_number_of_arguments() const override { return 2; }

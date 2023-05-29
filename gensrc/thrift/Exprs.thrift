@@ -141,6 +141,7 @@ struct TLikePredicate {
 
 struct TMatchPredicate {
   1: required string parser_type;
+  2: required string parser_mode;
 }
 
 struct TLiteralPredicate {

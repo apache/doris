@@ -37,9 +37,6 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
-struct InvertedIndexCtx {
-    doris::InvertedIndexParserType _parser_type;
-};
 
 class VMatchPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VMatchPredicate);
@@ -69,6 +66,6 @@ private:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
-    std::shared_ptr<InvertedIndexCtx> _inverted_index_ctx;
+    InvertedIndexCtxSPtr _inverted_index_ctx;
 };
 } // namespace doris::vectorized

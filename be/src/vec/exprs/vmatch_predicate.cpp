@@ -47,7 +47,8 @@ namespace doris::vectorized {
 VMatchPredicate::VMatchPredicate(const TExprNode& node)
         : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->_parser_type = get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
+    _inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
+    _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
 }
 
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,

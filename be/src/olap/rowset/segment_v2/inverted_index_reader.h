@@ -102,7 +102,7 @@ public:
     static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
                                                        const std::string& value,
                                                        InvertedIndexQueryType query_type,
-                                                       InvertedIndexParserType analyser_type);
+                                                       InvertedIndexCtx* inverted_index_ctx);
 
 protected:
     bool _is_match_query(InvertedIndexQueryType query_type);
@@ -130,9 +130,6 @@ public:
     }
 
     InvertedIndexReaderType type() override;
-    std::vector<std::wstring> get_analyse_result(const std::wstring& field_name,
-                                                 const std::string& value,
-                                                 InvertedIndexQueryType query_type);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

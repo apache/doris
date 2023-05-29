@@ -150,6 +150,7 @@ public class MatchPredicate extends Predicate {
 
     private final Operator op;
     private String invertedIndexParser;
+    private String invertedIndexParserMode;
 
     public MatchPredicate(Operator op, Expr e1, Expr e2) {
         super();
@@ -161,6 +162,7 @@ public class MatchPredicate extends Predicate {
         // TODO: Calculate selectivity
         selectivity = Expr.DEFAULT_SELECTIVITY;
         invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
+        invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }
 
     public Boolean isMatchElement(Operator op) {
@@ -175,6 +177,7 @@ public class MatchPredicate extends Predicate {
         super(other);
         op = other.op;
         invertedIndexParser = other.invertedIndexParser;
+        invertedIndexParserMode = other.invertedIndexParserMode;
     }
 
     @Override
@@ -203,7 +206,7 @@ public class MatchPredicate extends Predicate {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.MATCH_PRED;
         msg.setOpcode(op.getOpcode());
-        msg.match_predicate = new TMatchPredicate(invertedIndexParser);
+        msg.match_predicate = new TMatchPredicate(invertedIndexParser, invertedIndexParserMode);
     }
 
     @Override
@@ -257,6 +260,7 @@ public class MatchPredicate extends Predicate {
                         List<String> columns = index.getColumns();
                         if (slotRef.getColumnName().equals(columns.get(0))) {
                             invertedIndexParser = index.getInvertedIndexParser();
+                            invertedIndexParserMode = index.getInvertedIndexParserMode();
                             break;
                         }
                     }
