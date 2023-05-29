@@ -159,6 +159,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.master`: 必填，目前支持 Yarn，Spark://host:port。
   - `spark.submit.deployMode`: Spark 程序的部署模式，必填，支持 Cluster、Client 两种。
   - `spark.hadoop.fs.defaultFS`: Master 为 Yarn 时必填。
+  - `spark.submit.timeout`：spark任务超时时间，默认5分钟
 - YARN RM 相关参数如下：
   - 如果 Spark 为单点 RM，则需要配置`spark.hadoop.yarn.resourcemanager.address`，表示单点 ResourceManager 地址。
   - 如果 Spark 为 RM-HA，则需要配置（其中 hostname 和 address 任选一个配置）：

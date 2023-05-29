@@ -32,12 +32,14 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_state_union.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -490,14 +492,21 @@ bool TabletColumn::is_row_store_column() const {
     return _col_name == BeConsts::ROW_STORE_COL;
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_merge() const {
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
+        vectorized::DataTypePtr type) const {
+    auto state_type = dynamic_cast<const vectorized::DataTypeAggState*>(type.get());
+    if (!state_type) {
+        return nullptr;
+    }
     vectorized::DataTypes argument_types;
     for (auto col : _sub_columns) {
-        argument_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(col));
+        auto sub_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        state_type->add_sub_type(sub_type);
     }
-    auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-            _aggregation_name, argument_types, false);
-    return function;
+    auto agg_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+            _aggregation_name, state_type->get_sub_types(), false);
+
+    return vectorized::AggregateStateUnion::create(agg_function, {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
@@ -513,7 +522,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     if (function) {
         return function;
     }
-    return get_aggregate_function_merge();
+    return get_aggregate_function_union(type);
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
@@ -629,6 +638,10 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     _field_id_to_index[column.unique_id()] = _num_columns;
     _cols.push_back(std::move(column));
     _num_columns++;
+}
+
+void TabletSchema::append_index(TabletIndex index) {
+    _indexes.push_back(std::move(index));
 }
 
 void TabletSchema::clear_columns() {
@@ -934,6 +947,16 @@ bool TabletSchema::has_inverted_index(int32_t col_unique_id) const {
                     return true;
                 }
             }
+        }
+    }
+
+    return false;
+}
+
+bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::INVERTED && _indexes[i].index_id() == index_id) {
+            return true;
         }
     }
 

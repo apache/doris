@@ -26,6 +26,7 @@
 #include "vec/exprs/table_function/vexplode_json_array.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -61,17 +62,6 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
                                     TableFunction** fn) {
-    auto match_suffix = [](const std::string& name, const std::string& suffix) -> bool {
-        if (name.length() < suffix.length()) {
-            return false;
-        }
-        return name.substr(name.length() - suffix.length()) == suffix;
-    };
-
-    auto remove_suffix = [](const std::string& name, const std::string& suffix) -> std::string {
-        return name.substr(0, name.length() - suffix.length());
-    };
-
     bool is_outer = match_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER);
     std::string fn_name_real =
             is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;

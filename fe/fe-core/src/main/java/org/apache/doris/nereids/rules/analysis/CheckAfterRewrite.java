@@ -38,7 +38,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * some check need to do after analyze whole plan.
@@ -58,7 +57,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(Collectors.toSet());
         Set<ExprId> childrenOutput = plan.children().stream()
-                .flatMap(child -> Stream.concat(child.getOutput().stream(), child.getNonUserVisibleOutput().stream()))
+                .flatMap(child -> child.getOutput().stream())
                 .map(NamedExpression::getExprId)
                 .collect(Collectors.toSet());
         notFromChildren = notFromChildren.stream()

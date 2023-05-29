@@ -162,8 +162,8 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             }
         }
         if (t_index.__isset.where_clause) {
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_obj_pool, t_index.where_clause,
-                                                                &index->where_clause));
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::create_expr_tree(t_index.where_clause, index->where_clause));
         }
         _indexes.emplace_back(index);
     }

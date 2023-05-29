@@ -97,7 +97,7 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 }
 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
-                              const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                              const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                               uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
                               TOdbcTableType::type table_type) {
     if (is_odbc) {

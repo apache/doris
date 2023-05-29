@@ -29,6 +29,7 @@
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
@@ -36,7 +37,6 @@ class TupleDescriptor;
 
 namespace vectorized {
 class Block;
-class VExprContext;
 } // namespace vectorized
 
 // Table Connector for scan data from ODBC/JDBC
@@ -63,7 +63,7 @@ public:
 
     //write data into table vectorized
     Status append(const std::string& table_name, vectorized::Block* block,
-                  const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
+                  const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
                   uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
                   TOdbcTableType::type table_type = TOdbcTableType::MYSQL);
 

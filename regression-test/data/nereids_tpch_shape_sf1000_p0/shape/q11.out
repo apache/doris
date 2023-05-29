@@ -4,7 +4,7 @@ PhysicalQuickSort
 --PhysicalDistribute
 ----PhysicalQuickSort
 ------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](value > (sum((ps_supplycost * ps_availqty)) * 0.000002))
+--------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * ps_availqty)) * 0.000002) as DOUBLE))
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)

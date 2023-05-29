@@ -431,8 +431,8 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(t_stream_sink.output_partition.partition_exprs,
+                                                 _partition_expr_ctxs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     } else {

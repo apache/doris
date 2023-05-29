@@ -452,7 +452,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
-    public static int insert_load_default_timeout_second = 3600; // 1 hour
+    public static int insert_load_default_timeout_second = 14400; // 4 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1518,8 +1518,8 @@ public class Config extends ConfigBase {
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_decimal_conversion = false;
+    @ConfField(mutable = true)
+    public static boolean enable_decimal_conversion = true;
 
     /**
      * List of S3 API compatible object storage systems.

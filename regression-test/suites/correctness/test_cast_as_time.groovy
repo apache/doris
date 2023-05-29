@@ -48,4 +48,10 @@ suite("test_cast_as_time") {
     qt_select3 """
         select cast('2023-02-21 19:19:19' as time)
     """    
+    qt_select4 """
+       select cast("10:10:10" as time)
+    """    
+    qt_select5 """
+       select cast("10:10:10" as datetimev2)
+    """   
 }
