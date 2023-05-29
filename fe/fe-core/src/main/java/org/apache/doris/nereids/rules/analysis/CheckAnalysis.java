@@ -28,12 +28,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -58,12 +56,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 logicalAggregate().then(agg -> {
                     checkAggregate(agg);
                     return agg;
-                })
-            ),
-            RuleType.CHECK_BITMAP_ANALYSIS.build(
-                logicalHaving().then(having -> {
-                    checkHavingBitmap(having);
-                    return null;
                 })
             )
         );
@@ -121,18 +113,5 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     "GROUP BY expression must not contain aggregate functions: "
                             + expr.get().toSql());
         }
-    }
-
-    private void checkHavingBitmap(LogicalHaving<Plan> having) {
-        Set<Expression> havingConjuncts = having.getConjuncts();
-        havingConjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
-            if (m instanceof Expression) {
-                if (m.getDataType().isObjectType()) {
-                    throw new AnalysisException(
-                        "The query contains multi count distinct or sum distinct, each can't have multi columns");
-                }
-            }
-            return null;
-        });
     }
 }

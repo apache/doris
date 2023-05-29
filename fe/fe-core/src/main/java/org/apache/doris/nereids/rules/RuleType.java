@@ -87,7 +87,7 @@ public enum RuleType {
     // check analysis rule
     CHECK_AGGREGATE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
-    CHECK_BITMAP_ANALYSIS(RuleTypeClass.CHECK),
+    CHECK_OBJECT_TYPE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_BOUND(RuleTypeClass.CHECK),
     CHECK_DATATYPES(RuleTypeClass.CHECK),
 
