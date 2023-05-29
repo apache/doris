@@ -201,6 +201,16 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _namenode);
     int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
+#ifdef USE_HADOOP_HDFS
+    // when calling hdfsExists() and return non-zero code,
+    // if root_cause is nullptr, which means the file does not exist.
+    // if root_cause is not nullptr, which means it encounter other error, should return.
+    // NOTE: not for libhdfs3 since it only runs on MaxOS, don't have to support it.
+    char* root_cause = hdfsGetLastExceptionRootCause();
+    if (root_cause != nullptr) {
+        return Status::IOError("failed to check path existence {}: {}", path.native(), root_cause);
+    }
+#endif
     *res = (is_exists == 0);
     return Status::OK();
 }
