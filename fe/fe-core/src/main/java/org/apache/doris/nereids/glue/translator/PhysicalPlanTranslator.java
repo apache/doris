@@ -365,15 +365,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         List<Expr> partitionExpr = colIdx.stream().map(idx -> outputExprs.get(idx))
-                .filter(expr -> !(expr instanceof LiteralExpr))
+                // .filter(expr -> !(expr instanceof LiteralExpr))
                 .collect(Collectors.toList());
 
-        DataPartition partition = partitionExpr.isEmpty()
-                ? DataPartition.UNPARTITIONED
-                : DataPartition.hashPartitioned(partitionExpr);
+        // DataPartition partition = partitionExpr.isEmpty()
+        //         ? DataPartition.UNPARTITIONED
+        //         : DataPartition.hashPartitioned(partitionExpr);
 
         // rootFragment.setOutputPartition(partition);
-        rootFragment.setDataPartition(partition);
+        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
 
         return rootFragment;
     }
