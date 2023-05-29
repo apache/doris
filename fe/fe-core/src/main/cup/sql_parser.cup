@@ -807,6 +807,7 @@ nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
+nonterminal IndexDef build_index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal ArrayList<IndexDef> index_definition_list;
 nonterminal AggregateType opt_agg_type;
@@ -961,6 +962,7 @@ precedence left KW_OVER;
 precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
+precedence left ARROW;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence right LBRACE;
@@ -1957,6 +1959,10 @@ create_stmt ::=
     | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
+    | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
     :}
     ;
 
@@ -3465,6 +3471,13 @@ index_definition ::=
     :}
     ;
 
+build_index_definition ::=
+    KW_INDEX ident:indexName opt_partition_names:partitionNames
+    {:
+        RESULT = new IndexDef(indexName, partitionNames, true);
+    :}
+    ;
+
 opt_is_allow_null ::=
     {:
         RESULT = true;
@@ -4006,6 +4019,11 @@ show_param ::=
     | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL KW_VERBOSE
     {:
         RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
+    :}
+    /* show build index job */
+    | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
     ;
 
@@ -6384,6 +6402,13 @@ non_pred_expr ::=
   | expr_pipe_list:exprs
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
+  :}
+  | expr:e ARROW expr:index
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(index);
+    RESULT = new FunctionCallExpr("json_extract", new FunctionParams(exprs)); 
   :}
   | cast_expr:c
   {: RESULT = c; :}

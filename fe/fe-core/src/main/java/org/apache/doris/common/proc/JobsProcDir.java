@@ -46,6 +46,7 @@ public class JobsProcDir implements ProcDirInterface {
     private static final String ROLLUP = "rollup";
     private static final String SCHEMA_CHANGE = "schema_change";
     private static final String EXPORT = "export";
+    private static final String BUILD_INDEX = "build_index";
 
     private Env env;
     private Database db;
@@ -77,6 +78,8 @@ public class JobsProcDir implements ProcDirInterface {
             return new SchemaChangeProcDir(env.getSchemaChangeHandler(), db);
         } else if (jobTypeName.equals(EXPORT)) {
             return new ExportProcNode(env.getExportMgr(), db);
+        } else if (jobTypeName.equals(BUILD_INDEX)) {
+            return new BuildIndexProcDir(env.getSchemaChangeHandler(), db);
         } else {
             throw new AnalysisException("Invalid job type: " + jobTypeName);
         }

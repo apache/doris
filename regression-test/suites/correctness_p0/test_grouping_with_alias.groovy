@@ -54,7 +54,9 @@
     """
     sql """insert into cf_member values(2, 2, '2'); """
 
-    qt_select2 """select floor(id-1.0), count(*) from cf_member cm group by floor(id-1.0);"""
+    qt_select2 """select floor(id-1.0), count(*) from cf_member cm group by floor(id-1.0) order by floor(id-1.0);"""
+
+    qt_select3 """select floor(id-1.0), count(*) from cf_member cm group by 1 order by 1;"""
 
     sql """DROP TABLE IF EXISTS `cf_member`; """
  } 
