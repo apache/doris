@@ -154,6 +154,7 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -216,6 +217,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean needFetch = false;
         // Only single olap table should be fetched
         OlapTable fetchOlapTable = null;
+        OlapScanNode scanNode = null;
         for (PlanFragment fragment : context.getPlanFragments()) {
             PlanNode node = fragment.getPlanRoot();
             PlanNode parent = null;
@@ -229,7 +231,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // case1: general topn optimized query
             if ((node instanceof OlapScanNode) && (parent instanceof SortNode)) {
                 SortNode sortNode = (SortNode) parent;
-                OlapScanNode scanNode = (OlapScanNode) node;
+                scanNode = (OlapScanNode) node;
                 if (sortNode.getUseTwoPhaseReadOpt()) {
                     needFetch = true;
                     fetchOlapTable = scanNode.getOlapTable();
@@ -243,6 +245,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 fetchOption.setFetchRowStore(fetchOlapTable.storeRowColumn());
                 fetchOption.setUseTwoPhaseFetch(true);
                 fetchOption.setNodesInfo(Env.getCurrentSystemInfo().createAliveNodesInfo());
+                if (!fetchOlapTable.storeRowColumn()) {
+                    // Set column desc for each column
+                    List<TColumn> columnsDesc = new ArrayList<TColumn>();
+                    scanNode.getColumnDesc(columnsDesc, null, null);
+                    fetchOption.setColumnDesc(columnsDesc);
+                }
                 ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }
@@ -283,7 +291,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
             rootFragment.setOutputExprs(outputExprs);
         }
-        rootFragment.getPlanRoot().convertToVectorized();
         for (PlanFragment fragment : context.getPlanFragments()) {
             fragment.finalize(null);
         }
@@ -626,9 +633,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         // Create OlapScanNode
-        List<Slot> slotList = new ImmutableList.Builder<Slot>()
-                .addAll(olapScan.getOutput())
-                .build();
+        List<Slot> slotList = olapScan.getOutput();
         Set<ExprId> deferredMaterializedExprIds = Collections.emptySet();
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             deferredMaterializedExprIds = (Set<ExprId>) (olapScan
@@ -636,6 +641,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         OlapTable olapTable = olapScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, olapTable, deferredMaterializedExprIds, context);
+
+        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+            generateTupleDesc(olapScan.getBaseOutputs(), olapTable, deferredMaterializedExprIds, context);
+        }
+
         if (olapScan.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             injectRowIdColumnSlot(tupleDescriptor);
         }
@@ -693,7 +703,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Slot> slotList = new ImmutableList.Builder<Slot>()
                 .addAll(schemaScan.getOutput())
-                .addAll(schemaScan.getNonUserVisibleOutput())
                 .build();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);

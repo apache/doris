@@ -645,6 +645,7 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        checkAndSetPointQuery();
         if (checkEnableTwoPhaseRead(analyzer)) {
             // If optimize enabled, we try our best to read less columns from ScanNode,
             // here we analyze conjunct exprs and ordering exprs before resultExprs,
@@ -677,7 +678,6 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
-        checkAndSetPointQuery();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -753,7 +753,8 @@ public class SelectStmt extends QueryStmt {
         // Need enable light schema change, since opt rely on
         // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
-        if (!olapTable.getEnableLightSchemaChange()) {
+        if (!olapTable.isDupKeysOrMergeOnWrite()) {
+            LOG.debug("only support duplicate key or MOW model");
             return false;
         }
         if (getOrderByElements() != null) {
@@ -1364,6 +1365,10 @@ public class SelectStmt extends QueryStmt {
         if (havingClauseAfterAnaylzed != null) {
             havingClauseAfterAnaylzed =
                     havingClauseAfterAnaylzed.substitute(countAllMap, analyzer, false);
+        }
+        if (sortInfo != null) {
+            // the ordering exprs must substitute in the same way as resultExprs
+            sortInfo.substituteOrderingExprs(countAllMap, analyzer);
         }
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);

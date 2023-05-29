@@ -196,7 +196,8 @@ public class NereidsPlanner extends Planner {
             }
 
             // minidump of input must be serialized first, this process ensure minidump string not null
-            if (!statementContext.getConnectContext().getSessionVariable().isPlayNereidsDump()) {
+            if (!statementContext.getConnectContext().getSessionVariable().isPlayNereidsDump()
+                    && statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
                 MinidumpUtils.init();
                 String queryId = DebugUtil.printId(statementContext.getConnectContext().queryId());
                 try {
@@ -363,14 +364,16 @@ public class NereidsPlanner extends Planner {
     }
 
     private void serializeOutputToDumpFile(Plan resultPlan, ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
     }
 
     private void serializeStatUsed(ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
             return;
         }
         JSONObject jsonObj = connectContext.getMinidump();

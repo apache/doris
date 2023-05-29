@@ -42,31 +42,25 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     private long tableId;
     @SerializedName(value = "indexSchemaMap")
     private Map<Long, LinkedList<Column>> indexSchemaMap;
-    @SerializedName(value = "propertyMap")
-    private Map<String, String> propertyMap;
     @SerializedName(value = "indexes")
     private List<Index> indexes;
     @SerializedName(value = "alterInvertedIndexes")
     private List<Index> alterInvertedIndexes;
     @SerializedName(value = "isDropInvertedIndex")
     private boolean isDropInvertedIndex;
-    @SerializedName(value = "oriIndexes")
-    private List<Index> oriIndexes;
     @SerializedName(value = "jobId")
     private long jobId;
 
     public TableAddOrDropInvertedIndicesInfo(long dbId, long tableId,
-            Map<Long, LinkedList<Column>> indexSchemaMap, Map<String, String> propertyMap,
-            List<Index> indexes, List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
-            List<Index> oriIndexes, long jobId) {
+            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
+            List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
+            long jobId) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexSchemaMap = indexSchemaMap;
-        this.propertyMap = propertyMap;
         this.indexes = indexes;
         this.alterInvertedIndexes = alterInvertedIndexes;
         this.isDropInvertedIndex = isDropInvertedIndex;
-        this.oriIndexes = oriIndexes;
         this.jobId = jobId;
     }
 
@@ -82,10 +76,6 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         return indexSchemaMap;
     }
 
-    public Map<String, String> getPropertyMap() {
-        return propertyMap;
-    }
-
     public List<Index> getIndexes() {
         return indexes;
     }
@@ -96,10 +86,6 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
     public boolean getIsDropInvertedIndex() {
         return isDropInvertedIndex;
-    }
-
-    public List<Index> getOriIndexes() {
-        return oriIndexes;
     }
 
     public long getJobId() {
@@ -129,11 +115,10 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
         return (dbId == info.dbId && tableId == tableId
                 && indexSchemaMap.equals(info.indexSchemaMap)
-                && propertyMap.equals(info.propertyMap)
                 && indexes.equals(info.indexes)
                 && alterInvertedIndexes.equals(info.alterInvertedIndexes)
                 && isDropInvertedIndex == info.isDropInvertedIndex
-                && oriIndexes.equals(info.oriIndexes) && jobId == info.jobId);
+                && jobId == info.jobId);
     }
 
     @Override
@@ -142,11 +127,9 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
         sb.append(" dbId: ").append(dbId);
         sb.append(" tableId: ").append(tableId);
         sb.append(" indexSchemaMap: ").append(indexSchemaMap);
-        sb.append(" propertyMap: ").append(propertyMap);
         sb.append(" indexes: ").append(indexes);
         sb.append(" alterInvertedIndexes: ").append(alterInvertedIndexes);
         sb.append(" isDropInvertedIndex: ").append(isDropInvertedIndex);
-        sb.append(" oriIndexes: ").append(oriIndexes);
         sb.append(" jobId: ").append(jobId);
         return sb.toString();
     }

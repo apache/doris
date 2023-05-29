@@ -291,7 +291,7 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public Expr replaceSubPredicate(Expr subExpr) throws AnalysisException {
+    public Expr replaceSubPredicate(Expr subExpr) {
         if (op.equals(Operator.AND)) {
             Expr lhs = children.get(0);
             Expr rhs = children.get(1);

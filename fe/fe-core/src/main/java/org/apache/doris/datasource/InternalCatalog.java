@@ -50,6 +50,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -356,7 +357,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Database db : this.fullNameToDb.values()) {
             long dbId = db.getId();
             for (Table table : db.getTables()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -498,7 +499,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 try {
                     if (!stmt.isForceDrop()) {
                         for (Table table : tableList) {
-                            if (table.getType() == TableType.OLAP) {
+                            if (table.isManagedTable()) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
                                     throw new DdlException("The table [" + olapTable.getState() + "]'s state is "
@@ -1228,7 +1229,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (!Env.isCheckpointThread()) {
             // add to inverted index
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 OlapTable olapTable = (OlapTable) table;
                 long dbId = db.getId();
@@ -1783,7 +1784,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "Failed to create partition[" + partitionName + "]. Timeout:" + timeout + " seconds.";
+                errMsg = "Failed to create partition[" + partitionName + "]. Timeout:" + (timeout / 1000) + " seconds.";
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
@@ -2016,6 +2017,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // set binlog config
+        try {
+            Map<String, String> binlogConfigMap = PropertyAnalyzer.analyzeBinlogConfig(properties);
+            if (binlogConfigMap != null) {
+                BinlogConfig binlogConfig = new BinlogConfig();
+                binlogConfig.mergeFromProperties(properties);
+                olapTable.setBinlogConfig(binlogConfig);
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

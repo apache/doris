@@ -85,6 +85,7 @@ message PTabletWriterOpenRequest {
     optional string sender_ip = 11 [default = ""];
     optional bool is_vectorized = 12 [default = false];
     optional int64 backend_id = 13 [default = -1];
+    optional bool enable_profile = 14 [default = false];
 };
 
 message PTabletWriterOpenResult {
@@ -629,6 +630,7 @@ message PMultiGetRequest {
     optional int32 be_exec_version = 4;
     optional bool fetch_row_store = 5;
     optional PUniqueId query_id = 6;
+    repeated ColumnPB column_desc = 7;
 };
 
 message PMultiGetResponse {

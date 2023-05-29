@@ -53,9 +53,7 @@ public:
         return Status::OK();
     }
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VColumnRef::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VColumnRef::create_shared(*this); }
 
     bool is_constant() const override { return false; }
 

@@ -26,6 +26,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
@@ -74,8 +75,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             return Status::OK();
         }
     } else if (!cached_data.empty()) {
-        // the data in range may be skipped
-        DCHECK_GE(offset, cached_data.end_offset);
+        // the data in range may be skipped or ignored
         for (int16 box_index : cached_data.ref_box) {
             _dec_box_ref(box_index);
         }
@@ -409,6 +409,14 @@ void PrefetchBuffer::prefetch_buffer() {
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
         s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+    }
+    if (UNLIKELY(buf_size != _len)) {
+        // This indicates that the data size returned by S3 object storage is smaller than what we requested,
+        // which seems to be a violation of the S3 protocol since our request range was valid.
+        // We currently consider this situation a bug and will treat this task as a failure.
+        s = Status::InternalError("Data size returned by S3 is smaller than requested");
+        LOG(WARNING) << "Data size returned by S3 is smaller than requested" << _reader->path()
+                     << " request bytes " << buf_size << " returned size " << _len;
     }
     g_bytes_downloaded << _len;
     _statis.prefetch_request_io += 1;

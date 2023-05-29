@@ -83,6 +83,8 @@
 
 namespace doris {
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wzero-length-array"
 #pragma pack(push, 1)
 
 #define JSONB_VER 1
@@ -1348,7 +1350,7 @@ inline bool JsonbPath::parse_member(Stream* stream) {
 }
 
 #pragma pack(pop)
-
+#pragma clang diagnostic pop
 } // namespace doris
 
 #endif // JSONB_JSONBDOCUMENT_H

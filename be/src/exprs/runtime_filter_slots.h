@@ -32,8 +32,8 @@ namespace doris {
 template <typename ExprCtxType>
 class RuntimeFilterSlotsBase {
 public:
-    RuntimeFilterSlotsBase(const std::vector<ExprCtxType*>& prob_expr_ctxs,
-                           const std::vector<ExprCtxType*>& build_expr_ctxs,
+    RuntimeFilterSlotsBase(const std::vector<std::shared_ptr<ExprCtxType>>& prob_expr_ctxs,
+                           const std::vector<std::shared_ptr<ExprCtxType>>& build_expr_ctxs,
                            const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
             : _probe_expr_context(prob_expr_ctxs),
               _build_expr_context(build_expr_ctxs),
@@ -247,8 +247,8 @@ public:
     bool empty() { return !_runtime_filters.size(); }
 
 private:
-    const std::vector<ExprCtxType*>& _probe_expr_context;
-    const std::vector<ExprCtxType*>& _build_expr_context;
+    const std::vector<std::shared_ptr<ExprCtxType>>& _probe_expr_context;
+    const std::vector<std::shared_ptr<ExprCtxType>>& _build_expr_context;
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     // prob_contition index -> [IRuntimeFilter]
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters;
