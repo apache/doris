@@ -117,8 +117,8 @@ private:
     std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
     std::unordered_set<std::string> _missing_cols;
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
-    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    vectorized::VExprContextSPtrs _dest_expr_ctxs;
+    vectorized::VExprContextSPtr _pre_filter_ctx_ptr;
     bool _is_dynamic_schema = false;
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
@@ -142,12 +142,12 @@ private:
     // col names from _slot_descs
     std::vector<std::string> _all_col_names;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    vectorized::VExprContext* _push_down_expr = nullptr;
+    vectorized::VExprContextSPtrs _push_down_exprs;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts
-    std::unordered_map<int, std::vector<vectorized::VExprContext*>> _slot_id_to_filter_conjuncts;
+    std::unordered_map<int, vectorized::VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
-    std::vector<vectorized::VExprContext*> _not_single_slot_filter_conjuncts;
+    vectorized::VExprContextSPtrs _not_single_slot_filter_conjuncts;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // row desc for default exprs

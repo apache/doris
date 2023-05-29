@@ -47,9 +47,9 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
     bool is_null = (_node_type == TExprNodeType::NULL_LITERAL);
     Field array = is_null ? Field() : Array();
-    for (const auto child : _children) {
+    for (auto& child : _children) {
         Field item;
-        auto child_literal = dynamic_cast<const VLiteral*>(child);
+        auto child_literal = std::dynamic_pointer_cast<const VLiteral>(child);
         child_literal->get_column_ptr()->get(0, item);
         array.get<Array>().push_back(item);
     }
