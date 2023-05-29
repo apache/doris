@@ -288,8 +288,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
+        boolean isInsertIntoUnpartitionedTable = physicalPlan instanceof PhysicalOlapTableSink
+                && !((PhysicalOlapTableSink<?>) physicalPlan).getTargetTable().isPartitioned();
         if (isFragmentPartitioned(rootFragment)) {
-            rootFragment = exchangeToMergeFragment(rootFragment, context);
+            if (!(physicalPlan instanceof PhysicalOlapTableSink) || isInsertIntoUnpartitionedTable) {
+                rootFragment = exchangeToMergeFragment(rootFragment, context);
+            }
         }
 
         if (rootFragment.getOutputExprs() == null) {
