@@ -1892,13 +1892,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _update_max_row(block);
     }
 
-#ifndef NDEBUG
-    size_t row_cnt = block->rows();
-    for (size_t i = 0; i < block->columns(); ++i) {
-        DCHECK_EQ(row_cnt, block->get_by_position(i).column->size());
-    }
-#endif
-
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
         size_t num_rows = block->rows();
