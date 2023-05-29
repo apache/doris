@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -364,15 +365,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         List<Expr> partitionExpr = colIdx.stream().map(outputExprs::get)
-                // .filter(expr -> !(expr instanceof LiteralExpr))
+                .filter(expr -> !(expr instanceof LiteralExpr))
                 .collect(Collectors.toList());
 
-        // DataPartition partition = partitionExpr.isEmpty()
-        //         ? DataPartition.UNPARTITIONED
-        //         : DataPartition.hashPartitioned(partitionExpr);
+        /*DataPartition partition = partitionExpr.isEmpty()
+                ? DataPartition.UNPARTITIONED
+                : DataPartition.hashPartitioned(partitionExpr);
 
-        // rootFragment.setOutputPartition(partition);
-        // rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
+        rootFragment.setOutputPartition(partition);*/
+        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
         rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
 
         return rootFragment;
