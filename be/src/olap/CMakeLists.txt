@@ -109,6 +109,8 @@ add_library(Olap STATIC
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
+    task/engine_index_change_task.cpp
+    task/index_builder.cpp
     segment_loader.cpp
     storage_policy.cpp
 )
