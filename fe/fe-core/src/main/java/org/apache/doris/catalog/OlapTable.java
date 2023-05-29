@@ -1817,6 +1817,11 @@ public class OlapTable extends Table {
         return baseIndexMeta.getSchemaVersion();
     }
 
+    public int getIndexSchemaVersion(long indexId) {
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        return indexMeta.getSchemaVersion();
+    }
+
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyDataSortInfoProperties(dataSortInfo);

@@ -508,6 +508,14 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
+        if (orderByElements.size() != o.orderByElements.size()) {
+            return false;
+        }
+        for (int i = 0; i < orderByElements.size(); i++) {
+            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                return false;
+            }
+        }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
                 && fnParams.isStar() == o.fnParams.isStar();
@@ -524,10 +532,8 @@ public class FunctionCallExpr extends Expr {
             sb.append("DISTINCT ");
         }
         int len = children.size();
-        List<String> result = Lists.newArrayList();
         // XXX_diff are used by nereids only
-        if (fnName.getFunction().equalsIgnoreCase("years_diff")
-                || fnName.getFunction().equalsIgnoreCase("months_diff")
+        if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
                 || fnName.getFunction().equalsIgnoreCase("hours_diff")
                 || fnName.getFunction().equalsIgnoreCase("minutes_diff")
@@ -544,6 +550,9 @@ public class FunctionCallExpr extends Expr {
         }
 
         for (int i = 0; i < len; ++i) {
+            if (i != 0) {
+                sb.append(", ");
+            }
             if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
                     && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                             || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
@@ -553,14 +562,20 @@ public class FunctionCallExpr extends Expr {
                             || fnName.getFunction().equalsIgnoreCase("aes_encrypt_v2")
                             || fnName.getFunction().equalsIgnoreCase("sm4_decrypt_v2")
                             || fnName.getFunction().equalsIgnoreCase("sm4_encrypt_v2"))) {
-                result.add("\'***\'");
+                sb.append("\'***\'");
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                result.add("ORDER BY " + children.get(i).toSql());
-            } else {
-                result.add(children.get(i).toSql());
+                sb.append("ORDER BY ");
+            }
+            sb.append(children.get(i).toSql());
+            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
+                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
+                    sb.append(" ASC");
+                } else {
+                    sb.append(" DESC");
+                }
             }
         }
-        sb.append(Joiner.on(", ").join(result)).append(")");
+        sb.append(")");
         return sb.toString();
     }
 
