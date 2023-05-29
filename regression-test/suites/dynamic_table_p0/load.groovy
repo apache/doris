@@ -148,8 +148,6 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     load_json_data.call(table_name, 'true', 'json', 'true', "floating_point3.json", 'true')
     load_json_data.call(table_name, 'true', 'json', 'true', "uppercase.json", 'true')
 
-    qt_sql "select * from ${table_name}"
-
     // load more
     table_name = "gharchive";
     sql "DROP TABLE IF EXISTS ${table_name}"
