@@ -39,6 +39,9 @@ Query Schema Action 可以返回给定的 SQL 有关的表的建表语句。可�
 该 API 在 1.2 版本中发布。
     
 ## Path parameters
+* `<ns_name>`
+
+  指定集群的名称，默认值取default_cluster或internal均可
 
 * `<db_name>`
 

@@ -42,7 +42,9 @@ GET /api/meta/namespaces/<ns_name>/databases
     
 ### Path parameters
 
-无
+* `<ns_name>`
+
+    指定命名空间的名称，默认值取default_cluster即可
 
 ### Query parameters
 
@@ -86,6 +88,9 @@ GET /api/meta/namespaces/<ns_name>/databases/<db_name>/tables
 获取指定数据库中的表列表，按字母序排列。
     
 ### Path parameters
+* `<ns_name>`
+
+  指定命名空间的名称，默认值取default_cluster即可
 
 * `<db_name>`
 
@@ -133,6 +138,9 @@ GET /api/meta/namespaces/<ns_name>/databases/<db_name>/tables/<tbl_name>/schema
 获取指定数据库中，指定表的表结构信息。
     
 ### Path parameters
+* `<ns_name>`
+
+  指定集群的名称，默认值取default_cluster即可
 
 * `<db_name>`
 
