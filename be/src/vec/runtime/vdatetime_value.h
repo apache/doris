@@ -1087,7 +1087,7 @@ public:
         if (diff_m > (int64_t)3020399 * 1000 * 1000) {
             diff_m = (int64_t)3020399 * 1000 * 1000;
         }
-        return (double)diff_m + 0.5;
+        return diff_m;
     }
 
     bool can_cast_to_date_without_loss_accuracy() {

@@ -1068,7 +1068,7 @@ visible_functions = {
         [['timediff'], 'TIMEV2', ['DATETIMEV2', 'DATETIMEV2'], ''],
 
         [['datediff'], 'INT', ['DATETIMEV2', 'DATEV2'], ''],
-        [['timediff'], 'TIMEV2', ['DATETIMEV2', 'DATEV2'], ''],
+        [['timediff'], 'TIME', ['DATETIMEV2', 'DATEV2'], ''],
 
         [['datediff'], 'INT', ['DATEV2', 'DATETIMEV2'], ''],
         [['timediff'], 'TIMEV2', ['DATEV2', 'DATETIMEV2'], ''],

@@ -368,11 +368,11 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             if constexpr (type == TYPE_DOUBLE) {
                 buf_ret = rows_buffer[i].push_double(data[col_index]);
             }
-            if constexpr (type == TYPE_TIME || type == TYPE_TIMEV2) {
+            if constexpr (type == TYPE_TIME) {
                 buf_ret = rows_buffer[i].push_time(data[col_index]);
             }
-            if constexpr (type == TYPE_DATETIMEV2_TIME) {
-                buf_ret = rows_buffer[i].push_time(data[col_index]);
+            if constexpr (type == TYPE_TIMEV2) {
+                buf_ret = rows_buffer[i].push_timev2(data[col_index]);
             }
             if constexpr (type == TYPE_DATETIME) {
                 auto time_num = data[col_index];

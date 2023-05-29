@@ -86,73 +86,74 @@ uint64_t timestamp_from_datetime_v2(const std::string& date_str) {
 }
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'
+/// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
 int32_t time_to_buffer_from_double(double time, char* buffer) {
-    // ????
     char* begin = buffer;
     if (time < 0) {
         time = -time;
         *buffer++ = '-';
     }
-    bool is_microsecond = false;
-    if (abs((int64_t)time - time) >= 0.001) {
-        is_microsecond = true;
+    if (time > 3020399) {
+        time = 3020399;
     }
-    if (is_microsecond) {
-        int64_t m_time = time;
-        // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
-        int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
-        if (hour >= 100) {
-            auto f = fmt::format_int(hour);
-            memcpy(buffer, f.data(), f.size());
-            buffer = buffer + f.size();
-        } else {
-            *buffer++ = (char)('0' + (hour / 10));
-            *buffer++ = (char)('0' + (hour % 10));
-        }
-        *buffer++ = ':';
-        m_time %= (int64_t)3600 * 1000 * 1000;
-        int64_t minute = m_time / (60 * 1000 * 1000);
-        *buffer++ = (char)('0' + (minute / 10));
-        *buffer++ = (char)('0' + (minute % 10));
-        *buffer++ = ':';
-        m_time %= 60 * 1000 * 1000;
-        int32_t second = m_time / (1000 * 1000);
-        *buffer++ = (char)('0' + (second / 10));
-        *buffer++ = (char)('0' + (second % 10));
-        m_time %= 1000 * 1000;
-        *buffer++ = '.';
-        memset(buffer, '0', 6);
-        buffer += 6;
-        auto it = buffer;
-        while (m_time) {
-            *it = (char)('0' + (m_time % 10));
-            m_time /= 10;
-            it--;
-        }
-        return buffer - begin;
+    int64_t hour = (int64_t)(time / 3600);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        memcpy(buffer, f.data(), f.size());
+        buffer = buffer + f.size();
     } else {
-        if (time > 3020399) {
-            time = 3020399;
-        }
-        int64_t hour = (int64_t)(time / 3600);
-        if (hour >= 100) {
-            auto f = fmt::format_int(hour);
-            memcpy(buffer, f.data(), f.size());
-            buffer = buffer + f.size();
-        } else {
-            *buffer++ = (char)('0' + (hour / 10));
-            *buffer++ = (char)('0' + (hour % 10));
-        }
-        *buffer++ = ':';
-        int32_t minute = ((int32_t)(time / 60)) % 60;
-        *buffer++ = (char)('0' + (minute / 10));
-        *buffer++ = (char)('0' + (minute % 10));
-        *buffer++ = ':';
-        int32_t second = ((int32_t)time) % 60;
-        *buffer++ = (char)('0' + (second / 10));
-        *buffer++ = (char)('0' + (second % 10));
-        return buffer - begin;
+        *buffer++ = (char)('0' + (hour / 10));
+        *buffer++ = (char)('0' + (hour % 10));
     }
+    *buffer++ = ':';
+    int32_t minute = ((int32_t)(time / 60)) % 60;
+    *buffer++ = (char)('0' + (minute / 10));
+    *buffer++ = (char)('0' + (minute % 10));
+    *buffer++ = ':';
+    int32_t second = ((int32_t)time) % 60;
+    *buffer++ = (char)('0' + (second / 10));
+    *buffer++ = (char)('0' + (second % 10));
+    return buffer - begin;
+}
+
+int32_t timev2_to_buffer_from_double(double time, char* buffer) {
+    char* begin = buffer;
+    if (time < 0) {
+        time = -time;
+        *buffer++ = '-';
+    }
+    int64_t m_time = time;
+    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
+    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        memcpy(buffer, f.data(), f.size());
+        buffer = buffer + f.size();
+    } else {
+        *buffer++ = (char)('0' + (hour / 10));
+        *buffer++ = (char)('0' + (hour % 10));
+    }
+    *buffer++ = ':';
+    m_time %= (int64_t)3600 * 1000 * 1000;
+    int64_t minute = m_time / (60 * 1000 * 1000);
+    *buffer++ = (char)('0' + (minute / 10));
+    *buffer++ = (char)('0' + (minute % 10));
+    *buffer++ = ':';
+    m_time %= 60 * 1000 * 1000;
+    int32_t second = m_time / (1000 * 1000);
+    *buffer++ = (char)('0' + (second / 10));
+    *buffer++ = (char)('0' + (second % 10));
+    m_time %= 1000 * 1000;
+    *buffer++ = '.';
+    memset(buffer, '0', 6);
+    buffer += 6;
+    auto it = buffer;
+    while (m_time) {
+        *it = (char)('0' + (m_time % 10));
+        m_time /= 10;
+        it--;
+    }
+    return buffer - begin;
 }
 
 std::string time_to_buffer_from_double(double time) {
@@ -176,4 +177,26 @@ std::string time_to_buffer_from_double(double time) {
     return fmt::to_string(buffer);
 }
 
+std::string timev2_to_buffer_from_double(double time) {
+    fmt::memory_buffer buffer;
+    if (time < 0) {
+        time = -time;
+        fmt::format_to(buffer, "-");
+    }
+    int64_t m_time = time;
+    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
+    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    if (hour >= 100) {
+        fmt::format_to(buffer, fmt::format("{}", hour));
+    } else {
+        fmt::format_to(buffer, fmt::format("{:02d}", hour));
+    }
+    m_time %= (int64_t)3600 * 1000 * 1000;
+    int64_t minute = m_time / (60 * 1000 * 1000);
+    m_time %= 60 * 1000 * 1000;
+    int32_t second = m_time / (1000 * 1000);
+    int32_t micosecond = m_time % 1000 * 1000;
+    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}:{:06d}", minute, second, micosecond));
+    return fmt::to_string(buffer);
+}
 } // namespace doris

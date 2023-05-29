@@ -432,7 +432,7 @@ public class ScalarType extends Type {
         if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.TIME);
         }
-        ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
+        ScalarType type = new ScalarType(PrimitiveType.TIME);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
         return type;

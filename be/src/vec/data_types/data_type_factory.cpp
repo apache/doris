@@ -144,9 +144,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
     case TYPE_TIME:
-    case TYPE_TIMEV2:
-    case TYPE_DATETIMEV2_TIME:
         nested = std::make_shared<vectorized::DataTypeTime>();
+        break;
+    case TYPE_TIMEV2:
+        nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
@@ -315,7 +316,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
         break;
     case TypeIndex::TimeV2:
-        nested = std::make_shared<vectorized::DataTypeTime>();
+        nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     default:
         DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);

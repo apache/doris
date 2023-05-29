@@ -155,11 +155,6 @@ struct PrimitiveTypeTraits<TYPE_TIME> {
     using ColumnType = vectorized::ColumnFloat64;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_DATETIMEV2_TIME> {
-    using CppType = double;
-    using ColumnType = vectorized::ColumnFloat64;
-};
-template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppType = double;
     using ColumnType = vectorized::ColumnFloat64;

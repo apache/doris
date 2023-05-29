@@ -39,9 +39,6 @@ class IColumn;
 namespace doris::vectorized {
 
 bool DataTypeTime::equals(const IDataType& rhs) const {
-    if (rhs.get_type_as_primitive_type() == TYPE_DATETIMEV2_TIME) {
-        return true;
-    }
     return typeid(rhs) == typeid(*this);
 }
 
@@ -63,4 +60,25 @@ MutableColumnPtr DataTypeTime::create_column() const {
     return DataTypeNumberBase<Float64>::create_column();
 }
 
+bool DataTypeTimeV2::equals(const IDataType& rhs) const {
+    return typeid(rhs) == typeid(*this);
+}
+
+std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto value = assert_cast<const ColumnFloat64&>(*ptr).get_element(row_num);
+    return timev2_to_buffer_from_double(value);
+}
+
+void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    std::string value = to_string(column, row_num);
+    ostr.write(value.data(), value.size());
+}
+
+MutableColumnPtr DataTypeTimeV2::create_column() const {
+    return DataTypeNumberBase<Float64>::create_column();
+}
 } // namespace doris::vectorized
