@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-import org.apache.doris.jni.utils.TypeNativeBytes;
 import org.apache.doris.jni.vec.ColumnType;
 import org.apache.doris.jni.vec.VectorColumn;
 import org.apache.doris.jni.vec.VectorTable;

@@ -716,7 +716,7 @@ Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
 }
 
 Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
-                                     uint32_t* num_rows_sent) {
+                                      uint32_t* num_rows_sent) {
     SCOPED_TIMER(_result_send_timer);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));

@@ -80,7 +80,8 @@ public:
         return Status::OK();
     }
 
-    Status exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs, uint32_t* num_rows_sent);
+    Status exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
+                           uint32_t* num_rows_sent);
 
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, Block* block,
                     int batch_size);
