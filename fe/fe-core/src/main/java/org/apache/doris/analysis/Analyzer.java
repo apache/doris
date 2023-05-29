@@ -420,6 +420,7 @@ public class Analyzer {
             this.env = env;
             this.context = context;
             List<ExprRewriteRule> rules = Lists.newArrayList();
+            rules.add(RewriteCastToStringRule.INSTANCE);
             // BetweenPredicates must be rewritten to be executable. Other non-essential
             // expr rewrites can be disabled via a query option. When rewrites are enabled
             // BetweenPredicates should be rewritten first to help trigger other rules.
@@ -431,7 +432,6 @@ public class Analyzer {
             rules.add(RewriteBinaryPredicatesRule.INSTANCE);
             rules.add(RewriteImplicitCastRule.INSTANCE);
             rules.add(RoundLiteralInBinaryPredicatesRule.INSTANCE);
-            rules.add(RewriteCastToStringRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(EraseRedundantCastExpr.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
