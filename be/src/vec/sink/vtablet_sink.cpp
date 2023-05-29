@@ -1383,6 +1383,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
+    SCOPED_TIMER(_close_timer);
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
@@ -1396,7 +1397,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 max_add_batch_exec_time_ns = 0, total_wait_exec_time_ns = 0,
                 max_wait_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
         {
-            SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
                         [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });

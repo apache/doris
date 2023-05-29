@@ -59,7 +59,8 @@ void LoadChannel::_init_profile() {
     _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
-    _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
+    _add_batch_timer = ADD_CHILD_TIMER(_self_profile, "AddBatchTime", "LoadChannelMgrAddBatchTime");
+    _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");
     _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
 }
 
