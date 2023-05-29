@@ -430,6 +430,7 @@ terminal String
     KW_LARGEINT,
     KW_LAST,
     KW_LATERAL,
+    KW_LDAP,
     KW_LDAP_ADMIN_PASSWORD,
     KW_LEFT,
     KW_LESS,
@@ -1196,6 +1197,14 @@ refresh_stmt ::=
     | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
+    :}
+    | KW_REFRESH KW_LDAP KW_ALL
+    {:
+        RESULT = new RefreshLdapStmt(true, "");
+    :}
+    | KW_REFRESH KW_LDAP opt_user:user
+    {:
+        RESULT = new RefreshLdapStmt(false, user);
     :}
     ;
 
@@ -7339,6 +7348,8 @@ keyword ::=
     | KW_PASSWORD_HISTORY:id
     {: RESULT = id; :}
     | KW_PASSWORD_LOCK_TIME:id
+    {: RESULT = id; :}
+    | KW_LDAP:id
     {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}
