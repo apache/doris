@@ -30,7 +30,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block, c
     auto match_pred_column_name =
             BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
     if (!block.has(match_pred_column_name)) {
-        LOG(DEBUG) << "begin to execute match directly, column_name=" << column_name
+        VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                 << ", match_query_str=" << match_query_str;
         InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -68,7 +68,7 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(DEBUG) << "begin to run FunctionMatchAny::execute_match, parser_type: "
+    VLOG_DEBUG << "begin to run FunctionMatchAny::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
     std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
@@ -101,7 +101,7 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(DEBUG) << "begin to run FunctionMatchAll::execute_match, parser_type: "
+    VLOG_DEBUG << "begin to run FunctionMatchAll::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
     std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(
@@ -141,7 +141,7 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->_parser_type;
     }
-    LOG(DEBUG) << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
+    VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
             << inverted_index_parser_type_to_string(parser_type);
     std::vector<std::wstring> query_tokens =
                 doris::segment_v2::InvertedIndexReader::get_analyse_result(

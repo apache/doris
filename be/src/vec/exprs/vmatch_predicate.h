@@ -55,7 +55,7 @@ public:
                        FunctionContext::FunctionStateScope scope) override;
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExprSPtr* clone() const override {
+    VExprSPtr clone() const override {
         return VMatchPredicate::create_shared(*this);
     }
     const std::string& expr_name() const override;
