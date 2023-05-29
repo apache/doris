@@ -99,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -345,7 +346,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // get The first Project.
         PhysicalPlan plan = olapTableSink;
-        while (!(plan instanceof PhysicalProject) && !(plan instanceof PhysicalOlapScan)) {
+        while (!(plan instanceof PhysicalProject) && !(plan instanceof PhysicalLeaf)) {
             plan = ((PhysicalPlan) plan.child(0));
         }
 
@@ -376,7 +377,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 : DataPartition.hashPartitioned(partitionExpr);
 
         rootFragment.setOutputPartition(partition);*/
-        rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
+        // rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
         return rootFragment;
     }
