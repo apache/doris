@@ -288,6 +288,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
+        if (isFragmentPartitioned(rootFragment)) {
+            rootFragment = exchangeToMergeFragment(rootFragment, context);
+        }
+
         if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
