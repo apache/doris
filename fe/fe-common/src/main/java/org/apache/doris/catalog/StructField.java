@@ -24,10 +24,6 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-/**
- * TODO: Support comments for struct fields. The Metastore does not properly store
- * comments of struct fields. We set comment to null to avoid compatibility issues.
- */
 public class StructField {
     @SerializedName(value = "name")
     protected final String name;
@@ -55,6 +51,10 @@ public class StructField {
 
     public StructField(String name, Type type) {
         this(name, type, null, true);
+    }
+
+    public StructField(String name, Type type, String comment) {
+        this(name, type, comment, true);
     }
 
     public StructField(Type type) {
