@@ -363,7 +363,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(column -> targetTable.getFullSchema().indexOf(column))
                 .collect(Collectors.toList());
 
-        List<Expr> partitionExpr = colIdx.stream().map(idx -> outputExprs.get(idx))
+        List<Expr> partitionExpr = colIdx.stream().map(outputExprs::get)
                 // .filter(expr -> !(expr instanceof LiteralExpr))
                 .collect(Collectors.toList());
 
@@ -372,7 +372,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //         : DataPartition.hashPartitioned(partitionExpr);
 
         // rootFragment.setOutputPartition(partition);
-        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
+        // rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
+        rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
 
         return rootFragment;
     }
