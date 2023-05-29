@@ -221,12 +221,12 @@ public class PlanTranslatorContext {
         return descTable;
     }
 
-    public void setIsInsert(boolean isInsert) {
-        this.isInsert = isInsert;
+    public void setIsInsert(OlapTableSink isInsert) {
+        this.hasInsertSink = isInsert;
     }
 
-    public boolean isInsert() {
-        return isInsert;
+    public OlapTableSink getHasInsertSink() {
+        return hasInsertSink;
     }
 
     public void setInsertTargetTable(OlapTable insertTargetTable) {

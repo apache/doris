@@ -286,11 +286,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        if (context.getHasInsertSink() == null && isFragmentPartitioned(rootFragment)) {
+        if (context.getInsertSink() == null && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (context.getHasInsertSink() != null) {
+        if (context.getInsertSink() != null) {
             List<Expr> exprs = physicalPlan.getOutput().stream()
                     .map(slot -> context.findSlotRef(slot.getExprId()))
                     .collect(Collectors.toList());
@@ -2544,8 +2544,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
         OlapTable olapTable = context.getInsertTargetTable();
 
-        inputFragment.setOutputPartition(inputFragment.getDataPartition());
-        inputFragment.setSink(context.getHasInsertSink());
+        inputFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        inputFragment.setSink(context.getInsertSink());
 
         List<Expr> castExprs = Lists.newArrayList();
         for (int i = 0; i < olapTable.getFullSchema().size(); ++i) {
