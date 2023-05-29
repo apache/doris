@@ -38,7 +38,7 @@ POST /api/query/<ns_name>/<db_name>
 Statement Execution Action is used to execute a statement and return the result.
     
 ## Path parameters
-* `<db_name>`
+* `<ns_name>`
 
     Specify cluster name, default value is 'default_cluster'
 

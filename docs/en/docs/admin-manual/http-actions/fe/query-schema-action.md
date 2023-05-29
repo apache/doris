@@ -40,7 +40,7 @@ The Query Schema Action can return the table creation statement for the given SQ
 The API was released in version 1.2.
     
 ## Path parameters
-* `<db_name>`
+* `<ns_name>`
 
     Specify cluster name, default value is 'default_cluster'
 
