@@ -121,11 +121,20 @@ struct TimeCast {
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         /// TODO: Maybe we can move Timecast to the io_helper.
-        if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
-            // can be parse as a datetime
-            x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+        if (try_as_time(s, len, x)) {
             return true;
+        } else {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
+                // can be parse as a datetime
+                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                return true;
+            }
+            return false;
         }
+    }
+
+    template <typename T>
+    static bool try_as_time(char* s, size_t len, T& x) {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
@@ -185,7 +194,6 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
-
     // Cast from number
     template <typename T, typename S>
     static bool try_parse_time(T from, S& x) {
