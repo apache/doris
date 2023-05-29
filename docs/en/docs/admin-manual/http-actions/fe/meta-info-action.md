@@ -138,7 +138,7 @@ GET /api/meta/namespaces/<ns_name>/databases/<db_name>/tables/<tbl_name>/schema
 Get the table structure information of the specified table in the specified database.
     
 ### Path parameters
-* `<db_name>`
+* `<ns_name>`
 
   Specify cluster name, default value is 'default_cluster'
 
