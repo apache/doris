@@ -83,9 +83,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visit(Plan plan, PruneContext context) {
-        if (plan instanceof LogicalOlapTableSink) {
-            return plan;
-        }
         if (plan instanceof OutputPrunable) {
             // the case 1 in the class comment
             // two steps: prune current output and prune children
@@ -156,6 +153,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
         return skipPruneThisAndFirstLevelChildren(intersect);
+    }
+
+    @Override
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink olapTableSink, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(olapTableSink);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
