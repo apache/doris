@@ -18,6 +18,7 @@
 #pragma once
 
 #include <parallel_hashmap/btree.h>
+#include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -1146,6 +1147,9 @@ inline Roaring64MapSetBitForwardIterator Roaring64Map::end() const {
 class BitmapValueIterator;
 class BitmapValue {
 public:
+    template <typename T>
+    using SetContainer = phmap::flat_hash_set<T>;
+
     // Construct an empty bitmap.
     BitmapValue() : _type(EMPTY), _is_shared(false) {}
 
@@ -1204,24 +1208,25 @@ public:
 
     // Construct a bitmap from given elements.
     explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
-        switch (bits.size()) {
-        case 0:
+        if (bits.size() == 0) {
             _type = EMPTY;
-            break;
-        case 1:
+            return;
+        }
+
+        if (bits.size() == 1 && !config::enable_set_in_bitmap_value) {
             _type = SINGLE;
             _sv = bits[0];
-            break;
-        default:
-            if (!config::enable_set_in_bitmap_value || bits.size() > SET_TYPE_THRESHOLD) {
-                _type = BITMAP;
-                _prepare_bitmap_for_write();
-                _bitmap->addMany(bits.size(), &bits[0]);
-            } else {
-                _type = SET;
-                for (auto v : bits) {
-                    _set.insert(v);
-                }
+            return;
+        }
+
+        if (!config::enable_set_in_bitmap_value || bits.size() > SET_TYPE_THRESHOLD) {
+            _type = BITMAP;
+            _prepare_bitmap_for_write();
+            _bitmap->addMany(bits.size(), &bits[0]);
+        } else {
+            _type = SET;
+            for (auto v : bits) {
+                _set.insert(v);
             }
         }
     }
@@ -1229,8 +1234,13 @@ public:
     void add(uint64_t value) {
         switch (_type) {
         case EMPTY:
-            _sv = value;
-            _type = SINGLE;
+            if (!config::enable_set_in_bitmap_value) {
+                _sv = value;
+                _type = SINGLE;
+            } else {
+                _set.insert(value);
+                _type = SET;
+            }
             break;
         case SINGLE:
             //there is no need to convert the type if two variables are equal
@@ -1438,7 +1448,7 @@ public:
     BitmapValue& fastunion(const std::vector<const BitmapValue*>& values) {
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
-        std::vector<const std::set<uint64_t>*> sets;
+        std::vector<const SetContainer<uint64_t>*> sets;
         for (int i = 0; i < values.size(); ++i) {
             auto* value = values[i];
             switch (value->_type) {
@@ -1509,8 +1519,13 @@ public:
         }
 
         if (_type == EMPTY && single_values.size() == 1) {
-            _sv = single_values[0];
-            _type = SINGLE;
+            if (config::enable_set_in_bitmap_value) {
+                _type = SET;
+                _set.insert(single_values[0]);
+            } else {
+                _sv = single_values[0];
+                _type = SINGLE;
+            }
         } else if (!single_values.empty()) {
             switch (_type) {
             case EMPTY:
@@ -2070,10 +2085,18 @@ public:
         case BitmapTypeCode::SINGLE32:
             _type = SINGLE;
             _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+            if (config::enable_set_in_bitmap_value) {
+                _type = SET;
+                _set.insert(_sv);
+            }
             break;
         case BitmapTypeCode::SINGLE64:
             _type = SINGLE;
             _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
+            if (config::enable_set_in_bitmap_value) {
+                _type = SET;
+                _set.insert(_sv);
+            }
             break;
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
@@ -2160,7 +2183,11 @@ public:
                 bool first = true;
             } iter_ctx;
             iter_ctx.ss = &ss;
-            for (auto v : _set) {
+
+            std::vector<uint64_t> values(_set.begin(), _set.end());
+            std::sort(values.begin(), values.end());
+
+            for (auto v : values) {
                 if (iter_ctx.first) {
                     iter_ctx.first = false;
                 } else {
@@ -2241,7 +2268,9 @@ public:
         }
         case SET: {
             int64_t count = 0;
-            for (auto it = _set.begin(); it != _set.end(); ++it) {
+            std::vector<uint64_t> values(_set.begin(), _set.end());
+            std::sort(values.begin(), values.end());
+            for (auto it = values.begin(); it != values.end(); ++it) {
                 if (*it < range_start || *it >= range_end) {
                     continue;
                 }
@@ -2292,7 +2321,9 @@ public:
         case SET: {
             int64_t count = 0;
 
-            for (auto it = _set.begin(); it != _set.end(); ++it) {
+            std::vector<uint64_t> values(_set.begin(), _set.end());
+            std::sort(values.begin(), values.end());
+            for (auto it = values.begin(); it != values.end(); ++it) {
                 if (*it < range_start) {
                     continue;
                 }
@@ -2359,14 +2390,17 @@ public:
                 abs_offset = _set.size() + offset;
             }
 
+            std::vector<uint64_t> values(_set.begin(), _set.end());
+            std::sort(values.begin(), values.end());
+
             int64_t count = 0;
             size_t index = 0;
-            for (auto v : _set) {
+            for (auto v : values) {
                 if (index < abs_offset) {
                     ++index;
                     continue;
                 }
-                if (count == limit || index == _set.size()) {
+                if (count == limit || index == values.size()) {
                     break;
                 }
                 ++count;
@@ -2393,7 +2427,9 @@ public:
             break;
         }
         case SET: {
-            for (auto v : _set) {
+            std::vector<uint64_t> values(_set.begin(), _set.end());
+            std::sort(values.begin(), values.end());
+            for (auto v : values) {
                 data.emplace_back(v);
             }
             break;
@@ -2426,7 +2462,7 @@ private:
             }
             if (c == 0) {
                 _type = EMPTY;
-            } else if (c == 1) {
+            } else if (c == 1 && !config::enable_set_in_bitmap_value) {
                 _type = SINGLE;
                 _sv = _bitmap->minimum();
             } else {
@@ -2437,9 +2473,10 @@ private:
             }
             _bitmap.reset();
         } else if (_type == SET) {
-            if (_set.size() == 1) {
+            if (_set.size() == 1 && !config::enable_set_in_bitmap_value) {
                 _type = SINGLE;
                 _sv = *_set.begin();
+                _set.clear();
             }
         }
     }
@@ -2504,7 +2541,7 @@ private:
     };
     uint64_t _sv = 0;                              // store the single value when _type == SINGLE
     std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
-    std::set<uint64_t> _set;
+    SetContainer<uint64_t> _set;
     BitmapDataType _type {EMPTY};
     // Indicate whether the state is shared among multi BitmapValue object
     bool _is_shared = true;
@@ -2658,7 +2695,7 @@ public:
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
-    std::set<uint64_t>::const_iterator _set_iter;
+    BitmapValue::SetContainer<uint64_t>::const_iterator _set_iter;
     uint64_t _sv = 0;
     bool _end = false;
 };
