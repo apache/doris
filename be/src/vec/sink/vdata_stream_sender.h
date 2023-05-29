@@ -196,7 +196,7 @@ protected:
     int _broadcast_pb_block_idx;
 
     // compute per-row partition values
-    std::vector<VExprContext*> _partition_expr_ctxs;
+    VExprContextSPtrs _partition_expr_ctxs;
 
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;

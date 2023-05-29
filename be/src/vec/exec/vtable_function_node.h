@@ -145,7 +145,7 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<VExprContext*> _vfn_ctxs;
+    VExprContextSPtrs _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;
     int _fn_num = 0;

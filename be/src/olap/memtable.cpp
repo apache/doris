@@ -209,6 +209,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
+
+    _stat.raw_rows += num_rows;
 }
 
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
@@ -231,10 +233,11 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
         auto col_ptr = mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                 new_row->_row_pos, nullptr);
+                                 new_row->_row_pos, _arena.get());
     }
 }
-void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
+void MemTable::_put_into_output(vectorized::Block& in_block) {
+    SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
     if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
         // skip sort if the table is dup table without keys
         _output_mutable_block.swap(_input_mutable_block);
@@ -250,6 +253,8 @@ void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
                                    row_pos_vec.data() + in_block.rows());
 }
 int MemTable::_sort() {
+    SCOPED_RAW_TIMER(&_stat.sort_ns);
+    _stat.sort_times++;
     _vec_row_comparator->set_block(&_input_mutable_block);
     auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     size_t same_keys_num = 0;
@@ -293,7 +298,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
             } else {
                 function->reset(agg_place);
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                              row_pos, nullptr);
+                              row_pos, _arena.get());
             }
         }
         if constexpr (is_final) {
@@ -313,6 +318,8 @@ void MemTable::_finalize_one_row(RowInBlock* row,
 
 template <bool is_final>
 void MemTable::_aggregate() {
+    SCOPED_RAW_TIMER(&_stat.agg_ns);
+    _stat.agg_times++;
     vectorized::Block in_block = _input_mutable_block.to_block();
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
@@ -336,10 +343,10 @@ void MemTable::_aggregate() {
                     _agg_functions[cid]->create(data);
                     _agg_functions[cid]->add(
                             data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                            prev_row->_row_pos, nullptr);
+                            prev_row->_row_pos, _arena.get());
                 }
             }
-            _merged_rows++;
+            _stat.merged_rows++;
             _aggregate_two_row_in_block(mutable_block, _row_in_blocks[i], prev_row);
         } else {
             prev_row = _row_in_blocks[i];
@@ -378,7 +385,7 @@ void MemTable::shrink_memtable_by_agg() {
     int same_keys_num = _sort();
     if (same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
-        _prepare_block_for_flush(in_block);
+        _put_into_output(in_block);
     } else {
         _aggregate<false>();
     }
@@ -409,6 +416,7 @@ bool MemTable::need_agg() const {
 
 Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                          int64_t atomic_num_segments_after_flush) {
+    SCOPED_RAW_TIMER(&_stat.delete_bitmap_ns);
     // generate delete bitmap, build a tmp rowset and load recent segment
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
@@ -435,20 +443,21 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
 
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
-                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
-    int64_t duration_ns = 0;
+                  << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
     // For merge_on_write table, it must get all segments in this flush.
     // The id of new segment is set by the _num_segment of beta_rowset_writer,
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
     // and use the ids to load segment data file for calc delete bitmap.
     int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
-    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush(duration_ns)));
-    _delta_writer_callback(_merged_rows);
+    int64_t duration_ns;
+    SCOPED_RAW_TIMER(&duration_ns);
+    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush()));
     int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
     if (!_tablet_schema->is_partial_update()) {
         RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
                                                 atomic_num_segments_after_flush));
     }
+    _delta_writer_callback(_stat);
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()
@@ -457,13 +466,12 @@ Status MemTable::flush() {
     return Status::OK();
 }
 
-Status MemTable::_do_flush(int64_t& duration_ns) {
+Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    SCOPED_RAW_TIMER(&duration_ns);
     int same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
-        _prepare_block_for_flush(in_block);
+        _put_into_output(in_block);
     } else {
         _aggregate<true>();
     }
@@ -472,6 +480,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         // Unfold variant column
         unfold_variant_column(block);
     }
+    SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
