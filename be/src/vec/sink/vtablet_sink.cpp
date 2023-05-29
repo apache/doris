@@ -579,6 +579,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
     std::unique_ptr<Payload> temp_payload = nullptr;
     if (_index_channel != nullptr && _index_channel->get_where_clause() != nullptr) {
+        SCOPED_RAW_TIMER(&_where_clause_ns);
         temp_payload.reset(new Payload(
                 std::unique_ptr<vectorized::IColumn::Selector>(new vectorized::IColumn::Selector()),
                 std::vector<int64_t>()));
@@ -622,6 +623,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         }
     }
 
+    SCOPED_RAW_TIMER(&_append_node_channel_ns);
     if (is_append) {
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_block_by_selector
@@ -1055,6 +1057,10 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
+    _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
+    _filter_timer = ADD_CHILD_TIMER(_profile, "FilterTime", "SendDataTime");
+    _where_clause_timer = ADD_CHILD_TIMER(_profile, "WhereClauseTime", "SendDataTime");
+    _append_node_channel_timer = ADD_CHILD_TIMER(_profile, "AppendNodeChannelTime", "SendDataTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -1316,6 +1322,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         // Recaculate is needed
         _partition_to_tablet_map.clear();
     }
+    _row_distribution_watch.start();
     for (int i = 0; i < num_rows; ++i) {
         if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -1336,11 +1343,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             _open_partition(partition);
         }
     }
+    _row_distribution_watch.stop();
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =
             !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
+        _SCOPED_RAW_TIMER(&_filer_ns);
         // clear and release the references of columns
         input_block->clear();
         // Filter block
@@ -1456,6 +1465,10 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_output_rows_counter, _number_output_rows);
         COUNTER_SET(_filtered_rows_counter, _number_filtered_rows);
         COUNTER_SET(_send_data_timer, _send_data_ns);
+        COUNTER_SET(_row_distribution_timer, _row_distribution_watch.elapsed());
+        COUNTER_SET(_filter_timer, _filter_ns);
+        COUNTER_SET(_append_node_channel_timer, _append_node_channel_ns);
+        COUNTER_SET(_where_clause_timer, _where_clause_ns);
         COUNTER_SET(_wait_mem_limit_timer, mem_exceeded_block_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
