@@ -35,7 +35,9 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
@@ -52,37 +54,32 @@ import java.util.stream.Collectors;
 public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return unboundOlapTableSink(logicalProject())
+        return unboundOlapTableSink()
                 .thenApply(ctx -> {
-                    UnboundOlapTableSink<LogicalProject<Plan>> sink = ctx.root;
-                    LogicalProject<Plan> project = sink.child();
+                    UnboundOlapTableSink<?> sink = ctx.root;
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
 
-                    List<NamedExpression> newProjects = Lists.newArrayList(project.child().getOutput());
-                    newProjects.addAll(project.getProjects());
-                    LogicalProject<?> newProject = new LogicalProject<>(newProjects, project.child());
+                    LogicalPlan child = ((LogicalPlan) sink.child());
 
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
                             bindTargetColumns(table, sink.getColNames()),
                             bindPartitionIds(table, sink.getPartitions()),
-                            newProject);
+                            sink.child());
 
                     // we need to insert all the columns of the target table although some columns are not mentions.
                     // so we add a projects to supply the default value.
 
-                    if (boundSink.getCols().size() != project.getOutputs().size()) {
+                    if (boundSink.getCols().size() != child.getOutput().size()) {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
                     Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
-                        // DataType lhs = DataType.fromCatalogType(boundSink.getCols().get(i).getType());
-                        // DataType rhs = project.getOutput().get(i).getDataType();
-                        columnToOutput.put(boundSink.getCols().get(i), project.getOutput().get(i));
+                        columnToOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
                     List<NamedExpression> newOutput = Lists.newArrayList();
@@ -99,8 +96,11 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                                     .checkedCastTo(DataType.fromCatalogType(column.getType())), column.getName()));
                         }
                     }
-                    newOutput.addAll(project.child().getOutput());
-                    return new LogicalProject<>(newOutput, boundSink);
+
+                    LogicalProject<?> project = ProjectCollector.INSTANCE.collect(sink);
+                    newOutput.addAll(project.getOutputs());
+
+                    return boundSink.withChildren(new LogicalProject<>(newOutput, boundSink.child()));
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
@@ -140,5 +140,24 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     }
                     return column;
                 }).collect(Collectors.toList());
+    }
+
+    private static class ProjectCollector extends DefaultPlanVisitor<LogicalPlan, Void> {
+        public static final ProjectCollector INSTANCE = new ProjectCollector();
+        private LogicalProject firstProject = null;
+
+        public LogicalProject collect(Plan plan) {
+            firstProject = null;
+            plan.accept(this, null);
+            return firstProject;
+        }
+
+        @Override
+        public LogicalPlan visitLogicalProject(LogicalProject<?> project, Void unused) {
+            if (firstProject == null) {
+                firstProject = project;
+            }
+            return project;
+        }
     }
 }
