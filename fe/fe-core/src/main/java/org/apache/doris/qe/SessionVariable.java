@@ -799,13 +799,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
-    /**
-     * If true, when synchronously collecting statistics, the information of
-     * the statistics job will be saved, currently mainly used for p0 test
-     */
-    @VariableMgr.VarAttr(name = ENABLE_SAVE_STATISTICS_SYNC_JOB)
-    public boolean enableSaveStatisticsSyncJob = false;
-
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
@@ -1571,10 +1564,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
-    }
-
-    public boolean isEnableSaveStatisticsSyncJob() {
-        return enableSaveStatisticsSyncJob;
     }
 
     public long getFileSplitSize() {

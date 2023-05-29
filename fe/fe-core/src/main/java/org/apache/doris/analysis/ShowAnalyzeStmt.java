@@ -72,12 +72,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
     private Expr whereClause;
     private LimitElement limitElement;
     private List<OrderByElement> orderByElements;
-
-    // after analyzed
-    private String catalogName;
-    private String dbName;
-    private String tblName;
-
     private String stateValue;
     private ArrayList<OrderByPair> orderByPairs;
 
@@ -105,30 +99,8 @@ public class ShowAnalyzeStmt extends ShowStmt {
         this.limitElement = limitElement;
     }
 
-    public ImmutableList<String> getTitleNames() {
-        return TITLE_NAMES;
-    }
-
     public Long getJobId() {
         return jobId;
-    }
-
-    public String getCatalogName() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The catalogName must be obtained after the parsing is complete");
-        return catalogName;
-    }
-
-    public String getDbName() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The dbName must be obtained after the parsing is complete");
-        return dbName;
-    }
-
-    public String getTblName() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The tblName must be obtained after the parsing is complete");
-        return tblName;
     }
 
     public String getStateValue() {
@@ -143,37 +115,11 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return orderByPairs;
     }
 
-    public String getWhereClause() {
+    public Expr getWhereClause() {
         Preconditions.checkArgument(isAnalyzed(),
                 "The whereClause must be obtained after the parsing is complete");
 
-        StringBuilder clauseBuilder = new StringBuilder();
-
-        if (jobId != null) {
-            clauseBuilder.append("job_Id = ").append(jobId);
-        }
-
-        if (!Strings.isNullOrEmpty(catalogName)) {
-            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
-                    .append("catalog_name = \"").append(catalogName).append("\"");
-        }
-
-        if (!Strings.isNullOrEmpty(dbName)) {
-            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
-                    .append("db_name = \"").append(dbName).append("\"");
-        }
-
-        if (!Strings.isNullOrEmpty(tblName)) {
-            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
-                    .append("tbl_name = \"").append(tblName).append("\"");
-        }
-
-        if (!Strings.isNullOrEmpty(stateValue)) {
-            clauseBuilder.append(clauseBuilder.length() > 0 ? " AND " : "")
-                    .append("state = \"").append(stateValue).append("\"");
-        }
-
-        return clauseBuilder.toString();
+        return whereClause;
     }
 
     public long getLimit() {
@@ -190,15 +136,12 @@ public class ShowAnalyzeStmt extends ShowStmt {
                     + "in your FE conf file");
         }
         super.analyze(analyzer);
-        catalogName = analyzer.getEnv().getInternalCatalog().getName();
 
         if (dbTableName != null) {
             dbTableName.analyze(analyzer);
             String dbName = dbTableName.getDb();
             String tblName = dbTableName.getTbl();
             checkShowAnalyzePriv(dbName, tblName);
-            this.dbName = dbName;
-            this.tblName = tblName;
         }
 
         // analyze where clause if not null
@@ -360,5 +303,9 @@ public class ShowAnalyzeStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public TableName getDbTableName() {
+        return dbTableName;
     }
 }

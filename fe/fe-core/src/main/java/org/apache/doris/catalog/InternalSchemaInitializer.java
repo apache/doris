@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
@@ -51,18 +50,9 @@ import java.util.stream.Collectors;
 
 public class InternalSchemaInitializer extends Thread {
 
-    private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
-
-    /**
-     * If internal table creation failed, will retry after below seconds.
-     */
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
-    /**
-     * Used when an internal table schema changes.
-     * TODO remove this code after the table structure is stable
-     */
-    private boolean isSchemaChanged = false;
+    private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public void run() {
         if (FeConstants.disableInternalSchemaDb) {
@@ -91,7 +81,6 @@ public class InternalSchemaInitializer extends Thread {
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
-        Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisJobTblStmt());
     }
 
     @VisibleForTesting
@@ -215,59 +204,6 @@ public class InternalSchemaInitializer extends Thread {
         return createTableStmt;
     }
 
-    @VisibleForTesting
-    public CreateTableStmt buildAnalysisJobTblStmt() throws UserException {
-        TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("job_id", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("task_id", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("col_name", TypeDef.createVarchar(1024)));
-        columnDefs.add(new ColumnDef("index_id", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("col_partitions", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
-        columnDefs.add(new ColumnDef("job_type", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("analysis_type", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("analysis_mode", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("analysis_method", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("schedule_type", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("state", TypeDef.createVarchar(32)));
-        columnDefs.add(new ColumnDef("sample_percent", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("sample_rows", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("max_bucket_num", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("period_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("last_exec_time_in_ms", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("message", TypeDef.createVarchar(1024)));
-        // TODO remove this code after the table structure is stable
-        if (!isSchemaChanged && isTableChanged(tableName, columnDefs)) {
-            isSchemaChanged = true;
-            DropTableStmt dropTableStmt = new DropTableStmt(true, tableName, true);
-            StatisticsUtil.analyze(dropTableStmt);
-            Env.getCurrentEnv().getInternalCatalog().dropTable(dropTableStmt);
-        }
-        String engineName = "olap";
-        ArrayList<String> uniqueKeys = Lists.newArrayList("job_id", "task_id",
-                "catalog_name", "db_name", "tbl_name", "col_name", "index_id");
-        KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS, uniqueKeys);
-
-        DistributionDesc distributionDesc = new HashDistributionDesc(
-                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
-                Lists.newArrayList("job_id", "task_id"));
-        Map<String, String> properties = new HashMap<String, String>() {
-            {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
-            }
-        };
-        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
-        // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        StatisticsUtil.analyze(createTableStmt);
-        return createTableStmt;
-    }
-
     private boolean created() {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
@@ -276,17 +212,9 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Database db = optionalDatabase.get();
-        // TODO remove this code after the table structure is stable
-        try {
-            buildAnalysisJobTblStmt();
-        } catch (UserException ignored) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-        return !isSchemaChanged
-                && db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
+        return db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
                 && db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.ANALYSIS_JOB_TABLE).isPresent();
+                && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
     }
 
     /**
