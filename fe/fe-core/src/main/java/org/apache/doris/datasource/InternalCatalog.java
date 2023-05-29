@@ -89,6 +89,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -1411,6 +1412,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     if (hashDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                    }
+                } else if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
+                    RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
+                    if (randomDistributionInfo.getBucketNum() <= 0) {
+                        throw new DdlException("Cannot assign random distribution buckets less than 1");
                     }
                 }
             } else {
