@@ -98,7 +98,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     }
 
                     LogicalProject<?> project = ProjectCollector.INSTANCE.collect(sink);
-                    newOutput.addAll(project.getOutputs());
+                    newOutput.addAll(project.getOutput());
 
                     return boundSink.withChildren(new LogicalProject<>(newOutput, boundSink.child()));
 
