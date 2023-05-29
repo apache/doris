@@ -28,7 +28,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -41,7 +40,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -316,8 +314,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
 
-        OlapTable targetTable = olapTableSink.getTargetTable();
-
         TupleDescriptor olapTuple = context.generateTupleDesc();
         for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
@@ -359,7 +355,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.setSink(sink);
 
-        List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
+        /*List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
                 .getDefaultDistributionInfo()).getDistributionColumns().stream()
                 .map(column -> targetTable.getFullSchema().indexOf(column))
                 .collect(Collectors.toList());
@@ -368,12 +364,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .filter(expr -> !(expr instanceof LiteralExpr))
                 .collect(Collectors.toList());
 
-        /*DataPartition partition = partitionExpr.isEmpty()
+        DataPartition partition = partitionExpr.isEmpty()
                 ? DataPartition.UNPARTITIONED
                 : DataPartition.hashPartitioned(partitionExpr);
 
         rootFragment.setOutputPartition(partition);*/
-        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExpr));
         rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
 
         return rootFragment;
