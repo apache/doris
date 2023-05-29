@@ -204,6 +204,6 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         }
         return PhysicalProperties.createHash(columnIndexes.stream()
                 .map(colIdx -> child().getOutput().get(colIdx).getExprId())
-                .collect(Collectors.toList()), ShuffleType.ENFORCED);
+                .collect(Collectors.toList()), ShuffleType.NATURAL);
     }
 }
