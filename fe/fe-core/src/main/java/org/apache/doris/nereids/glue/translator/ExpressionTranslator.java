@@ -34,6 +34,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -71,6 +72,8 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
@@ -357,8 +360,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expression> currentPhaseArguments = child instanceof AggregateFunction
                 ? child.children()
                 : aggregateExpression.children();
-        return translateAggregateFunction(aggregateExpression.getFunction(),
-                currentPhaseArguments, aggFnArguments, aggregateExpression.getAggregateParam(), context);
+        AggregateFunction function = aggregateExpression.getFunction();
+        org.apache.doris.catalog.AggregateFunction catalogFunction;
+        if (function instanceof MergeCombinator) {
+            catalogFunction = (org.apache.doris.catalog.AggregateFunction) visitMergeCombinator(
+                    (MergeCombinator) function, context).getFn();
+        } else {
+            catalogFunction = translateAggregateFunction(function);
+        }
+
+        return translateAggregateFunction(function, catalogFunction, currentPhaseArguments, aggFnArguments,
+                aggregateExpression.getAggregateParam(), context);
     }
 
     @Override
@@ -430,10 +442,44 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new IsNullPredicate(isNull.child().accept(this, context), false, true);
     }
 
+    @Override
+    public Expr visitStateCombinator(StateCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.getArguments().stream().map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+        return Function.convertToStateCombinator(new FunctionCallExpr(
+                translateAggregateFunction(combinator.getNestedFunction()), new FunctionParams(false, arguments)));
+    }
+
+    @Override
+    public Expr visitMergeCombinator(MergeCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.getArguments().stream().map(arg -> arg.accept(this, context))
+                .collect(Collectors.toList());
+        return Function.convertToMergeCombinator(new FunctionCallExpr(
+                translateAggregateFunction(combinator.getNestedFunction()), new FunctionParams(false, arguments)));
+    }
+
+    private org.apache.doris.catalog.AggregateFunction translateAggregateFunction(AggregateFunction function) {
+        return new org.apache.doris.catalog.AggregateFunction(
+                new FunctionName(function.getName()), function.getArguments()
+                        .stream()
+                        .filter(arg -> !(arg instanceof OrderExpression))
+                        .map(arg -> arg.getDataType().toCatalogDataType())
+                        .collect(ImmutableList.toImmutableList()),
+                function.getDataType().toCatalogDataType(),
+                function.getIntermediateTypes().toCatalogDataType(),
+                function.hasVarArguments(),
+                null, "", "", null, "",
+                null, "", null, false,
+                false, false, TFunctionBinaryType.BUILTIN,
+                true, true, function.nullable()
+                        ? NullableMode.ALWAYS_NULLABLE
+                        : NullableMode.ALWAYS_NOT_NULLABLE);
+    }
+
     // TODO: Supports for `distinct`
     private Expr translateAggregateFunction(AggregateFunction function,
-            List<Expression> currentPhaseArguments, List<Expr> aggFnArguments,
-            AggregateParam aggregateParam, PlanTranslatorContext context) {
+            org.apache.doris.catalog.AggregateFunction catalogFunction, List<Expression> currentPhaseArguments,
+            List<Expr> aggFnArguments, AggregateParam aggregateParam, PlanTranslatorContext context) {
         List<Expr> currentPhaseCatalogArguments = currentPhaseArguments
                 .stream()
                 .map(arg -> arg instanceof OrderExpression
@@ -461,29 +507,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             fnParams = new FunctionParams(function.isDistinct(), currentPhaseCatalogArguments);
             aggFnParams = new FunctionParams(function.isDistinct(), aggFnArguments);
         }
-
-        ImmutableList<Type> argTypes = function.getArguments()
-                .stream()
-                .filter(arg -> !(arg instanceof OrderExpression))
-                .map(arg -> arg.getDataType().toCatalogDataType())
-                .collect(ImmutableList.toImmutableList());
-
-        NullableMode nullableMode = function.nullable()
-                ? NullableMode.ALWAYS_NULLABLE
-                : NullableMode.ALWAYS_NOT_NULLABLE;
-
-        boolean isAnalyticFunction = false;
-        String functionName = function.getName();
-        org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
-                new FunctionName(functionName), argTypes,
-                function.getDataType().toCatalogDataType(),
-                function.getIntermediateTypes().toCatalogDataType(),
-                function.hasVarArguments(),
-                null, "", "", null, "",
-                null, "", null, false,
-                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
-                true, true, nullableMode
-        );
 
         boolean isMergeFn = aggregateParam.aggMode.consumeAggregateBuffer;
         // create catalog FunctionCallExpr without analyze again

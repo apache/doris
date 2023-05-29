@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -80,6 +81,11 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                 needAggregate = needAggregate || child.accept(this, context);
             }
             return needAggregate;
+        }
+
+        @Override
+        public Boolean visitMergeCombinator(MergeCombinator aggregateFunction, Void context) {
+            return true;
         }
 
         @Override
