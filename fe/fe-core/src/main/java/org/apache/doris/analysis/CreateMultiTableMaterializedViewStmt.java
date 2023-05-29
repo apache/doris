@@ -30,9 +30,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -42,13 +40,13 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
-    private final String mvName;
+    private final TableName mvName;
     private final MVRefreshInfo.BuildMode buildMode;
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
     private final Map<String, TableIf> tables = Maps.newHashMap();
 
-    public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMode,
+    public CreateMultiTableMaterializedViewStmt(TableName mvName, MVRefreshInfo.BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, QueryStmt queryStmt) {
         this.mvName = mvName;
@@ -76,12 +74,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);
         }
-        String defaultDb = analyzer.getDefaultDb();
-        if (Strings.isNullOrEmpty(defaultDb)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
-
-        tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, defaultDb, mvName);
+        //        String defaultDb = analyzer.getDefaultDb();
+        //        if (Strings.isNullOrEmpty(defaultDb)) {
+        //            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        //        }
+        //
+        //        tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, defaultDb, mvName);
+        tableName = mvName;
         if (partitionDesc != null) {
             ((ColumnPartitionDesc) partitionDesc).analyze(analyzer, this);
         }
@@ -197,10 +196,6 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         }
         sb.append(" AS ").append(queryStmt.toSql());
         return sb.toString();
-    }
-
-    public String getMVName() {
-        return mvName;
     }
 
     public Map<String, TableIf> getTables() {

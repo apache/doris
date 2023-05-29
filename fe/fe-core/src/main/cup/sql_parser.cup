@@ -1905,7 +1905,7 @@ create_stmt ::=
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
+    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
          opt_mv_partition:partitionDesc

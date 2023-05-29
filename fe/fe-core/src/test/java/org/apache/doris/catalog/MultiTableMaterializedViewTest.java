@@ -121,7 +121,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         MaterializedView mv = (MaterializedView) new OlapTableFactory()
                 .init(OlapTableFactory.getTableType(stmt))
                 .withTableId(0)
-                .withTableName(stmt.getMVName())
+                .withTableName(stmt.getTableName())
                 .withKeysType(stmt.getKeysDesc().getKeysType())
                 .withSchema(stmt.getColumns())
                 .withPartitionInfo(new SinglePartitionInfo())
@@ -131,7 +131,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         mv.setBaseIndexId(1);
         mv.setIndexMeta(
                 1,
-                stmt.getMVName(),
+                stmt.getTableName(),
                 stmt.getColumns(),
                 0,
                 Util.generateSchemaHash(),
