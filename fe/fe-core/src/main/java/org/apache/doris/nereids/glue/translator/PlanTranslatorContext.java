@@ -25,7 +25,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -35,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
-import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -219,21 +217,5 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
-    }
-
-    public void setIsInsert(OlapTableSink isInsert) {
-        this.hasInsertSink = isInsert;
-    }
-
-    public OlapTableSink getHasInsertSink() {
-        return hasInsertSink;
-    }
-
-    public void setInsertTargetTable(OlapTable insertTargetTable) {
-        this.insertTargetTable = insertTargetTable;
-    }
-
-    public OlapTable getInsertTargetTable() {
-        return insertTargetTable;
     }
 }

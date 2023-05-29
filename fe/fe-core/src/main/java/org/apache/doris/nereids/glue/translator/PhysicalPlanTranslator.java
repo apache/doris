@@ -28,6 +28,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -40,6 +41,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -76,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -286,17 +289,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        if (context.getInsertSink() == null && isFragmentPartitioned(rootFragment)) {
-            rootFragment = exchangeToMergeFragment(rootFragment, context);
-        }
-
-        if (context.getInsertSink() != null) {
-            List<Expr> exprs = physicalPlan.getOutput().stream()
-                    .map(slot -> context.findSlotRef(slot.getExprId()))
-                    .collect(Collectors.toList());
-            rootFragment = setPlanFragmentForInsert(rootFragment, exprs);
-        }
-
         if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
@@ -316,7 +308,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanTranslatorContext context) {
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
-        context.setInsertTargetTable(olapTableSink.getTargetTable());
+
+        OlapTable targetTable = olapTableSink.getTargetTable();
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
         for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
@@ -333,7 +326,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-        context.setIsInsert(sink);
 
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
@@ -347,6 +339,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
+        
+        List<Expr> outputExprs = olapTableSink.getOutput().stream()
+                .map(slot -> ExpressionTranslator.translate(slot, context))
+                .collect(Collectors.toList());
+        rootFragment.setOutputExprs(outputExprs);
+        rootFragment.setSink(sink);
+        
+        List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
+                .getDefaultDistributionInfo()).getDistributionColumns().stream()
+                .map(column -> targetTable.getFullSchema().indexOf(column))
+                .collect(Collectors.toList());
+
+        List<Expr> partitionExpr = colIdx.stream().map(idx -> outputExprs.get(idx))
+                .filter(expr -> !(expr instanceof LiteralExpr))
+                .collect(Collectors.toList());
+
+        rootFragment.setOutputPartition(partitionExpr.isEmpty()
+                ? DataPartition.UNPARTITIONED
+                : DataPartition.hashPartitioned(partitionExpr));
 
         return rootFragment;
     }
@@ -2539,24 +2550,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (statsErrorEstimator != null) {
             statsErrorEstimator.updateLegacyPlanIdToPhysicalPlan(planNode, physicalPlan);
         }
-    }
-
-    private PlanFragment setPlanFragmentForInsert(PlanFragment inputFragment, List<Expr> execExprList) {
-        OlapTable olapTable = context.getInsertTargetTable();
-
-        inputFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        inputFragment.setSink(context.getInsertSink());
-
-        List<Expr> castExprs = Lists.newArrayList();
-        for (int i = 0; i < olapTable.getFullSchema().size(); ++i) {
-            try {
-                castExprs.add(execExprList.get(i).castTo(olapTable.getFullSchema().get(i).getType()));
-            } catch (Exception e) {
-                throw new AnalysisException("cast failed");
-            }
-        }
-        inputFragment.setOutputExprs(castExprs);
-        return inputFragment;
     }
 
     private SlotDescriptor injectRowIdColumnSlot(TupleDescriptor tupleDesc) {
