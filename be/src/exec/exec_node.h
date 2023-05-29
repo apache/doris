@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -246,6 +247,14 @@ public:
 
     size_t children_count() const { return _children.size(); }
 
+    std::vector<ExecNode*> get_children() { return _children; }
+    void set_children(std::vector<ExecNode*> children) {
+        DCHECK(_children.empty());
+        _children.assign(children.begin(), children.end());
+    }
+
+    void set_prepare_children(bool b) { _prepare_children = b; }
+
 protected:
     friend class DataSink;
 
@@ -334,6 +343,7 @@ private:
     friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;
+    bool _prepare_children = true;
     std::atomic_int _ref; // used by pipeline operator to release resource.
 };
 

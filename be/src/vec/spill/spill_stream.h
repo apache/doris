@@ -34,6 +34,7 @@ namespace vectorized {
 
 class Block;
 
+using flush_stream_callback = std::function<void(const Status&)>;
 class SpillStream {
 public:
     SpillStream(int64_t stream_id, std::string spill_dir, int32_t batch_size,
@@ -64,7 +65,7 @@ public:
     Status get_next(Block* block, bool* eos);
 
     // write blocks_ to disk asynchronously
-    Status flush();
+    Status flush(const flush_stream_callback& cb);
 
     Status restore();
 
@@ -79,6 +80,8 @@ public:
     int64 id() const { return stream_id_; }
 
 private:
+    Status _flush_internal();
+
     ThreadPool* io_thread_pool_;
     int64_t stream_id_;
     std::string spill_dir_;

@@ -35,13 +35,14 @@ class GraceHashJoinNode;
 
 class JoinPartition {
 public:
+    JoinPartition(GraceHashJoinNode* parent) : parent_(parent) {}
     Status prepare(RuntimeState* state, RuntimeProfile* profile, const std::string& operator_name,
                    int node_id);
 
+    Status prepare_add_build_rows(Block* block, std::vector<int>& rows);
     Status add_build_rows(Block* block, std::vector<int>& rows);
 
     Status prepare_add_probe_rows(Block* block, std::vector<int>& rows);
-
     Status add_probe_rows(RuntimeState* state, Block* block, std::vector<int>& rows, bool eos);
 
     Status add_probe_block(Block& block) {
@@ -54,22 +55,22 @@ public:
     }
 
     // force spill build blocks
-    Status flush_build_stream() {
+    Status flush_build_stream_async(const flush_stream_callback& flush_callback) {
         if (!mutable_build_block_->empty()) {
             auto block = mutable_build_block_->to_block();
             build_stream_->add_block(block);
             mutable_build_block_->clear_column_data();
         }
-        return build_stream_->flush();
+        return build_stream_->flush(flush_callback);
     }
 
-    Status flush_probe_stream() {
+    Status flush_probe_stream_async(const flush_stream_callback& flush_callback) {
         if (!mutable_probe_block_->empty()) {
             auto block = mutable_probe_block_->to_block();
             probe_stream_->add_block(block);
             mutable_probe_block_->clear_column_data();
         }
-        return probe_stream_->flush();
+        return probe_stream_->flush(flush_callback);
     }
 
     bool build_stream_can_write() const { return !is_flushing_build_stream(); }
@@ -80,15 +81,30 @@ public:
 
     bool is_spilled() const { return build_stream_->is_spilled() || probe_stream_->is_spilled(); }
 
+    bool is_build_partition_spilled() const { return build_stream_->is_spilled(); }
+
+    bool is_probe_partition_spilled() const { return probe_stream_->is_spilled(); }
+
     bool has_hash_table() const { return in_mem_hash_join_node_ != nullptr; }
 
     bool is_ready_for_probe() const { return is_ready_for_probe_; }
 
     size_t build_data_bytes() const { return build_data_bytes_; }
 
+    size_t probe_data_bytes() const { return probe_data_bytes_; }
+
     Status restore_build_data();
 
+    bool need_more_probe_data() const { return in_mem_hash_join_node_->need_more_input_data(); }
+
     bool current_probe_finished() const { return in_mem_hash_join_node_->current_probe_finished(); }
+
+    Status probe(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+        return in_mem_hash_join_node_->pull(state, output_block, eos);
+    }
+
+    bool is_processed() const { return is_processed_; }
+    void set_is_processed() { is_processed_ = true; }
 
 private:
     friend class GraceHashJoinNode;
@@ -106,6 +122,7 @@ private:
     static constexpr size_t BLOCK_ROWS = 1024 * 1024;
     static constexpr size_t BLOCK_BYTES = 64 << 20;
 
+    GraceHashJoinNode* parent_;
     Status build_status_;
     InMemoryHashJoinNodeUPtr in_mem_hash_join_node_;
     SpillStreamSPtr build_stream_;
@@ -114,6 +131,7 @@ private:
     size_t build_data_bytes_ = 0;
     int64_t probe_row_count_ = 0;
     size_t probe_data_bytes_ = 0;
+    bool is_processed_ = false;
 
     std::unique_ptr<MutableBlock> mutable_build_block_;
     std::unique_ptr<MutableBlock> mutable_probe_block_;
@@ -143,6 +161,10 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
+    Status alloc_resource(RuntimeState* state) override;
+
+    void release_resource(RuntimeState* state) override;
+
     // 对Build数据进行分区，必要时落盘。
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
@@ -155,14 +177,10 @@ public:
 
     bool should_build_hash_table() const { return should_build_hash_table_; }
 
-    bool can_sink_write() const {
-        for (int i = 0; i < PARTITION_COUNT; ++i) {
-            if (!current_partitions_[i]->build_stream_can_write()) {
-                return false;
-            }
-        }
-        return true;
-    }
+    bool can_sink_write() const { return latch_.ready(); }
+
+    void flush_build_partition_cb(const Status& status);
+    void flush_probe_partition_cb(const Status& status);
 
 private:
     static constexpr int PARTITION_COUNT = 16;
@@ -179,9 +197,9 @@ private:
         return n;
     }
 
-    Status _build_hash_tables(RuntimeState* state);
+    Status _build_hash_tables_async(RuntimeState* state);
 
-    int _smallest_join_partition() const {
+    int _min_build_partition() const {
         int index = 0;
         auto smallest_bytes_ = current_partitions_[0]->build_data_bytes();
         for (int i = 1; i < PARTITION_COUNT; ++i) {
@@ -193,12 +211,49 @@ private:
         return index;
     }
 
-    Status _push_probe_block(RuntimeState* state, Block* input_block);
+    int _max_in_memory_build_partition() const {
+        int index = -1;
+        size_t max_bytes = 0;
+        for (int i = 1; i < PARTITION_COUNT; ++i) {
+            if (!current_partitions_[i]->is_build_partition_spilled() &&
+                current_partitions_[i]->build_data_bytes() > max_bytes) {
+                max_bytes = current_partitions_[i]->build_data_bytes();
+                index = i;
+            }
+        }
+        return index;
+    }
+
+    int _max_probe_partition_to_spill() const {
+        int index = -1;
+        size_t max_bytes = 0;
+        for (int i = 1; i < PARTITION_COUNT; ++i) {
+            if (!current_partitions_[i]->is_ready_for_probe() &&
+                !current_partitions_[i]->is_probe_partition_spilled() &&
+                current_partitions_[i]->probe_data_bytes() > max_bytes) {
+                max_bytes = current_partitions_[i]->probe_data_bytes();
+                index = i;
+            }
+        }
+        return index;
+    }
 
     void _update_status(Status status);
 
     void _calc_columns_hash(vectorized::Block* input_block, const std::vector<int>& column_ids,
                             std::vector<int> (&partition2rows)[PARTITION_COUNT]);
+
+    Status _reserve_memory_for_build_partitions(vectorized::Block* input_block);
+    Status _reserve_memory_for_probe_partitions(vectorized::Block* input_block);
+
+    void _get_partitions_to_process();
+
+    void _get_spilled_partition_to_process();
+
+    Status _status() {
+        std::lock_guard guard(status_lock_);
+        return status_;
+    }
 
     RuntimeState* state_;
 
@@ -236,10 +291,11 @@ private:
     bool should_build_hash_table_ = true;
     Block build_block_;
     Block probe_block_;
-    NoBlockCountDownLatch build_hash_table_latch_;
-    NoBlockCountDownLatch spill_probe_latch_;
+    NoBlockCountDownLatch latch_;
 
-    std::vector<int> probe_partition2rows_[PARTITION_COUNT];
+    std::vector<int> build_partition_rows_[PARTITION_COUNT];
+    std::vector<int> probe_partition_rows_[PARTITION_COUNT];
+    bool sink_eos_ = false;
     bool probe_eos_ = false;
 };
 } // namespace vectorized

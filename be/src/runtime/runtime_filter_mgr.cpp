@@ -135,7 +135,8 @@ Status RuntimeFilterMgr::register_filter(const RuntimeFilterRole role,
     } else {
         DCHECK(_state != nullptr);
         if (iter != filter_map->end()) {
-            return Status::InvalidArgument("filter has registed");
+            // return Status::InvalidArgument("filter has registed");
+            return Status::OK();
         }
         RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options, role, node_id,
                                                &filter_mgr_val.filter, build_bf_exactly));

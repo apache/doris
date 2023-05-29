@@ -140,8 +140,10 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state));
+    if (_prepare_children) {
+        for (int i = 0; i < _children.size(); ++i) {
+            RETURN_IF_ERROR(_children[i]->prepare(state));
+        }
     }
 
     return Status::OK();

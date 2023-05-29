@@ -34,27 +34,35 @@ Status SpillStream::prepare() {
     return Status::OK();
 }
 
-Status SpillStream::flush() {
+Status SpillStream::flush(const flush_stream_callback& cb) {
     spilled_ = true;
     DCHECK(!is_flushing_);
     is_flushing_ = true;
-    auto status = io_thread_pool_->submit_func([this] {
-        for (auto it = blocks_.begin(); it != blocks_.end();) {
-            auto st = writer_->write(*it);
-            if (!st.ok()) {
-                io_status_.set_value(st);
-                break;
-            }
-            it = blocks_.erase(it);
-        }
-        blocks_.clear();
-        io_status_.set_value(Status::OK());
-        is_flushing_ = false;
-    });
-    // RETURN_IF_ERROR(thread_status.get_future().get());
-    return status;
+    if (cb) {
+        auto status = io_thread_pool_->submit_func([this, cb] {
+            Status st = _flush_internal();
+            io_status_.set_value(st);
+            cb(st);
+        });
+        return status;
+    } else {
+        return _flush_internal();
+    }
 }
 
+Status SpillStream::_flush_internal() {
+    Status st;
+    for (auto it = blocks_.begin(); it != blocks_.end();) {
+        st = writer_->write(*it);
+        if (!st.ok()) {
+            break;
+        }
+        it = blocks_.erase(it);
+    }
+    blocks_.clear();
+    is_flushing_ = false;
+    return st;
+}
 Status SpillStream::restore() {
     DCHECK(is_restoring_);
     is_restoring_ = true;
@@ -73,10 +81,18 @@ Status SpillStream::restore() {
     });
     return Status::OK();
 }
+
 Status SpillStream::get_next(Block* block, bool* eos) {
     if (!spilled_) {
+        if (blocks_.empty()) {
+            *eos = true;
+            return Status::OK();
+        }
         *block = std::move(blocks_.front());
         blocks_.pop_front();
+        if (blocks_.empty()) {
+            *eos = true;
+        }
         return Status::OK();
     } else {
         DCHECK(!is_reading_);
