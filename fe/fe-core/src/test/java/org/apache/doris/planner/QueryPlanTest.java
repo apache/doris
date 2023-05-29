@@ -1486,7 +1486,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("RF000[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("RF001[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("RF000[min_max] -> `t2`.`k1`"));
-        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] -> `t2`.`k1`"));   
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 13);
         explainString = getSQLPlanOrErrorMsg(queryStr);
