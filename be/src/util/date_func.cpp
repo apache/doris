@@ -147,7 +147,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer) {
     *buffer++ = '.';
     memset(buffer, '0', 6);
     buffer += 6;
-    auto it = buffer;
+    auto it = buffer - 1;
     while (m_time) {
         *it = (char)('0' + (m_time % 10));
         m_time /= 10;
@@ -196,7 +196,7 @@ std::string timev2_to_buffer_from_double(double time) {
     m_time %= 60 * 1000 * 1000;
     int32_t second = m_time / (1000 * 1000);
     int32_t micosecond = m_time % 1000 * 1000;
-    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}:{:06d}", minute, second, micosecond));
+    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:06d}", minute, second, micosecond));
     return fmt::to_string(buffer);
 }
 } // namespace doris
