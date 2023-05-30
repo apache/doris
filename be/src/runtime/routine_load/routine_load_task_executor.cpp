@@ -213,8 +213,13 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
     put_result.status = tstatus;
-    put_result.params = task.params;
-    put_result.__isset.params = true;
+    if (task.__isset.params) {
+        put_result.params = task.params;
+        put_result.__isset.params = true;
+    } else {
+        put_result.pipeline_params = task.pipeline_params;
+        put_result.__isset.pipeline_params = true;
+    }
     ctx->put_result = put_result;
     if (task.__isset.format) {
         ctx->format = task.format;
