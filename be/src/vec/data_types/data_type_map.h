@@ -82,7 +82,6 @@ public:
     bool is_comparable() const override {
         return key_type->is_comparable() && value_type->is_comparable();
     }
-    bool can_be_compared_with_collation() const override { return false; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }

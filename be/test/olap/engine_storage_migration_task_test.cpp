@@ -184,7 +184,10 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     EXPECT_NE(delta_writer, nullptr);
 
     res = delta_writer->close();

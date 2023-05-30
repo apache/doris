@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 
@@ -87,11 +88,11 @@ public class BDBJournalCursor implements JournalCursor {
     }
 
     @Override
-    public JournalEntity next() {
-        JournalEntity ret = null;
+    public Pair<Long, JournalEntity> next() {
         if (currentKey > toKey) {
-            return ret;
+            return null;
         }
+
         Long key = currentKey;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);
@@ -109,15 +110,15 @@ public class BDBJournalCursor implements JournalCursor {
                     // Recreate the data String.
                     byte[] retData = theData.getData();
                     DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
-                    ret = new JournalEntity();
+                    JournalEntity entity = new JournalEntity();
                     try {
-                        ret.readFields(in);
+                        entity.readFields(in);
                     } catch (Exception e) {
                         LOG.error("fail to read journal entity key={}, will exit", currentKey, e);
                         System.exit(-1);
                     }
                     currentKey++;
-                    return ret;
+                    return Pair.of(key, entity);
                 } else if (nextDbPositionIndex < dbNames.size() && currentKey == dbNames.get(nextDbPositionIndex)) {
                     database = environment.openDatabase(dbNames.get(nextDbPositionIndex).toString());
                     nextDbPositionIndex++;

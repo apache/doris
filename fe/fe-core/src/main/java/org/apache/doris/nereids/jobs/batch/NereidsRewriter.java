@@ -30,10 +30,15 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
+import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
+import org.apache.doris.nereids.rules.rewrite.logical.BuildCTEAnchorAndCTEProducer;
+import org.apache.doris.nereids.rules.rewrite.logical.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
@@ -57,6 +62,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
+import org.apache.doris.nereids.rules.rewrite.logical.InlineCTE;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeSetOperations;
@@ -66,8 +72,12 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTEAnchor;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.logical.SimplifyAggGroupBy;
@@ -85,52 +95,62 @@ import java.util.List;
  * Apply rules to optimize logical plan.
  */
 public class NereidsRewriter extends BatchRewriteJob {
+
+    public static final int INLINE_CTE_REFERENCED_THRESHOLD = 1;
+
     private static final List<RewriteJob> REWRITE_JOBS = jobs(
+
+            bottomUp(new InlineCTE()),
+
             topic("Plan Normalization",
-                topDown(
-                    new EliminateOrderByConstant(),
-                    new EliminateGroupByConstant(),
-                    // MergeProjects depends on this rule
-                    new LogicalSubQueryAliasToLogicalProject(),
-                    // TODO: we should do expression normalization after plan normalization
-                    //   because some rewritten depends on sub expression tree matching
-                    //   such as group by key matching and replaced
-                    //   but we need to do some normalization before subquery unnesting,
-                    //   such as extract common expression.
-                    new ExpressionNormalization(),
-                    new ExpressionOptimization(),
-                    new AvgDistinctToSumDivCount(),
-                    new CountDistinctRewrite(),
-                    new ExtractFilterFromCrossJoin()
-                ),
-                topDown(
-                    // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
-                    // in the ExpressionNormalization, so must invoke in another job, or else run into
-                    // dead loop
-                    new ExtractSingleTableExpressionFromDisjunction()
-                )
+                    topDown(
+                            new EliminateOrderByConstant(),
+                            new EliminateGroupByConstant(),
+                            // MergeProjects depends on this rule
+                            new LogicalSubQueryAliasToLogicalProject(),
+                            // TODO: we should do expression normalization after plan normalization
+                            //   because some rewritten depends on sub expression tree matching
+                            //   such as group by key matching and replaced
+                            //   but we need to do some normalization before subquery unnesting,
+                            //   such as extract common expression.
+                            new ExpressionNormalization(),
+                            new ExpressionOptimization(),
+                            new AvgDistinctToSumDivCount(),
+                            new CountDistinctRewrite(),
+                            new ExtractFilterFromCrossJoin()
+                    ),
+                    topDown(
+                            // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
+                            // in the ExpressionNormalization, so must invoke in another job, or else run into
+                            // dead loop
+                            new ExtractSingleTableExpressionFromDisjunction()
+                    )
             ),
 
+            topic("Rewrite CTE", topDown(
+                    new PushdownFilterThroughCTEAnchor(),
+                    new PushdownProjectThroughCTEAnchor())),
+
             topic("Subquery unnesting",
-                custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
 
-                bottomUp(
-                    new EliminateUselessPlanUnderApply(),
+                    bottomUp(
+                            new EliminateUselessPlanUnderApply(),
 
-                    // CorrelateApplyToUnCorrelateApply and ApplyToJoin
-                    // and SelectMaterializedIndexWithAggregate depends on this rule
-                    new MergeProjects(),
+                            // CorrelateApplyToUnCorrelateApply and ApplyToJoin
+                            // and SelectMaterializedIndexWithAggregate depends on this rule
+                            new MergeProjects(),
 
-                    /*
-                     * Subquery unnesting.
-                     * 1. Adjust the plan in correlated logicalApply
-                     *    so that there are no correlated columns in the subquery.
-                     * 2. Convert logicalApply to a logicalJoin.
-                     *  TODO: group these rules to make sure the result plan is what we expected.
-                     */
-                    new CorrelateApplyToUnCorrelateApply(),
-                    new ApplyToJoin()
-                )
+                            /*
+                             * Subquery unnesting.
+                             * 1. Adjust the plan in correlated logicalApply
+                             *    so that there are no correlated columns in the subquery.
+                             * 2. Convert logicalApply to a logicalJoin.
+                             *  TODO: group these rules to make sure the result plan is what we expected.
+                             */
+                            new CorrelateApplyToUnCorrelateApply(),
+                            new ApplyToJoin()
+                    )
             ),
 
             // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
@@ -139,7 +159,7 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             // please note: this rule must run before NormalizeAggregate
             topDown(
-                new AdjustAggregateNullableForEmptySet()
+                    new AdjustAggregateNullableForEmptySet()
             ),
 
             // The rule modification needs to be done after the subquery is unnested,
@@ -147,40 +167,40 @@ public class NereidsRewriter extends BatchRewriteJob {
             // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
             // resulting in inconsistent output results and results in apply
             topDown(
-                new SimplifyAggGroupBy(),
-                new NormalizeAggregate(),
-                new NormalizeSort()
+                    new SimplifyAggGroupBy(),
+                    new NormalizeAggregate(),
+                    new NormalizeSort()
             ),
 
             topic("Window analysis",
-                topDown(
-                    new ExtractAndNormalizeWindowExpression(),
-                    new CheckAndStandardizeWindowFunctionAndFrame()
-                )
+                    topDown(
+                            new ExtractAndNormalizeWindowExpression(),
+                            new CheckAndStandardizeWindowFunctionAndFrame()
+                    )
             ),
 
             topic("Rewrite join",
-                // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
-                topDown(
-                    new InferAggNotNull(),
-                    new InferFilterNotNull(),
-                    new InferJoinNotNull()
-                ),
-                // ReorderJoin depends PUSH_DOWN_FILTERS
-                // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
-                // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
-                // but top-down traverse can not cover this case in one iteration, so bottom-up is more
-                // efficient because it can find the new plans and apply transform wherever it is
-                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
+                    topDown(
+                            new InferAggNotNull(),
+                            new InferFilterNotNull(),
+                            new InferJoinNotNull()
+                    ),
+                    // ReorderJoin depends PUSH_DOWN_FILTERS
+                    // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
+                    // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
+                    // but top-down traverse can not cover this case in one iteration, so bottom-up is more
+                    // efficient because it can find the new plans and apply transform wherever it is
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                topDown(
-                    new MergeFilters(),
-                    new ReorderJoin(),
-                    new PushFilterInsideJoin(),
-                    new FindHashConditionForJoin(),
-                    new ConvertInnerOrCrossJoin(),
-                    new EliminateNullAwareLeftAntiJoin()
-                ),
+                    topDown(
+                            new MergeFilters(),
+                            new ReorderJoin(),
+                            new PushFilterInsideJoin(),
+                            new FindHashConditionForJoin(),
+                            new ConvertInnerOrCrossJoin(),
+                            new EliminateNullAwareLeftAntiJoin()
+                    ),
 
                 // pushdown SEMI Join
                 bottomUp(
@@ -191,30 +211,30 @@ public class NereidsRewriter extends BatchRewriteJob {
                     new TransposeSemiJoinAggProject()
                 ),
 
-                topDown(
-                    new EliminateDedupJoinCondition()
-                )
+                    topDown(
+                            new EliminateDedupJoinCondition()
+                    )
             ),
 
             topic("Column pruning and infer predicate",
-                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
 
-                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                    custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
-                // column pruning create new project, so we should use PUSH_DOWN_FILTERS
-                // to change filter-project to project-filter
-                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    // column pruning create new project, so we should use PUSH_DOWN_FILTERS
+                    // to change filter-project to project-filter
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                // after eliminate outer join in the PUSH_DOWN_FILTERS, we can infer more predicate and push down
-                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                    // after eliminate outer join in the PUSH_DOWN_FILTERS, we can infer more predicate and push down
+                    custom(RuleType.INFER_PREDICATES, InferPredicates::new),
 
-                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
 
-                // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
-                // this can help to translate plan to backend
-                topDown(
-                    new PushFilterInsideJoin()
-                )
+                    // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
+                    // this can help to translate plan to backend
+                    topDown(
+                            new PushFilterInsideJoin()
+                    )
             ),
 
             custom(RuleType.CHECK_DATATYPES, CheckDataTypes::new),
@@ -225,17 +245,25 @@ public class NereidsRewriter extends BatchRewriteJob {
             // we need to execute this rule at the end of rewrite
             // to avoid two consecutive same project appear when we do optimization.
             topic("Others optimization",
-                bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
-                    new EliminateNotNull(),
-                    new EliminateLimit(),
-                    new EliminateFilter(),
-                    new EliminateAggregate(),
-                    new MergeSetOperations(),
+                    bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
+                            new EliminateNotNull(),
+                            new EliminateLimit(),
+                            new EliminateFilter(),
+                            new EliminateAggregate(),
+                            new MergeSetOperations(),
+                            new PushdownLimit(),
+                            new BuildAggForUnion()
+                            // after eliminate filter, the project maybe can push down again,
+                            // so we add push down rules
+                    )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+            ),
+
+            topic("Window optimization",
+                topDown(
                     new PushdownLimit(),
-                    new BuildAggForUnion()
-                    // after eliminate filter, the project maybe can push down again,
-                    // so we add push down rules
-                )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+                    new PushdownTopNThroughWindow(),
+                    new PushdownFilterThroughWindow()
+                )
             ),
 
             // TODO: I think these rules should be implementation rules, and generate alternative physical plans.
@@ -253,13 +281,15 @@ public class NereidsRewriter extends BatchRewriteJob {
 
             topic("MV optimization",
                 topDown(
-                    // TODO: enable this rule after https://github.com/apache/doris/issues/18263 is fixed
-                    // new SelectMaterializedIndexWithAggregate(),
+                    new SelectMaterializedIndexWithAggregate(),
                     new SelectMaterializedIndexWithoutAggregate(),
                     new PushdownFilterThroughProject(),
                     new MergeProjects(),
                     new PruneOlapScanTablet()
-                )
+                ),
+                custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
 
             // this rule batch must keep at the end of rewrite to do some plan check
@@ -273,7 +303,13 @@ public class NereidsRewriter extends BatchRewriteJob {
                 bottomUp(
                     new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                     new CheckAfterRewrite()
-            ))
+            )),
+
+            topic("MATERIALIZED CTE", topDown(
+                            new CollectFilterAboveConsumer(),
+                            new CollectProjectAboveConsumer(),
+                            new BuildCTEAnchorAndCTEProducer()),
+                    topDown(new CTEProducerRewrite()))
     );
 
     public NereidsRewriter(CascadesContext cascadesContext) {

@@ -214,7 +214,7 @@ suite("join") {
 
     sql """drop table if exists test_memo_1"""
     sql """drop table if exists test_memo_2"""
-    sql """drop table if exists test_memo_2"""
+    sql """drop table if exists test_memo_3"""
 
     sql """ CREATE TABLE `test_memo_1` (
     `c_bigint` bigint(20) NULL,

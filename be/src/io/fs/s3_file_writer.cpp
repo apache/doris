@@ -46,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_write_bufferpool.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -87,11 +88,17 @@ S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3
 }
 
 S3FileWriter::~S3FileWriter() {
-    if (_opened) {
-        close();
+    if (!_closed || _failed) {
+        // if we don't abort multi part upload, the uploaded part in object
+        // store will not automatically reclaim itself, it would cost more money
+        abort();
+        _bytes_written = 0;
     }
-    CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
+    s3_bytes_written_total << _bytes_written;
+    CHECK(_closed) << ", closed: " << _closed;
     // in case there are task which might run after this object is destroyed
+    // for example, if the whole task failed and some task are still pending
+    // in threadpool
     _wait_until_finish("dtor");
     s3_file_being_written << -1;
 }
@@ -121,9 +128,10 @@ void S3FileWriter::_wait_until_finish(std::string task_name) {
 }
 
 Status S3FileWriter::abort() {
+    // make all pending work early quits
     _failed = true;
-    if (_closed || !_opened) {
-        _wait_until_finish("Abort");
+    _closed = true;
+    if (_aborted) {
         return Status::OK();
     }
     // we need to reclaim the memory
@@ -137,7 +145,6 @@ Status S3FileWriter::abort() {
     }
     VLOG_DEBUG << "S3FileWriter::abort, path: " << _path.native();
     _wait_until_finish("Abort");
-    _closed = true;
     AbortMultipartUploadRequest request;
     request.WithBucket(_bucket).WithKey(_key).WithUploadId(_upload_id);
     auto outcome = _client->AbortMultipartUpload(request);
@@ -147,6 +154,7 @@ Status S3FileWriter::abort() {
         LOG(INFO) << "Abort multipart upload successfully"
                   << "bucket=" << _bucket << ", key=" << _path.native()
                   << ", upload_id=" << _upload_id;
+        _aborted = true;
         return Status::OK();
     }
     return Status::IOError("failed to abort multipart upload(bucket={}, key={}, upload_id={}): {}",
@@ -154,11 +162,17 @@ Status S3FileWriter::abort() {
 }
 
 Status S3FileWriter::close() {
-    if (_closed || _failed) {
+    if (_closed) {
         _wait_until_finish("close");
         return _st;
     }
+    Defer defer {[&]() { _closed = true; }};
+    if (_failed) {
+        abort();
+        return _st;
+    }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
+    // it might be one file less than 5MB, we do upload here
     if (_pending_buf != nullptr) {
         if (_upload_id.empty()) {
             _pending_buf->set_upload_remote_callback(
@@ -169,18 +183,11 @@ Status S3FileWriter::close() {
         _pending_buf = nullptr;
     }
     RETURN_IF_ERROR(_complete());
-    _closed = true;
 
     return Status::OK();
 }
 
 Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
-    // lazy open
-    if (!_opened) {
-        VLOG_DEBUG << "S3FileWriter::open, path: " << _path.native();
-        _closed = false;
-        _opened = true;
-    }
     DCHECK(!_closed);
     size_t buffer_size = config::s3_write_buffer_size;
     SCOPED_RAW_TIMER(_upload_cost_ms.get());
@@ -339,7 +346,7 @@ Status S3FileWriter::finalize() {
 }
 
 void S3FileWriter::_put_object(S3FileBuffer& buf) {
-    DCHECK(!_closed && _opened) << "closed " << _closed << " opened " << _opened;
+    DCHECK(!_closed) << "closed " << _closed;
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
     request.SetBody(buf.get_stream());
@@ -351,8 +358,10 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
                                     response.GetError().GetExceptionName(),
                                     response.GetError().GetMessage(),
                                     static_cast<int>(response.GetError().GetResponseCode()));
+        buf._on_failed(_st);
+        LOG(WARNING) << _st;
     }
-    s3_bytes_written_total << buf.get_size();
+    _bytes_written += buf.get_size();
     s3_file_created_total << 1;
 }
 

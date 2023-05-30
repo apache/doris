@@ -91,7 +91,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader_type:" << read_params.reader_type
+                     << ", reader_type:" << int(read_params.reader_type)
                      << ", version:" << read_params.version;
         return res;
     }
@@ -465,7 +465,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      nullptr, _stored_has_null_tag[idx]);
+                                      &_arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {

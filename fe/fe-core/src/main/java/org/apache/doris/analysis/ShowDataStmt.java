@@ -147,7 +147,7 @@ public class ShowDataStmt extends ShowStmt {
                 }
 
                 for (Table table : sortedTables) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 
@@ -243,7 +243,8 @@ public class ShowDataStmt extends ShowStmt {
                         dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db
+                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
             long totalSize = 0;
             long totalReplicaCount = 0;
             long totalRemoteSize = 0;

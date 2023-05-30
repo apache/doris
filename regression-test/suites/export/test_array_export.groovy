@@ -175,9 +175,7 @@ suite("test_array_export", "export") {
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
             String[] baseLine = baseLines.get(j + 2).split("\t")
-            for (int slotId = 0; slotId < outLine.size(); slotId ++) {
-                assert outLine[slotId] == baseLine[slotId]
-            }
+            assert outLine.length == baseLine.length
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

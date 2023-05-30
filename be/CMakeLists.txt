@@ -454,17 +454,17 @@ endif()
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
+set(clucene_options -w -Wall -Wno-non-virtual-dtor)
 if (COMPILER_CLANG)
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-narrowing)
 endif()
+
+target_compile_options(clucene-core-static PRIVATE ${clucene_options})
+target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
+target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
+target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
@@ -496,7 +496,7 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
@@ -505,7 +505,8 @@ add_compile_options(-g
                     -Werror
                     -pthread
                     -fstrict-aliasing
-                    -fno-omit-frame-pointer)
+                    -fno-omit-frame-pointer
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
                     -Wno-sign-compare
@@ -523,12 +524,8 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
-        message(FATAL_ERROR "Need Clang version at least 13")
-    endif()
-
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16")
-        message(WARNING "Doris recommended to use Clang-16 to build backend")
+        message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
     add_compile_options(-fcolor-diagnostics 
@@ -538,20 +535,15 @@ if (COMPILER_CLANG)
                         -Wunused-property-ivar
                         -Wunused-member-function
                         -Wunused-macros)
-    add_compile_options(-Wno-zero-length-array
-                        -Wno-variadic-macros
+    add_compile_options(-Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
-                        -Wno-vla-extension
-                        -Wno-c++20-designator
-                        -Wno-embedded-directive)
+                        -Wno-vla-extension)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
             add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-lstdc++>)
         endif()
         add_definitions(-DUSE_LIBCPP)
-    else()
-        add_compile_options(-Wno-c++20-attribute-extensions)
     endif()
 endif ()
 
