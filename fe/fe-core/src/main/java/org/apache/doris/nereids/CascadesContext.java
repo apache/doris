@@ -171,7 +171,7 @@ public class CascadesContext implements ScheduleContext, PlanSource {
     }
 
     public synchronized boolean isTimeout() {
-        return false;
+        return isTimeout;
     }
 
     public void toMemo() {
