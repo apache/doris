@@ -442,9 +442,4 @@ public abstract class PlanVisitor<R, C> {
     public R visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
         return visit(cteAnchor, context);
     }
-
-
-    public R visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, C context) {
-        return visit(olapTableSink, context);
-    }
 }
