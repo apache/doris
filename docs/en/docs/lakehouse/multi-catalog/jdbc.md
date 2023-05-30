@@ -472,8 +472,8 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
 | real                                                 | FLOAT                    |                                                                                                                    |
 | double                                               | DOUBLE                   |                                                                                                                    |
-| date                                                 | DATE/DATEV2              | JDBC CATLOG uses Datev2 type default when connecting Trino                                                         |
-| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATLOG uses DATETIMEV2 type default when connecting Trino                                                     |
+| date                                                 | DATE/DATEV2              | JDBC CATALOG uses Datev2 type default when connecting Trino                                                        |
+| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATALOG uses DATETIMEV2 type default when connecting Trino                                                    |
 | varchar                                              | TEXT                     |                                                                                                                    |
 | char                                                 | CHAR                     |                                                                                                                    |
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |
