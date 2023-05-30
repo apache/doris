@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.plans;
 
 /**
  * WindowFuncType represent the window function which is used in the PartitionTopN.
