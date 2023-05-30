@@ -19,9 +19,21 @@ package org.apache.doris.sdk;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.VarBinaryVector;
+import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.Types;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.doris.sdk.thrift.TDorisExternalService;
 import org.apache.doris.sdk.thrift.TScanBatchResult;
@@ -30,6 +42,7 @@ import org.apache.doris.sdk.thrift.TScanColumnDesc;
 import org.apache.doris.sdk.thrift.TScanNextBatchParams;
 import org.apache.doris.sdk.thrift.TScanOpenParams;
 import org.apache.doris.sdk.thrift.TScanOpenResult;
+import org.apache.doris.sdk.thrift.TStatusCode;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
@@ -44,6 +57,7 @@ import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 
 import java.io.ByteArrayInputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -56,13 +70,14 @@ public class DorisReaderExample {
     static String user = "root";
     static String password = "";
     static String database = "test";
-    static String table = "table_1";
-    static String sql = "select * from test.table_1";
+    static String table = "test_all_types_1";
+    static String sql = "select * from test.test_all_types_1";
 
     static List<List<Object>> result = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
         JSONObject queryPlan = getQueryPlan();
+        System.out.println(queryPlan);
         readData(queryPlan);
         System.out.println(result);
         System.out.println(result.size());
@@ -70,16 +85,17 @@ public class DorisReaderExample {
 
     private static JSONObject getQueryPlan() throws Exception {
         try (CloseableHttpClient client = HttpClients.custom().build()) {
-            HttpPost put = new HttpPost(String.format("http://%s/api/%s/%s/_query_plan", dorisUrl, database, table));
-            put.setHeader(HttpHeaders.EXPECT, "100-continue");
-            put.setHeader(HttpHeaders.AUTHORIZATION,  "Basic " + new String(Base64.encodeBase64((user + ":" + password).getBytes(StandardCharsets.UTF_8))));
+            HttpPost post = new HttpPost(String.format("http://%s/api/%s/%s/_query_plan", dorisUrl, database, table));
+            post.setHeader(HttpHeaders.EXPECT, "100-continue");
+            post.setHeader(HttpHeaders.AUTHORIZATION,  "Basic " + new String(Base64.encodeBase64((user + ":" + password).getBytes(StandardCharsets.UTF_8))));
 
+            //The param is specific SQL, and the query plan is returned
             Map<String,String> params = new HashMap<>();
             params.put("sql",sql);
             StringEntity entity = new StringEntity(JSON.toJSONString(params));
-            put.setEntity(entity);
+            post.setEntity(entity);
 
-            try (CloseableHttpResponse response = client.execute(put)) {
+            try (CloseableHttpResponse response = client.execute(post)) {
                 if (response.getEntity() != null ) {
                     String loadResult = EntityUtils.toString(response.getEntity());
                     JSONObject queryPlan = JSONObject.parseObject(loadResult);
@@ -128,15 +144,23 @@ public class DorisReaderExample {
             int offset =0;
             //open scanner
             TScanOpenResult tScanOpenResult = client.openScanner(params);
+            if (!TStatusCode.OK.equals(tScanOpenResult.getStatus().getStatusCode())) {
+                throw new RuntimeException(String.format("The status of open scanner result from %s is '%s', error message is: %s.",
+                    routingsBackend, tScanOpenResult.getStatus().getStatusCode(), tScanOpenResult.getStatus().getErrorMsgs()));
+            }
             List<TScanColumnDesc> selectedColumns = tScanOpenResult.getSelectedColumns();
 
             TScanNextBatchParams nextBatchParams = new TScanNextBatchParams();
             nextBatchParams.setContextId(tScanOpenResult.getContextId());
             boolean eos = false;
-            //connect
+            //read data
             while(!eos){
                 nextBatchParams.setOffset(offset);
                 TScanBatchResult next = client.getNext(nextBatchParams);
+                if (!TStatusCode.OK.equals(next.getStatus().getStatusCode())) {
+                    throw new RuntimeException(String.format("The status of get next result from %s is '%s', error message is: %s.",
+                        routingsBackend, next.getStatus().getStatusCode(), next.getStatus().getErrorMsgs()));
+                }
                 eos = next.isEos();
                 if(!eos){
                     int i = convertArrow(next, selectedColumns);
@@ -169,13 +193,12 @@ public class DorisReaderExample {
             for (int i = 0; i < rowCountInOneBatch; ++i) {
                 result.add(new ArrayList<>(fieldVectors.size()));
             }
-            //selectedColumns.forEach(desc -> System.out.print("columnHeader: " + desc.getName()));
+
             for (int col = 0; col < fieldVectors.size(); col++) {
                 FieldVector fieldVector = fieldVectors.get(col);
+                Types.MinorType minorType = fieldVector.getMinorType();
                 for(int row = 0 ; row < rowCountInOneBatch ;row++){
-                    //It needs to be converted into data according to the corresponding arrow type
-                    Object object = fieldVector.getObject(row);
-                    result.get(offset + row).add(object);
+                    convertValue(row , minorType, fieldVector, offset);
                 }
             }
             offset += root.getRowCount();
@@ -183,4 +206,71 @@ public class DorisReaderExample {
         return offset;
     }
 
+
+    private static void convertValue(int rowIndex,
+                              Types.MinorType minorType,
+                              FieldVector fieldVector,
+                              int readRowCount) throws Exception {
+
+        switch (minorType) {
+            case BIT:
+                BitVector bitVector = (BitVector) fieldVector;
+                Object fieldValue = bitVector.isNull(rowIndex) ? null : bitVector.get(rowIndex) != 0;
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case TINYINT:
+                TinyIntVector tinyIntVector = (TinyIntVector) fieldVector;
+                fieldValue = tinyIntVector.isNull(rowIndex) ? null : tinyIntVector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case SMALLINT:
+                SmallIntVector smallIntVector = (SmallIntVector) fieldVector;
+                fieldValue = smallIntVector.isNull(rowIndex) ? null : smallIntVector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case INT:
+                IntVector intVector = (IntVector) fieldVector;
+                fieldValue = intVector.isNull(rowIndex) ? null : intVector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case BIGINT:
+                BigIntVector bigIntVector = (BigIntVector) fieldVector;
+                fieldValue = bigIntVector.isNull(rowIndex) ? null : bigIntVector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case FLOAT4:
+                Float4Vector float4Vector = (Float4Vector) fieldVector;
+                fieldValue = float4Vector.isNull(rowIndex) ? null : float4Vector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case FLOAT8:
+                Float8Vector float8Vector = (Float8Vector) fieldVector;
+                fieldValue = float8Vector.isNull(rowIndex) ? null : float8Vector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case VARBINARY:
+                VarBinaryVector varBinaryVector = (VarBinaryVector) fieldVector;
+                fieldValue = varBinaryVector.isNull(rowIndex) ? null : varBinaryVector.get(rowIndex);
+                result.get(readRowCount + rowIndex).add(fieldValue);
+                break;
+            case DECIMAL:
+                DecimalVector decimalVector = (DecimalVector) fieldVector;
+                BigDecimal value = decimalVector.getObject(rowIndex).stripTrailingZeros();
+                result.get(readRowCount + rowIndex).add(value);
+                break;
+            case VARCHAR:
+                VarCharVector date = (VarCharVector) fieldVector;
+                String stringValue = new String(date.get(rowIndex));
+                result.get(readRowCount + rowIndex).add(stringValue);
+                break;
+            case LIST:
+                ListVector listVector = (ListVector) fieldVector;
+                List listValue = listVector.isNull(rowIndex) ? null : listVector.getObject(rowIndex);
+                result.get(readRowCount + rowIndex).add(listValue);
+                break;
+            default:
+                String errMsg = "Unsupported type " + minorType;
+                throw new RuntimeException(errMsg);
+        }
+    }
 }
