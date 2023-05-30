@@ -74,7 +74,7 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
-        
+
         createTable("create table agg_have_dup_base(\n"
                 + "    k1 int null,\n"
                 + "    k2 int not null,\n"
