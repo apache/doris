@@ -104,7 +104,7 @@ public:
                 runtime_filter->change_to_bloom_filter();
             }
 
-            if (runtime_filter->type() == RuntimeFilterType::BLOOM_FILTER) {
+            if (runtime_filter->is_bloomfilter()) {
                 RETURN_IF_ERROR(runtime_filter->init_bloom_filter(build_bf_cardinality));
             }
 
