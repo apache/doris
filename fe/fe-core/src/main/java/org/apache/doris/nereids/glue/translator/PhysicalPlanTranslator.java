@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -360,7 +361,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = ne.stream()
                 .map(slot -> ExpressionTranslator.translate(slot, context))
                 .collect(Collectors.toList());
-        rootFragment.setOutputExprs(outputExprs);
+        
+        List<Expr> castExprs = Lists.newArrayList();
+        OlapTable targetTable = olapTableSink.getTargetTable();
+        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+            Type lhs = targetTable.getFullSchema().get(i).getType();
+            Type rhs = outputExprs.get(i).getType();
+            if (!lhs.equals(rhs)) {
+                castExprs.add(new CastExpr(lhs, outputExprs.get(i)));
+            } else {
+                castExprs.add(outputExprs.get(i));
+            }
+        }
+
+        rootFragment.setOutputExprs(castExprs);
         rootFragment.setSink(sink);
 
         /*List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
