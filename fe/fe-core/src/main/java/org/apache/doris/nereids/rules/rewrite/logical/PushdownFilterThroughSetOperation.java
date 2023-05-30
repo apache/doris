@@ -86,7 +86,8 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
             if (hasOneRowRelation) {
                 // If there are some `OneRowRelation` exists, we need to keep the `filter`.
-                return filter.withChildren(setOperation.withNewChildren(newChildren));
+                return filter.withChildren(
+                        ((LogicalUnion) setOperation).withHasPushedFilter().withNewChildren(newChildren));
             }
             return setOperation.withNewChildren(newChildren);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
