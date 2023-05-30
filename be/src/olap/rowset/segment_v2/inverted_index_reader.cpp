@@ -84,6 +84,66 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
     return exists;
 }
 
+std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
+        const std::string& field_name, const std::string& value, InvertedIndexQueryType query_type,
+        InvertedIndexCtx* inverted_index_ctx) {
+    std::vector<std::wstring> analyse_result;
+    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+    std::unique_ptr<lucene::util::Reader> reader;
+    auto analyser_type = inverted_index_ctx->parser_type;
+    if (analyser_type == InvertedIndexParserType::PARSER_STANDARD) {
+        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
+        reader.reset(
+                (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
+        auto chinese_analyzer =
+                std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
+        chinese_analyzer->initDict(config::inverted_index_dict_path);
+        auto mode = inverted_index_ctx->parser_mode;
+        if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+        } else {
+            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+        }
+        analyzer = chinese_analyzer;
+        reader.reset(_CLNEW lucene::util::SStringReader<char>(value.c_str(), strlen(value.c_str()),
+                                                              false));
+        //reader.reset(new lucene::util::SimpleInputStreamReader(
+        //        new lucene::util::AStringReader(value.c_str()),
+        //        lucene::util::SimpleInputStreamReader::UTF8));
+    } else {
+        // default
+        analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<TCHAR>>();
+        reader.reset(
+                (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    }
+
+    std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
+    std::unique_ptr<lucene::analysis::TokenStream> token_stream(
+            analyzer->tokenStream(field_ws.c_str(), reader.get()));
+
+    lucene::analysis::Token token;
+
+    while (token_stream->next(&token)) {
+        if (token.termLength<TCHAR>() != 0) {
+            analyse_result.emplace_back(
+                    std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>()));
+        }
+    }
+
+    if (token_stream != nullptr) {
+        token_stream->close();
+    }
+
+    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+        std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
+        analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
+    }
+
+    return analyse_result;
+}
+
 Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                                              lucene::store::Directory* dir) {
     lucene::store::IndexInput* null_bitmap_in = nullptr;
@@ -139,66 +199,6 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
     return Status::OK();
 }
 
-std::vector<std::wstring> FullTextIndexReader::get_analyse_result(
-        const std::wstring& field_name, const std::string& value,
-        InvertedIndexQueryType query_type) {
-    std::vector<std::wstring> analyse_result;
-    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
-    std::unique_ptr<lucene::util::Reader> reader;
-    auto analyser_type = get_inverted_index_parser_type_from_string(
-            get_parser_string_from_properties(_index_meta.properties()));
-    if (analyser_type == InvertedIndexParserType::PARSER_STANDARD) {
-        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
-        reader.reset(
-                (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
-    } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        auto chinese_analyzer =
-                std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
-        chinese_analyzer->initDict(config::inverted_index_dict_path);
-        auto mode = get_parser_mode_string_from_properties(_index_meta.properties());
-        if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-        } else {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-        }
-        analyzer = chinese_analyzer;
-        reader.reset(_CLNEW lucene::util::SStringReader<char>(value.c_str(), strlen(value.c_str()),
-                                                              false));
-        //reader.reset(new lucene::util::SimpleInputStreamReader(
-        //        new lucene::util::AStringReader(value.c_str()),
-        //        lucene::util::SimpleInputStreamReader::UTF8));
-    } else {
-        // default
-        analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<TCHAR>>();
-        reader.reset(
-                (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
-    }
-
-    std::unique_ptr<lucene::analysis::TokenStream> token_stream(
-            analyzer->tokenStream(field_name.c_str(), reader.get()));
-
-    lucene::analysis::Token token;
-
-    while (token_stream->next(&token)) {
-        if (token.termLength<TCHAR>() != 0) {
-            analyse_result.emplace_back(
-                    std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>()));
-        }
-    }
-
-    if (token_stream != nullptr) {
-        token_stream->close();
-    }
-
-    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
-        std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
-        analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
-    }
-
-    return analyse_result;
-}
-
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats,
                                          InvertedIndexIterator** iterator) {
     *iterator = new InvertedIndexIterator(stats, this);
@@ -219,13 +219,14 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
     auto index_file_name =
             InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_meta.index_id());
     auto index_file_path = index_dir / index_file_name;
-
-    std::unique_ptr<lucene::search::Query> query;
-    std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
-
+    InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
+    inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(_index_meta.properties()));
+    inverted_index_ctx->parser_mode =
+            get_parser_mode_string_from_properties(_index_meta.properties());
     try {
         std::vector<std::wstring> analyse_result =
-                get_analyse_result(field_ws, search_str, query_type);
+                get_analyse_result(column_name, search_str, query_type, inverted_index_ctx.get());
 
         if (analyse_result.empty()) {
             LOG(WARNING) << "invalid input query_str: " << search_str
@@ -233,12 +234,13 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
         }
 
+        std::unique_ptr<lucene::search::Query> query;
+        std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
         roaring::Roaring query_match_bitmap;
         bool first = true;
         bool null_bitmap_already_read = false;
         for (auto token_ws : analyse_result) {
             std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
-
             // try to get term bitmap match result from cache to avoid query index on cache hit
             auto cache = InvertedIndexQueryCache::instance();
             // use EQUAL_QUERY type here since cache is for each term/token
