@@ -67,6 +67,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
@@ -107,6 +108,8 @@ import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
+import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -129,6 +132,7 @@ import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TQueryStatsResult;
+import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -2001,6 +2005,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             result.setStatus(status);
         }
+        return result;
+    }
+
+    public TGetTabletReplicaInfosResult getTabletReplicaInfos(TGetTabletReplicaInfosRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get replicas request: {}, backend: {}", request, clientAddr);
+        TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
+        List<Long> tabletIds = request.getTabletIds();
+        Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
+        for (Long tabletId : tabletIds) {
+            List<TReplicaInfo> replicaInfos = Lists.newArrayList();
+            List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
+                    .getReplicasByTabletId(tabletId);
+            for (Replica replica : replicas) {
+                if (!replica.isNormal()) {
+                    LOG.warn("replica {} not normal", replica.getId());
+                    continue;
+                }
+                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                if (backend != null) {
+                    TReplicaInfo replicaInfo = new TReplicaInfo();
+                    replicaInfo.setHost(backend.getHost());
+                    replicaInfo.setBePort(backend.getBePort());
+                    replicaInfo.setHttpPort(backend.getHttpPort());
+                    replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setReplicaId(replica.getId());
+                    replicaInfos.add(replicaInfo);
+                }
+            }
+            tabletReplicaInfos.put(tabletId, replicaInfos);
+        }
+        result.setTabletReplicaInfos(tabletReplicaInfos);
+        result.setToken(Env.getCurrentEnv().getToken());
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 

@@ -61,6 +61,7 @@ add_library(Olap STATIC
     storage_engine.cpp
     data_dir.cpp
     short_key_index.cpp
+    single_replica_compaction.cpp
     snapshot_manager.cpp
     tablet.cpp
     tablet_manager.cpp
