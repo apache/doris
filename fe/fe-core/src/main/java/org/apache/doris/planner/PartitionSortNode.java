@@ -23,7 +23,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.nereids.types.WindowFuncType;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionSortNode;
