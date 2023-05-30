@@ -212,6 +212,10 @@ public class ColumnDef {
         this.genericAggregationName = genericAggregationName;
     }
 
+    public void setGenericAggregationName(AggregateType aggregateType) {
+        this.genericAggregationName = aggregateType.name();
+    }
+
     public void setGenericAggregationArguments(List<TypeDef> genericAggregationArguments) {
         this.genericAggregationArguments = genericAggregationArguments;
     }
