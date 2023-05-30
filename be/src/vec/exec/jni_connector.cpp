@@ -50,6 +50,7 @@ namespace doris::vectorized {
     M(TypeIndex::UInt32, UInt32)     \
     M(TypeIndex::Int64, Int64)       \
     M(TypeIndex::UInt64, UInt64)     \
+    M(TypeIndex::Int128, Int128)     \
     M(TypeIndex::Float32, Float32)   \
     M(TypeIndex::Float64, Float64)
 
@@ -281,6 +282,8 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         return "int";
     case TYPE_BIGINT:
         return "bigint";
+    case TYPE_LARGEINT:
+        return "largeint";
     case TYPE_FLOAT:
         return "float";
     case TYPE_DOUBLE:

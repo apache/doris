@@ -98,25 +98,11 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
                               const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                              uint32_t start_send_row, uint32_t* num_rows_sent,
+                              uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
                               TOdbcTableType::type table_type) {
-    _insert_stmt_buffer.clear();
-    std::u16string insert_stmt;
-    if (table_type == TOdbcTableType::ORACLE) {
-        SCOPED_TIMER(_convert_tuple_timer);
-        oracle_type_append(table_name, block, output_vexpr_ctxs, start_send_row, num_rows_sent,
-                           table_type);
-        // Translate utf8 string to utf16 to use unicode encoding
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    } else if (table_type == TOdbcTableType::SAP_HANA) {
-        SCOPED_TIMER(_convert_tuple_timer);
-        sap_hana_type_append(table_name, block, output_vexpr_ctxs, start_send_row, num_rows_sent,
-                             table_type);
-        // Translate utf8 string to utf16 to use unicode encoding
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    } else {
+    if (is_odbc) {
+        _insert_stmt_buffer.clear();
+        std::u16string insert_stmt;
         SCOPED_TIMER(_convert_tuple_timer);
         fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
 
@@ -147,74 +133,15 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
         // Translate utf8 string to utf16 to use unicode encoding
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
+
+        RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
+        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs, num_rows_sent));
+        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+        return Status::OK();
     }
-    RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
-    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
-    return Status::OK();
-}
-
-Status TableConnector::oracle_type_append(const std::string& table_name, vectorized::Block* block,
-                                          const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                                          uint32_t start_send_row, uint32_t* num_rows_sent,
-                                          TOdbcTableType::type table_type) {
-    fmt::format_to(_insert_stmt_buffer, "INSERT ALL ");
-    int num_rows = block->rows();
-    int num_columns = block->columns();
-    for (int i = start_send_row; i < num_rows; ++i) {
-        (*num_rows_sent)++;
-        fmt::format_to(_insert_stmt_buffer, "INTO {} VALUES (", table_name);
-        // Construct insert statement of odbc/jdbc table
-        for (int j = 0; j < num_columns; ++j) {
-            if (j != 0) {
-                fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-            }
-            auto& column_ptr = block->get_by_position(j).column;
-            auto& type_ptr = block->get_by_position(j).type;
-            RETURN_IF_ERROR(convert_column_data(
-                    column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
-        }
-
-        if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-            fmt::format_to(_insert_stmt_buffer, "{}", ") ");
-        } else {
-            // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-            fmt::format_to(_insert_stmt_buffer, "{}", ") SELECT 1 FROM DUAL");
-            break;
-        }
-    }
-    return Status::OK();
-}
-
-Status TableConnector::sap_hana_type_append(const std::string& table_name, vectorized::Block* block,
-                                            const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                                            uint32_t start_send_row, uint32_t* num_rows_sent,
-                                            TOdbcTableType::type table_type) {
-    fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} ", table_name);
-    int num_rows = block->rows();
-    int num_columns = block->columns();
-    for (int i = start_send_row; i < num_rows; ++i) {
-        (*num_rows_sent)++;
-        fmt::format_to(_insert_stmt_buffer, "SELECT ");
-        // Construct insert statement of odbc/jdbc table
-        for (int j = 0; j < num_columns; ++j) {
-            if (j != 0) {
-                fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-            }
-            auto& column_ptr = block->get_by_position(j).column;
-            auto& type_ptr = block->get_by_position(j).type;
-            RETURN_IF_ERROR(convert_column_data(
-                    column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
-        }
-
-        if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-            fmt::format_to(_insert_stmt_buffer, "{}", " FROM dummy UNION ALL ");
-        } else {
-            // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-            fmt::format_to(_insert_stmt_buffer, "{}", " FROM dummy");
-            break;
-        }
-    }
-    return Status::OK();
 }
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,

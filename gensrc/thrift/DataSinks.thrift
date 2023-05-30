@@ -205,6 +205,7 @@ struct TJdbcTableSink {
     1: optional Descriptors.TJdbcTable jdbc_table
     2: optional bool use_transaction
     3: optional Types.TOdbcTableType table_type
+    4: optional string insert_sql
 }
 
 struct TExportSink {
