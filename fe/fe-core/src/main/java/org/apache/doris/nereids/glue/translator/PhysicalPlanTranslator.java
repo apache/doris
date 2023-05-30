@@ -361,7 +361,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = ne.stream()
                 .map(slot -> ExpressionTranslator.translate(slot, context))
                 .collect(Collectors.toList());
-        
+
         List<Expr> castExprs = Lists.newArrayList();
         OlapTable targetTable = olapTableSink.getTargetTable();
         for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
