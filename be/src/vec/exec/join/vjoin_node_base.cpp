@@ -132,45 +132,43 @@ void VJoinNodeBase::_construct_mutable_join_block() {
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block) {
     auto is_mem_reuse = output_block->mem_reuse();
-    MutableBlock mutable_block =
-            is_mem_reuse
-                    ? MutableBlock(output_block)
-                    : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(row_desc()));
-    auto rows = origin_block->rows();
-    // TODO: After FE plan support same nullable of output expr and origin block and mutable column
-    // we should replace `insert_column_datas` by `insert_range_from`
+    if (!is_mem_reuse) {
+        output_block->swap(VectorizedUtils::create_empty_columnswithtypename(row_desc()));
+    }
 
-    auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        if (to->is_nullable() && !from.is_nullable()) {
-            auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-            null_column.get_nested_column().insert_range_from(from, 0, rows);
-            null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-        } else {
-            to->insert_range_from(from, 0, rows);
-        }
-    };
+    auto rows = origin_block->rows();
     if (rows != 0) {
-        auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
-            for (int i = 0; i < mutable_columns.size(); ++i) {
-                insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
-                                    rows);
+            DCHECK(output_block->columns() == row_desc().num_materialized_slots());
+            for (int i = 0; i < output_block->columns(); ++i) {
+                if (output_block->get_by_position(i).type->is_nullable() &&
+                    !origin_block->get_by_position(i).column->is_nullable()) {
+                    output_block->replace_by_position(
+                            i, make_nullable(origin_block->get_by_position(i).column));
+                    output_block->get_by_position(i).type =
+                            make_nullable(origin_block->get_by_position(i).type);
+                } else {
+                    output_block->replace_by_position(
+                            i, std::move(origin_block->get_by_position(i).column));
+                }
             }
         } else {
-            DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
+            DCHECK(output_block->columns() == row_desc().num_materialized_slots());
             SCOPED_TIMER(_projection_timer);
-            for (int i = 0; i < mutable_columns.size(); ++i) {
+            for (int i = 0; i < output_block->columns(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
                 auto column_ptr = origin_block->get_by_position(result_column_id)
                                           .column->convert_to_full_column_if_const();
-                insert_column_datas(mutable_columns[i], *column_ptr, rows);
+                if (output_block->get_by_position(i).type->is_nullable() &&
+                    !column_ptr->is_nullable()) {
+                    output_block->replace_by_position(i, make_nullable(column_ptr));
+                    output_block->get_by_position(i).type =
+                            make_nullable(origin_block->get_by_position(result_column_id).type);
+                } else {
+                    output_block->replace_by_position(i, std::move(column_ptr));
+                }
             }
-        }
-
-        if (!is_mem_reuse) {
-            output_block->swap(mutable_block.to_block());
         }
         DCHECK(output_block->rows() == rows);
     }
