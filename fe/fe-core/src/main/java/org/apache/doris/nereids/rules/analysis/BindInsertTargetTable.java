@@ -81,7 +81,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
-                    Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
+                    Map<Column, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
 
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
                         if (columnToChildOutput.containsKey(column)) {
