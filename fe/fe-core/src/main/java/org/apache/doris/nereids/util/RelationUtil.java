@@ -132,7 +132,7 @@ public class RelationUtil {
     }
 
     public static List<Column> getColumnsFilteredMV(OlapTable table) {
-        return table.getFullSchema().stream()
+        return table.getBaseSchema().stream()
                 .filter(column -> !column.getName().startsWith("mv"))
                 .collect(Collectors.toList());
     }
