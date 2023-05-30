@@ -3088,6 +3088,10 @@ public class Env {
                 binlogConfig.appendToShowCreateTable(sb);
             }
 
+            // enable single replica compaction
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
+            sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;

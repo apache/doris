@@ -609,6 +609,14 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
+            if (pdt == PushDownType::ACCEPTABLE &&
+                TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
+                // remaining it in the expr tree, in order to filter by function if the pushdown
+                // match_predicate failed to apply inverted index in the storage layer
+                output_expr = conjunct_expr_root; // remaining in conjunct tree
+                return Status::OK();
+            }
+
             if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 output_expr = nullptr;
                 return Status::OK();
@@ -1303,8 +1311,8 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            _runtime_filter_ctxs[i].runtime_filter->get_prepared_exprs(&exprs, _row_descriptor,
-                                                                       _state);
+            RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_prepared_exprs(
+                    &exprs, _row_descriptor, _state));
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
