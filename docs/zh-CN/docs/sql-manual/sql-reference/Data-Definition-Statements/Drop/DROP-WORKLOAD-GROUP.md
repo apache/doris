@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DROP-RESOURCE-GROUP",
-    "language": "en"
+    "title": "DROP-WORKLOAD-GROUP",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,33 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-RESOURCE-GROUP
+## DROP-WORKLOAD-GROUP
 
 ### Name
 
-DROP RESOURCE GROUP
-
-<version since="dev"></version>
+DROP WORKLOAD GROUP
 
 ### Description
 
-This statement is used to delete a resource group.
+<version since="dev"></version>
+
+该语句用于删除资源组。
 
 ```sql
-DROP RESOURCE GROUP [IF EXISTS] 'rg_name'
+DROP WORKLOAD GROUP [IF EXISTS] 'rg_name'
 ```
 
 ### Example
 
-1. Delete the resource group named g1:
+1. 删除名为 g1 的资源组：
     
     ```sql
-    drop resource group if exists g1;
+    drop workload group if exists g1;
     ```
 
 ### Keywords
 
-    DROP, RESOURCE, GROUP
+    DROP, WORKLOAD, GROUP
 
 ### Best Practice
 

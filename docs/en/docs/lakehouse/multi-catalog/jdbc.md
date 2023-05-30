@@ -205,7 +205,6 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 
 9. OceanBase
 
-<<<<<<< HEAD
 <version since="dev"></version>
 
 ```sql

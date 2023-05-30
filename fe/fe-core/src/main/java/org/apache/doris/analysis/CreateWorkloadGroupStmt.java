@@ -18,28 +18,40 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class DropResourceGroupStmt extends DdlStmt {
-    private boolean ifExists;
-    private String resourceGroupName;
+import java.util.Map;
 
-    public DropResourceGroupStmt(boolean ifExists, String resourceGroupName) {
-        this.ifExists = ifExists;
-        this.resourceGroupName = resourceGroupName;
+public class CreateWorkloadGroupStmt extends DdlStmt {
+
+    private final boolean ifNotExists;
+
+    private final String workloadGroupName;
+    private final Map<String, String> properties;
+
+    public CreateWorkloadGroupStmt(boolean ifNotExists, String workloadGroupName, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+        this.workloadGroupName = workloadGroupName;
+        this.properties = properties;
     }
 
-    public boolean isIfExists() {
-        return ifExists;
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
-    public String getResourceGroupName() {
-        return resourceGroupName;
+    public String getWorkloadGroupName() {
+        return workloadGroupName;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     @Override
@@ -51,14 +63,20 @@ public class DropResourceGroupStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        FeNameFormat.checkResourceGroupName(resourceGroupName);
+        // check name
+        FeNameFormat.checkWorkloadGroupName(workloadGroupName);
+
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("Resource group properties can't be null");
+        }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP ");
-        sb.append("RESOURCE GROUP '").append(resourceGroupName).append("' ");
+        sb.append("CREATE ");
+        sb.append("RESOURCE GROUP '").append(workloadGroupName).append("' ");
+        sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }
 }

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "resource_groups",
-    "language": "en"
+    "title": "workload_groups",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,29 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `resource_groups`
+## `workload_groups`
 
 ### Name
 
 <version since="dev">
 
-resource_groups
+workload_groups
 
 </version>
 
 ### description
 
-Table-Value-Function, generate a temporary table named `resource_groups`. This tvf is used to view informations about current resource groups.
+表函数，生成 workload_groups 临时表，可以查看当前资源组信息。
 
-This function is used in `FROM` clauses.
+该函数用于from子句中。
 
 #### syntax
+`workload_groups()`
 
-`resource_groups()`
-
-The table schema of `resource_groups()` tvf:
+workload_groups()表结构：
 ```
-mysql> desc function resource_groups();
+mysql> desc function workload_groups();
 +-------+-------------+------+-------+---------+-------+
 | Field | Type        | Null | Key   | Default | Extra |
 +-------+-------------+------+-------+---------+-------+
@@ -59,7 +58,7 @@ mysql> desc function resource_groups();
 
 ### example
 ```
-mysql> select * from resource_groups()\G
+mysql> select * from workload_groups()\G
 +-------+--------+--------------+-------+
 | Id    | Name   | Item         | Value |
 +-------+--------+--------------+-------+
@@ -70,4 +69,4 @@ mysql> select * from resource_groups()\G
 
 ### keywords
 
-    resource_groups
+    workload_groups

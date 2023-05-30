@@ -32,10 +32,10 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * resource_groups().
+ * workload_groups().
  */
-public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "resource_groups";
+public class WorkloadGroupsTableValuedFunction extends MetadataTableValuedFunction {
+    public static final String NAME = "workload_groups";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)),
@@ -57,27 +57,27 @@ public class ResourceGroupsTableValuedFunction extends MetadataTableValuedFuncti
         return COLUMN_TO_INDEX.get(columnName.toLowerCase());
     }
 
-    public ResourceGroupsTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public WorkloadGroupsTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() != 0) {
-            throw new AnalysisException("resource groups table-valued-function does not support any params");
+            throw new AnalysisException("workload groups table-valued-function does not support any params");
         }
     }
 
     @Override
     public TMetadataType getMetadataType() {
-        return TMetadataType.RESOURCE_GROUPS;
+        return TMetadataType.WORKLOAD_GROUPS;
     }
 
     @Override
     public TMetaScanRange getMetaScanRange() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
-        metaScanRange.setMetadataType(TMetadataType.RESOURCE_GROUPS);
+        metaScanRange.setMetadataType(TMetadataType.WORKLOAD_GROUPS);
         return metaScanRange;
     }
 
     @Override
     public String getTableName() {
-        return "ResourceGroupsTableValuedFunction";
+        return "WorkloadGroupsTableValuedFunction";
     }
 
     @Override
