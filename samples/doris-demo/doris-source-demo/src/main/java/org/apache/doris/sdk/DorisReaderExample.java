@@ -193,7 +193,7 @@ public class DorisReaderExample {
             for (int i = 0; i < rowCountInOneBatch; ++i) {
                 result.add(new ArrayList<>(fieldVectors.size()));
             }
-
+            //Arrow returns in column format and needs to be converted to row format
             for (int col = 0; col < fieldVectors.size(); col++) {
                 FieldVector fieldVector = fieldVectors.get(col);
                 Types.MinorType minorType = fieldVector.getMinorType();
