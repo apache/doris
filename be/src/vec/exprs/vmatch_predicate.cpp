@@ -44,15 +44,15 @@ class RuntimeState;
 
 namespace doris::vectorized {
 
-VMatchPredicate::VMatchPredicate(const TExprNode& node)
-        : VExpr(node) {
+VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
-    _inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
+    _inverted_index_ctx->parser_type =
+            get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
 }
 
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
-                             VExprContext* context) {
+                                VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
@@ -63,8 +63,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(child->expr_name());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                               argument_template, _data_type);
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -84,7 +84,7 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 }
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
-                          FunctionContext::FunctionStateScope scope) {
+                             FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL) {
@@ -94,7 +94,7 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
 }
 
 void VMatchPredicate::close(RuntimeState* state, VExprContext* context,
-                         FunctionContext::FunctionStateScope scope) {
+                            FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(state, context, scope);
 }
@@ -121,7 +121,7 @@ const std::string& VMatchPredicate::expr_name() const {
     return _expr_name;
 }
 
-const std::string& VMatchPredicate::function_name() const  {
+const std::string& VMatchPredicate::function_name() const {
     return _function_name;
 }
 

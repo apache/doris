@@ -144,7 +144,6 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
     return analyse_result;
 }
 
-
 Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                                              lucene::store::Directory* dir) {
     lucene::store::IndexInput* null_bitmap_in = nullptr;
@@ -223,7 +222,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta.properties()));
-    inverted_index_ctx->parser_mode = get_parser_mode_string_from_properties(_index_meta.properties());
+    inverted_index_ctx->parser_mode =
+            get_parser_mode_string_from_properties(_index_meta.properties());
     try {
         std::vector<std::wstring> analyse_result =
                 get_analyse_result(column_name, search_str, query_type, inverted_index_ctx.get());

@@ -609,7 +609,8 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             }
 
-            if (pdt == PushDownType::ACCEPTABLE && TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
+            if (pdt == PushDownType::ACCEPTABLE &&
+                TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // match_predicate failed to apply inverted index in the storage layer
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
