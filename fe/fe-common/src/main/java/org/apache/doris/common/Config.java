@@ -1925,7 +1925,7 @@ public class Config extends ConfigBase {
      * when creating a table which not set key type and key columns
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
+    public static boolean experimental_enable_duplicate_without_keys_by_default = true;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
