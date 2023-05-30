@@ -127,44 +127,4 @@ private:
     std::unique_ptr<segment_v2::BloomFilter> _bf;
 };
 
-class MergeIndexedColumnIteratorContext {
-public:
-    class Comparator {
-    public:
-        Comparator(int32_t seq_col_length) : _seq_col_length(seq_col_length) {}
-        bool operator()(MergeIndexedColumnIteratorContext* node1,
-                        MergeIndexedColumnIteratorContext* node2) const;
-        bool is_key_same(MergeIndexedColumnIteratorContext* node1, Slice const& key2) const;
-
-    private:
-        int32_t _seq_col_length {0};
-    };
-    MergeIndexedColumnIteratorContext(segment_v2::SegmentSharedPtr segment,
-                                      size_t batch_size = 1024)
-            : _segment(segment), _batch_size(batch_size), _segment_id(segment->id()) {}
-    Status init();
-    std::pair<Status, Slice> get_current_key();
-    Status advance();
-    Status jump_to_ge(Slice const& key);
-    size_t current_row_id() const { return _cur_row_id; }
-    const TypeInfo* type_info() const { return _index->type_info(); }
-    int32_t segment_id() const { return _segment_id; }
-
-private:
-    Status _next_batch(size_t row_id);
-
-    segment_v2::SegmentSharedPtr _segment;
-    const PrimaryKeyIndexReader* _index {};
-    std::unique_ptr<segment_v2::IndexedColumnIterator> _iter {};
-    std::string _last_key {};
-    size_t _cur_size {0};
-    size_t _cur_pos {0};
-    size_t _cur_row_id {0};
-    vectorized::DataTypePtr _index_type {};
-    vectorized::MutableColumnPtr _index_column {};
-    bool _excat_match {false};
-    size_t const _batch_size {0};
-    int32_t const _segment_id {0};
-};
-
 } // namespace doris

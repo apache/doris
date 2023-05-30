@@ -796,4 +796,67 @@ inline size_t Tablet::row_size() const {
     return _schema->row_size();
 }
 
+class MergeIndexDeleteBitmapCalculatorContext {
+public:
+    class Comparator {
+    public:
+        Comparator(size_t sequence_length) : _sequence_length(sequence_length) {}
+        bool operator()(MergeIndexDeleteBitmapCalculatorContext* lhs,
+                        MergeIndexDeleteBitmapCalculatorContext* rhs) const;
+        bool is_key_same(Slice const& lhs, Slice const& rhs) const;
+
+    private:
+        size_t _sequence_length {0};
+    };
+
+    MergeIndexDeleteBitmapCalculatorContext(std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
+                                            vectorized::DataTypePtr index_type, int32_t segment_id,
+                                            size_t num_rows, size_t batch_max_size = 1024)
+            : _iter(std::move(iter)),
+              _index_type(index_type),
+              _num_rows(num_rows),
+              _max_batch_size(batch_max_size),
+              _segment_id(segment_id) {}
+    Status get_current_key(Slice& slice);
+    Status advance();
+    Status seek_at_or_after(Slice const& key);
+    size_t row_id() const { return _cur_row_id; }
+    int32_t segment_id() const { return _segment_id; }
+
+private:
+    Status _next_batch(size_t row_id);
+
+    std::unique_ptr<segment_v2::IndexedColumnIterator> _iter {};
+    vectorized::DataTypePtr _index_type {};
+    vectorized::MutableColumnPtr _index_column {};
+    size_t _block_size {0};
+    size_t _cur_pos {0};
+    size_t _cur_row_id {0};
+    size_t const _num_rows {0};
+    bool _excat_match {false};
+    size_t const _max_batch_size {0};
+    int32_t const _segment_id {0};
+};
+
+class MergeIndexDeleteBitmapCalculator {
+public:
+    MergeIndexDeleteBitmapCalculator(std::vector<MergeIndexDeleteBitmapCalculatorContext>& contexts,
+                                     size_t sequence_length)
+            : _comparator(sequence_length), _heap(_comparator) {
+        for (auto& context : contexts) {
+            _heap.push(&context);
+        }
+    }
+
+    Status next(RowLocation& loc);
+
+private:
+    using Heap = std::priority_queue<MergeIndexDeleteBitmapCalculatorContext*,
+                                     std::vector<MergeIndexDeleteBitmapCalculatorContext*>,
+                                     MergeIndexDeleteBitmapCalculatorContext::Comparator>;
+    MergeIndexDeleteBitmapCalculatorContext::Comparator _comparator;
+    Heap _heap;
+    std::string _last_key {};
+};
+
 } // namespace doris
