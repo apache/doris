@@ -192,6 +192,10 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return sb.toString();
     }
 
+    public String getMVName() {
+        return getTableName();
+    }
+
     public Map<String, TableIf> getTables() {
         return tables;
     }

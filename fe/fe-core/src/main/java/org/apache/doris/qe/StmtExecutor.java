@@ -2177,7 +2177,7 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         // to comply with naming rules
         TableName tmpTableName = new TableName(null, iotStmt.getDb(),
-                FeConstants.TEMP_TABLE_PREFIX + uuid.toString().replace('-', '_'));
+                FeConstants.TEMP_TABLE_PREFIX + iotStmt.getTbl() + "_" + uuid.toString().replace('-', '_'));
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             // create a tmp table with uuid
