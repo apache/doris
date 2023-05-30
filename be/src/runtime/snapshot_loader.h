@@ -33,6 +33,8 @@ namespace io {
 class RemoteFileSystem;
 } // namespace io
 
+class TRemoteTabletSnapshot;
+
 struct FileStat {
     std::string name;
     std::string md5;
@@ -76,6 +78,9 @@ public:
 
     Status download(const std::map<std::string, std::string>& src_to_dest_path,
                     std::vector<int64_t>* downloaded_tablet_ids);
+
+    Status remote_http_download(const std::vector<TRemoteTabletSnapshot>& remote_tablets,
+                                       std::vector<int64_t>* downloaded_tablet_ids);
 
     Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
 

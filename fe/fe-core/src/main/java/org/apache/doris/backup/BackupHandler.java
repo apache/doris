@@ -46,6 +46,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.task.DirMoveTask;
@@ -56,13 +57,16 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
@@ -75,7 +79,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -103,6 +109,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
     private boolean isInit = false;
 
     private Env env;
+
+    // map to store backup info, key is label name, value is Pair<meta, info>, meta && info is bytes
+    // this map not present in persist && only in fe master memory
+    // one table only keep one snapshot info, only keep last
+    private final Map<String, Snapshot> localSnapshots = new HashMap<>();
+    private ReadWriteLock localSnapshotsLock = new ReentrantReadWriteLock();
 
     public BackupHandler() {
         // for persist
@@ -241,9 +253,13 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void process(AbstractBackupStmt stmt) throws DdlException {
         // check if repo exist
         String repoName = stmt.getRepoName();
-        Repository repository = repoMgr.getRepo(repoName);
-        if (repository == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository " + repoName + " does not exist");
+        Repository repository = null;
+        if (!repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            repository = repoMgr.getRepo(repoName);
+            if (repository == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Repository " + repoName + " does not exist");
+            }
         }
 
         // check if db exist
@@ -286,7 +302,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private void backup(Repository repository, Database db, BackupStmt stmt) throws DdlException {
-        if (repository.isReadOnly()) {
+        if (repository != null && repository.isReadOnly()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository " + repository.getName()
                     + " is read only");
         }
@@ -357,25 +373,29 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         // Check if label already be used
-        List<String> existSnapshotNames = Lists.newArrayList();
-        Status st = repository.listSnapshots(existSnapshotNames);
-        if (!st.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, st.getErrMsg());
-        }
-        if (existSnapshotNames.contains(stmt.getLabel())) {
-            if (stmt.getType() == BackupType.FULL) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot with name '"
-                        + stmt.getLabel() + "' already exist in repository");
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Currently does not support "
-                        + "incremental backup");
+        long repoId = -1;
+        if (repository != null) {
+            List<String> existSnapshotNames = Lists.newArrayList();
+            Status st = repository.listSnapshots(existSnapshotNames);
+            if (!st.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, st.getErrMsg());
             }
+            if (existSnapshotNames.contains(stmt.getLabel())) {
+                if (stmt.getType() == BackupType.FULL) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot with name '"
+                            + stmt.getLabel() + "' already exist in repository");
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Currently does not support "
+                            + "incremental backup");
+                }
+            }
+            repoId = repository.getId();
         }
 
         // Create a backup job
         BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repository.getId());
+                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repoId);
         // write log
         env.getEditLog().logBackupJob(backupJob);
 
@@ -386,26 +406,62 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     private void restore(Repository repository, Database db, RestoreStmt stmt) throws DdlException {
-        // Check if snapshot exist in repository
-        List<BackupJobInfo> infos = Lists.newArrayList();
-        Status status = repository.getSnapshotInfoFile(stmt.getLabel(), stmt.getBackupTimestamp(), infos);
-        if (!status.ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                           "Failed to get info of snapshot '" + stmt.getLabel() + "' because: "
-                                                   + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
+        BackupJobInfo jobInfo;
+        if (stmt.isLocal()) {
+            String jobInfoString = new String(stmt.getJobInfo());
+            jobInfo = BackupJobInfo.genFromJson(jobInfoString);
+
+            if (jobInfo.extraInfo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info empty");
+            }
+            if (jobInfo.extraInfo.beNetworkMap == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info be network map");
+            }
+            if (Strings.isNullOrEmpty(jobInfo.extraInfo.token)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info token");
+            }
+        } else {
+            // Check if snapshot exist in repository
+            List<BackupJobInfo> infos = Lists.newArrayList();
+            Status status = repository.getSnapshotInfoFile(stmt.getLabel(), stmt.getBackupTimestamp(), infos);
+            if (!status.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Failed to get info of snapshot '" + stmt.getLabel() + "' because: "
+                                + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
+            }
+
+            // Check if all restore objects are exist in this snapshot.
+            // Also remove all unrelated objs
+            Preconditions.checkState(infos.size() == 1);
+            jobInfo = infos.get(0);
         }
 
-        // Check if all restore objects are exist in this snapshot.
-        // Also remove all unrelated objs
-        Preconditions.checkState(infos.size() == 1);
-        BackupJobInfo jobInfo = infos.get(0);
         checkAndFilterRestoreObjsExistInSnapshot(jobInfo, stmt.getAbstractBackupTableRefClause());
 
         // Create a restore job
-        RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
+        RestoreJob restoreJob;
+        if (stmt.isLocal()) {
+            ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(stmt.getMeta());
+            DataInputStream dataInputStream = new DataInputStream(byteArrayInputStream);
+            try {
+                BackupMeta backupMeta = BackupMeta.read(dataInputStream);
+                String backupTimestamp =
+                        TimeUtils.longToTimeString(jobInfo.getBackupTime(), TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
+                        db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
+                        stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),
+                        stmt.reserveDynamicPartitionEnable(),
+                        env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+            } catch (IOException e) {
+                throw new DdlException(e.getMessage());
+            }
+        } else {
+            restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
                 env, repository.getId());
+        }
+
         env.getEditLog().logRestoreJob(restoreJob);
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
@@ -665,6 +721,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
         return false;
+    }
+
+    public void addSnapshot(String labelName, Snapshot snapshot) {
+        localSnapshotsLock.writeLock().lock();
+        try {
+            localSnapshots.put(labelName, snapshot);
+        } finally {
+            localSnapshotsLock.writeLock().unlock();
+        }
+    }
+
+    public Snapshot getSnapshot(String labelName) {
+        localSnapshotsLock.readLock().lock();
+        try {
+            return localSnapshots.get(labelName);
+        } finally {
+            localSnapshotsLock.readLock().unlock();
+        }
     }
 
     public static BackupHandler read(DataInput in) throws IOException {
