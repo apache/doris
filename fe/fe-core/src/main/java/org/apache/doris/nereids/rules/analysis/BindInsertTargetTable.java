@@ -138,9 +138,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
         return colsName == null
-                ? table.getFullSchema().stream()
-                .filter(column -> column.isVisible() && !column.getName().startsWith("mv"))
-                .collect(Collectors.toList())
+                ? table.getBaseSchema().stream().filter(Column::isVisible).collect(Collectors.toList())
                 : colsName.stream().map(cn -> {
                     Column column = table.getColumn(cn);
                     if (column == null) {
