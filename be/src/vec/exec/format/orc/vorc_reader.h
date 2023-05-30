@@ -461,6 +461,7 @@ private:
     std::unique_ptr<IColumn::Filter> _filter = nullptr;
     LazyReadContext _lazy_read_ctx;
     std::unique_ptr<TextConverter> _text_converter = nullptr;
+    bool _is_acid = false;
 };
 
 class ORCFileInputStream : public orc::InputStream {
