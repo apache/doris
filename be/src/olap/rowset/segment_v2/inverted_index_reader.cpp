@@ -27,10 +27,10 @@
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/Term.h>
 #include <CLucene/search/IndexSearcher.h>
+#include <CLucene/search/PhraseQuery.h>
 #include <CLucene/search/Query.h>
 #include <CLucene/search/RangeQuery.h>
 #include <CLucene/search/TermQuery.h>
-#include <CLucene/search/PhraseQuery.h>
 #include <CLucene/store/Directory.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/util/CLStreams.h>
@@ -237,7 +237,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
 
         std::unique_ptr<lucene::search::Query> query;
         std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
-        
+
         auto index_search = [&](bool& null_bitmap_already_read,
                                 std::shared_ptr<roaring::Roaring>& term_match_bitmap,
                                 InvertedIndexQueryCache* cache,
@@ -246,14 +246,13 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             // check index file existence
             if (!indexExists(index_file_path)) {
                 LOG(WARNING) << "inverted index path: " << index_file_path.string()
-                            << " not exist.";
+                             << " not exist.";
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>();
             }
 
             InvertedIndexCacheHandle inverted_index_cache_handle;
             InvertedIndexSearcherCache::instance()->get_index_searcher(
-                    _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle,
-                    stats);
+                    _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
             auto index_searcher = inverted_index_cache_handle.get_index_searcher();
 
             // try to reuse index_searcher's directory to read null_bitmap to cache
@@ -261,18 +260,17 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
             if (!null_bitmap_already_read) {
                 InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
                 read_null_bitmap(&null_bitmap_cache_handle,
-                                index_searcher->getReader()->directory());
+                                 index_searcher->getReader()->directory());
                 null_bitmap_already_read = true;
             }
 
             try {
                 SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
-                index_searcher->_search(
-                        query.get(),
-                        [&term_match_bitmap](const int32_t docid, const float_t /*score*/) {
-                            // docid equal to rowid in segment
-                            term_match_bitmap->add(docid);
-                        });
+                index_searcher->_search(query.get(), [&term_match_bitmap](const int32_t docid,
+                                                                          const float_t /*score*/) {
+                    // docid equal to rowid in segment
+                    term_match_bitmap->add(docid);
+                });
             } catch (const CLuceneError& e) {
                 LOG(WARNING) << "CLuceneError occured: " << e.what();
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
@@ -290,14 +288,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
         bool null_bitmap_already_read = false;
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
             std::wstring str_tokens;
-            auto* phrase_query = new lucene::search::PhraseQuery();
-            int32_t slop = phrase_query->getSlop();
             for (auto& token : analyse_result) {
-                auto* term = _CLNEW lucene::index::Term(field_ws.c_str(), token.c_str());
-                phrase_query->add(term);
-                _CLDECDELETE(term);
                 str_tokens += token;
-                str_tokens += std::to_wstring(slop);
             }
 
             auto cache = InvertedIndexQueryCache::instance();
@@ -315,6 +307,13 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 stats->inverted_index_query_cache_miss++;
 
                 term_match_bitmap = std::make_shared<roaring::Roaring>();
+
+                auto* phrase_query = new lucene::search::PhraseQuery();
+                for (auto& token : analyse_result) {
+                    auto* term = _CLNEW lucene::index::Term(field_ws.c_str(), token.c_str());
+                    phrase_query->add(term);
+                    _CLDECDELETE(term);
+                }
                 query.reset(phrase_query);
 
                 Status res = index_search(null_bitmap_already_read, term_match_bitmap, cache,
@@ -330,8 +329,9 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 // try to get term bitmap match result from cache to avoid query index on cache hit
                 auto cache = InvertedIndexQueryCache::instance();
                 // use EQUAL_QUERY type here since cache is for each term/token
-                InvertedIndexQueryCache::CacheKey cache_key {
-                        index_file_path, column_name, InvertedIndexQueryType::EQUAL_QUERY, token_ws};
+                InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name,
+                                                             InvertedIndexQueryType::EQUAL_QUERY,
+                                                             token_ws};
                 InvertedIndexQueryCacheHandle cache_handle;
                 if (cache->lookup(cache_key, &cache_handle)) {
                     stats->inverted_index_query_cache_hit++;
@@ -369,10 +369,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 case InvertedIndexQueryType::MATCH_ALL_QUERY: {
                     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_op_timer);
                     query_match_bitmap &= *term_match_bitmap;
-                    break;
-                }
-                case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-                    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
                     break;
                 }
                 default: {
