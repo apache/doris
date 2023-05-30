@@ -5,7 +5,7 @@ PhysicalProject
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](v1.i_brand = v1_lag.i_brand)(v1.i_category = v1_lag.i_category)(v1.s_store_name = v1_lag.s_store_name)(v1.s_company_name = v1_lag.s_company_name)(v1.rn = expr_(rn + 1))
+----------hashJoin[INNER_JOIN](s_store_name = v1_lag.s_store_name)(v1.i_category = v1_lag.i_category)(v1.i_brand = v1_lag.i_brand)(v1.s_company_name = v1_lag.s_company_name)(v1.rn = expr_(rn + 1))
 ------------PhysicalProject
 --------------PhysicalWindow
 ----------------PhysicalQuickSort
@@ -35,7 +35,7 @@ PhysicalProject
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store]
 ------------PhysicalDistribute
---------------hashJoin[INNER_JOIN](v1.i_brand = v1_lead.i_brand)(v1.i_category = v1_lead.i_category)(v1.s_store_name = v1_lead.s_store_name)(v1.s_company_name = v1_lead.s_company_name)(v1.rn = expr_(rn - 1))
+--------------hashJoin[INNER_JOIN](s_store_name = v1_lead.s_store_name)(v1.i_category = v1_lead.i_category)(v1.i_brand = v1_lead.i_brand)(v1.s_company_name = v1_lead.s_company_name)(v1.rn = expr_(rn - 1))
 ----------------PhysicalProject
 ------------------PhysicalWindow
 --------------------PhysicalQuickSort
@@ -66,7 +66,7 @@ PhysicalProject
 ----------------------------------------------PhysicalOlapScan[store]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------filter((CASE WHEN (avg_monthly_sales > 0.0000) THEN (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)) ELSE NULL END > 0.1)(v2.d_year = 2001)(avg_monthly_sales > 0.0000))
+--------------------filter((v1.d_year = 2001)(avg_monthly_sales > 0.0000)(CASE WHEN (avg_monthly_sales > 0.0000) THEN (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)) ELSE NULL END > 0.1))
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort
 --------------------------PhysicalDistribute

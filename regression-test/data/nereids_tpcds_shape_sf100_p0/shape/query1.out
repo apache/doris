@@ -11,17 +11,18 @@ PhysicalTopN
 ------------PhysicalProject
 --------------hashJoin[LEFT_SEMI_JOIN](ctr1.ctr_store_sk = ctr2.ctr_store_sk)(cast(ctr_total_return as DOUBLE) > cast((avg(ctr_total_return) * 1.2) as DOUBLE))
 ----------------hashJoin[INNER_JOIN](store.s_store_sk = ctr1.ctr_store_sk)
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_returns]
-----------------------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 ------------------------------PhysicalProject
---------------------------------filter((date_dim.d_year = 2000))
-----------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[store_returns]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_year = 2000))
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((cast(s_state as VARCHAR(*)) = 'SD'))

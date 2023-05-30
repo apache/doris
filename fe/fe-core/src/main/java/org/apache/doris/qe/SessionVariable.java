@@ -336,6 +336,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
+    public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
+
+    public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -926,6 +930,16 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+    @VariableMgr.VarAttr(
+            name = INLINE_CTE_REFERENCED_THRESHOLD
+    )
+    public int inlineCTEReferencedThreshold = 1;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_CTE_MATERIALIZE
+    )
+    public boolean enableCTEMaterialize = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
