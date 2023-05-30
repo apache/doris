@@ -444,7 +444,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
         VExprContextSPtrs filter_contexts;
         for (auto& conjunct : _filter_conjuncts) {
-            filter_contexts.emplace_back(conjunct.get());
+            filter_contexts.emplace_back(conjunct);
         }
         RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
                                                         &result_filter, &can_filter_all));
@@ -770,8 +770,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         auto iter = _slot_id_to_filter_conjuncts->find(slot_id);
         if (iter != _slot_id_to_filter_conjuncts->end()) {
             for (auto& ctx : iter->second) {
-                ctxs.emplace_back(ctx.get());
-                _filter_conjuncts.push_back(ctx);
+                ctxs.push_back(ctx);
             }
         } else {
             std::stringstream msg;
@@ -804,6 +803,9 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         // About Performance: if dict_column size is too large, it will generate a large IN filter.
         if (dict_column->size() > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
             it = _dict_filter_cols.erase(it);
+            for (auto& ctx : ctxs) {
+                _filter_conjuncts.push_back(ctx);
+            }
             continue;
         }
 
