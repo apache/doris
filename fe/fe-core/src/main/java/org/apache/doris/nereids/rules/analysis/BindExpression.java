@@ -54,6 +54,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -412,6 +414,18 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalSort<LogicalProject<Plan>> sort = ctx.root;
                     LogicalProject<Plan> project = sort.child();
                     return bindSort(sort, project, ctx.cascadesContext);
+                })
+            ), RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalCTEConsumer()).thenApply(ctx -> {
+                    LogicalSort<LogicalCTEConsumer> sort = ctx.root;
+                    LogicalCTEConsumer cteConsumer = sort.child();
+                    return bindSort(sort, cteConsumer, ctx.cascadesContext);
+                })
+            ), RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalCTE()).thenApply(ctx -> {
+                    LogicalSort<LogicalCTE<Plan>> sort = ctx.root;
+                    LogicalCTE<Plan> cteConsumer = sort.child();
+                    return bindSort(sort, cteConsumer, ctx.cascadesContext);
                 })
             ),
             RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
