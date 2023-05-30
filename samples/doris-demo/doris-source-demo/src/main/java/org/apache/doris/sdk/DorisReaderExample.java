@@ -45,6 +45,7 @@ import org.apache.thrift.transport.TTransport;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -54,15 +55,17 @@ public class DorisReaderExample {
     static String dorisUrl = "127.0.0.1:8030";
     static String user = "root";
     static String password = "";
-    static String database = "db1";
-    static String table = "tbl2";
-    static String sql = "select * from db1.tbl2";
+    static String database = "test";
+    static String table = "table_1";
+    static String sql = "select * from test.table_1";
+
+    static List<List<Object>> result = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
         JSONObject queryPlan = getQueryPlan();
-        System.out.println(queryPlan);
         readData(queryPlan);
-
+        System.out.println(result);
+        System.out.println(result.size());
     }
 
     private static JSONObject getQueryPlan() throws Exception {
@@ -160,13 +163,21 @@ public class DorisReaderExample {
         VectorSchemaRoot root = arrowStreamReader.getVectorSchemaRoot();
         while (arrowStreamReader.loadNextBatch()) {
             List<FieldVector>  fieldVectors = root.getFieldVectors();
+            //total data rows
+            int rowCountInOneBatch = root.getRowCount();
+            // init the result
+            for (int i = 0; i < rowCountInOneBatch; ++i) {
+                result.add(new ArrayList<>(fieldVectors.size()));
+            }
             //selectedColumns.forEach(desc -> System.out.print("columnHeader: " + desc.getName()));
             for (int col = 0; col < fieldVectors.size(); col++) {
                 FieldVector fieldVector = fieldVectors.get(col);
-                //It needs to be converted into data according to the corresponding arrow type
-                System.out.print(fieldVector);
+                for(int row = 0 ; row < rowCountInOneBatch ;row++){
+                    //It needs to be converted into data according to the corresponding arrow type
+                    Object object = fieldVector.getObject(row);
+                    result.get(offset + row).add(object);
+                }
             }
-            System.out.println();
             offset += root.getRowCount();
         }
         return offset;
