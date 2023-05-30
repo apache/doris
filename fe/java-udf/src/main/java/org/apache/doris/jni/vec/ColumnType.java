@@ -38,6 +38,7 @@ public class ColumnType {
         SMALLINT(2),
         INT(4),
         BIGINT(8),
+        LARGEINT(16),
         FLOAT(4),
         DOUBLE(8),
         DATEV2(4),
@@ -249,6 +250,9 @@ public class ColumnType {
                 break;
             case "bigint":
                 type = Type.BIGINT;
+                break;
+            case "largeint":
+                type = Type.LARGEINT;
                 break;
             case "float":
                 type = Type.FLOAT;
