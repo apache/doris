@@ -320,7 +320,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   static final protected Logger LOG = LoggerFactory.getLogger(HiveMetaStoreClient.class);
 
   //copied from ErrorMsg.java
-  private static final String REPL_EVENTS_MISSING_IN_METASTORE = "Notification events are missing in the meta store.";
+  public static final String REPL_EVENTS_MISSING_IN_METASTORE = "Notification events are missing in the meta store.";
 
   public HiveMetaStoreClient(Configuration conf) throws MetaException {
     this(conf, null, true);
