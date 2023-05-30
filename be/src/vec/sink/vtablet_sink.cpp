@@ -569,7 +569,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
-        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -579,7 +579,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
     std::unique_ptr<Payload> temp_payload = nullptr;
     if (_index_channel != nullptr && _index_channel->get_where_clause() != nullptr) {
-        SCOPED_RAW_TIMER(&_where_clause_ns);
+        SCOPED_RAW_TIMER(&_stat.where_clause_ns);
         temp_payload.reset(new Payload(
                 std::unique_ptr<vectorized::IColumn::Selector>(new vectorized::IColumn::Selector()),
                 std::vector<int64_t>()));
@@ -623,7 +623,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         }
     }
 
-    SCOPED_RAW_TIMER(&_append_node_channel_ns);
+    SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     if (is_append) {
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_block_by_selector
@@ -1349,7 +1349,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     bool load_block_to_single_tablet =
             !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
-        _SCOPED_RAW_TIMER(&_filer_ns);
+        SCOPED_RAW_TIMER(&_filter_ns);
         // clear and release the references of columns
         input_block->clear();
         // Filter block
@@ -1401,10 +1401,11 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         SCOPED_TIMER(_profile->total_time_counter());
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
-        int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
-                actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
+        int64_t serialize_batch_ns = 0,
+                queue_push_lock_ns = 0, actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
                 max_add_batch_exec_time_ns = 0, total_wait_exec_time_ns = 0,
                 max_wait_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
+        VNodeChannelStat channel_stat;
         {
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
@@ -1417,7 +1418,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 int64_t wait_exec_time = 0;
                 index_channel->for_each_node_channel(
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
-                         &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
+                         &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
                          &total_add_batch_exec_time_ns, &add_batch_exec_time,
                          &total_wait_exec_time_ns, &wait_exec_time,
                          &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
@@ -1432,7 +1433,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                              << ", close channel failed, err: " << err_msg;
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                            &mem_exceeded_block_ns, &queue_push_lock_ns,
+                                            &channel_stat, &queue_push_lock_ns,
                                             &actual_consume_ns, &total_add_batch_exec_time_ns,
                                             &add_batch_exec_time, &total_wait_exec_time_ns,
                                             &wait_exec_time, &total_add_batch_num);
@@ -1456,7 +1457,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             } // end for index channels
         }
         // TODO need to be improved
-        LOG(INFO) << "total mem_exceeded_block_ns=" << mem_exceeded_block_ns
+        LOG(INFO) << "total mem_exceeded_block_ns=" << channel_stat.mem_exceeded_block_ns
                   << ", total queue_push_lock_ns=" << queue_push_lock_ns
                   << ", total actual_consume_ns=" << actual_consume_ns
                   << ", load id=" << print_id(_load_id);
@@ -1465,11 +1466,11 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_output_rows_counter, _number_output_rows);
         COUNTER_SET(_filtered_rows_counter, _number_filtered_rows);
         COUNTER_SET(_send_data_timer, _send_data_ns);
-        COUNTER_SET(_row_distribution_timer, _row_distribution_watch.elapsed());
+        COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_filter_timer, _filter_ns);
-        COUNTER_SET(_append_node_channel_timer, _append_node_channel_ns);
-        COUNTER_SET(_where_clause_timer, _where_clause_ns);
-        COUNTER_SET(_wait_mem_limit_timer, mem_exceeded_block_ns);
+        COUNTER_SET(_append_node_channel_timer, channel_stat.append_node_channel_ns);
+        COUNTER_SET(_where_clause_timer, channel_stat.where_clause_ns);
+        COUNTER_SET(_wait_mem_limit_timer, channel_stat.mem_exceeded_block_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
         COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);

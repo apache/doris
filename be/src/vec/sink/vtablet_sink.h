@@ -195,6 +195,20 @@ class VOlapTableSink;
 // pair<row_id,tablet_id>
 using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
+class VNodeChannelStat {
+public:
+    VNodeChannelStat& operator+=(const VNodeChannelStat& stat) {
+        mem_exceeded_block_ns += stat.mem_exceeded_block_ns;
+        where_clause_ns += stat.where_clause_ns;
+        append_node_channel_ns += stat.append_node_channel_ns;
+        return *this;
+    };
+
+    int64_t mem_exceeded_block_ns = 0;
+    int64_t where_clause_ns = 0;
+    int64_t append_node_channel_ns = 0;
+};
+
 class VNodeChannel {
 public:
     VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
@@ -238,7 +252,7 @@ public:
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
-                     int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
+                     int64_t* serialize_batch_ns, VNodeChannelStat* stat,
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
                      int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
@@ -246,7 +260,7 @@ public:
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
-        *mem_exceeded_block_ns += _mem_exceeded_block_ns;
+        *stat += _stat;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
         *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
@@ -325,10 +339,10 @@ protected:
 
     AddBatchCounter _add_batch_counter;
     std::atomic<int64_t> _serialize_batch_ns {0};
-    std::atomic<int64_t> _mem_exceeded_block_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
 
+    VNodeChannelStat _stat;
     // lock to protect _is_closed.
     // The methods in the IndexChannel are called back in the RpcClosure in the NodeChannel.
     // However, this rpc callback may occur after the whole task is finished (e.g. due to network latency),
@@ -563,8 +577,6 @@ private:
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
     int64_t _number_immutable_partition_filtered_rows = 0;
-    int64_t _append_node_channel_ns = 0;
-    int64_t _where_clause_ns = 0;
     int64_t _filter_ns = 0;
 
     MonotonicStopWatch _row_distribution_watch;
@@ -575,7 +587,7 @@ private:
     RuntimeProfile::Counter* _send_data_timer = nullptr;
     RuntimeProfile::Counter* _row_distribution_timer = nullptr;
     RuntimeProfile::Counter* _append_node_channel_timer = nullptr;
-    RuntimeProfile::Counter* _filer_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _where_clause_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
