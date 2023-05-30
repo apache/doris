@@ -169,7 +169,7 @@ private:
     // single slot filter conjuncts
     std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
-    std::vector<VExprContext*> _not_single_slot_filter_conjuncts;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     // save the path of current scan range
     std::string _current_range_path = "";
 
