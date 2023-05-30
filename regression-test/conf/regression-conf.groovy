@@ -29,7 +29,8 @@ jdbcUrl = "jdbc:mysql://${feAddress}:9030/?useLocalSessionState=true&allowLoadLo
 jdbcUser = "root"
 jdbcPassword = ""
 
-feThriftAddress = "${feAddress}:9020"
+feSourceThriftAddress = "${feAddress}:9020"
+feTargetThriftAddress = "${feAddress}:9120"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
@@ -39,7 +40,7 @@ feHttpPassword = ""
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
-suitePath = "${DORIS_HOME}/regression-test/suites"
+suitePath = "${DORIS_HOME}/regression-test/suites/CCR"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"

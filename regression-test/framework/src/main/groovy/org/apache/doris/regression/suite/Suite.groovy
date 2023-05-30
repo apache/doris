@@ -194,12 +194,12 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
-     TBinlog binlog() {
-         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}")
-         TBinlog binlog = null
-         FrontendClientImpl clientImpl = context.getSourceClient()
-         TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl)
-         if (result != null && result.isSetStatus()) {
+    TBinlog get_binlog(String table) {
+        logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}")
+        TBinlog binlog = null
+        FrontendClientImpl clientImpl = context.getSourceClient()
+        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, table, logger)
+        if (result != null && result.isSetStatus()) {
             TStatusCode code = result.getStatus().getStatusCode()
             switch (code) {
                 case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
@@ -218,16 +218,35 @@ class Suite implements GroovyInterceptable {
                     logger.error("Binlog not found DB! DB: ${clientImpl.getDb()}")
                     break
                 case TStatusCode.BINLOG_NOT_FOUND_TABLE:
-                    logger.error("Binlog not found table! table is not define.")
+                    logger.error("Binlog not found table! table is ${table}")
                     break
                 default:
                     logger.error("Binlog result is an unexpected code: ${code}")
                     break
             }
-         } else {
+        } else {
             logger.error("Invalid TGetBinlogResult! result: ${result}")
-         }
+        }
         return binlog
+    }
+
+    Boolean check_binlog(TBinlog binlog) {
+        FrontendClientImpl clientImp = context.getSourceClient()
+
+        if (binlog == null) {
+            logger.error("binlog is null!")
+            return false
+        }
+
+        if (binlog.isSetCommitSeq()) {
+            clientImp.seq = binlog.getCommitSeq()
+            logger.info("Now last seq is ${clientImp.seq}")
+        } else {
+            logger.error("Invalid binlog! binlog seq is unset.")
+            return false
+        }
+
+        return true
     }
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {

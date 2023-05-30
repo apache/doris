@@ -42,6 +42,7 @@ class Config {
     public String defaultDb
 
     public String feSourceThriftAddress
+    public String feTargetThriftAddress
     public String feSyncerUser
     public String feSyncerPassword
 
@@ -81,6 +82,7 @@ class Config {
     public Set<String> excludeDirectorySet = new HashSet<>()
 
     public TNetworkAddress feSourceThriftNetworkAddress
+    public TNetworkAddress feTargetThriftNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -92,6 +94,7 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+           String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
@@ -100,6 +103,10 @@ class Config {
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
         this.jdbcPassword = jdbcPassword
+        this.feSourceThriftAddress = feSourceThriftAddress
+        this.feTargetThriftAddress = feTargetThriftAddress
+        this.feSyncerUser = feSyncerUser
+        this.feSyncerPassword = feSyncerPassword
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
@@ -181,13 +188,22 @@ class Config {
             config.groups = ["p0"].toSet()
         }
 
-        config.feSourceThriftAddress = cmd.getOptionValue(feThriftAddressOpt, config.feSourceThriftAddress)
+        config.feSourceThriftAddress = cmd.getOptionValue(feSourceThriftAddressOpt, config.feSourceThriftAddress)
         try {
             String host = config.feSourceThriftAddress.split(":")[0]
             int port = Integer.valueOf(config.feSourceThriftAddress.split(":")[1])
             config.feSourceThriftNetworkAddress = new TNetworkAddress(host, port)
         } catch (Throwable t) {
             throw new IllegalStateException("Can not parse fe thrift address: ${config.feSourceThriftAddress}", t)
+        }
+
+        config.feTargetThriftAddress = cmd.getOptionValue(feTargetThriftAddressOpt, config.feTargetThriftAddress)
+        try {
+            String host = config.feTargetThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feTargetThriftAddress.split(":")[1])
+            config.feTargetThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feTargetThriftAddress}", t)
         }
 
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
@@ -248,6 +264,10 @@ class Config {
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
             configToString(obj.jdbcPassword),
+            configToString(obj.feSourceThriftAddress),
+            configToString(obj.feTargetThriftAddress),
+            configToString(obj.feSyncerUser),
+            configToString(obj.feSyncerPassword),
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
@@ -304,6 +324,11 @@ class Config {
         if (config.feSourceThriftAddress == null) {
             config.feSourceThriftAddress = "127.0.0.1:9020"
             log.info("Set feThriftAddress to '${config.feSourceThriftAddress}' because not specify.".toString())
+        }
+
+        if (config.feTargetThriftAddress == null) {
+            config.feTargetThriftAddress = "127.0.0.1:9120"
+            log.info("Set feThriftAddress to '${config.feTargetThriftAddress}' because not specify.".toString())
         }
 
         if (config.feHttpAddress == null) {
