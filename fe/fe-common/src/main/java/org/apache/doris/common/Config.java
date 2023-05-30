@@ -1997,4 +1997,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static int analyze_task_timeout_in_minutes = 120;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "Whether to disable creating catalog with WITH RESOURCE statement."})
+    public static boolean disallow_create_catalog_with_resource = true;
 }

@@ -142,6 +142,8 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
         }
     }
 
+    hdfsBuilderConfSetStr(builder->get(), "ipc.client.fallback-to-simple-auth-allowed", "true");
+
     if (builder->is_need_kinit()) {
         RETURN_IF_ERROR(builder->run_kinit());
     }
