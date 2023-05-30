@@ -115,6 +115,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate_uniq(k7) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k10) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate_uniq(k12) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle1 "SELECT k1, k2, array_sum(k2), array_sum(array_shuffle(k2)), array_shuffle(k2, 0), shuffle(k2, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle2 "SELECT k1, k5, array_size(k5), array_size(array_shuffle(k5)), array_shuffle(k5, 0), shuffle(k5, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle3 "SELECT k1, k6, array_size(k6), array_size(array_shuffle(k6)), array_shuffle(k6, 0), shuffle(k6, 0) from ${tableName} ORDER BY k1"
