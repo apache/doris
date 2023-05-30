@@ -91,11 +91,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
             Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
             tRoutineLoadTask.setTbl(tbl.getName());
             tRoutineLoadTask.setParams(rePlan(routineLoadJob));
-        } else {
-            //fixme
-            tRoutineLoadTask.setTbl("test_g");
         }
-
         tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMaxBatchSize(routineLoadJob.getMaxBatchSizeBytes());

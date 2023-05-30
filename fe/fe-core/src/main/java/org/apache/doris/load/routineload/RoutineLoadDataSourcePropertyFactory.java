@@ -25,11 +25,11 @@ import java.util.Map;
  * RoutineLoadDataSourcePropertyFactory is used to create data source properties
  * for routine load job.
  * <p>
- *     Currently, we only support kafka data source.
- *     If we want to support more data source, we can add more data source properties here.
- *     And we can add more data source type in LoadDataSourceType.
- *     Then we can use this factory to create data source properties.
- *</p>
+ * Currently, we only support kafka data source.
+ * If we want to support more data source, we can add more data source properties here.
+ * And we can add more data source type in LoadDataSourceType.
+ * Then we can use this factory to create data source properties.
+ * </p>
  */
 public class RoutineLoadDataSourcePropertyFactory {
 

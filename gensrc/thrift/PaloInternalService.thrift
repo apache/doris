@@ -415,6 +415,8 @@ struct TExecPlanFragmentParams {
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+  
+  23: optional string table_name;
 }
 
 struct TExecPlanFragmentParamsList {

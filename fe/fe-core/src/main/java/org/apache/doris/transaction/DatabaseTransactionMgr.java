@@ -1886,7 +1886,7 @@ public class DatabaseTransactionMgr {
         final StackTraceElement[] stackTrace = t.getStackTrace();
         StringBuilder msgBuilder = new StringBuilder();
         for (StackTraceElement e : stackTrace) {
-            msgBuilder.append(e.toString() + "\n");
+            msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
     }
@@ -1903,30 +1903,17 @@ public class DatabaseTransactionMgr {
     }
 
     /**
-     * Get transaction table ids by transaction id.
-     */
-    public List<Long> queryMultiTableTransactionTableIds(long transactionId) {
-        return multiTableRunningTransactionTableIdMaps.get(transactionId);
-    }
-
-    /**
      * Update transaction table ids by transaction id.
      * it's used for multi table transaction.
      */
-    public void updateMultiTableRunningTransactionTableIds(long transactionId) {
-        List<Long> tableIds = multiTableRunningTransactionTableIdMaps.get(transactionId);
+    public void updateMultiTableRunningTransactionTableIds(long transactionId, List<Long> tableIds) {
         if (CollectionUtils.isEmpty(tableIds)) {
             return;
         }
         //idToRunningTransactionState.get(transactionId).
-        if (null == idToRunningTransactionState.get(transactionId)
-                || CollectionUtils.isEmpty(idToRunningTransactionState.get(transactionId).getTableIdList())) {
+        if (null == idToRunningTransactionState.get(transactionId)) {
             return;
         }
-        if (null == idToRunningTransactionState.get(transactionId).getTableIdList()) {
-            idToRunningTransactionState.get(transactionId).setTableIdList(tableIds);
-            return;
-        }
-        idToRunningTransactionState.get(transactionId).getTableIdList().addAll(tableIds);
+        idToRunningTransactionState.get(transactionId).setTableIdList(tableIds);
     }
 }

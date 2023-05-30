@@ -265,8 +265,8 @@ public class RoutineLoadManager implements Writable {
             for (RoutineLoadJob job : jobs) {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                            dbName, tableName, PrivPredicate.LOAD)) {
+                    if (!job.isMultiTable() && !Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
                         continue;
                     }
                     result.add(job);

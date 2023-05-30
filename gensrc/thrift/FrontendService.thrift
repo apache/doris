@@ -657,6 +657,7 @@ struct TLoadTxnCommitRequest {
     12: optional i64 thrift_rpc_timeout_ms
     13: optional string token
     14: optional i64 db_id
+    15: optional list<string> tbls // only used for stream load multi table, and it's better replace tbl in future
 }
 
 struct TLoadTxnCommitResult {
@@ -730,6 +731,7 @@ struct TLoadTxnRollbackRequest {
     10: optional TTxnCommitAttachment txnCommitAttachment
     11: optional string token
     12: optional i64 db_id
+    13: optional list<string> tbls // only used for stream load multi table, and it's better replace tbl in future
 }
 
 struct TLoadTxnRollbackResult {

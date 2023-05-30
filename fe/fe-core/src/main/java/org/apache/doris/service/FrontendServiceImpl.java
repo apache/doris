@@ -145,7 +145,6 @@ import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -175,6 +174,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
@@ -1122,6 +1122,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
+        List<String> tbNames;
+        //check has multi table
+        if (CollectionUtils.isNotEmpty(request.getTbls())) {
+            tbNames = request.getTbls();
+
+        } else {
+            tbNames = Collections.singletonList(request.getTbl());
+        }
+        List<Table> tables = new ArrayList<>(tbNames.size());
+        for (String tbl : tbNames) {
+            OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
+            tables.add(table);
+        }
+        //if it has multi table, use multi table and update multi table running transaction table ids
+        if (CollectionUtils.isNotEmpty(request.getTbls())) {
+            List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
+            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
+                    .updateMultiTableRunningTransactionTableIds(request.getTxnId(), multiTableIds);
+            LOG.debug("txn {} has multi table {}", request.getTxnId(), request.getTbls());
+        }
+        return tables;
+    }
+
     private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
@@ -1133,8 +1157,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+            // refactoring it
+            if (CollectionUtils.isNotEmpty(request.getTbls())) {
+                for (String tbl : request.getTbls()) {
+                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                            request.getUserIp(), PrivPredicate.LOAD);
+                }
+            } else {
+                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(),
+                        request.getUserIp(), PrivPredicate.LOAD);
+            }
         }
 
         // get database
@@ -1155,28 +1188,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
-
-        //check has multi table
-        List<Long> multiTableIds = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                .queryMultiTableTransactionTableIds(request.getTxnId());
-
-        List<Table> tables;
-        if (CollectionUtils.isEmpty(multiTableIds)) {
-            // lookup table && convert into tableIdList
-            OlapTable table = (OlapTable) db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-            tables = Collections.singletonList(table);
-        } else {
-            tables = new ArrayList<>();
-            for (Long tableId : multiTableIds) {
-                //todo: its better to use batch query
-                OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
-                tables.add(table);
-            }
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .updateMultiTableRunningTransactionTableIds(request.getTxnId());
-            LOG.debug("txn {} has multi table {}", request.getTxnId(), multiTableIds);
-        }
-
+        List<Table> tables = queryLoadCommitTables(request, db);
         Env.getCurrentGlobalTransactionMgr()
                 .preCommitTransaction2PC(db, tables, request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
@@ -1228,7 +1240,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
                 .getDatabaseTransactionMgr(database.getId());
-        dbTransactionMgr.updateMultiTableRunningTransactionTableIds(request.getTxnId());
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
         if (transactionState == null) {
@@ -1261,6 +1272,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
+        multiTableFragmentInstanceIdIndexMap.remove(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
 
@@ -1298,8 +1310,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+            if (CollectionUtils.isNotEmpty(request.getTbls())) {
+                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbls(), request.getUserIp(), PrivPredicate.LOAD);
+            } else {
+                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+            }
         }
 
         // get database
@@ -1319,24 +1336,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
-        List<Long> multiTableIds = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                .queryMultiTableTransactionTableIds(request.getTxnId());
-        List<Table> tables;
-        if (CollectionUtils.isEmpty(multiTableIds)) {
-            // lookup table && convert into tableIdList
-            OlapTable table = (OlapTable) db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-            tables = Collections.singletonList(table);
-        } else {
-            tables = new ArrayList<>();
-            for (Long tableId : multiTableIds) {
-                //todo: its better to use batch query
-                OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
-                tables.add(table);
-            }
-            Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
-                    .updateMultiTableRunningTransactionTableIds(request.getTxnId());
-            LOG.debug("txn {} has multi table {}", request.getTxnId(), multiTableIds);
-        }
+        List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
@@ -1483,8 +1483,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+            //multi table load
+            if (CollectionUtils.isNotEmpty(request.getTbls())) {
+                for (String tbl : request.getTbls()) {
+                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                            request.getUserIp(), PrivPredicate.LOAD);
+                }
+            } else {
+                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                        request.getTbl(),
+                        request.getUserIp(), PrivPredicate.LOAD);
+            }
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
@@ -1675,11 +1684,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> tableIds = olapTables.stream().map(OlapTable::getId).collect(Collectors.toList());
         // todo: if is multi table, we need consider the lock time and the timeout
         try {
+            multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), 1);
             for (OlapTable table : olapTables) {
+                int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
                 TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                        table, timeoutMs);
+                        table, timeoutMs, index);
                 planFragmentParamsList.add(planFragmentParams);
-                request.setLoadId(new TUniqueId(request.loadId.hi, request.loadId.lo + 1));
+                multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
                     .putTransactionTableNames(request.getTxnId(),
@@ -1692,8 +1703,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         result.setParams(planFragmentParamsList);
+        LOG.warn("receive stream load multi table put request result: {}", result);
         return result;
     }
+
+    // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
+    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap = new ConcurrentHashMap<>(64);
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
         String cluster = request.getCluster();
@@ -1719,21 +1734,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
                                                                long timeoutMs) throws UserException {
+        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 0);
+    }
+
+    private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
+                                                               String fullDbName, OlapTable table,
+                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex)
+            throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
+            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + request.getTxnId());
             }
-            txnState.addTableIndexes((OlapTable) table);
+            txnState.addTableIndexes(table);
+            plan.setTableName(table.getName());
             return plan;
         } finally {
             table.readUnlock();
