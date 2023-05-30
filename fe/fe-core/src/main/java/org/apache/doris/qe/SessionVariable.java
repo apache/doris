@@ -635,7 +635,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 102400;
+    private int runtimeFilterMaxInNum = 1024;
 
     public int getBeNumberForTest() {
         return beNumberForTest;

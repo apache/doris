@@ -77,8 +77,6 @@ public class RuntimeFilterContext {
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
-    // collect the first column of tables. min-max/in RF on the first column could be used to shrink scan range.
-    private final Set<Slot> firstKeyOfTable = Sets.newHashSet();
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -196,14 +194,6 @@ public class RuntimeFilterContext {
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
         return joinToTargetExprId.get(join);
-    }
-
-    public boolean isFirstKeyOfTable(Slot slot) {
-        return firstKeyOfTable.contains(slot);
-    }
-
-    public void addFistKeyOfTable(Slot slot) {
-        firstKeyOfTable.add(slot);
     }
 
     public SlotReference getCorrespondingOlapSlotReference(SlotReference slot) {

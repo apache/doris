@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -28,14 +27,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -121,7 +118,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // in-filter is not friendly to pipeline
                     if (type == TRuntimeFilterType.IN_OR_BLOOM
                             && ctx.getSessionVariable().enablePipelineEngine()
-                            //&& !ctx.isFirstKeyOfTable(olapScanSlot)
                             && hasRemoteTarget(join, scan)) {
                         type = TRuntimeFilterType.BLOOM;
                     }
@@ -237,30 +233,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan, slot)));
-        Slot first = scan.getOutput().get(0);
-        //collect first duplicate-key(unique-key) for min-max/in filter
-        if (first instanceof SlotReference) {
-            SlotReference firstSlotRef = (SlotReference) first;
-            if (firstSlotRef.getColumn().isPresent()
-                    && firstSlotRef.getColumn().get().isKey()) {
-                ctx.addFistKeyOfTable(firstSlotRef);
-            }
-        }
-        if (scan instanceof PhysicalOlapScan) {
-            // collect first partition key
-            PhysicalOlapScan olapScan = (PhysicalOlapScan) scan;
-            if (!olapScan.getTable().getPartitionInfo().getPartitionColumns().isEmpty()) {
-                Column firstPartitionColumn = olapScan.getTable().getPartitionInfo().getPartitionColumns().get(0);
-                for (Slot slot : scan.getOutput()) {
-                    SlotReference slotReference = (SlotReference) slot;
-                    if (slotReference.getColumn().isPresent()
-                            && slotReference.getColumn().get().equals(firstPartitionColumn)) {
-                        ctx.addFistKeyOfTable(slotReference);
-                        break;
-                    }
-                }
-            }
-        }
         return scan;
     }
 
