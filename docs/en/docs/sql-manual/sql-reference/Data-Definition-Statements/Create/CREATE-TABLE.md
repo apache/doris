@@ -370,6 +370,14 @@ distribution_desc
         If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
 
         `"disable_auto_compaction" = "false"`
+
+    * `enable_single_replica_compaction`
+
+        Whether to enable single replica compaction for this table.
+
+        If this property is set to 'true', all replicas of the tablet will only have one replica performing compaction, while the others fetch rowsets from that replica.
+
+        `"enable_single_replica_compaction" = "false"`
     
     * Dynamic partition related
     

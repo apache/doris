@@ -121,6 +121,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
+
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
 
     public static final String PROPERTIES_MUTABLE = "mutable";
@@ -502,6 +504,26 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_DISABLE_AUTO_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        // set enable single replica compaction false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                 + " must be `true` or `false`");
     }
 

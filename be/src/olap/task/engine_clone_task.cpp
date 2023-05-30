@@ -73,13 +73,6 @@ using strings::SkipWhitespace;
 namespace doris {
 using namespace ErrorCode;
 
-const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
-const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
-const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
-const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
-const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
-const uint32_t GET_LENGTH_TIMEOUT = 10;
-
 #define RETURN_IF_ERROR_(status, stmt) \
     do {                               \
         status = (stmt);               \
