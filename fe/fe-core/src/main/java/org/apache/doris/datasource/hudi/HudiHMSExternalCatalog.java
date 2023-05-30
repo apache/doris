@@ -40,8 +40,9 @@ public class HudiHMSExternalCatalog extends HMSExternalCatalog {
      * @param resource
      * @param props
      */
-    public HudiHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name, resource, props);
+    public HudiHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, resource, props, comment);
     }
 
 
@@ -64,3 +65,4 @@ public class HudiHMSExternalCatalog extends HMSExternalCatalog {
     }
 
 }
+

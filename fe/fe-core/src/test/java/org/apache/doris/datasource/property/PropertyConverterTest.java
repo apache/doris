@@ -237,10 +237,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 11);
+        Assertions.assertEquals(properties.size(), 12);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 20);
+        Assertions.assertEquals(hdProps.size(), 21);
     }
 
     @Test
@@ -255,10 +255,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 10);
+        Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 19);
+        Assertions.assertEquals(hdProps.size(), 20);
     }
 
     @Test
@@ -275,10 +275,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_glue_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 19);
+        Assertions.assertEquals(properties.size(), 20);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 28);
+        Assertions.assertEquals(hdProps.size(), 29);
 
         String query = "create catalog hms_glue properties (\n"
                     + "    'type'='hms',\n"
@@ -291,10 +291,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, "hms_glue");
         Map<String, String> propertiesNew = catalogNew.getCatalogProperty().getProperties();
-        Assertions.assertEquals(propertiesNew.size(), 19);
+        Assertions.assertEquals(propertiesNew.size(), 20);
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdPropsNew.size(), 28);
+        Assertions.assertEquals(hdPropsNew.size(), 29);
     }
 
     @Test
@@ -309,10 +309,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_obs");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 10);
+        Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 14);
+        Assertions.assertEquals(hdProps.size(), 15);
     }
 
     @Test
@@ -328,10 +328,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_cos");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 11);
+        Assertions.assertEquals(properties.size(), 12);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 23);
+        Assertions.assertEquals(hdProps.size(), 24);
     }
 
     @Test
@@ -346,10 +346,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_oss");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 10);
+        Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 22);
+        Assertions.assertEquals(hdProps.size(), 23);
     }
 
     private static HMSExternalCatalog createAndGetCatalog(CreateCatalogStmt analyzedStmt, String name)

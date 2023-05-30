@@ -77,6 +77,8 @@ public:
 
     std::string get_name() override { return VFileScanner::NAME; }
 
+    std::string get_current_scan_range_name() override { return _current_range_path; }
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
@@ -168,6 +170,8 @@ private:
     std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
+    // save the path of current scan range
+    std::string _current_range_path = "";
 
 private:
     Status _init_expr_ctxes();

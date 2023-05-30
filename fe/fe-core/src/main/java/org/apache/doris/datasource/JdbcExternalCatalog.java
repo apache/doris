@@ -47,9 +47,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
 
-    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props)
+    public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment)
             throws DdlException {
-        super(catalogId, name, InitCatalogLog.Type.JDBC);
+        super(catalogId, name, InitCatalogLog.Type.JDBC, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
     }
 

@@ -39,6 +39,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -47,7 +48,6 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -91,15 +91,20 @@ public abstract class ExternalCatalog
     private ExternalSchemaCache schemaCache;
     private String comment;
 
-    public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType) {
+    public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType, String comment) {
         this.id = catalogId;
         this.name = name;
         this.logType = logType;
+        this.comment = com.google.common.base.Strings.nullToEmpty(comment);
     }
 
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+                + "listDatabaseNames from remote client when init catalog with " + logType.name());
+    }
+
+    public void setDefaultProps() {
+        // set some default properties when creating catalog
     }
 
     /**
