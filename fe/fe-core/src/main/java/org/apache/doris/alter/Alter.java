@@ -157,7 +157,8 @@ public class Alter {
         }
     }
 
-    public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException {
+    public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt)
+            throws DdlException, MetaNotFoundException {
         if (stmt.getRefreshMethod() != RefreshMethod.COMPLETE) {
             throw new DdlException("Now only support REFRESH COMPLETE.");
         }
