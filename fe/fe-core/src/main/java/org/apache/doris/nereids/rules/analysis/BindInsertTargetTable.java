@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -76,27 +76,38 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
-                    Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
+                    Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
-                        columnToOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
+                        columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
-                    List<NamedExpression> newOutput = Lists.newArrayList();
+                    Map<Column, NamedExpression> columnToOutput = Maps.newHashMap();
+
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                        if (columnToOutput.containsKey(column)) {
-                            newOutput.add(columnToOutput.get(column));
-                        } else if (column.getDefaultValue() == null) {
-                            newOutput.add(new Alias(
-                                    new NullLiteral(DataType.fromCatalogType(column.getType())),
-                                    column.getName()
-                            ));
+                        if (columnToChildOutput.containsKey(column)) {
+                            columnToOutput.put(column, columnToChildOutput.get(column));
                         } else {
-                            newOutput.add(new Alias(Literal.of(column.getDefaultValue())
-                                    .checkedCastTo(DataType.fromCatalogType(column.getType())), column.getName()));
+                            if (table.hasSequenceCol()
+                                    && column.getName().equals(Column.SEQUENCE_COL)
+                                    && table.getSequenceMapCol() != null) {
+                                Column seqCol = table.getFullSchema().stream()
+                                        .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                        .findFirst().get();
+                                columnToOutput.put(column, columnToOutput.get(seqCol));
+                            } else if (column.getDefaultValue() == null) {
+                                columnToOutput.put(column, new Alias(
+                                        new NullLiteral(DataType.fromCatalogType(column.getType())),
+                                        column.getName()
+                                ));
+                            } else {
+                                columnToOutput.put(column, new Alias(Literal.of(column.getDefaultValue())
+                                        .checkedCastTo(DataType.fromCatalogType(column.getType())), column.getName()));
+                            }
                         }
                     }
 
-                    return boundSink.withChildren(new LogicalProject<>(newOutput, boundSink.child()));
+                    return boundSink.withChildren(new LogicalProject<>(ImmutableList.copyOf(columnToOutput.values()),
+                            boundSink.child()));
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
