@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
@@ -317,7 +318,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
-        for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
+        List<Column> targetTableColumns = RelationUtil.getColumnsFilteredMV(olapTableSink.getTargetTable());
+        for (Column column : targetTableColumns) {
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(column.getType());
@@ -363,9 +365,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         List<Expr> castExprs = Lists.newArrayList();
-        OlapTable targetTable = olapTableSink.getTargetTable();
-        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-            Type lhs = targetTable.getFullSchema().get(i).getType();
+        for (int i = 0; i < targetTableColumns.size(); ++i) {
+            Type lhs = targetTableColumns.get(i).getType();
             Type rhs = outputExprs.get(i).getType();
             if (!lhs.equals(rhs)) {
                 castExprs.add(new CastExpr(lhs, outputExprs.get(i)));
@@ -377,21 +378,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputExprs(castExprs);
         rootFragment.setSink(sink);
 
-        /*List<Integer> colIdx = ((HashDistributionInfo) olapTableSink.getTargetTable()
-                .getDefaultDistributionInfo()).getDistributionColumns().stream()
-                .map(column -> targetTable.getFullSchema().indexOf(column))
-                .collect(Collectors.toList());
-
-        List<Expr> partitionExpr = colIdx.stream().map(outputExprs::get)
-                .filter(expr -> !(expr instanceof LiteralExpr))
-                .collect(Collectors.toList());
-
-        DataPartition partition = partitionExpr.isEmpty()
-                ? DataPartition.UNPARTITIONED
-                : DataPartition.hashPartitioned(partitionExpr);
-
-        rootFragment.setOutputPartition(partition);*/
-        // rootFragment.setDataPartition(DataPartition.UNPARTITIONED);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
         return rootFragment;

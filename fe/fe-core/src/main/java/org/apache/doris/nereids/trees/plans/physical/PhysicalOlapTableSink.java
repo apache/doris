@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -193,7 +194,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         List<Column> distributedColumns = distributionInfo.getDistributionColumns();
         List<Integer> columnIndexes = Lists.newArrayList();
         int idx = 0;
-        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+        for (int i = 0; i < RelationUtil.getColumnsFilteredMV(targetTable).size(); ++i) {
             if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
                 columnIndexes.add(i);
                 idx++;

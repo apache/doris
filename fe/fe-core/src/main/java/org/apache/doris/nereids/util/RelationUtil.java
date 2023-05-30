@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
@@ -32,6 +34,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * relation util
@@ -126,5 +129,11 @@ public class RelationUtil {
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    public static List<Column> getColumnsFilteredMV(OlapTable table) {
+        return table.getFullSchema().stream()
+                .filter(column -> !column.getName().startsWith("mv"))
+                .collect(Collectors.toList());
     }
 }

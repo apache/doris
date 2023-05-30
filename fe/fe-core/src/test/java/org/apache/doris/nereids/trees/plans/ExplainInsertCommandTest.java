@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -33,7 +31,6 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
