@@ -483,6 +483,7 @@ public class StreamLoadPlanner {
         localParams.setSenderId(0);
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         localParams.setPerNodeScanRanges(perNodeScanRange);
+        pipParams.setLocalParams(Lists.newArrayList());
         pipParams.getLocalParams().add(localParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
