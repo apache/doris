@@ -547,7 +547,7 @@ struct JsonParser<'1'> {
     // bool
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetBool((*data.data == '1') ? true : false);
+        value.SetBool((*data.data == '1' || *data.data == 't') ? true : false);
     }
 };
 
