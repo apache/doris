@@ -114,6 +114,19 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         return resourceGroups;
     }
 
+    public QueryQueue getResourceGroupQueryQueue(String groupName) throws UserException {
+        readLock();
+        try {
+            ResourceGroup resourceGroup = nameToResourceGroup.get(groupName);
+            if (resourceGroup == null) {
+                throw new UserException("Resource group " + groupName + " does not exist");
+            }
+            return resourceGroup.getQueryQueue();
+        } finally {
+            readUnlock();
+        }
+    }
+
     private void checkAndCreateDefaultGroup() {
         ResourceGroup defaultResourceGroup = null;
         writeLock();
