@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -32,12 +31,14 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.RelationUtil;
 
-import java.util.stream.Collectors;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.stream.Collectors;
 
 public class PushdownFilterThroughSortTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student,
-        ImmutableList.of(""));
+            ImmutableList.of(""));
 
     @Test
     void testPushdownFilterThroughSortTest() {
@@ -46,18 +47,18 @@ public class PushdownFilterThroughSortTest implements MemoPatternMatchSupported 
         Expression filterPredicate = new GreaterThan(gender, Literal.of(1));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan)
-            .sort(scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()))
-            .filter(filterPredicate)
-            .build();
+                .sort(scan.getOutput().stream().map(c -> new OrderKey(c, true, true)).collect(Collectors.toList()))
+                .filter(filterPredicate)
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-            .applyTopDown(new PushdownFilterThroughSort())
-            .matches(
-                logicalSort(
-                    logicalFilter(
-                        logicalOlapScan()
+                .applyTopDown(new PushdownFilterThroughSort())
+                .matches(
+                    logicalSort(
+                        logicalFilter(
+                            logicalOlapScan()
+                        )
                     )
-                )
-            );
+                );
     }
 }
