@@ -77,13 +77,12 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         command.getQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
+                .rewrite()
                 .matches(
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalFilter(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                )
+                                                logicalOlapScan()
                                         )
                                 )
                         )
@@ -100,18 +99,24 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         command.getQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
+                .rewrite()
                 .matches(
                         logicalOlapTableSink(
                                 logicalProject(
-                                        logicalFilter(
-                                                logicalJoin(
+                                        logicalJoin(
+                                                logicalProject(
                                                         logicalFilter(
                                                                 logicalOlapScan()
-                                                        ),
+                                                        )
+                                                ),
+                                                logicalProject(
                                                         logicalJoin(
-                                                                logicalOlapScan(),
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
+                                                                logicalProject(
+                                                                        logicalOlapScan()),
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
                                                                 )
                                                         )
                                                 )

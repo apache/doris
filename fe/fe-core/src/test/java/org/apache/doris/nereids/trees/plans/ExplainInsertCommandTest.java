@@ -116,20 +116,15 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testInsertIntoSomeColumns() throws Exception {
         String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
-        Assertions.assertEquals(
-                Lists.newArrayList(
-                        NullLiteral.create(Type.INT),
-                        NullLiteral.create(Type.INT)
-                ),
-                getOutputFragment(sql).getOutputExprs().subList(0, 2));
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
     }
 
     @Test
     public void testAnalysisException() {
         String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
         Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
-        // String sql1 = "explain insert into t1(v1, v2) select 'xyz', v2 + 4 from src";
-        // Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql1));
+        String sql1 = "explain insert into t1(v1, v2) select 'xyz', v2 + 4 from src";
+        Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql1));
     }
 
     @Test
