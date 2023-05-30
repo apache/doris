@@ -69,10 +69,10 @@ public class DorisReaderExample {
     static String dorisUrl = "127.0.0.1:8030";
     static String user = "root";
     static String password = "";
-    static String database = "test";
-    static String table = "test_all_types_1";
-    static String sql = "select * from test.test_all_types_1";
-
+    static String database = "db1";
+    static String table = "tbl2";
+    static String sql = "select * from db1.tbl2";
+    static int readRowCount = 0;
     static List<List<Object>> result = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
@@ -141,7 +141,7 @@ public class DorisReaderExample {
             params.setUser(user);
             params.setPasswd(password);
 
-            int offset =0;
+//            int offset =0;
             //open scanner
             TScanOpenResult tScanOpenResult = client.openScanner(params);
             if (!TStatusCode.OK.equals(tScanOpenResult.getStatus().getStatusCode())) {
@@ -154,6 +154,7 @@ public class DorisReaderExample {
             nextBatchParams.setContextId(tScanOpenResult.getContextId());
             boolean eos = false;
             //read data
+            int offset = 0;
             while(!eos){
                 nextBatchParams.setOffset(offset);
                 TScanBatchResult next = client.getNext(nextBatchParams);
@@ -165,9 +166,9 @@ public class DorisReaderExample {
                 if(!eos){
                     int i = convertArrow(next, selectedColumns);
                     offset += i;
+                    readRowCount += offset;
                 }
             }
-
             //close
             TScanCloseParams closeParams = new TScanCloseParams();
             closeParams.setContextId(tScanOpenResult.getContextId());
@@ -198,7 +199,7 @@ public class DorisReaderExample {
                 FieldVector fieldVector = fieldVectors.get(col);
                 Types.MinorType minorType = fieldVector.getMinorType();
                 for(int row = 0 ; row < rowCountInOneBatch ;row++){
-                    convertValue(row , minorType, fieldVector, offset);
+                    convertValue(row , minorType, fieldVector);
                 }
             }
             offset += root.getRowCount();
@@ -209,8 +210,7 @@ public class DorisReaderExample {
 
     private static void convertValue(int rowIndex,
                               Types.MinorType minorType,
-                              FieldVector fieldVector,
-                              int readRowCount) throws Exception {
+                              FieldVector fieldVector) throws Exception {
 
         switch (minorType) {
             case BIT:
