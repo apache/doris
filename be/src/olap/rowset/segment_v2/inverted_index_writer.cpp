@@ -182,6 +182,12 @@ public:
             field_config |= int(lucene::document::Field::INDEX_TOKENIZED);
         }
         _field = new lucene::document::Field(_field_name.c_str(), field_config);
+        if (get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+            _field->setOmitTermFreqAndPositions(false);
+        } else {
+            _field->setOmitTermFreqAndPositions(true);
+        }
         _doc->add(*_field);
         return Status::OK();
     }
