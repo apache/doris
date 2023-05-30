@@ -49,12 +49,18 @@ const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
 
+const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
+const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
+const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
+
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
 
 std::string get_parser_string_from_properties(const std::map<std::string, std::string>& properties);
 std::string get_parser_mode_string_from_properties(
+        const std::map<std::string, std::string>& properties);
+std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris
