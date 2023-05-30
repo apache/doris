@@ -367,6 +367,14 @@ distribution_desc
         如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
 
         `"disable_auto_compaction" = "false"`
+    
+    * `enable_single_replica_compaction`
+
+        是否对这个表开启单副本 compaction。
+
+        如果这个属性设置成 `true`, 这个表的 tablet 的所有副本只有一个 do compaction，其他的从该副本拉取 rowset
+
+        `"enable_single_replica_compaction" = "false"`
 
     * 动态分区相关
     

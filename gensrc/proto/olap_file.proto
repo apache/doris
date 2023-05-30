@@ -233,6 +233,7 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false];
     optional bool is_partial_update = 20 [default=false];
     repeated string partial_update_input_columns = 21;
+    optional bool enable_single_replica_compaction = 22 [default=false];
 }
 
 enum TabletStatePB {

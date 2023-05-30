@@ -644,6 +644,17 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: select the time interval in seconds for rowset to be compacted.
 * Default value: 86400
 
+#### `max_single_replica_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in single replica compaction thread pool.
+* Default value: 10
+
+#### `update_replica_infos_interval_seconds`
+
+* Description: Minimal interval (s) to update peer replica infos
+* Default value: 10 (s)
+
 
 ### Load
 
