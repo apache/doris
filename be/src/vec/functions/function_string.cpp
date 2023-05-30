@@ -222,10 +222,10 @@ struct StringInStrImpl {
 
             // Hive returns positions starting from 1.
             int loc = search.search(&lstr_ref);
-            if (loc > 0) {
-                size_t len = std::min(lstr_ref.size, (size_t)loc);
-                loc = simd::VStringFunctions::get_char_len(lstr_ref.data, len);
-            }
+            // if (loc > 0) {
+            //     size_t len = std::min(lstr_ref.size, (size_t)loc);
+            //     loc = simd::VStringFunctions::get_char_len(lstr_ref.data, len);
+            // }
             res[i] = loc + 1;
         }
 

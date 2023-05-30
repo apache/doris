@@ -32,7 +32,7 @@ suite("test_return_binary_hll") {
         "replication_allocation" = "tag.location.default: 1",
         "in_memory" = "false",
         "storage_format" = "V2",
-        "disable_auto_compaction" = "false"
+        "disable_auto_compaction" = "true"
         );
     """
     sql """
