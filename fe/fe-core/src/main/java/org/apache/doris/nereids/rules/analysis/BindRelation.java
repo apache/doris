@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -106,15 +107,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         String tableName = unboundRelation.getNameParts().get(0);
         // check if it is a CTE's name
-        CTEContext cteContext = cascadesContext.getCteContext();
-        Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTE(tableName);
-        if (analyzedCte.isPresent()) {
-            LogicalPlan ctePlan = analyzedCte.get();
-            if (ctePlan instanceof LogicalSubQueryAlias
-                    && ((LogicalSubQueryAlias<?>) ctePlan).getAlias().equals(tableName)) {
-                return ctePlan;
+        CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
+        if (cteContext != null) {
+            Optional<LogicalPlan> analyzedCte = cteContext.getReuse(tableName);
+            if (analyzedCte.isPresent()) {
+                LogicalCTEConsumer logicalCTEConsumer =
+                        new LogicalCTEConsumer(Optional.empty(), Optional.empty(),
+                                analyzedCte.get(), cteContext.getCteId(), tableName);
+                cascadesContext.putCTEIdToConsumer(logicalCTEConsumer);
+                return logicalCTEConsumer;
             }
-            return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());

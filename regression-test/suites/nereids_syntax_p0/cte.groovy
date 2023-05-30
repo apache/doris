@@ -35,6 +35,10 @@ suite("cte") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql """
+        SET enable_pipeline_engine = true
+    """
+
     order_qt_cte_1 """
         WITH cte1 AS (
             SELECT s_suppkey

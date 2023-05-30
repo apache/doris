@@ -31,6 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -85,6 +88,28 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visit(Plan plan, PlanContext context) {
         return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalCTEProducer(
+            PhysicalCTEProducer<? extends Plan> cteProducer, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return childrenOutputProperties.get(0);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalCTEConsumer(
+            PhysicalCTEConsumer cteConsumer, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 0);
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalCTEAnchor(
+            PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 2);
+        // return properties inherited from consumer side which may further be used at upper layer
+        return childrenOutputProperties.get(1);
     }
 
     @Override

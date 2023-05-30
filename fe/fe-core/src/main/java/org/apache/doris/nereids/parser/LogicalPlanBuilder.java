@@ -481,8 +481,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Optional.ofNullable(ctx.havingClause())
                 );
             }
-            selectPlan = withCte(selectPlan, ctx.cte());
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            selectPlan = withCte(selectPlan, ctx.cte());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }

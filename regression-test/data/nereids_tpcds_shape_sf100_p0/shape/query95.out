@@ -14,7 +14,7 @@ PhysicalTopN
 ----------------PhysicalDistribute
 ------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
+----------------------hashJoin[INNER_JOIN](ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
 ------------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
@@ -28,7 +28,7 @@ PhysicalTopN
 --------------------PhysicalDistribute
 ----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws_wh.ws_order_number)
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
+--------------------------hashJoin[INNER_JOIN](ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[web_sales]
