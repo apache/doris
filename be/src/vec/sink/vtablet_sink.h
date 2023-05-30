@@ -563,11 +563,20 @@ private:
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
     int64_t _number_immutable_partition_filtered_rows = 0;
+    int64_t _append_node_channel_ns = 0;
+    int64_t _where_clause_ns = 0;
+    int64_t _filter_ns = 0;
+
+    MonotonicStopWatch _row_distribution_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
+    RuntimeProfile::Counter* _row_distribution_timer = nullptr;
+    RuntimeProfile::Counter* _append_node_channel_timer = nullptr;
+    RuntimeProfile::Counter* _filer_timer = nullptr;
+    RuntimeProfile::Counter* _where_clause_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
