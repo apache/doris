@@ -224,8 +224,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             if (HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE.equals(e.getMessage())) {
                 lastSyncedEventId = getCurrentEventId();
                 refreshCatalog(hmsExternalCatalog);
-                LOG.warn("Notification events are missing, maybe an event can not be handled " +
-                        "or processing rate is too low, fallback to refresh the catalog");
+                LOG.warn("Notification events are missing, maybe an event can not be handled "
+                        + "or processing rate is too low, fallback to refresh the catalog");
                 return null;
             }
             throw e;
