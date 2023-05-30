@@ -74,22 +74,6 @@ private:
         }
         return Status::OK();
     }
-    // template <bool is_binary_format>
-    // Status _write_date_timev2_column_to_mysql(const IColumn& column,
-    //                                         std::vector<MysqlRowBuffer<is_binary_format>>& result,
-    //                                         int row_idx, int start, int end, bool col_const) const {
-    //     int buf_ret = 0;
-    //     auto& data = assert_cast<const ColumnVector<Float64>&>(column).get_data();
-    //     for (int i = start; i < end; ++i) {
-    //         if (0 != buf_ret) {
-    //             return Status::InternalError("pack mysql buffer failed.");
-    //         }
-    //         const auto col_index = index_check_const(i, col_const);
-    //         buf_ret = result[row_idx].push_timev2(data[col_index]);
-    //         ++row_idx;
-    //     }
-    //     return Status::OK();
-    // }
 };
 } // namespace vectorized
 } // namespace doris
