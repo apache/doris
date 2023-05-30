@@ -20,6 +20,7 @@ suite("nereids_insert_array_type") {
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set parallel_fragment_exec_instance_num=13'
 
     test {
         sql 'insert into arr_t select id, kaint from src'
