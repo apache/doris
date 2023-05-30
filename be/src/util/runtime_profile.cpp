@@ -630,7 +630,6 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
     node.name = _name;
-    node.num_children = _children.size();
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
@@ -638,10 +637,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
+        node.num_children = _children.size();
         counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
     }
 
+    DCHECK(node.num_children == node.child_counters_map.size());
     for (std::map<std::string, Counter*>::const_iterator iter = counter_map.begin();
          iter != counter_map.end(); ++iter) {
         TCounter counter;
