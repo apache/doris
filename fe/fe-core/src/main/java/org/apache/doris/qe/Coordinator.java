@@ -47,6 +47,8 @@ import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.IntersectNode;
+import org.apache.doris.planner.MultiCastDataSink;
+import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -1140,7 +1142,11 @@ public class Coordinator {
                             + " query id: {}, instance id: {}, error message: {}",
                     jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN",
                     status.getErrorMsg());
-            cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            if (status.getErrorCode() == TStatusCode.TIMEOUT) {
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+            } else {
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            }
         } finally {
             lock.unlock();
         }
@@ -1283,6 +1289,9 @@ public class Coordinator {
             }
         }
 
+        // compute multi cast fragment params
+        computeMultiCastFragmentParams();
+
         // assign runtime filter merge addr and target addr
         assignRuntimeFilterAddr();
 
@@ -1381,6 +1390,46 @@ public class Coordinator {
                         dest.setBrpcServer(toBrpcHost(destParams.instanceExecParams.get(j).host));
                         params.destinations.add(dest);
                     }
+                }
+            }
+        }
+    }
+
+    private void computeMultiCastFragmentParams() throws Exception {
+        for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+            if (!(params.fragment instanceof MultiCastPlanFragment)) {
+                continue;
+            }
+
+            MultiCastPlanFragment multi = (MultiCastPlanFragment) params.fragment;
+            Preconditions.checkState(multi.getSink() instanceof MultiCastDataSink);
+            MultiCastDataSink multiSink = (MultiCastDataSink) multi.getSink();
+
+            for (int i = 0; i < multi.getDestFragmentList().size(); i++) {
+                PlanFragment destFragment = multi.getDestFragmentList().get(i);
+                DataStreamSink sink = multiSink.getDataStreamSinks().get(i);
+
+                if (destFragment == null) {
+                    continue;
+                }
+                FragmentExecParams destParams = fragmentExecParamsMap.get(destFragment.getFragmentId());
+                multi.getDestFragmentList().get(i).setOutputPartition(params.fragment.getOutputPartition());
+
+                PlanNodeId exchId = sink.getExchNodeId();
+                Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
+                if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
+                    destParams.perExchNumSenders.put(exchId.asInt(), params.instanceExecParams.size());
+                } else {
+                    destParams.perExchNumSenders.put(exchId.asInt(),
+                            params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
+                }
+
+                for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                    dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
+                    dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                    dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
+                    multiSink.getDestinations().get(i).add(dest);
                 }
             }
         }

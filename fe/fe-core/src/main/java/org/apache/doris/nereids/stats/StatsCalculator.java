@@ -25,6 +25,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
@@ -45,6 +47,9 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -58,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -67,6 +73,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -83,6 +92,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -102,13 +112,16 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.AbstractMap.SimpleEntry;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -117,6 +130,7 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
     private final GroupExpression groupExpression;
 
     private boolean forbidUnknownColStats = false;
@@ -127,12 +141,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
+    private Map<CTEId, Statistics> cteIdToStats;
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
-                                Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+                                Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
+            Map<CTEId, Statistics> cteIdToStats) {
         this.groupExpression = groupExpression;
         this.forbidUnknownColStats = forbidUnknownColStats;
         this.totalColumnStatisticMap = columnStatisticMap;
         this.isPlayNereidsDump = isPlayNereidsDump;
+        this.cteIdToStats = Objects.requireNonNull(cteIdToStats, "CTEIdToStats can't be null");
     }
 
     public Map<String, Histogram> getTotalHistogramMap() {
@@ -155,20 +173,32 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-                                           Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+                                           Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
+            Map<CTEId, Statistics> cteIdToStats) {
         StatsCalculator statsCalculator = new StatsCalculator(
-                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump);
+                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats);
         statsCalculator.estimate();
         return statsCalculator;
     }
 
+    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
+            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+        return StatsCalculator.estimate(groupExpression,
+                forbidUnknownColStats,
+                columnStatisticMap,
+                isPlayNereidsDump,
+                new HashMap<>());
+    }
+
     public static void estimate(GroupExpression groupExpression) {
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false, new HashMap<>(), false);
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
+                new HashMap<>(), false, Collections.EMPTY_MAP);
         statsCalculator.estimate();
     }
 
     private void estimate() {
-        Statistics stats = groupExpression.getPlan().accept(this, null);
+        Plan plan = groupExpression.getPlan();
+        Statistics stats = plan.accept(this, null);
         Statistics originStats = groupExpression.getOwnerGroup().getStatistics();
         /*
         in an ideal cost model, every group expression in a group are equivalent, but in fact the cost are different.
@@ -277,6 +307,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN, Void context) {
+        return computePartitionTopN(partitionTopN);
+    }
+
+    @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         return JoinEstimation.estimate(groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
@@ -323,6 +358,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalWindow(PhysicalWindow window, Void context) {
         return computeWindow(window);
+    }
+
+    @Override
+    public Statistics visitPhysicalPartitionTopN(PhysicalPartitionTopN partitionTopN, Void context) {
+        return computePartitionTopN(partitionTopN);
     }
 
     @Override
@@ -511,7 +551,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
-            if (cache == ColumnStatistic.UNKNOWN) {
+            if (cache == ColumnStatistic.UNKNOWN && !colName.equals("__DORIS_DELETE_SIGN__")) {
                 if (forbidUnknownColStats) {
                     if (StatisticsUtil.statsTblAvailable()) {
                         throw new AnalysisException("column stats for " + colName
@@ -543,6 +583,35 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeTopN(TopN topN) {
         Statistics stats = groupExpression.childStatistics(0);
         return stats.withRowCount(Math.min(stats.getRowCount(), topN.getLimit()));
+    }
+
+    private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
+        Statistics stats = groupExpression.childStatistics(0);
+        double rowCount = stats.getRowCount();
+        List<Expression> partitionKeys = partitionTopN.getPartitionKeys();
+        if (!partitionTopN.hasGlobalLimit() && !partitionKeys.isEmpty()) {
+            // If there is no global limit. So result for the cardinality estimation is:
+            // NDV(partition key) * partitionLimit
+            Map<Expression, ColumnStatistic> childSlotToColumnStats = stats.columnStatistics();
+            List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
+                    .filter(childSlotToColumnStats::containsKey)
+                    .map(childSlotToColumnStats::get)
+                    .filter(s -> !s.isUnKnown)
+                    .collect(Collectors.toList());
+            if (partitionByKeyStats.isEmpty()) {
+                // all column stats are unknown, use default ratio
+                rowCount = rowCount * DEFAULT_COLUMN_NDV_RATIO;
+            } else {
+                rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
+                    .max(Double::compare).get());
+            }
+        } else {
+            rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
+        }
+        // TODO: for the filter push down window situation, we will prune the row count twice
+        //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
+        //  and the other is in 'Filter'. It's hard to dismiss.
+        return stats.updateRowCountOnly(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {
@@ -817,4 +886,66 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExprs.get(0).getPlan();
     }
 
+    @Override
+    public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, Void context) {
+        Statistics statistics = groupExpression.childStatistics(0);
+        cteIdToStats.put(cteProducer.getCteId(), statistics);
+        return statistics;
+    }
+
+    @Override
+    public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
+        CTEId cteId = cteConsumer.getCteId();
+        Statistics prodStats = cteIdToStats.get(cteId);
+        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
+        for (Slot slot : cteConsumer.getOutput()) {
+            Slot prodSlot = cteConsumer.findProducerSlot(slot);
+            ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);
+            if (colStats == null) {
+                continue;
+            }
+            consumerStats.addColumnStats(slot, colStats);
+        }
+        return consumerStats;
+    }
+
+    @Override
+    public Statistics visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
+        return groupExpression.childStatistics(1);
+    }
+
+    @Override
+    public Statistics visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer,
+            Void context) {
+        Statistics statistics = groupExpression.childStatistics(0);
+        cteIdToStats.put(cteProducer.getCteId(), statistics);
+        return statistics;
+    }
+
+    @Override
+    public Statistics visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, Void context) {
+        CTEId cteId = cteConsumer.getCteId();
+        Statistics prodStats = cteIdToStats.get(cteId);
+        if (prodStats == null) {
+            prodStats = groupExpression.getOwnerGroup().getStatistics();
+        }
+        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
+        for (Slot slot : cteConsumer.getOutput()) {
+            Slot prodSlot = cteConsumer.findProducerSlot(slot);
+            ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);
+            if (colStats == null) {
+                continue;
+            }
+            consumerStats.addColumnStats(slot, colStats);
+        }
+        return consumerStats;
+    }
+
+    @Override
+    public Statistics visitPhysicalCTEAnchor(
+            PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
+        return groupExpression.childStatistics(1);
+    }
 }

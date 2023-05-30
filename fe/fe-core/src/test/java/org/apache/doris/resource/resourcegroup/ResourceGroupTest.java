@@ -37,7 +37,7 @@ public class ResourceGroupTest {
         String name1 = "g1";
         ResourceGroup group1 = ResourceGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertEquals(2, group1.getProperties().size());
+        Assert.assertEquals(5, group1.getProperties().size());
         Assert.assertTrue(group1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
         Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
@@ -92,6 +92,6 @@ public class ResourceGroupTest {
         BaseProcResult result = new BaseProcResult();
         group1.getProcNodeData(result);
         List<List<String>> rows = result.getRows();
-        Assert.assertEquals(2, rows.size());
+        Assert.assertEquals(5, rows.size());
     }
 }

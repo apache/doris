@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -566,6 +567,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(String name) {
         return new StringBuilder().append(MATERIALIZED_VIEW_NAME_PREFIX).append(name).toString();
+    }
+
+    public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
+        return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
+                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {

@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
@@ -50,6 +51,8 @@ public class StatementContext {
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
+
+    private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -107,6 +110,10 @@ public class StatementContext {
 
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public CTEId getNextCTEId() {
+        return cteIdGenerator.getNextId();
     }
 
     public ObjectId getNextObjectId() {

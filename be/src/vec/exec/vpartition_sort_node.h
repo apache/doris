@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 #include "exec/exec_node.h"
 #include "vec/columns/column.h"
@@ -329,6 +330,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
     void debug_profile();
+    bool can_read();
 
 private:
     template <typename AggState, typename AggMethod>
@@ -351,7 +353,7 @@ private:
     std::unique_ptr<Arena> _agg_arena_pool;
     // partition by k1,k2
     int _partition_exprs_num = 0;
-    std::vector<VExprContext*> _partition_expr_ctxs;
+    VExprContextSPtrs _partition_expr_ctxs;
     std::vector<const IColumn*> _partition_columns;
     std::vector<size_t> _partition_key_sz;
     std::vector<size_t> _hash_values;
@@ -370,6 +372,7 @@ private:
     std::unique_ptr<SortCursorCmp> _previous_row = nullptr;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
+    std::mutex _buffer_mutex;
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _emplace_key_timer;

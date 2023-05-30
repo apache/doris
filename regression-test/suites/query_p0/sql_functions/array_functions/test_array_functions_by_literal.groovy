@@ -275,7 +275,7 @@ suite("test_array_functions_by_literal") {
     qt_sql """select array_apply([1.111, 2.222, 3.333], '>=', 2)"""
     qt_sql """select array_apply(cast(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17") as array<datetimev2>), ">", '2020-01-02')"""
     qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), ">", '25')"""
-    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25.99')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25')"""
     // qt_sql """select array_apply(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), ">", '111.111')"""
 
     qt_sql "select array_concat([1, 2, 3], [2, 3, 4], [8, 1, 2], [9])"
@@ -322,13 +322,14 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_enumerate_uniq(['11', '22', '33', '11', '33', '22'])"
     qt_sql "select array_enumerate_uniq(array(cast (24.99 as decimal(10,3)), cast (25.99 as decimal(10,3)), cast (24.99 as decimal(10,3))))"
     qt_sql "select array_enumerate_uniq(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)), cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-06 22:07:34.999' as datetimev2(3))))"
+    qt_sql "select array_enumerate_uniq(array(cast (384.2933 as decimalv3(7, 4)), cast (984.1913 as decimalv3(7, 4)), cast (384.2933 as decimalv3(7, 4)), cast (722.9333 as decimalv3(7, 4)), cast (384.2933 as decimalv3(7, 4))))"
     qt_sql "select array_enumerate_uniq([1, 2, 3, 4, 5], [1, 2, 3, 4, 5])"
     qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1], [1, 1, 1, 1, 1])"
     qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1], [1, 1, 1, 1, 1])"
     qt_sql "select array_enumerate_uniq([1, 1, 2, 2, 1, 2], [1, 2, 1, 2, 2, 1])"
     qt_sql "select array_enumerate_uniq([1, null, 1, null], [null, 1, null, 1])"
     qt_sql "select array_enumerate_uniq([1, 1, 1, 1, 1, 1], [2, 1, 2, 1, 2, 1], [3, 1, 3, 1, 3, 1])"
-    qt_sql "select array_enumerate_uniq([1, 3, 1], [2.0, 5.0, 2.0], ['3', '8', '3'])"
+    qt_sql "select array_enumerate_uniq([1, 3, 1], [2.0, 5.0, 2.0], ['3', '8', '3'], array(cast (34.9876 as decimalv3(6, 4)), cast (89.9865 as decimalv3(6, 4)), cast (34.9876 as decimalv3(6, 4))))"
     
     // array_pushfront
     qt_sql "select array_pushfront([1, 2, 3], 6)"

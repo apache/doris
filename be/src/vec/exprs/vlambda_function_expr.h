@@ -33,9 +33,7 @@ public:
         return get_child(0)->execute(context, block, result_column_id);
     }
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VLambdaFunctionExpr::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VLambdaFunctionExpr::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 

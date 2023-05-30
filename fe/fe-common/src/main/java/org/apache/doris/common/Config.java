@@ -452,7 +452,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
-    public static int insert_load_default_timeout_second = 3600; // 1 hour
+    public static int insert_load_default_timeout_second = 14400; // 4 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -772,7 +772,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int storage_high_watermark_usage_percent = 85;
     @ConfField(mutable = true, masterOnly = true)
-    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
+    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024L; // 2G
 
     /**
      * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
@@ -1490,7 +1490,10 @@ public class Config extends ConfigBase {
 
     // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_resource_group = true;
+    public static boolean enable_resource_group = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_query_queue = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1518,8 +1521,8 @@ public class Config extends ConfigBase {
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_decimal_conversion = false;
+    @ConfField(mutable = true)
+    public static boolean enable_decimal_conversion = true;
 
     /**
      * List of S3 API compatible object storage systems.
@@ -1988,4 +1991,17 @@ public class Config extends ConfigBase {
                     + "the detailed information of all the replicas of the tablet,"
                     + " including the specific reason why they are unqueryable, will be printed out."})
     public static boolean show_details_for_unaccessible_tablet = false;
+
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
+            "是否启用binlog特性",
+            "Whether to enable binlog feature"})
+    public static boolean enable_feature_binlog = false;
+
+    @ConfField
+    public static int analyze_task_timeout_in_minutes = 120;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "Whether to disable creating catalog with WITH RESOURCE statement."})
+    public static boolean disallow_create_catalog_with_resource = true;
 }

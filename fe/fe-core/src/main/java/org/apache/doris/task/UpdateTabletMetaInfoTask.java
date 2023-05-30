@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
@@ -42,6 +43,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private Set<Pair<Long, Integer>> tableIdWithSchemaHash;
     private int inMemory = -1; // < 0 means not to update inMemory property, > 0 means true, == 0 means false
     private long storagePolicyId = -1; // < 0 means not to update storage policy, == 0 means to reset storage policy
+    private BinlogConfig binlogConfig = null; // null means not to update binlog config
     // For ReportHandler
     private List<TTabletMetaInfo> tabletMetaInfos;
 
@@ -54,10 +56,12 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public UpdateTabletMetaInfoTask(long backendId,
                                     Set<Pair<Long, Integer>> tableIdWithSchemaHash,
                                     int inMemory, long storagePolicyId,
+                                    BinlogConfig binlogConfig,
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch) {
         this(backendId, tableIdWithSchemaHash);
         this.storagePolicyId = storagePolicyId;
         this.inMemory = inMemory;
+        this.binlogConfig = binlogConfig;
         this.latch = latch;
     }
 
@@ -102,6 +106,9 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 if (storagePolicyId >= 0) {
                     metaInfo.setStoragePolicyId(storagePolicyId);
+                }
+                if (binlogConfig != null) {
+                    metaInfo.setBinlogConfig(binlogConfig.toThrift());
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

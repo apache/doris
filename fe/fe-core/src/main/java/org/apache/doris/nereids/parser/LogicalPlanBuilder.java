@@ -481,8 +481,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Optional.ofNullable(ctx.havingClause())
                 );
             }
-            selectPlan = withCte(selectPlan, ctx.cte());
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            selectPlan = withCte(selectPlan, ctx.cte());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }
@@ -1564,7 +1564,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
             for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = kv.key.getText();
+                String parameterName = visitIdentifierOrText(kv.key);
                 Optional<String> value = Optional.empty();
                 if (kv.constantValue != null) {
                     Literal literal = (Literal) visit(kv.constantValue);
