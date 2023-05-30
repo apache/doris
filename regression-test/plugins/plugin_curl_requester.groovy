@@ -24,7 +24,7 @@ Suite.metaClass.curl = { String method, String url /* param */->
     {
         throw new Exception(String.format("invalid curl method: %s", method))
     }
-    if (url.isBland())
+    if (url.isBlank())
     {
         throw new Exception("invalid curl url, blank")
     }
