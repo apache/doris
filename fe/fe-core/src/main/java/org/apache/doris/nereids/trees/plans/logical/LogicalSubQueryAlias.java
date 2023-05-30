@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -44,6 +46,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
+    private final CTEId cteId;
+
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
     }
@@ -64,8 +68,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                                 Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
+        this.columnAliases = columnAliases;
+        this.cteId = cteId();
+    }
+
+    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, CTEId cteId) {
+        super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier));
         this.columnAliases = columnAliases;
+        this.cteId = cteId;
     }
 
     @Override
@@ -121,12 +135,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             return false;
         }
         LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return qualifier.equals(that.qualifier);
+        return qualifier.equals(that.qualifier) && this.child().equals(that.child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(qualifier);
+        return Objects.hash(qualifier, child().hashCode());
     }
 
     @Override
@@ -155,5 +169,13 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
                 logicalProperties, child());
+    }
+
+    public CTEId cteId() {
+        return StatementScopeIdGenerator.newCTEId();
+    }
+
+    public CTEId getCteId() {
+        return cteId;
     }
 }

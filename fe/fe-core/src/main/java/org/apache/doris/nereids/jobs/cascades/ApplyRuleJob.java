@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -55,6 +56,7 @@ public class ApplyRuleJob extends Job {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
+        super.cteIdToStats = new HashMap<>();
     }
 
     @Override
