@@ -27,13 +27,17 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -83,7 +87,8 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                         columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
-                    Map<Column, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+                    Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
+                    NereidsParser expressionParser = new NereidsParser();
 
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
                         if (RelationUtil.isMv(column)) {
@@ -91,9 +96,18 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             // now we have to replace the column to slots.
                             Preconditions.checkArgument(refs != null,
                                     "mv column's ref column cannot be null");
-                        }
-                        if (columnToChildOutput.containsKey(column)) {
-                            columnToOutput.put(column, columnToChildOutput.get(column));
+                            Expression parsedExpression = expressionParser.parseExpression(
+                                    column.getDefineExpr().toSql());
+                            Expression boundExpression = SlotReplacer.INSTANCE
+                                    .repalce(parsedExpression, columnToOutput);
+
+                            NamedExpression slot = boundExpression instanceof NamedExpression
+                                    ? ((NamedExpression) boundExpression)
+                                    : new Alias(boundExpression, boundExpression.toSql());
+
+                            columnToOutput.put(column.getName(), slot);
+                        } else if (columnToChildOutput.containsKey(column)) {
+                            columnToOutput.put(column.getName(), columnToChildOutput.get(column));
                         } else {
                             if (table.hasSequenceCol()
                                     && column.getName().equals(Column.SEQUENCE_COL)
@@ -101,14 +115,14 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                                 Column seqCol = table.getFullSchema().stream()
                                         .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                         .findFirst().get();
-                                columnToOutput.put(column, columnToOutput.get(seqCol));
+                                columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
                             } else if (column.getDefaultValue() == null) {
-                                columnToOutput.put(column, new Alias(
+                                columnToOutput.put(column.getName(), new Alias(
                                         new NullLiteral(DataType.fromCatalogType(column.getType())),
                                         column.getName()
                                 ));
                             } else {
-                                columnToOutput.put(column, new Alias(Literal.of(column.getDefaultValue())
+                                columnToOutput.put(column.getName(), new Alias(Literal.of(column.getDefaultValue())
                                         .checkedCastTo(DataType.fromCatalogType(column.getType())), column.getName()));
                             }
                         }
@@ -157,5 +171,18 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     }
                     return column;
                 }).collect(Collectors.toList());
+    }
+
+    private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
+        public static final SlotReplacer INSTANCE = new SlotReplacer();
+
+        public Expression repalce(Expression e, Map<String, NamedExpression> replaceMap) {
+            return e.accept(this, replaceMap);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Map<String, NamedExpression> replaceMap) {
+            return replaceMap.get(unboundSlot.getName());
+        }
     }
 }
