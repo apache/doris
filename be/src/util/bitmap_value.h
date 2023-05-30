@@ -1468,16 +1468,19 @@ public:
 
         if (!bitmaps.empty()) {
             _prepare_bitmap_for_write();
-            *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
             switch (_type) {
             case EMPTY:
+                *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
                 break;
             case SINGLE:
+                *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
                 _bitmap->add(_sv);
                 break;
             case BITMAP:
+                *_bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
                 break;
             case SET: {
+                *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
                 for (auto v : _set) {
                     _bitmap->add(v);
                 }
@@ -1535,14 +1538,8 @@ public:
                     if (_type == SINGLE) {
                         _set.insert(_sv);
                     }
-                    if (_set.size() == 1) {
-                        _type = SINGLE;
-                        _sv = *_set.begin();
-                        _set.clear();
-                    } else {
-                        _type = SET;
-                        _convert_to_bitmap_if_need();
-                    }
+                    _type = SET;
+                    _convert_to_bitmap_if_need();
                 } else {
                     _prepare_bitmap_for_write();
                     _bitmap->addMany(single_values.size(), single_values.data());
@@ -1550,6 +1547,7 @@ public:
                         _bitmap->add(_sv);
                     }
                     _type = BITMAP;
+                    _convert_to_smaller_type();
                 }
                 break;
             case BITMAP: {
