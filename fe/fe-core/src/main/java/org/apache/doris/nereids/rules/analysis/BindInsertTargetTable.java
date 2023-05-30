@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
@@ -83,7 +85,13 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
 
                     Map<Column, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
 
-                    for (Column column : RelationUtil.getColumnsFilteredMV(boundSink.getTargetTable())) {
+                    for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                        if (RelationUtil.isMv(column)) {
+                            List<SlotRef> refs = column.getRefColumns();
+                            // now we have to replace the column to slots.
+                            Preconditions.checkArgument(refs != null,
+                                    "mv column's ref column cannot be null");
+                        }
                         if (columnToChildOutput.containsKey(column)) {
                             columnToOutput.put(column, columnToChildOutput.get(column));
                         } else {
@@ -138,7 +146,9 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
         return colsName == null
-                ? table.getBaseSchema().stream().filter(Column::isVisible).collect(Collectors.toList())
+                ? table.getFullSchema().stream().filter(column -> column.isVisible()
+                        && !RelationUtil.isMv(column))
+                .collect(Collectors.toList())
                 : colsName.stream().map(cn -> {
                     Column column = table.getColumn(cn);
                     if (column == null) {

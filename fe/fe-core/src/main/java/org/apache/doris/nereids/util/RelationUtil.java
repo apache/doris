@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
@@ -34,7 +34,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * relation util
@@ -131,9 +130,8 @@ public class RelationUtil {
         }
     }
 
-    public static List<Column> getColumnsFilteredMV(OlapTable table) {
-        return table.getBaseSchema().stream()
-                .filter(column -> !column.getName().startsWith("mv"))
-                .collect(Collectors.toList());
+    public static boolean isMv(Column column) {
+        return column.getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                || column.getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 }

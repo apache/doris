@@ -123,7 +123,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
@@ -318,7 +317,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
-        List<Column> targetTableColumns = RelationUtil.getColumnsFilteredMV(olapTableSink.getTargetTable());
+        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
         for (Column column : targetTableColumns) {
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
             slotDesc.setIsMaterialized(true);
