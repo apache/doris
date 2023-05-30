@@ -160,7 +160,7 @@ public:
 
     Status try_close();
 
-    bool should_run_serial() const { return _should_run_serial; }
+    bool should_run_serial() const { return _should_run_serial || _state->enable_run_serial(); }
     bool ready_to_open() { return _shared_scanner_controller->scanner_context_is_ready(id()); }
     bool ready_to_read() { return !_scanner_ctx->empty_in_queue(_context_queue_id); }
 
