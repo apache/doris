@@ -353,7 +353,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<NamedExpression> ne;
         if (plan instanceof PhysicalProject) {
-            ne = ((PhysicalProject<?>) plan).getProjects();
+            ne = plan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList());
         } else {
             ne = plan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList());
         }
