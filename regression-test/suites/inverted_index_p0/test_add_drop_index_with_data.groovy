@@ -114,14 +114,14 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     assertEquals(select_result[0][2], "desc 2")
 
     // query rows where description match 'desc', should fail without index
-    def success = false
-    try {
-        sql "select * from ${indexTbName1} where description match 'desc'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
+    assertEquals(select_result.size(), 2)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
+    assertEquals(select_result[1][0], 2)
+    assertEquals(select_result[1][1], "name2")
+    assertEquals(select_result[1][2], "desc 2")
 
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
@@ -165,14 +165,14 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
     // query rows where description match 'desc', should fail without index
-    success = false
-    try {
-        sql "select * from ${indexTbName1} where description match 'desc'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
+    assertEquals(select_result.size(), 2)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
+    assertEquals(select_result[1][0], 2)
+    assertEquals(select_result[1][1], "name2")
+    assertEquals(select_result[1][2], "desc 2")
 
     // query rows where name='name1'
     select_result = sql "select * from ${indexTbName1} where name='name1'"
@@ -216,15 +216,12 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     sql "drop index idx_name on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
-    // query rows where name match 'name1', should fail without index
-    success = false
-    try {
-        sql "select * from ${indexTbName1} where name match 'name1'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    // query rows where name match 'name1' without index
+    select_result = sql "select * from ${indexTbName1} where name match 'name1'"
+    assertEquals(select_result.size(), 1)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
 
     // show index of create table
     show_result = sql "show index from ${indexTbName1}"
@@ -300,23 +297,20 @@ suite("test_add_drop_index_with_data", "inverted_index"){
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
     assertEquals(show_result.size(), 0)
 
-    // query rows where name match 'name1', should fail without index
-    success = false
-    try {
-        sql "select * from ${indexTbName1} where name match 'name1'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    // query rows where name match 'name1' without index
+    select_result = sql "select * from ${indexTbName1} where name match 'name1'"
+    assertEquals(select_result.size(), 1)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
 
-    // query rows where description match 'desc', should fail without index
-    success = false
-    try {
-        sql "select * from ${indexTbName1} where description match 'desc'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    // query rows where description match 'desc' without index
+    select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
+    assertEquals(select_result.size(), 2)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc 1")
+    assertEquals(select_result[1][0], 2)
+    assertEquals(select_result[1][1], "name2")
+    assertEquals(select_result[1][2], "desc 2")
 }

@@ -803,14 +803,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
+            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                 res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
                 (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
                  need_remaining_after_evaluate)) {
                 // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
-                //    usually occurs when creating a new index, because match query must
-                //    need index file, queries other than match query can be downgraded
+                //    usually occurs when creating a new index, queries can be downgraded
                 //    without index.
                 // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
                 //    has reached the optimal limit, downgrade without index query can
@@ -991,7 +989,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
-        int32_t unique_id = _schema->unique_id(cid);
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),

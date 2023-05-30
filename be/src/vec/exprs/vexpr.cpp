@@ -45,6 +45,7 @@
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
+#include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
@@ -177,9 +178,12 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
         case doris::TExprNodeType::ARITHMETIC_EXPR:
         case doris::TExprNodeType::BINARY_PRED:
         case doris::TExprNodeType::FUNCTION_CALL:
-        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
-        case doris::TExprNodeType::MATCH_PRED: {
+        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
             expr = VectorizedFnCall::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::MATCH_PRED: {
+            expr = VMatchPredicate::create_shared(expr_node);
             break;
         }
         case doris::TExprNodeType::CAST_EXPR: {

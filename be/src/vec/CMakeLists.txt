@@ -162,6 +162,7 @@ set(VEC_FILES
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
   exprs/vmap_literal.cpp
+  exprs/vmatch_predicate.cpp
   exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp

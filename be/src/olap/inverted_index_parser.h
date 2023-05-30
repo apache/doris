@@ -18,6 +18,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 
 namespace doris {
@@ -29,6 +30,13 @@ enum class InvertedIndexParserType {
     PARSER_ENGLISH = 3,
     PARSER_CHINESE = 4,
 };
+
+struct InvertedIndexCtx {
+    InvertedIndexParserType parser_type;
+    std::string parser_mode;
+};
+
+using InvertedIndexCtxSPtr = std::shared_ptr<InvertedIndexCtx>;
 
 const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
 const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
