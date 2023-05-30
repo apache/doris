@@ -264,17 +264,17 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
+    _is_acid = _check_acid_schema(root_type);
+
     std::vector<std::string> orc_cols;
     std::vector<std::string> orc_cols_lower_case;
     _init_orc_cols(root_type, orc_cols, orc_cols_lower_case);
 
-    bool is_acid = _check_acid_schema(root_type);
     for (auto& col_name : _column_names) {
         if (_is_hive) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
-            DCHECK(iter != _scan_params.slot_name_to_schema_pos.end());
             int pos = iter->second;
-            if (is_acid) {
+            if (_is_acid) {
                 orc_cols_lower_case[ACID_ROW_OFFSET + 1 + pos] = iter->first;
             } else {
                 orc_cols_lower_case[pos] = iter->first;
@@ -285,7 +285,7 @@ Status OrcReader::_init_read_columns() {
             _missing_cols.emplace_back(col_name);
         } else {
             int pos = std::distance(orc_cols_lower_case.begin(), iter);
-            if (is_acid) {
+            if (_is_acid) {
                 auto read_col = fmt::format("{}.{}", ACID_EVENT_FIELD_NAMES[ACID_ROW_OFFSET],
                                             orc_cols[pos]);
                 _read_cols.emplace_back(read_col);
@@ -309,9 +309,11 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
         orc_cols_lower_case.emplace_back(_get_field_name_lower_case(&type, i));
-        const orc::Type* sub_type = type.getSubtype(i);
-        if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-            _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case);
+        if (_is_acid) {
+            const orc::Type* sub_type = type.getSubtype(i);
+            if (sub_type->getKind() == orc::TypeKind::STRUCT) {
+                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case);
+            }
         }
     }
 }
@@ -753,7 +755,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         _colname_to_idx[name] = idx++;
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
-        if (sub_type->getKind() == orc::TypeKind::STRUCT) {
+        if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
             _init_select_types(*sub_type, idx);
         }
     }
@@ -1255,7 +1257,7 @@ void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                                 orc::ColumnVectorBatch* batch, int idx) {
     for (auto* field : down_cast<orc::StructVectorBatch*>(batch)->fields) {
         result.push_back(field);
-        if (_col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
+        if (_is_acid && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
             _fill_batch_vec(result, field, idx);
         }
     }
