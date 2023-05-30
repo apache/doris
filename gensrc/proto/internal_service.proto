@@ -664,6 +664,19 @@ message PFetchColIdsResponse {
     repeated PFetchColIdsResultEntry entries = 2;
 };
 
+message PGetTabletVersionsRequest {
+    required int64 tablet_id = 1;
+};
+
+message PGetTabletVersionsResponse {
+    message PVersion {
+        required int64 first = 1;
+        required int64 second = 2;
+    };
+    required PStatus status = 1;
+    repeated PVersion versions = 2;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -701,5 +714,6 @@ service PBackendService {
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
+    rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
 };
 

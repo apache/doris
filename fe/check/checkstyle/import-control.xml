@@ -34,6 +34,7 @@ under the License.
     <disallow pkg="org.apache.log4j.LogManager" />
     <disallow pkg="org.apache.log4j.Logger" />
     <disallow pkg="java.text.SimpleDateFormat"/>
+    <disallow pkg="org.apache.parquet.Strings"/>
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>

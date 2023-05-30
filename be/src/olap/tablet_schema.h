@@ -89,7 +89,8 @@ public:
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function_merge() const;
+    vectorized::AggregateFunctionPtr get_aggregate_function_union(
+            vectorized::DataTypePtr type) const;
     vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
@@ -151,6 +152,7 @@ class TabletSchema;
 
 class TabletIndex {
 public:
+    TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
     void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
@@ -174,6 +176,13 @@ public:
         }
 
         return 0;
+    }
+    TabletIndex(const TabletIndex& other) {
+        _index_id = other._index_id;
+        _index_name = other._index_name;
+        _index_type = other._index_type;
+        _col_unique_ids = other._col_unique_ids;
+        _properties = other._properties;
     }
 
 private:
@@ -226,6 +235,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
+        _enable_single_replica_compaction = enable_single_replica_compaction;
+    }
+    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
     bool store_row_column() const { return _store_row_column; }
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
@@ -329,6 +342,7 @@ private:
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
+    bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
 

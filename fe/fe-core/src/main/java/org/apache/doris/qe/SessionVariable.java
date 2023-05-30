@@ -171,6 +171,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
+
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
@@ -333,6 +335,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
+
+    public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
+
+    public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -572,6 +578,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
+    public boolean enableNereidsDML = false;
+
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
 
@@ -627,6 +636,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 102400;
+
+    @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
+    public boolean useRuntimeFilterDefaultSize = false;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -921,6 +933,16 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+    @VariableMgr.VarAttr(
+            name = INLINE_CTE_REFERENCED_THRESHOLD
+    )
+    public int inlineCTEReferencedThreshold = 1;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_CTE_MATERIALIZE
+    )
+    public boolean enableCTEMaterialize = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1282,6 +1304,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableFoldConstantByBe() {
         return enableFoldConstantByBe;
+    }
+
+    public boolean isEnableNereidsDML() {
+        return enableNereidsDML;
     }
 
     public void setEnableFoldConstantByBe(boolean foldConstantByBe) {

@@ -270,14 +270,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]), false);
 
     if (_where_expr != nullptr) {
-        vectorized::VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&pool, *_where_expr, &ctx));
+        vectorized::VExprContextSPtr ctx = nullptr;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
         Defer defer {[&]() { ctx->close(state); }};
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
         RETURN_IF_ERROR(ctx->open(state));
 
         RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(ctx, ref_block, ref_block->columns()));
+                vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
     }
 
     const int row_size = ref_block->rows();
@@ -302,9 +302,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                                                                 value->ptr(), column, row_size);
             }
         } else if (_schema_mapping[idx].expr != nullptr) {
-            vectorized::VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(&pool, *_schema_mapping[idx].expr, &ctx));
+            vectorized::VExprContextSPtr ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
             Defer defer {[&]() { ctx->close(state); }};
             RETURN_IF_ERROR(ctx->prepare(state, row_desc));
             RETURN_IF_ERROR(ctx->open(state));

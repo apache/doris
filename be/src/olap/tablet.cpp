@@ -92,6 +92,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/schema_change.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_manager.h"
@@ -1274,6 +1275,20 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compac
     return candidate_rowsets;
 }
 
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_single_replica_compaction() {
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (const auto& [version, rs] : _rs_version_map) {
+            if (rs->is_local()) {
+                candidate_rowsets.push_back(rs);
+            }
+        }
+    }
+    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    return candidate_rowsets;
+}
+
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
@@ -1696,6 +1711,62 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         *permits += rowset->rowset_meta()->get_compaction_score();
     }
     return Status::OK();
+}
+
+Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
+                                                 CompactionType compaction_type) {
+    scoped_refptr<Trace> trace(new Trace);
+    ADOPT_TRACE(trace.get());
+    TRACE("create single replica compaction");
+
+    StorageEngine::instance()->create_single_replica_compaction(tablet, _single_replica_compaction,
+                                                                compaction_type);
+    Status res = _single_replica_compaction->prepare_compact();
+    if (!res.ok()) {
+        if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            return Status::InternalError("prepare single replica compaction with err: {}", res);
+        }
+    }
+    return Status::OK();
+}
+
+void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
+    scoped_refptr<Trace> trace(new Trace);
+    ADOPT_TRACE(trace.get());
+    TRACE("execute single replica compaction");
+    Status res = _single_replica_compaction->execute_compact();
+    if (!res.ok()) {
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            set_last_cumu_compaction_failure_time(UnixMillis());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            set_last_base_compaction_failure_time(UnixMillis());
+        }
+        LOG(WARNING) << "failed to do single replica compaction. res=" << res
+                     << ", tablet=" << full_name();
+        return;
+    }
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        set_last_cumu_compaction_failure_time(0);
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+        set_last_base_compaction_failure_time(0);
+    }
+}
+
+void Tablet::reset_single_replica_compaction() {
+    _single_replica_compaction.reset();
+}
+
+std::vector<Version> Tablet::get_all_versions() {
+    std::vector<Version> local_versions;
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            local_versions.emplace_back(it.first);
+        }
+    }
+    std::sort(local_versions.begin(), local_versions.end(),
+              [](const Version& left, const Version& right) { return left.first < right.first; });
+    return local_versions;
 }
 
 void Tablet::execute_compaction(CompactionType compaction_type) {
@@ -2451,10 +2522,9 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     });
     CHECK(tablet_schema->store_row_column());
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
                                                  &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -2508,10 +2578,9 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
                                << ", row_batch_size:" << rowids.size();
     });
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator = nullptr;
     RETURN_IF_ERROR(
             segment->new_column_iterator(tablet_schema->column(column_name), &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -2557,10 +2626,9 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     });
     CHECK(tablet_schema->store_row_column());
     // create _source column
-    segment_v2::ColumnIterator* column_iterator = nullptr;
+    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
                                                  &column_iterator));
-    std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
     segment_v2::ColumnIteratorOptions opt;
     opt.file_reader = segment->file_reader().get();
     opt.stats = &stats;

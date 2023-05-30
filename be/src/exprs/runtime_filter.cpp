@@ -192,7 +192,7 @@ PFilterType get_type(RuntimeFilterType type) {
     }
 }
 
-Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* data, void** expr) {
+Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr) {
     TExprNode node;
 
     switch (type.type) {
@@ -278,8 +278,7 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
     }
 
     try {
-        *reinterpret_cast<vectorized::VExpr**>(expr) =
-                pool->add(vectorized::VLiteral::create_unique(node).release());
+        expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
         return Status::Error(e.code(), e.to_string());
     }
@@ -287,8 +286,8 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
     return Status::OK();
 }
 
-Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExprOpcode::type opcode,
-                             vectorized::VExpr** expr, TExprNode* tnode) {
+Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
+                             vectorized::VExprSPtr& expr, TExprNode* tnode) {
     TExprNode node;
     TScalarType tscalar_type;
     tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
@@ -344,7 +343,7 @@ Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExpr
     fn.__set_has_var_args(false);
     node.__set_fn(fn);
     *tnode = node;
-    return vectorized::VExpr::create_expr(pool, node, expr);
+    return vectorized::VExpr::create_expr(node, expr);
 }
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
@@ -422,6 +421,7 @@ public:
             _context.hybrid_set.reset(create_set(_column_return_type));
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
+            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
             return Status::OK();
         }
         case RuntimeFilterType::BITMAP_FILTER: {
@@ -446,7 +446,8 @@ public:
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER);
+        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
         return _context.bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -605,8 +606,8 @@ public:
         return 0;
     }
 
-    Status get_push_vexprs(std::vector<vectorized::VExpr*>* container,
-                           vectorized::VExprContext* prob_expr);
+    Status get_push_exprs(std::vector<vectorized::VExprSPtr>* container,
+                          const vectorized::VExprContextSPtr& prob_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -1165,20 +1166,20 @@ void IRuntimeFilter::publish_finally() {
     join_rpc();
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
+Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs) {
     DCHECK(is_consumer());
     if (!_is_ignored) {
         _set_push_down();
         _profile->add_info_string("Info", _format_status());
-        return _wrapper->get_push_vexprs(push_vexprs, _vprobe_ctx);
+        return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
     } else {
         _profile->add_info_string("Info", _format_status());
         return Status::OK();
     }
 }
 
-Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexprs,
-                                           const RowDescriptor& desc, RuntimeState* state) {
+Status IRuntimeFilter::get_prepared_exprs(std::vector<vectorized::VExprSPtr>* vexprs,
+                                          const RowDescriptor& desc, RuntimeState* state) {
     _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
@@ -1190,7 +1191,7 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<vectorized::VExpr*>* vexp
     std::lock_guard guard(_inner_mutex);
 
     if (_push_down_vexprs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_vexprs(&_push_down_vexprs, _vprobe_ctx));
+        RETURN_IF_ERROR(_wrapper->get_push_exprs(&_push_down_vexprs, _vprobe_ctx));
     }
     vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
     return Status::OK();
@@ -1348,8 +1349,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _expr_order = desc->expr_order;
     _filter_id = desc->filter_id;
     _opt_remote_rf = desc->__isset.opt_remote_rf && desc->opt_remote_rf;
-    vectorized::VExprContext* build_ctx = nullptr;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
+    vectorized::VExprContextSPtr build_ctx;
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
 
     RuntimeFilterParams params;
     params.filter_id = _filter_id;
@@ -1361,7 +1362,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // 2. Do not have remote target (e.g. do not need to merge)
     // 3. Bloom filter
     params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
-                              _runtime_filter_type == RuntimeFilterType::BLOOM_FILTER;
+                              (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+                               _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
@@ -1373,9 +1375,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InvalidArgument("Unknown bitmap filter target expr.");
         }
-        vectorized::VExprContext* bitmap_target_ctx = nullptr;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
-                                                            &bitmap_target_ctx));
+        vectorized::VExprContextSPtr bitmap_target_ctx;
+        RETURN_IF_ERROR(
+                vectorized::VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
         params.column_return_type = bitmap_target_ctx->root()->type().type;
 
         if (desc->__isset.bitmap_filter_not_in) {
@@ -1390,7 +1392,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
             DCHECK(false) << "runtime filter not found node_id:" << node_id;
             return Status::InternalError("not found a node id");
         }
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, iter->second, &_vprobe_ctx));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(iter->second, _vprobe_ctx));
     }
 
     if (_state) {
@@ -1878,15 +1880,15 @@ Status IRuntimeFilter::consumer_close() {
     return Status::OK();
 }
 
-Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>* container,
-                                                vectorized::VExprContext* vprob_expr) {
+Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr>* container,
+                                               const vectorized::VExprContextSPtr& prob_expr) {
     DCHECK(container != nullptr);
     DCHECK(_pool != nullptr);
-    DCHECK(vprob_expr->root()->type().type == _column_return_type ||
-           (is_string_type(vprob_expr->root()->type().type) &&
+    DCHECK(prob_expr->root()->type().type == _column_return_type ||
+           (is_string_type(prob_expr->root()->type().type) &&
             is_string_type(_column_return_type)) ||
            _filter_type == RuntimeFilterType::BITMAP_FILTER)
-            << " vprob_expr->root()->type().type: " << vprob_expr->root()->type().type
+            << " prob_expr->root()->type().type: " << prob_expr->root()->type().type
             << " _column_return_type: " << _column_return_type
             << " _filter_type: " << ::doris::to_string(_filter_type);
 
@@ -1905,47 +1907,43 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
             node.__set_is_nullable(false);
 
-            auto in_pred =
-                    _pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
+            auto in_pred = vectorized::VDirectInPredicate::create_shared(node);
             in_pred->set_filter(_context.hybrid_set);
-            auto cloned_vexpr = vprob_expr->root()->clone(_pool);
-            in_pred->add_child(cloned_vexpr);
-            auto wrapper = _pool->add(
-                    vectorized::VRuntimeFilterWrapper::create_unique(node, in_pred).release());
+            auto cloned_expr = prob_expr->root()->clone();
+            in_pred->add_child(cloned_expr);
+            auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
             container->push_back(wrapper);
         }
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
-        vectorized::VExpr* max_pred = nullptr;
+        vectorized::VExprSPtr max_pred;
         // create max filter
         TExprNode max_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::LE,
-                                              &max_pred, &max_pred_node));
-        vectorized::VExpr* max_literal = nullptr;
-        RETURN_IF_ERROR(create_literal(_pool, vprob_expr->root()->type(),
-                                       _context.minmax_func->get_max(), (void**)&max_literal));
-        auto cloned_vexpr = vprob_expr->root()->clone(_pool);
-        max_pred->add_child(cloned_vexpr);
+        RETURN_IF_ERROR(create_vbin_predicate(prob_expr->root()->type(), TExprOpcode::LE, max_pred,
+                                              &max_pred_node));
+        vectorized::VExprSPtr max_literal;
+        RETURN_IF_ERROR(create_literal(prob_expr->root()->type(), _context.minmax_func->get_max(),
+                                       max_literal));
+        auto cloned_expr = prob_expr->root()->clone();
+        max_pred->add_child(cloned_expr);
         max_pred->add_child(max_literal);
         container->push_back(
-                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(max_pred_node, max_pred)
-                                   .release()));
+                vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
 
         // create min filter
-        vectorized::VExpr* min_pred = nullptr;
+        vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(_pool, vprob_expr->root()->type(), TExprOpcode::GE,
-                                              &min_pred, &min_pred_node));
-        vectorized::VExpr* min_literal = nullptr;
-        RETURN_IF_ERROR(create_literal(_pool, vprob_expr->root()->type(),
-                                       _context.minmax_func->get_min(), (void**)&min_literal));
-        cloned_vexpr = vprob_expr->root()->clone(_pool);
-        min_pred->add_child(cloned_vexpr);
+        RETURN_IF_ERROR(create_vbin_predicate(prob_expr->root()->type(), TExprOpcode::GE, min_pred,
+                                              &min_pred_node));
+        vectorized::VExprSPtr min_literal;
+        RETURN_IF_ERROR(create_literal(prob_expr->root()->type(), _context.minmax_func->get_min(),
+                                       min_literal));
+        cloned_expr = prob_expr->root()->clone();
+        min_pred->add_child(cloned_expr);
         min_pred->add_child(min_literal);
         container->push_back(
-                _pool->add(vectorized::VRuntimeFilterWrapper::create_unique(min_pred_node, min_pred)
-                                   .release()));
+                vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -1959,12 +1957,11 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bloom_pred = _pool->add(vectorized::VBloomPredicate::create_unique(node).release());
+        auto bloom_pred = vectorized::VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_context.bloom_filter_func);
-        auto cloned_vexpr = vprob_expr->root()->clone(_pool);
-        bloom_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(
-                vectorized::VRuntimeFilterWrapper::create_unique(node, bloom_pred).release());
+        auto cloned_expr = prob_expr->root()->clone();
+        bloom_pred->add_child(cloned_expr);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bloom_pred);
         container->push_back(wrapper);
         break;
     }
@@ -1979,12 +1976,11 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<vectorized::VExpr*>*
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bitmap_pred = _pool->add(vectorized::VBitmapPredicate::create_unique(node).release());
+        auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_context.bitmap_filter_func);
-        auto cloned_vexpr = vprob_expr->root()->clone(_pool);
-        bitmap_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(
-                vectorized::VRuntimeFilterWrapper::create_unique(node, bitmap_pred).release());
+        auto cloned_expr = prob_expr->root()->clone();
+        bitmap_pred->add_child(cloned_expr);
+        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred);
         container->push_back(wrapper);
         break;
     }

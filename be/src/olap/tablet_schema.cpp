@@ -39,6 +39,7 @@
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_state_union.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -491,14 +492,21 @@ bool TabletColumn::is_row_store_column() const {
     return _col_name == BeConsts::ROW_STORE_COL;
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_merge() const {
+vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
+        vectorized::DataTypePtr type) const {
+    auto state_type = dynamic_cast<const vectorized::DataTypeAggState*>(type.get());
+    if (!state_type) {
+        return nullptr;
+    }
     vectorized::DataTypes argument_types;
     for (auto col : _sub_columns) {
-        argument_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(col));
+        auto sub_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        state_type->add_sub_type(sub_type);
     }
-    auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-            _aggregation_name, argument_types, false);
-    return function;
+    auto agg_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+            _aggregation_name, state_type->get_sub_types(), false);
+
+    return vectorized::AggregateStateUnion::create(agg_function, {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
@@ -514,7 +522,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     if (function) {
         return function;
     }
-    return get_aggregate_function_merge();
+    return get_aggregate_function_union(type);
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
@@ -690,6 +698,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     }
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
+    _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
@@ -743,6 +752,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
+    _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
     _store_row_column = ori_tablet_schema.store_row_column();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
@@ -841,6 +851,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
+    tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
@@ -1125,6 +1136,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
+    if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     return true;
 }

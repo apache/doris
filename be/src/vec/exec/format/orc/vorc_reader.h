@@ -90,7 +90,7 @@ struct OrcPredicate {
 };
 
 struct LazyReadContext {
-    VExprContext* vconjunct_ctx = nullptr;
+    VExprContextSPtrs conjuncts;
     bool can_lazy_read = false;
     // block->rows() returns the number of rows of the first column,
     // so we should check and resize the first column
@@ -109,9 +109,9 @@ struct LazyReadContext {
     // lazy read partition columns or all partition columns
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
-    std::unordered_map<std::string, VExprContext*> predicate_missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
-    std::unordered_map<std::string, VExprContext*> missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 };
 
 class OrcReader : public GenericReader {
@@ -142,12 +142,12 @@ public:
 
     Status init_reader(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx);
+            VExprContextSPtrs& conjuncts);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     Status _init_select_types(const orc::Type& type, int idx);
 
@@ -157,7 +157,7 @@ public:
                     partition_columns);
     Status _fill_missing_columns(
             Block* block, size_t rows,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns);
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -461,6 +461,7 @@ private:
     std::unique_ptr<IColumn::Filter> _filter = nullptr;
     LazyReadContext _lazy_read_ctx;
     std::unique_ptr<TextConverter> _text_converter = nullptr;
+    bool _is_acid = false;
 };
 
 class ORCFileInputStream : public orc::InputStream {

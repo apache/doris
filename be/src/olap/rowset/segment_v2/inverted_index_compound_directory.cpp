@@ -349,6 +349,11 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
     std::lock_guard<doris::Mutex> wlock(*_handle->_shared_lock);
 
+    int64_t position = getFilePointer();
+    if (_pos != position) {
+        _pos = position;
+    }
+
     if (_handle->_fpos != _pos) {
         _handle->_fpos = _pos;
     }
