@@ -60,6 +60,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -67,7 +68,6 @@
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/exec/scan/max_compute_jni_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -579,12 +579,16 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_JNI: {
-            const MaxComputeTableDescriptor* mc_desc =
-                    static_cast<const MaxComputeTableDescriptor*>(_real_tuple_desc->table_desc());
-            std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(mc_desc,
-                    _file_slot_descs, range, _state, _profile);
-            init_status = mc_reader->init_reader(_colname_to_value_range);
-            _cur_reader = std::move(mc_reader);
+            if (_real_tuple_desc->table_desc()->table_type() ==
+                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
+                const MaxComputeTableDescriptor* mc_desc =
+                        static_cast<const MaxComputeTableDescriptor*>(
+                                _real_tuple_desc->table_desc());
+                std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
+                        mc_desc, _file_slot_descs, range, _state, _profile);
+                init_status = mc_reader->init_reader(_colname_to_value_range);
+                _cur_reader = std::move(mc_reader);
+            }
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {

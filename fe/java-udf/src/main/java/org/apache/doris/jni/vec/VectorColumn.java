@@ -559,8 +559,7 @@ public class VectorColumn {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                BigDecimal v = o.getDecimal();
-                appendDecimal(v);
+                appendDecimal(o.getDecimal());
                 break;
             case DATEV2:
                 appendDate(o.getDate());

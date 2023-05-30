@@ -24,10 +24,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include "common/status.h"
 
-#include "runtime/descriptors.h"
+#include "common/status.h"
 #include "exec/olap_common.h"
+#include "runtime/descriptors.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/jni_connector.h"
 
@@ -51,11 +51,11 @@ namespace doris::vectorized {
  */
 class MaxComputeJniReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(MaxComputeJniReader);
+
 public:
     MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                         const std::vector<SlotDescriptor*>& file_slot_descs,
-                        const TFileRangeDesc& range,
-                        RuntimeState* state, RuntimeProfile* profile);
+                        const TFileRangeDesc& range, RuntimeState* state, RuntimeProfile* profile);
 
     ~MaxComputeJniReader() override = default;
 
@@ -64,7 +64,8 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status init_reader(std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader(
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
     const MaxComputeTableDescriptor* _table_desc;

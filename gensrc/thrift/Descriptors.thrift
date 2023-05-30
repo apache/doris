@@ -315,6 +315,7 @@ struct TMCTable {
   3: optional string table
   4: optional string access_key
   5: optional string secret_key
+  6: optional string public_access
 }
 
 // "Union" of all table types.

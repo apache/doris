@@ -51,7 +51,7 @@ public class MaxComputeJniScanner extends JniScanner {
 
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
     private static final String REGION = "region";
     private static final String PROJECT = "project";
     private static final String TABLE = "table";
@@ -59,6 +59,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String SECRET_KEY = "secret_key";
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
+    private static final String PUBLIC_ACCESS = "public_access";
     private final String project;
     private final String table;
     private MaxComputeColumnValue columnValue;
@@ -86,7 +87,12 @@ public class MaxComputeJniScanner extends JniScanner {
         odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(project);
         tunnel = new TableTunnel(odps);
-        tunnel.setEndpoint(tunnelUrlTemplate.replace("{}", region));
+        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+        boolean enablePublicAccess = Boolean.parseBoolean(params.getOrDefault(PUBLIC_ACCESS, "false"));
+        if (enablePublicAccess) {
+            tunnelUrl = tunnelUrlTemplate.replace("-inc", "");
+        }
+        tunnel.setEndpoint(tunnelUrl);
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
         ColumnType[] columnTypes = new ColumnType[types.length];

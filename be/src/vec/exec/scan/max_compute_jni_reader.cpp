@@ -17,9 +17,10 @@
 
 #include "max_compute_jni_reader.h"
 
+#include <glog/logging.h>
+
 #include <map>
 #include <ostream>
-#include <glog/logging.h>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -36,10 +37,10 @@ class Block;
 
 namespace doris::vectorized {
 
-MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc, 
+MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
-                                         const TFileRangeDesc& range,
-                                         RuntimeState* state, RuntimeProfile* profile)
+                                         const TFileRangeDesc& range, RuntimeState* state,
+                                         RuntimeProfile* profile)
         : _file_slot_descs(file_slot_descs), _range(range), _state(state), _profile(profile) {
     _table_desc = mc_desc;
     std::ostringstream required_fields;
@@ -64,12 +65,13 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                        {"secret_key", _table_desc->secret_key()},
                                        {"project", _table_desc->project()},
                                        {"table", _table_desc->table()},
+                                       {"public_access", _table_desc->public_access()},
                                        {"start_offset", std::to_string(_range.start_offset)},
                                        {"split_size", std::to_string(_range.size)},
                                        {"required_fields", required_fields.str()},
                                        {"columns_types", columns_types.str()}};
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MaxComputeJniScanner", params,
-                                                    column_names);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MaxComputeJniScanner",
+                                                    params, column_names);
 }
 
 Status MaxComputeJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
@@ -80,15 +82,17 @@ Status MaxComputeJniReader::get_next_block(Block* block, size_t* read_rows, bool
     return Status::OK();
 }
 
-Status MaxComputeJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+Status MaxComputeJniReader::get_columns(
+        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+        std::unordered_set<std::string>* missing_cols) {
     for (auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();
 }
 
-Status MaxComputeJniReader::init_reader(std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+Status MaxComputeJniReader::init_reader(
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

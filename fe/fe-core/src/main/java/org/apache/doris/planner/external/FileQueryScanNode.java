@@ -269,6 +269,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
+                // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
 

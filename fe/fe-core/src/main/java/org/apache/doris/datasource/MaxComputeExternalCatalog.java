@@ -41,8 +41,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String accessKey;
     @SerializedName(value = "secretKey")
     private String secretKey;
+    @SerializedName(value = "publicAccess")
+    private boolean enablePublicAccess;
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
@@ -77,12 +79,17 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         this.odps = new Odps(account);
         odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(defaultProject);
+        enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS, "false"));
     }
 
     public long getTotalRows(String project, String table) throws TunnelException {
         makeSureInitialized();
         TableTunnel tunnel = new TableTunnel(odps);
-        tunnel.setEndpoint(tunnelUrlTemplate.replace("{}", region));
+        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+        if (enablePublicAccess) {
+            tunnelUrl = tunnelUrlTemplate.replace("-inc", "");
+        }
+        tunnel.setEndpoint(tunnelUrl);
         return tunnel.createDownloadSession(project, table).getRecordCount();
     }
 
@@ -138,5 +145,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public String getSecretKey() {
         makeSureInitialized();
         return secretKey;
+    }
+
+    public boolean enablePublicAccess() {
+        makeSureInitialized();
+        return enablePublicAccess;
     }
 }

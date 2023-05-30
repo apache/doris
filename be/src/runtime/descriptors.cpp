@@ -117,7 +117,8 @@ std::string SlotDescriptor::debug_string() const {
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
-        : _name(tdesc.tableName),
+        : _table_type(tdesc.tableType),
+          _name(tdesc.tableName),
           _database(tdesc.dbName),
           _table_id(tdesc.id),
           _num_cols(tdesc.numCols),
@@ -185,7 +186,8 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _project(tdesc.mcTable.project),
           _table(tdesc.mcTable.table),
           _access_key(tdesc.mcTable.access_key),
-          _secret_key(tdesc.mcTable.secret_key) {}
+          _secret_key(tdesc.mcTable.secret_key),
+          _public_access(tdesc.mcTable.public_access) {}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() {}
 

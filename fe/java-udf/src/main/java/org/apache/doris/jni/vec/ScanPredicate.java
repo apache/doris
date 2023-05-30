@@ -121,7 +121,7 @@ public class ScanPredicate {
 
         @Override
         public boolean isNull() {
-            return valueBytes == null || valueBytes.length == 0;
+            return false;
         }
 
         @Override
