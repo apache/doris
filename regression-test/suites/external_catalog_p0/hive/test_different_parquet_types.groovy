@@ -180,16 +180,13 @@ suite("test_different_parquet_types", "p0") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String resource_name = "hive_different_parquet_types_resource"
             String catalog_name = "hive_different_parquet_types"
             sql """drop catalog if exists ${catalog_name}"""
-            sql """drop resource if exists ${resource_name}"""
 
-            sql """create resource if not exists ${resource_name} properties (
+            sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );"""
-            sql """create catalog if not exists ${catalog_name} with resource ${resource_name};"""
             sql """use `${catalog_name}`.`default`"""
 
             q01()
@@ -202,7 +199,6 @@ suite("test_different_parquet_types", "p0") {
             q08()
             q09()
             sql """drop catalog if exists ${catalog_name}"""
-            sql """drop resource if exists ${resource_name}"""
         } finally {
         }
     }

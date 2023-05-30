@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -150,4 +151,14 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     String getComment();
+
+    default CatalogLog constructEditLog() {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(getId());
+        log.setCatalogName(getName());
+        log.setResource(Strings.nullToEmpty(getResource()));
+        log.setComment(getComment());
+        log.setProps(getProperties());
+        return log;
+    }
 }

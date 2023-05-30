@@ -86,7 +86,10 @@ public class CatalogProperty implements Writable {
     public Map<String, String> getProperties() {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (!Strings.isNullOrEmpty(resource)) {
-            mergedProperties = catalogResource().getCopiedProperties();
+            Resource res = catalogResource();
+            if (res != null) {
+                mergedProperties = res.getCopiedProperties();
+            }
         }
         mergedProperties.putAll(properties);
         return mergedProperties;
@@ -100,6 +103,10 @@ public class CatalogProperty implements Writable {
         Map<String, String> hadoopProperties = getProperties();
         hadoopProperties.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
         return hadoopProperties;
+    }
+
+    public void addProperty(String key, String val) {
+        this.properties.put(key, val);
     }
 
     @Override
