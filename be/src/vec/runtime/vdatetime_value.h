@@ -235,7 +235,6 @@ public:
     VecDateTimeValue()
             : _neg(0),
               _type(TIME_DATETIME),
-              _microsecond(0),
               _second(0),
               _minute(0),
               _hour(0),
