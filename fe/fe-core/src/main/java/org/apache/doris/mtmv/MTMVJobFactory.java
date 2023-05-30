@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
+import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.MVRefreshTriggerInfo;
@@ -41,8 +42,18 @@ public class MTMVJobFactory {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
 
     public static boolean isGenerateJob(MaterializedView materializedView) {
+        boolean completeRefresh = materializedView.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE;
+        BuildMode buildMode = materializedView.getBuildMode();
+        MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
         //can not generate a job when creating a temp materialized view.
-        return !materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX);
+        if (materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
+            return false;
+        }
+        if (buildMode == BuildMode.IMMEDIATE) {
+            return completeRefresh;
+        } else {
+            return completeRefresh && triggerInfo != null && triggerInfo.getRefreshTrigger() == RefreshTrigger.INTERVAL;
+        }
     }
 
     public static List<MTMVJob> buildJob(MaterializedView materializedView, String dbName) {
@@ -59,7 +70,6 @@ public class MTMVJobFactory {
         if (!isRunPeriodJobImmediate && materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
             jobs.add(genOnceJob(materializedView, dbName));
         }
-        jobs.add(genManualJob(materializedView, dbName));
         return jobs;
     }
 
@@ -75,21 +85,10 @@ public class MTMVJobFactory {
         return job;
     }
 
-    private static MTMVJob genOnceJob(MaterializedView materializedView, String dbName) {
+    public static MTMVJob genOnceJob(MaterializedView materializedView, String dbName) {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.ONCE);
-        job.setDBName(dbName);
-        job.setMVName(materializedView.getName());
-        job.setQuery(materializedView.getQuery());
-        job.setCreateTime(MTMVUtils.getNowTimeStamp());
-        return job;
-    }
-
-    private static MTMVJob genManualJob(MaterializedView materializedView, String dbName) {
-        String uid = UUID.randomUUID().toString();
-        MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
-        job.setTriggerMode(TriggerMode.MANUAL);
         job.setDBName(dbName);
         job.setMVName(materializedView.getName());
         job.setQuery(materializedView.getQuery());

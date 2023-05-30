@@ -17,9 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
@@ -324,15 +328,13 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
-    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
-        for (String jobName : nameToJobMap.keySet()) {
-            MTMVJob job = nameToJobMap.get(jobName);
-            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)
-                    && job.getTriggerMode() == TriggerMode.MANUAL) {
-                return submitJobTask(jobName);
-            }
-        }
-        throw new DdlException("No job find for the MaterializedView " + dbName + "." + mvName + " .");
+    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName)
+            throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        MaterializedView mv = (MaterializedView) db.getTableOrMetaException(mvName, TableType.MATERIALIZED_VIEW);
+        MTMVJob mtmvJob = MTMVJobFactory.genOnceJob(mv, dbName);
+        Env.getCurrentEnv().getMTMVJobManager().createJob(mtmvJob, false);
+        return submitJobTask(mtmvJob.getName());
     }
 
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName) {
