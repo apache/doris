@@ -145,6 +145,10 @@ public class PhysicalHashJoin<
             args.add("hint");
             args.add(hint);
         }
+        if (!runtimeFilters.isEmpty()) {
+            args.add("runtimeFilters");
+            args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
+        }
         return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdAsString(),
                 args.toArray());
     }

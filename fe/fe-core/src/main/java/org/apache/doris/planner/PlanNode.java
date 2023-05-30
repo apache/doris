@@ -1028,6 +1028,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 if (isBuildNode) {
                     filterStr.append(" <- ");
                     filterStr.append(filter.getSrcExpr().toSql());
+                    filterStr.append("(").append(filter.getEstimateNdv()).append("/")
+                            .append(filter.getExpectFilterSizeBytes()).append("/")
+                            .append(filter.getFilterSizeBytes()).append(")");
                 } else {
                     filterStr.append(" -> ");
                     filterStr.append(filter.getTargetExpr(getId()).toSql());
