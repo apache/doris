@@ -18,10 +18,12 @@
 package org.apache.doris.regression.suite
 
 import groovy.transform.CompileStatic
-import org.apache.doris.thrift.FrontendService
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
 import groovy.util.logging.Slf4j
+import org.apache.doris.thrift.BackendService
+import org.apache.doris.thrift.FrontendService
+import org.apache.doris.thrift.TBinlog
 import org.apache.doris.thrift.TNetworkAddress
 import org.apache.thrift.protocol.TBinaryProtocol
 import org.apache.thrift.transport.TSocket
@@ -36,21 +38,65 @@ import java.util.function.Function
 class FrontendClientImpl {
     private TSocket tSocket
     public FrontendService.Client client
-    public String user
-    public String passwd
-    public String db
-    public long seq
 
-    public initClient(TNetworkAddress address) throws TTransportException {
+    FrontendClientImpl(TNetworkAddress address) throws TTransportException {
         tSocket = new TSocket(address.hostname, address.port)
         client = new FrontendService.Client(new TBinaryProtocol(tSocket))
         tSocket.open()
     }
 
-    public void close() {
+    void close() {
         tSocket.close()
     }
 }
+
+class BackendClientImpl {
+    private TSocket tSocket
+    public BackendService.Client client
+
+    BackendClientImpl(TNetworkAddress address) throws TTransportException {
+        tSocket = new TSocket(address.hostname, address.port)
+        client = new BackendService.Client(new TBinaryProtocol(tSocket))
+        tSocket.open()
+    }
+
+    void close() {
+        tSocket.close()
+    }
+}
+
+class SyncerContext {
+    protected FrontendClientImpl sourceFrontendClient
+    protected FrontendClientImpl targetFrontendClient
+    protected ArrayList<BackendClientImpl> sourceBackendClients
+    protected ArrayList<BackendClientImpl> targetBackendClients
+
+    public String user
+    public String passwd
+    public String db
+    public TBinlog binlog
+    public long seq
+
+    void closeAllClients() {
+        if (sourceFrontendClient != null) {
+            sourceFrontendClient.close()
+        }
+        if (targetFrontendClient != null) {
+            targetFrontendClient.close()
+        }
+        if (!sourceBackendClients.isEmpty()) {
+            for (BackendClientImpl client in sourceBackendClients) {
+                client.close()
+            }
+        }
+        if (!targetBackendClients.isEmpty()) {
+            for (BackendClientImpl client in targetBackendClients) {
+                client.close()
+            }
+        }
+    }
+}
+
 
 @Slf4j
 @CompileStatic
@@ -60,7 +106,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
-    public final ThreadLocal<FrontendClientImpl> sourceClient = new ThreadLocal<>()
+    private final ThreadLocal<SyncerContext> syncerContext = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
@@ -141,24 +187,43 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
-    FrontendClientImpl getSourceClient() {
+    SyncerContext getSyncerContext() {
+        SyncerContext context = syncerContext.get()
+        if (context == null) {
+            context = new SyncerContext()
+            context.user = config.feSyncerUser
+            context.passwd = config.feSyncerPassword
+            context.db = dbName
+            context.seq = -1
+            syncerContext.set(context)
+        }
+        return context
+    }
+
+    FrontendClientImpl getSourceFrontClient() {
         log.info("Get source client ${config.feSourceThriftNetworkAddress}")
-        def clientImpl = sourceClient.get()
-        if (clientImpl == null) {
+        SyncerContext context = getSyncerContext()
+        if (context.sourceFrontendClient == null) {
             try {
-                clientImpl = new FrontendClientImpl()
-                clientImpl.initClient(config.feSourceThriftNetworkAddress)
-                clientImpl.user = config.feSyncerUser
-                clientImpl.passwd = config.feSyncerPassword
-                clientImpl.db = dbName
-                clientImpl.seq = -1
-                sourceClient.set(clientImpl)
-                log.info("Client inited, client: ${clientImpl.db}")
+                context.sourceFrontendClient = new FrontendClientImpl(config.feSourceThriftNetworkAddress)
             } catch (TTransportException e) {
                 log.error("Create client error, Exception: ${e}")
             }
         }
-        return clientImpl
+        return context.sourceFrontendClient
+    }
+
+    FrontendClientImpl getTargetFrontClient() {
+        log.info("Get target client ${config.feTargetThriftNetworkAddress}")
+        SyncerContext context = getSyncerContext()
+        if (context.targetFrontendClient == null) {
+            try {
+                context.targetFrontendClient = new FrontendClientImpl(config.feTargetThriftNetworkAddress)
+            } catch (TTransportException e) {
+                log.error("Create client error, Exception: ${e}")
+            }
+        }
+        return context.targetFrontendClient
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
@@ -251,9 +316,9 @@ class SuiteContext implements Closeable {
             }
         }
 
-        FrontendClientImpl clientImpl = sourceClient.get()
-        if (clientImpl != null) {
-            clientImpl.close()
+        SyncerContext context = syncerContext.get()
+        if (context != null) {
+            context.closeAllClients()
         }
 
         Connection conn = threadLocalConn.get()

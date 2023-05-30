@@ -18,22 +18,25 @@
 package org.apache.doris.regression.util
 
 import org.apache.doris.regression.suite.FrontendClientImpl
+import org.apache.doris.regression.suite.SyncerContext
+import org.apache.doris.thrift.TBeginTxnRequest
+import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
 import org.apache.doris.thrift.TGetBinlogResult
 import org.slf4j.Logger
 
 class SyncerUtils {
-    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, String table, Logger logger) {
+    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table, Logger logger) {
         TGetBinlogRequest request = new TGetBinlogRequest()
         TGetBinlogResult result = null
-        request.setUser(clientImpl.user)
-        request.setPasswd(clientImpl.passwd)
-        request.setDb(clientImpl.db)
+        request.setUser(context.user)
+        request.setPasswd(context.passwd)
+        request.setDb(context.db)
         if (!table.isEmpty()) {
             request.setTable(table)
         }
-        request.setPrevCommitSeq(clientImpl.seq)
+        request.setPrevCommitSeq(context.seq)
         try {
             result = clientImpl.client.getBinlog(request)
         } catch (TException e) {
@@ -41,4 +44,16 @@ class SyncerUtils {
         }
         return result
     }
+
+//    static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, String table, Logger logger) {
+//        TBeginTxnRequest request = new TBeginTxnResult()
+//        TBeginTxnResult result = null
+//        request.
+//        try {
+//            result = clientImpl.client.beginTxn(request)
+//        } catch (TException e) {
+//            logger.error("RPC getBinlog failed, exception: ${e}")
+//        }
+//        return result
+//    }
 }

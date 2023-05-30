@@ -37,8 +37,7 @@ suite("test_ccr_util") {
         sql """
             INSERT INTO ${tableName} VALUES (${index})
         """
-        def binlog = get_binlog "${tableName}"
-        assertTrue(check_binlog binlog)
+        assertTrue(get_binlog "${tableName}")
     }
 
     
