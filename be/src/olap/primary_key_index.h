@@ -29,7 +29,6 @@
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
