@@ -25,6 +25,7 @@ import groovy.util.logging.Slf4j
 import org.apache.doris.thrift.TNetworkAddress
 import org.apache.thrift.protocol.TBinaryProtocol
 import org.apache.thrift.transport.TSocket
+import org.apache.thrift.transport.TTransportException
 
 import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
@@ -33,11 +34,22 @@ import java.util.concurrent.ExecutorService
 import java.util.function.Function
 
 class FrontendClientImpl {
-    FrontendService.Client client
-    String user
-    String passwd
-    String db
-    long seq
+    private TSocket tSocket
+    public FrontendService.Client client
+    public String user
+    public String passwd
+    public String db
+    public long seq
+
+    public initClient(TNetworkAddress address) throws TTransportException {
+        tSocket = new TSocket(address.hostname, address.port)
+        client = new FrontendService.Client(new TBinaryProtocol(tSocket))
+        tSocket.open()
+    }
+
+    public void close() {
+        tSocket.close()
+    }
 }
 
 @Slf4j
@@ -129,21 +141,22 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
-    private FrontendService.Client initFrontClient(TNetworkAddress address) {
-        TSocket tSocket = new TSocket(address.hostname, address.port)
-        TBinaryProtocol protocol = new TBinaryProtocol(tSocket)
-        return new FrontendService.Client(protocol)
-    }
-
     FrontendClientImpl getSourceClient() {
+        log.info("Get source client ${config.feSourceThriftNetworkAddress}")
         def clientImpl = sourceClient.get()
         if (clientImpl == null) {
-            clientImpl.client = initFrontClient(config.feSourceThriftNetworkAddress)
-            clientImpl.user = config.feSyncerUser
-            clientImpl.passwd = config.feSyncerPassword
-            clientImpl.db = dbName
-            clientImpl.seq = -1
-            sourceClient.set(clientImpl)
+            try {
+                clientImpl = new FrontendClientImpl()
+                clientImpl.initClient(config.feSourceThriftNetworkAddress)
+                clientImpl.user = config.feSyncerUser
+                clientImpl.passwd = config.feSyncerPassword
+                clientImpl.db = dbName
+                clientImpl.seq = -1
+                sourceClient.set(clientImpl)
+                log.info("Client inited, client: ${clientImpl.db}")
+            } catch (TTransportException e) {
+                log.error("Create client error, Exception: ${e}")
+            }
         }
         return clientImpl
     }
@@ -236,6 +249,11 @@ class SuiteContext implements Closeable {
             } catch (Throwable t) {
                 log.warn("Close outputIterator failed", t)
             }
+        }
+
+        FrontendClientImpl clientImpl = sourceClient.get()
+        if (clientImpl != null) {
+            clientImpl.close()
         }
 
         Connection conn = threadLocalConn.get()

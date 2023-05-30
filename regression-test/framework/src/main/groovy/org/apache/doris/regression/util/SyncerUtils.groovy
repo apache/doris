@@ -17,19 +17,28 @@
 
 package org.apache.doris.regression.util
 
-import com.sun.org.apache.xpath.internal.operations.Bool
-import groovy.lang.Tuple2
-import groovyjarjarantlr4.v4.runtime.misc.Tuple2
 import org.apache.doris.regression.suite.FrontendClientImpl
+import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
-import org.apache.doris.thrift.TStatusCode
-import org.apache.doris.thrift.TBinlog
 import org.apache.doris.thrift.TGetBinlogResult
-import org.apache.doris.thrift.TStatus
+import org.slf4j.Logger
 
 class SyncerUtils {
-    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl) {
-        TGetBinlogRequest request = new TGetBinlogRequest(clientImpl.user, clientImpl.passwd, clientImpl.db, clientImpl.seq)
-        clientImpl.client.getBinlog(request)
+    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, String table, Logger logger) {
+        TGetBinlogRequest request = new TGetBinlogRequest()
+        TGetBinlogResult result = null
+        request.setUser(clientImpl.user)
+        request.setPasswd(clientImpl.passwd)
+        request.setDb(clientImpl.db)
+        if (!table.isEmpty()) {
+            request.setTable(table)
+        }
+        request.setPrevCommitSeq(clientImpl.seq)
+        try {
+            result = clientImpl.client.getBinlog(request)
+        } catch (TException e) {
+            logger.error("RPC getBinlog failed, exception: ${e}")
+        }
+        return result
     }
 }
