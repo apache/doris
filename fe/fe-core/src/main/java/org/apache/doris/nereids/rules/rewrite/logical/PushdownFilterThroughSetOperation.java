@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableSet;
@@ -73,15 +72,15 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
                         newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
                     }
 
-                    if (allOneRowRelation) {
-                        return filter;
+                    if (allOneRowRelation || newChildren.equals(setOperation.children())) {
+                        return null;
                     }
 
                     if (hasOneRowRelation) {
                         // If there are some `OneRowRelation` exists, we need to keep the `filter`.
-                        return filter.withChildren(((LogicalUnion) setOperation).withNewChildren(newChildren));
+                        return filter.withChildren(setOperation.withChildren(newChildren));
                     }
-                    return setOperation.withNewChildren(newChildren);
+                    return setOperation.withChildren(newChildren);
                 }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
     }
 }
