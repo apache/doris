@@ -186,6 +186,9 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
+    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                   WrapperField* max_value_container) const;
+
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                std::vector<const ColumnPredicate*>* delete_predicates,
                                std::vector<uint32_t>* page_indexes);

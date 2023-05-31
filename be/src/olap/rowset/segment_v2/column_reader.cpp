@@ -181,7 +181,8 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
-    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+    _parse_zone_map_skip_null(_zone_map_index_meta->segment_zone_map(), min_value.get(),
+                              max_value.get());
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -243,6 +244,21 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
             // for compatible OlapCond's 'is not null'
             max_value_container->set_null();
         }
+    }
+}
+
+void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                             WrapperField* min_value_container,
+                                             WrapperField* max_value_container) const {
+    // min value and max value are valid if has_not_null is true
+    if (zone_map.has_not_null()) {
+        min_value_container->from_string(zone_map.min());
+        max_value_container->from_string(zone_map.max());
+    }
+
+    if (!zone_map.has_not_null()) {
+        min_value_container->set_null();
+        max_value_container->set_null();
     }
 }
 
