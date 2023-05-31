@@ -453,10 +453,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.2-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.4.2-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.2-for-doris"
-HADOOP_LIBS_MD5SUM="88a09261810a4e3a18d4101600234202"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.3-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.3-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.3-for-doris"
+HADOOP_LIBS_MD5SUM="4f9eeb4f8e05d2b2ae4541b12d78fb2c"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
