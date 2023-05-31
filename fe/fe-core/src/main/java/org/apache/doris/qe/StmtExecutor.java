@@ -442,7 +442,7 @@ public class StmtExecutor {
         }
     }
 
-    private boolean checkBlockRules() throws AnalysisException {
+    private void checkBlockRules() throws AnalysisException {
         if (originStmt != null) {
             Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                     originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
@@ -462,8 +462,6 @@ public class StmtExecutor {
                 }
             }
         }
-
-        return false;
     }
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
@@ -473,9 +471,7 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
-        if (checkBlockRules()) {
-            return;
-        }
+        checkBlockRules();
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -651,9 +647,7 @@ public class StmtExecutor {
             }
 
             // sql/sqlHash block
-            if (checkBlockRules()) {
-                return;
-            }
+            checkBlockRules();
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
