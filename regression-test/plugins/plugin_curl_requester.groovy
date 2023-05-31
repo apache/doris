@@ -36,7 +36,7 @@ Suite.metaClass.curl = { String method, String url /* param */->
     String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
     String out = process.getText()
 
-    return (code, out, err)
+    return [code, out, err]
 }
 
 logger.info("Added 'curl' function to Suite")
