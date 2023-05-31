@@ -3266,7 +3266,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
             "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
-            tablet_id(), rowset_id, num_segments, delete_bitmap->delete_bitmap.size(),
+            tablet_id(), rowset_id.to_string(), num_segments, delete_bitmap->delete_bitmap.size(),
             watch.get_elapse_time_us());
     return Status::OK();
 }
