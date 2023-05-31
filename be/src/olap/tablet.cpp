@@ -3230,6 +3230,10 @@ Status Tablet::check_rowid_conversion(
 RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
     RowsetIdUnorderedSet rowset_ids;
     for (const auto& rs_it : _rs_version_map) {
+        if (rs_it.first.second == 1) {
+            // [0-1] rowset is empty for each tablet, skip it
+            continue;
+        }
         if (rs_it.first.second <= max_version) {
             rowset_ids.insert(rs_it.second->rowset_id());
         }
