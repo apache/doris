@@ -68,42 +68,6 @@ class ExchangeSinkOperator;
 namespace vectorized {
 class Channel;
 
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
-
-// We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
-// will be shared between different channel, so we have to use a ref count to mark if this
-// PBlock is available for next serialization.
-class BroadcastPBlockHolder {
-public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
-    ~BroadcastPBlockHolder() noexcept = default;
-
-    void unref() noexcept {
-        DCHECK_GT(_ref_count._value, 0);
-        _ref_count._value.fetch_sub(1);
-    }
-    void ref() noexcept { _ref_count._value.fetch_add(1); }
-
-    bool available() { return _ref_count._value == 0; }
-
-    PBlock* get_block() { return &pblock; }
-
-private:
-    AtomicWrapper<uint32_t> _ref_count;
-    PBlock pblock;
-};
-
 class VDataStreamSender : public DataSink {
 public:
     friend class pipeline::ExchangeSinkOperator;
@@ -456,6 +420,9 @@ public:
         if (_ch_cur_pb_block) {
             delete _ch_cur_pb_block;
         }
+        if (_closure) {
+            delete _closure;
+        }
     }
 
     void ch_roll_pb_block() override {
@@ -525,11 +492,23 @@ public:
         _buffer->register_sink(_fragment_instance_id);
     }
 
+    pipeline::SelfDeleteClosure<PTransmitDataResult>* get_closure(
+            InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
+        if (!_closure) {
+            _closure = new pipeline::SelfDeleteClosure<PTransmitDataResult>();
+        } else {
+            _closure->cntl.Reset();
+        }
+        _closure->init(id, eos, data);
+        return _closure;
+    }
+
 private:
     friend class VDataStreamSender;
 
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
+    pipeline::SelfDeleteClosure<PTransmitDataResult>* _closure = nullptr;
 };
 
 } // namespace vectorized
