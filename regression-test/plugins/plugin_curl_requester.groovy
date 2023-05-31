@@ -51,7 +51,7 @@ Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
 logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=", ip, port, tablet_id))
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
 }
 
 logger.info("Added 'be_get_compaction_status' function to Suite")
