@@ -240,6 +240,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
 
+    public static final String ENABLE_FOLD_UNFIXED_FN = "enable_fold_unfixed_fn";
+
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
@@ -912,6 +914,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
+    
+    @VariableMgr.VarAttr(name = ENABLE_FOLD_UNFIXED_FN)
+    public boolean enableFoldUnfixedFn = true;
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -1708,6 +1713,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePartitionTopN(boolean enablePartitionTopN) {
         this.enablePartitionTopN = enablePartitionTopN;
+    }
+    
+    public boolean isEnableFoldUnfixedFn() {
+        return enableFoldUnfixedFn;
+    }
+    
+    public void setEnableFoldUnfixedFn(boolean enableFoldUnfixedFn) {
+        this.enableFoldUnfixedFn = enableFoldUnfixedFn;
     }
 
     public boolean isReturnObjectDataAsBinary() {
