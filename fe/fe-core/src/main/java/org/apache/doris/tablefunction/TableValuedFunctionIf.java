@@ -53,8 +53,8 @@ public abstract class TableValuedFunctionIf {
                 return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
-            case ResourceGroupsTableValuedFunction.NAME:
-                return new ResourceGroupsTableValuedFunction(params);
+            case WorkloadGroupsTableValuedFunction.NAME:
+                return new WorkloadGroupsTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

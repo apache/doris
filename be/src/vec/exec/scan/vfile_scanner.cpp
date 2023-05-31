@@ -582,6 +582,7 @@ Status VFileScanner::_get_next_reader() {
         }
 
         const TFileRangeDesc& range = _ranges[_next_range++];
+        _current_range_path = range.path;
 
         // create reader for specific format
         // TODO: add json, avro

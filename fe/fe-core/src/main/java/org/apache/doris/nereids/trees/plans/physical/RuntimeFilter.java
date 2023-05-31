@@ -64,6 +64,7 @@ public class RuntimeFilter {
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
+        builderNode.addRuntimeFilter(this);
     }
 
     public Expression getSrcExpr() {
@@ -100,5 +101,16 @@ public class RuntimeFilter {
 
     public long getBuildSideNdv() {
         return buildSideNdv;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("RF").append(id.asInt())
+                .append("[").append(getSrcExpr()).append("->").append(targetSlot)
+                .append("(ndv/size = ").append(buildSideNdv).append("/")
+                .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
+                .append(")");
+        return sb.toString();
     }
 }

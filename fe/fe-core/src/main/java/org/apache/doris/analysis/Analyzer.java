@@ -69,7 +69,7 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
-import org.apache.doris.thrift.TPipelineResourceGroup;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -408,7 +408,7 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
-        public List<TPipelineResourceGroup> tResourceGroups;
+        public List<TPipelineWorkloadGroup> tWorkloadGroups;
 
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
@@ -597,12 +597,12 @@ public class Analyzer {
         return explicitViewAlias;
     }
 
-    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
-        globalState.tResourceGroups = tResourceGroups;
+    public void setWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        globalState.tWorkloadGroups = tWorkloadGroups;
     }
 
-    public List<TPipelineResourceGroup> getResourceGroups() {
-        return globalState.tResourceGroups;
+    public List<TPipelineWorkloadGroup> getWorkloadGroups() {
+        return globalState.tWorkloadGroups;
     }
 
     /**

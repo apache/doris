@@ -1488,9 +1488,12 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
-    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
+    // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_resource_group = false;
+    public static boolean enable_workload_group = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_query_queue = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1997,4 +2000,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static int analyze_task_timeout_in_minutes = 120;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "Whether to disable creating catalog with WITH RESOURCE statement."})
+    public static boolean disallow_create_catalog_with_resource = true;
 }
