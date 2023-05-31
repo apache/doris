@@ -213,7 +213,7 @@ public class ColumnDef {
     }
 
     public void setGenericAggregationName(AggregateType aggregateType) {
-        this.genericAggregationName = aggregateType.name();
+        this.genericAggregationName = aggregateType.name().toLowerCase();
     }
 
     public void setGenericAggregationArguments(List<TypeDef> genericAggregationArguments) {
