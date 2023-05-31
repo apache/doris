@@ -278,7 +278,8 @@ public:
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info,
-                                  bool enable_consecutive_missing_check = false);
+                                  bool enable_consecutive_missing_check = false,
+                                  bool enable_path_check = false);
 
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
     // caller should hold the _meta_lock before calling this method
