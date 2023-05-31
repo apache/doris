@@ -119,7 +119,7 @@ public class PhysicalCTEConsumer extends PhysicalLeaf {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalCTEConsumer", "[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCTEConsumer", "cteId", cteId);
     }
 
     @Override

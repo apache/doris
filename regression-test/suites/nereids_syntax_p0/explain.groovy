@@ -22,6 +22,8 @@ suite("nereids_explain") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "SET enable_pipeline_engine=true"
+
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
         contains "(sum(2) + sum(lo_suppkey))[#"
