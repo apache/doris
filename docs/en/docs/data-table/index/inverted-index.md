@@ -123,10 +123,10 @@ SELECT * FROM table_name WHERE column_name MATCH_ANY | MATCH_ALL 'keyword1 ...';
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1';
 
 -- 1.2 find rows that logmsg contains keyword1 or keyword2 or more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1 keyword2';
 
 -- 1.3 find rows that logmsg contains both keyword1 and keyword2 and more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 
 -- 1.4 find rows that logmsg contains both keyword1 and keyword2, and in the order of keyword1 appearing first and keyword2 appearing later.
 SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
