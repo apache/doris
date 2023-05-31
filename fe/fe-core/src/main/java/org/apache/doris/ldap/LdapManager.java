@@ -42,7 +42,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class LdapManager {
     private static final Logger LOG = LogManager.getLogger(LdapManager.class);
 
-    private static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
+    public static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
 
     private final LdapClient ldapClient = new LdapClient();
 
@@ -89,7 +89,8 @@ public class LdapManager {
         if (!checkParam(fullName)) {
             return false;
         }
-        return !Objects.isNull(getUserInfo(fullName));
+        LdapUserInfo info = getUserInfo(fullName);
+        return !Objects.isNull(info) && info.isExists();
     }
 
     public boolean checkUserPasswd(String fullName, String passwd) {
@@ -98,7 +99,7 @@ public class LdapManager {
             return false;
         }
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
-        if (Objects.isNull(ldapUserInfo)) {
+        if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             return false;
         }
 
@@ -121,6 +122,11 @@ public class LdapManager {
         return false;
     }
 
+    public Role getUserRole(String fullName) {
+        LdapUserInfo info = getUserInfo(fullName);
+        return !Objects.isNull(info) && info.isExists() ? info.getPaloRole() : new Role(LDAP_GROUPS_PRIVS_NAME);
+    }
+
     private boolean checkParam(String fullName) {
         return LdapConfig.ldap_authentication_enabled && !Strings.isNullOrEmpty(fullName) && !fullName.equalsIgnoreCase(
                 Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
@@ -132,8 +138,7 @@ public class LdapManager {
         if (Strings.isNullOrEmpty(userName)) {
             return null;
         } else if (!ldapClient.doesUserExist(userName)) {
-            removeUserIfExist(fulName);
-            return null;
+            return makeUserNotExists(fulName);
         }
         checkTimeoutCleanCache();
 
@@ -157,15 +162,10 @@ public class LdapManager {
         }
     }
 
-    private void removeUserIfExist(String fullName) {
-        LdapUserInfo ldapUserInfo = getUserInfoFromCache(fullName);
-        if (ldapUserInfo == null) {
-            return;
-        }
-
+    private LdapUserInfo makeUserNotExists(String fullName) {
         writeLock();
         try {
-            ldapUserInfoCache.remove(ldapUserInfo.getUserName());
+            return ldapUserInfoCache.put(fullName, new LdapUserInfo(fullName));
         } finally {
             writeUnlock();
         }
@@ -218,5 +218,21 @@ public class LdapManager {
             Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
         }
         return ldapGroupsPrivs;
+    }
+
+    public void refresh(boolean isAll, String fullName) {
+        writeLock();
+        try {
+            if (isAll) {
+                ldapUserInfoCache.clear();
+                lastTimestamp = System.currentTimeMillis();
+                LOG.info("refreshed all ldap info.");
+            } else {
+                ldapUserInfoCache.remove(fullName);
+                LOG.info("refreshed ldap info for " + fullName);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 }

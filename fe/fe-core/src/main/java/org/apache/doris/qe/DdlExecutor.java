@@ -100,6 +100,7 @@ import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
@@ -324,6 +325,8 @@ public class DdlExecutor {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshLdapStmt) {
+            env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanProfileStmt) {
