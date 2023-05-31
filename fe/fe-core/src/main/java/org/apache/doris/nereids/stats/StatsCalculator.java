@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -571,11 +572,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
-                totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                        && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                    totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                }
             }
             columnStatisticMap.put(slotReference, cache);
-            totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-            totalHistogramMap.put(table.getName() + colName, histogram);
+            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
+                totalHistogramMap.put(table.getName() + colName, histogram);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
