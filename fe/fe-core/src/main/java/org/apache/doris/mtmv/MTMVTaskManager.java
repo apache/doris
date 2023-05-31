@@ -349,12 +349,12 @@ public class MTMVTaskManager {
                                     .filter(u -> u.getDBName().equals(dbName))
                                     .collect(Collectors.toList()));
                 }
-                taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
-                        .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
-                taskList.addAll(
-                        getHistoryTasks().stream().filter(u -> u.getDBName().equals(dbName))
-                                .collect(Collectors.toList()));
             }
+            taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
+                    .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
+            taskList.addAll(
+                    getHistoryTasks().stream().filter(u -> u.getDBName().equals(dbName))
+                            .collect(Collectors.toList()));
         }
         return taskList.stream().sorted().collect(Collectors.toList());
     }
