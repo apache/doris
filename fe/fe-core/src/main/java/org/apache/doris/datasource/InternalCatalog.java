@@ -1840,6 +1840,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create columns
         List<Column> baseSchema = stmt.getColumns();
         validateColumns(baseSchema, isKeysRequired);
+        checkAutoIncColummns(baseSchema, keysType);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -2583,7 +2584,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     /*
-     * generate and check columns' order and key's existence
+     * generate and check columns' order and key's existence,
      */
     private void validateColumns(List<Column> columns, boolean isKeysRequired) throws DdlException {
         if (columns.isEmpty()) {
@@ -2605,6 +2606,33 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (!hasKey && isKeysRequired) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_MUST_HAVE_KEYS);
+        }
+    }
+
+    /*
+     * check column's auto increment property
+     */
+    private void checkAutoIncColummns(List<Column> columns, KeysType type) throws DdlException {
+        boolean encounterAutoIncColumn = false;
+        for (Column column : columns) {
+            if (column.isAutoInc()) {
+                if (encounterAutoIncColumn) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN);
+                }
+                encounterAutoIncColumn = true;
+                if (column.isAllowNull()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NULLABLE);
+                }
+                if (column.getDefaultValue() != null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE);
+                }
+                if (!column.getType().isIntegerType()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INTEGER_TYPE);
+                }
+            }
+        }
+        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
         }
     }
 

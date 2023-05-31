@@ -189,7 +189,7 @@ public class Column implements Writable, GsonPostProcessable {
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             boolean isAutoInc, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
-            String genericAggregationName,List<Type> genericAggregationArguments, List<Boolean> nullableList) {
+            String genericAggregationName, List<Type> genericAggregationArguments, List<Boolean> nullableList) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -740,6 +740,9 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(" NOT NULL");
         }
+        if (isAutoInc) {
+            sb.append(" AUTO_INCREMENT");
+        }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
@@ -761,7 +764,7 @@ public class Column implements Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
-                isAggregationTypeImplicit, isKey, isAllowNull, defaultValue, comment, children, visible,
+                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, comment, children, visible,
                 realDefaultValue);
     }
 
@@ -782,6 +785,7 @@ public class Column implements Writable, GsonPostProcessable {
                 && isAggregationTypeImplicit == other.isAggregationTypeImplicit
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
+                && isAutoInc == other.isAutoInc
                 && getDataType().equals(other.getDataType())
                 && getStrLen() == other.getStrLen()
                 && getPrecision() == other.getPrecision()
