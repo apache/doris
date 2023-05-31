@@ -18,6 +18,7 @@
 package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.StreamLoadStmt.Property;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -56,7 +57,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -136,12 +139,17 @@ public class CanalSyncChannel extends SyncChannel {
                         new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
                             FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
                     String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                    Map<String, String> properties = new HashMap<>();
+
+                    properties.put(Property.MERGE_TYPE, String.valueOf(TMergeType.MERGE));
+                    properties.put(Property.DELETE_CONDITION, DELETE_CONDITION);
+                    properties.put(Property.COLUMNS, targetColumn);
+
                     request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
                         .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                         .setThriftRpcTimeoutMs(5000).setLoadId(txnExecutor.getLoadId())
-                        .setMergeType(TMergeType.MERGE).setDeleteCondition(DELETE_CONDITION)
-                        .setColumns(targetColumn);
+                        .setProperties(properties);
                     txnConf.setTxnId(txnId).setToken(token);
                     txnEntry.setLabel(label);
                     txnExecutor.setTxnId(txnId);

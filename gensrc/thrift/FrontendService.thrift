@@ -541,46 +541,15 @@ struct TStreamLoadPutRequest {
 
     // only valid when file_type is FILE_LOCAL
     11: optional string path
+    12: optional i64 auth_code
+    13: optional string header_type
+    14: optional i64 file_size // only for stream load with parquet or orc
+    15: optional i64 thrift_rpc_timeout_ms
+    16: optional PlanNodes.TFileCompressType compress_type
+    17: optional string token
 
-    // describe how table's column map to field in source file
-    // slot descriptor stands for field of source file
-    12: optional string columns
-    // filters that applied on data
-    13: optional string where
-    // only valid when file type is CSV
-    14: optional string columnSeparator
-
-    15: optional string partitions
-    16: optional i64 auth_code
-    17: optional bool negative
-    18: optional i32 timeout
-    19: optional bool strictMode
-    20: optional string timezone
-    21: optional i64 execMemLimit
-    22: optional bool isTempPartition
-    23: optional bool strip_outer_array
-    24: optional string jsonpaths
-    25: optional i64 thrift_rpc_timeout_ms
-    26: optional string json_root
-    27: optional Types.TMergeType merge_type
-    28: optional string delete_condition
-    29: optional string sequence_col
-    30: optional bool num_as_string
-    31: optional bool fuzzy_parse
-    32: optional string line_delimiter
-    33: optional bool read_json_by_line
-    34: optional string token
-    35: optional i32 send_batch_parallelism
-    36: optional double max_filter_ratio
-    37: optional bool load_to_single_tablet
-    38: optional string header_type
-    39: optional string hidden_columns
-    40: optional PlanNodes.TFileCompressType compress_type
-    41: optional i64 file_size // only for stream load with parquet or orc
-    42: optional bool trim_double_quotes // trim double quotes for csv
-    43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
-    44: optional bool enable_profile
-    45: optional bool partial_update
+    // all properties of stream load
+    18: required map<string,string> properties
 }
 
 struct TStreamLoadPutResult {

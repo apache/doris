@@ -52,6 +52,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
+import org.apache.doris.analysis.StreamLoadStmt.Property;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
@@ -166,6 +167,7 @@ import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -373,7 +375,7 @@ public class StmtExecutor {
      *      isValuesOrConstantSelect: when this interface return true, original string is truncated at 1024
      *
      * @return parsed and analyzed statement for Stale planner.
-     * an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
+     *         an unresolved LogicalPlan wrapped with a LogicalPlanAdapter for Nereids.
      */
     public StatementBase getParsedStmt() {
         return parsedStmt;
@@ -533,7 +535,7 @@ public class StmtExecutor {
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
-                //reset query id for each retry
+                // reset query id for each retry
                 if (i > 0) {
                     UUID uuid = UUID.randomUUID();
                     TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
@@ -1594,13 +1596,19 @@ public class StmtExecutor {
         long maxExecMemByte = sessionVariable.getMaxExecMemByte();
         String timeZone = sessionVariable.getTimeZone();
         int sendBatchParallelism = sessionVariable.getSendBatchParallelism();
+        Map<String, String> properties = new HashMap<>();
+
+        properties.put(Property.MERGE_TYPE, String.valueOf(TMergeType.APPEND));
+        properties.put(Property.EXEC_MEM_LIMIT, String.valueOf(maxExecMemByte));
+        properties.put(Property.TIMEOUT, String.valueOf(timeoutSecond));
+        properties.put(Property.TIMEZONE, timeZone);
+        properties.put(Property.SEND_BATCH_PARALLELISM, String.valueOf(sendBatchParallelism));
 
         request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb())
                 .setTbl(txnConf.getTbl())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
-                .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
-                .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
+                .setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
+                .setProperties(properties);
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
@@ -1833,10 +1841,10 @@ public class StmtExecutor {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, prepareStmt.getName()));
+                        context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -1901,7 +1909,7 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+                    exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
         }
         context.getState().setOk();
     }

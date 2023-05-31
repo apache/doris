@@ -24,6 +24,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.task.LoadTaskInfo.ImportColumnDescs;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -38,9 +39,44 @@ import org.apache.logging.log4j.Logger;
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
-// Todo implement LoadTaskInfo is avoid  Compatibility problem,it will be deleted after refactor routineLoad.
-public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
+public class StreamLoadStmt implements LoadTaskInfo {
+
+    public static class Property {
+        public static final String COLUMNS = "columns";
+        public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+        public static final String MERGE_TYPE = "merge_type";
+        public static final String TIMEOUT = "timeout";
+        public static final String TIMEZONE = "timezone";
+        public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+        public static final String WHERE = "where";
+        public static final String COLUMN_SEPARATOR = "column_separator";
+        public static final String LINE_DELIMITER = "line_delimiter";
+        public static final String PARTITIONS = "partitions";
+        public static final String TEMP_PARTITIONS = "temporary_partitions";
+        public static final String NEGATIVE = "negative";
+        public static final String STRICT_MODE = "strict_mode";
+        public static final String JSONPATHS = "jsonpaths";
+        public static final String JSONROOT = "json_root";
+        public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+        public static final String NUM_AS_STRING = "num_as_string";
+        public static final String FUZZY_PARSE = "fuzzy_parse";
+        public static final String READ_JSON_BY_LINE = "read_json_by_line";
+        public static final String DELETE_CONDITION = "delete";
+        public static final String MAX_FILTER_RATIO = "max_filter_ratio";
+        public static final String FUNCTION_COLUMN = "function_column";
+        public static final String SEQUENCE_COL = "sequence_col";
+        public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+        public static final String HIDDEN_COLUMNS = "hidden_columns";
+        public static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+        public static final String SKIP_LINES = "skip_lines";
+        public static final String ENABLE_PROFILE = "enable_profile";
+        public static final String PARTIAL_COLUMNS = "partial_columns";
+    }
+
+    private static Map<String, String> properties;
+
     private static final Logger LOG = LogManager.getLogger(StreamLoadStmt.class);
 
     private TUniqueId id;
@@ -261,6 +297,7 @@ public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
         StreamLoadStmt streamLoadStmt = new StreamLoadStmt(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
+        StreamLoadStmt.properties = request.getProperties();
         streamLoadStmt.setOptionalFromTSLPutRequest(request);
         if (request.isSetFileSize()) {
             streamLoadStmt.fileSize = request.getFileSize();
@@ -269,25 +306,25 @@ public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
-        if (request.isSetColumns()) {
-            setColumnToColumnExpr(request.getColumns());
+        if (properties.get(Property.COLUMNS) != null) {
+            setColumnToColumnExpr(properties.get(Property.COLUMNS));
         }
-        if (request.isSetWhere()) {
-            whereExpr = parseWhereExpr(request.getWhere());
+        if (properties.get(Property.WHERE) != null) {
+            whereExpr = parseWhereExpr(properties.get(Property.WHERE));
         }
-        if (request.isSetColumnSeparator()) {
-            setColumnSeparator(request.getColumnSeparator());
+        if (properties.get(Property.COLUMN_SEPARATOR) != null) {
+            setColumnSeparator(properties.get(Property.COLUMN_SEPARATOR));
         }
-        if (request.isSetLineDelimiter()) {
-            setLineDelimiter(request.getLineDelimiter());
+        if (properties.get(Property.LINE_DELIMITER) != null) {
+            setLineDelimiter(properties.get(Property.LINE_DELIMITER));
         }
         if (request.isSetHeaderType()) {
             headerType = request.getHeaderType();
         }
-        if (request.isSetPartitions()) {
-            String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
-            if (request.isSetIsTempPartition()) {
-                partitions = new PartitionNames(request.isIsTempPartition(), Lists.newArrayList(partNames));
+        if (properties.get(Property.PARTITIONS) != null) {
+            String[] partNames = properties.get(Property.PARTITIONS).trim().split("\\s*,\\s*");
+            if (properties.get(Property.TEMP_PARTITIONS) != null) {
+                partitions = new PartitionNames(true, Lists.newArrayList(partNames));
             } else {
                 partitions = new PartitionNames(false, Lists.newArrayList(partNames));
             }
@@ -301,72 +338,72 @@ public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
         }
-        if (request.isSetNegative()) {
-            negative = request.isNegative();
+        if (properties.get(Property.NEGATIVE) != null) {
+            negative = Boolean.parseBoolean(properties.get(Property.NEGATIVE));
         }
-        if (request.isSetTimeout()) {
-            timeout = request.getTimeout();
+        if (properties.get(Property.TIMEOUT) != null) {
+            timeout = Integer.parseInt(properties.get(Property.TIMEOUT));
         }
-        if (request.isSetStrictMode()) {
-            strictMode = request.isStrictMode();
+        if (properties.get(Property.STRICT_MODE) != null) {
+            strictMode = Boolean.parseBoolean(properties.get(Property.STRICT_MODE));
         }
-        if (request.isSetTimezone()) {
-            timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
+        if (properties.get(Property.TIMEZONE) != null) {
+            timezone = TimeUtils.checkTimeZoneValidAndStandardize(properties.get(Property.TIMEZONE));
         }
-        if (request.isSetExecMemLimit()) {
-            execMemLimit = request.getExecMemLimit();
+        if (properties.get(Property.EXEC_MEM_LIMIT) != null) {
+            execMemLimit = Long.parseLong(properties.get(Property.EXEC_MEM_LIMIT));
         }
         if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
-            if (request.getJsonpaths() != null) {
-                jsonPaths = request.getJsonpaths();
+            if (properties.get(Property.JSONPATHS) != null) {
+                jsonPaths = properties.get(Property.JSONPATHS);
             }
-            if (request.getJsonRoot() != null) {
-                jsonRoot = request.getJsonRoot();
+            if (properties.get(Property.JSONROOT) != null) {
+                jsonRoot = properties.get(Property.JSONROOT);
             }
-            stripOuterArray = request.isStripOuterArray();
-            numAsString = request.isNumAsString();
-            fuzzyParse = request.isFuzzyParse();
-            readJsonByLine = request.isReadJsonByLine();
+            stripOuterArray = Boolean.parseBoolean(properties.get(Property.STRIP_OUTER_ARRAY));
+            numAsString = Boolean.parseBoolean(properties.get(Property.NUM_AS_STRING));
+            fuzzyParse = Boolean.parseBoolean(properties.get(Property.FUZZY_PARSE));
+            readJsonByLine = Boolean.parseBoolean(properties.get(Property.READ_JSON_BY_LINE));
         }
-        if (request.isSetMergeType()) {
+        if (properties.get(Property.MERGE_TYPE) != null) {
             try {
-                mergeType = LoadTask.MergeType.valueOf(request.getMergeType().toString());
+                mergeType = LoadTask.MergeType.valueOf(properties.get(Property.MERGE_TYPE).toString());
             } catch (IllegalArgumentException e) {
-                throw new UserException("unknown merge type " + request.getMergeType().toString());
+                throw new UserException("unknown merge type " + properties.get(Property.MERGE_TYPE).toString());
             }
         }
-        if (request.isSetDeleteCondition()) {
-            deleteCondition = parseWhereExpr(request.getDeleteCondition());
+        if (properties.get(Property.DELETE_CONDITION) != null) {
+            deleteCondition = parseWhereExpr(properties.get(Property.DELETE_CONDITION));
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
-        if (request.isSetSequenceCol()) {
-            sequenceCol = request.getSequenceCol();
+        if (properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL) != null) {
+            sequenceCol = properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL);
         }
-        if (request.isSetSendBatchParallelism()) {
-            sendBatchParallelism = request.getSendBatchParallelism();
+        if (properties.get(Property.SEND_BATCH_PARALLELISM) != null) {
+            sendBatchParallelism = Integer.parseInt(properties.get(Property.SEND_BATCH_PARALLELISM));
         }
-        if (request.isSetMaxFilterRatio()) {
-            maxFilterRatio = request.getMaxFilterRatio();
+        if (properties.get(Property.MAX_FILTER_RATIO) != null) {
+            maxFilterRatio = Double.parseDouble(properties.get(Property.MAX_FILTER_RATIO));
         }
-        if (request.isSetLoadToSingleTablet()) {
-            loadToSingleTablet = request.isLoadToSingleTablet();
+        if (properties.get(Property.LOAD_TO_SINGLE_TABLET) != null) {
+            loadToSingleTablet = Boolean.parseBoolean(properties.get(Property.LOAD_TO_SINGLE_TABLET));
         }
-        if (request.isSetHiddenColumns()) {
-            hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
+        if (properties.get(Property.HIDDEN_COLUMNS) != null) {
+            hiddenColumns = Arrays.asList(properties.get(Property.HIDDEN_COLUMNS).replaceAll("\\s+", "").split(","));
         }
-        if (request.isSetTrimDoubleQuotes()) {
-            trimDoubleQuotes = request.isTrimDoubleQuotes();
+        if (properties.get(Property.TRIM_DOUBLE_QUOTES) != null) {
+            trimDoubleQuotes = Boolean.parseBoolean(properties.get(Property.TRIM_DOUBLE_QUOTES));
         }
-        if (request.isSetSkipLines()) {
-            skipLines = request.getSkipLines();
+        if (properties.get(Property.SKIP_LINES) != null) {
+            skipLines = Integer.parseInt(properties.get(Property.SKIP_LINES));
         }
-        if (request.isSetEnableProfile()) {
-            enableProfile = request.isEnableProfile();
+        if (properties.get(Property.ENABLE_PROFILE) != null) {
+            enableProfile = Boolean.parseBoolean(properties.get(Property.ENABLE_PROFILE));
         }
-        if (request.isSetPartialUpdate()) {
-            isPartialUpdate = request.isPartialUpdate();
+        if (properties.get(Property.PARTIAL_COLUMNS) != null) {
+            isPartialUpdate = Boolean.parseBoolean(properties.get(Property.PARTIAL_COLUMNS));
         }
     }
 
@@ -440,20 +477,5 @@ public class StreamLoadStmt extends InsertStmt implements LoadTaskInfo {
 
     public double getMaxFilterRatio() {
         return maxFilterRatio;
-    }
-
-    @Override
-    public List<? extends DataDesc> getDataDescList() {
-        return null;
-    }
-
-    @Override
-    public ResourceDesc getResourceDesc() {
-        return null;
-    }
-
-    @Override
-    public LoadType getLoadType() {
-        return null;
     }
 }
