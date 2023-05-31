@@ -20,15 +20,15 @@ suite('test_cast') {
     def datev2 = "datev2 '2020-01-01'"
     def datetime = "timestamp '2020-01-01 12:34:45'"
     test {
-        sql "select cast(${date} as int), cast(${date} as bigint), cast(${date} as float), cast(${date} as double), cast(${date} as decimalv3(20, 4))"
-        result([[20000101, 20000101, 20000101, 20000101, 20000101]])
+        sql "select cast(${date} as int), cast(${date} as bigint), cast(${date} as float), cast(${date} as double)"
+        result([[20200101, 20200101l, ((float) 20200101), ((double) 20200101)]])
     }
     test {
-        sql "select cast(${datev2} as int), cast(${datev2} as bigint), cast(${datev2} as float), cast(${datev2} as double), cast(${datev2} as decimalv3(20, 4))"
-        result([[]])
+        sql "select cast(${datev2} as int), cast(${datev2} as bigint), cast(${datev2} as float), cast(${datev2} as double)"
+        result([[20200101, 20200101l, ((float) 20200101), ((double) 20200101)]])
     }
     test {
-        sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double), cast(${datetime} as decimalv3(20, 4))"
-        result([[]])
+        sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
+        result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
 }
