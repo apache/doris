@@ -49,11 +49,10 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.DataField;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
     private static PaimonSource source = null;
@@ -80,12 +79,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
-        fileDesc.setPaimonSplit(new String(paimonSplit.getSerializableSplit(), StandardCharsets.ISO_8859_1));
+        fileDesc.setPaimonSplit(paimonSplit.getSerializableSplit());
+        fileDesc.setLengthByte(Integer.toString(paimonSplit.getSerializableSplit().length));
         StringBuilder columnNamesBuilder = new StringBuilder();
         StringBuilder columnTypesBuilder = new StringBuilder();
         StringBuilder columnIdsBuilder = new StringBuilder();
-        Map<String, Integer> paimonFields = ((AbstractFileStoreTable) source.getPaimonTable()).schema().fields()
-                    .stream().collect(Collectors.toMap(DataField::name, DataField::id));
+        Map<String, Integer> paimonFieldsId = new HashMap<>();
+        Map<String, String> paimonFieldsName = new HashMap<>();
+        for (DataField field : ((AbstractFileStoreTable) source.getPaimonTable()).schema().fields()) {
+            paimonFieldsId.put(field.name(), field.id());
+            paimonFieldsName.put(field.name(), field.type().toString());
+        }
         boolean isFirst = true;
         for (SlotDescriptor slot : source.getDesc().getSlots()) {
             if (!isFirst) {
@@ -94,8 +98,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 columnIdsBuilder.append(",");
             }
             columnNamesBuilder.append(slot.getColumn().getName());
-            columnTypesBuilder.append(slot.getColumn().getType());
-            columnIdsBuilder.append(paimonFields.get(slot.getColumn().getName()));
+            columnTypesBuilder.append(paimonFieldsName.get(slot.getColumn().getName()));
+            columnIdsBuilder.append(paimonFieldsId.get(slot.getColumn().getName()));
             isFirst = false;
         }
         fileDesc.setPaimonColumnIds(columnIdsBuilder.toString());
@@ -118,7 +122,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.newScan().plan().splits();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             PaimonInputSplit inputSplit = new PaimonInputSplit(
-                    "tempDir",
+                        "tempDir",
                         (DataSplit) split
             );
             PaimonSplit paimonSplit = new PaimonSplit(inputSplit,

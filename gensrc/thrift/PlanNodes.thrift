@@ -289,7 +289,7 @@ struct TIcebergFileDesc {
 }
 
 struct TPaimonFileDesc {
-    1: optional string paimon_split
+    1: optional binary paimon_split
     2: optional string paimon_column_ids
     3: optional string paimon_column_types
     4: optional string paimon_column_names
@@ -297,6 +297,7 @@ struct TPaimonFileDesc {
     6: optional string warehouse
     7: optional string db_name
     8: optional string table_name
+    9: optional string length_byte
 }
 
 

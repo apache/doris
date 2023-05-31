@@ -17,6 +17,7 @@
 
 package org.apache.doris.jni;
 
+import org.apache.doris.jni.utils.OffHeap;
 import org.apache.doris.jni.vec.ColumnType;
 import org.apache.doris.jni.vec.PaimonColumnValue;
 import org.apache.doris.jni.vec.ScanPredicate;
@@ -45,7 +46,7 @@ import org.apache.paimon.table.source.TableRead;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Map;
 
 
@@ -56,8 +57,9 @@ public class PaimonJniScanner extends JniScanner {
     private final String warehouse;
     private final String dbName;
     private final String tblName;
-    private final String split;
     private final String[] ids;
+    private final long splitAddress;
+    private final int lengthByte;
     private PaimonInputSplit paimonInputSplit;
     private Table table;
     private RecordReader<InternalRow> reader;
@@ -66,7 +68,10 @@ public class PaimonJniScanner extends JniScanner {
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         metastoreUris = params.get("hive.metastore.uris");
         warehouse = params.get("warehouse");
-        split = params.get("paimon_split");
+        splitAddress = Long.parseLong(params.get("split_byte"));
+        lengthByte = Integer.parseInt(params.get("length_byte"));
+        LOG.info("splitAddress:" + splitAddress);
+        LOG.info("lengthByte:" + lengthByte);
         dbName = params.get("db_name");
         tblName = params.get("table_name");
         String[] requiredFields = params.get("required_fields").split(",");
@@ -91,9 +96,12 @@ public class PaimonJniScanner extends JniScanner {
     public void open() throws IOException {
         getCatalog();
         // 拿 []byte 反序列化成 split
-        byte[] splitBytes = split.getBytes(StandardCharsets.ISO_8859_1);
-        ByteArrayInputStream bais = new ByteArrayInputStream(splitBytes);
+        byte[] splitByte = new byte[lengthByte];
+        OffHeap.copyMemory(null, splitAddress, splitByte, OffHeap.BYTE_ARRAY_OFFSET, lengthByte);
+        LOG.info("splitBytes:" + Arrays.toString(splitByte));
+        ByteArrayInputStream bais = new ByteArrayInputStream(splitByte);
         DataInputStream input = new DataInputStream(bais);
+        LOG.info("input:" + input);
         try {
             paimonInputSplit.readFields(input);
         } catch (IOException e) {
