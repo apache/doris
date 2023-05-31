@@ -81,8 +81,9 @@ The features for inverted index is as follows:
       - in "coarse_grained" mode, the system follows the maximization principle, performing accurate and comprehensive tokenization.
       - default mode is "fine_grained".
     - "support_phrase" is utilized to specify if the index requires support for phrase mode. 
-      - "yes" indicates that support is needed.
-      - "no" indicates that support is not needed.
+      - "true" indicates that support is needed.
+      - "false" indicates that support is not needed.
+      - default mode is "false".
   - COMMENT is optional
 
 ```sql
@@ -92,7 +93,7 @@ CREATE TABLE table_name
   INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
-  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "yes|no")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```

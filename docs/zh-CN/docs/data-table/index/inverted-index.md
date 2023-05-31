@@ -80,9 +80,9 @@ Doris倒排索引的功能简要介绍如下：
       - coarse_grained模式，系统则依据最大化原则，执行精确且全面的分词操作
       - 默认find_grained模式
     - support_phrase用于指定索引是否需要支持短语模式
-      - yes为需要
-      - no为不需要
-      - 默认no不需要
+      - true为需要
+      - false为不需要
+      - 默认false不需要
   - COMMENT 是可选的，用于指定注释
 
 ```sql
@@ -92,7 +92,7 @@ CREATE TABLE table_name
   INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
-  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "yes|no")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
