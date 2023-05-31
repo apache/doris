@@ -94,7 +94,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
 
                     // generate slots not mentioned in sql, mv slots and shaded slots.
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                        if (column.isMaterializedViewSlot()) {
+                        if (column.isMaterializedViewColumn()) {
                             List<SlotRef> refs = column.getRefColumns();
                             // now we have to replace the column to slots.
                             Preconditions.checkArgument(refs != null,
@@ -181,7 +181,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
         return colsName == null
                 ? table.getFullSchema().stream().filter(column -> column.isVisible()
-                        && !column.isMaterializedViewSlot())
+                        && !column.isMaterializedViewColumn())
                 .collect(Collectors.toList())
                 : colsName.stream().map(cn -> {
                     Column column = table.getColumn(cn);
