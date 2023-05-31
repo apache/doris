@@ -401,7 +401,7 @@ public class Coordinator {
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
-        this.queryOptions.setEnableRunSerial(context.getSessionVariable().isEnableRunSerial());
+        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
     }
 
     public long getJobId() {

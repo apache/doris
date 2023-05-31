@@ -373,8 +373,9 @@ public:
 
     bool enable_profile() const { return _query_options.is_report_success; }
 
-    bool enable_run_serial() const {
-        return _query_options.__isset.enable_run_serial && _query_options.enable_run_serial;
+    bool enable_scan_node_run_serial() const {
+        return _query_options.__isset.enable_scan_node_run_serial &&
+               _query_options.enable_scan_node_run_serial;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
