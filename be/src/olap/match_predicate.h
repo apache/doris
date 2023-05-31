@@ -64,6 +64,7 @@ private:
         std::string info = "MatchPredicate";
         return info;
     }
+    bool _skip_evaluate(InvertedIndexIterator* iterator) const;
 
 private:
     std::string _value;

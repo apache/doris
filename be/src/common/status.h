@@ -265,6 +265,7 @@ E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
+E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 #undef E
 } // namespace ErrorCode
 
@@ -294,6 +295,7 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
         && code != ErrorCode::TRANSACTION_NOT_EXIST

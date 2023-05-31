@@ -74,6 +74,11 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
             doris::segment_v2::InvertedIndexReader::get_analyse_result(
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
     for (int i = 0; i < input_rows_count; i++) {
         const auto& str_ref = datas->get_data_at(i);
         std::vector<std::wstring> data_tokens =
@@ -109,7 +114,11 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
             doris::segment_v2::InvertedIndexReader::get_analyse_result(
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
-
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
     for (int i = 0; i < input_rows_count; i++) {
         const auto& str_ref = datas->get_data_at(i);
         std::vector<std::wstring> data_tokens =
@@ -152,7 +161,11 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                     inverted_index_ctx);
-
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
     for (int i = 0; i < input_rows_count; i++) {
         const auto& str_ref = datas->get_data_at(i);
         std::vector<std::wstring> data_tokens =
