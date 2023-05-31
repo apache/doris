@@ -134,7 +134,7 @@ public interface TableIf {
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
-        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE;
+        ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE, HUDI_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -169,6 +169,8 @@ public interface TableIf {
                     return "es";
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case HUDI_EXTERNAL_TABLE:
+                    return "hudi";
                 default:
                     return null;
             }
@@ -213,6 +215,10 @@ public interface TableIf {
 
     default Partition getPartition(String name) {
         return null;
+    }
+
+    default boolean isManagedTable() {
+        return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }
 }
 

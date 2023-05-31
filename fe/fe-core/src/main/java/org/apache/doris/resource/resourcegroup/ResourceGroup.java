@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
@@ -39,7 +40,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ResourceGroup implements Writable {
+public class ResourceGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ResourceGroup.class);
 
     public static final String CPU_SHARE = "cpu_share";
@@ -48,11 +49,18 @@ public class ResourceGroup implements Writable {
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
+    public static final String MAX_CONCURRENCY = "max_concurrency";
+
+    public static final String MAX_QUEUE_SIZE = "max_queue_size";
+
+    public static final String QUEUE_TIMEOUT = "queue_timeout";
+
     private static final ImmutableSet<String> REQUIRED_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
             CPU_SHARE).add(MEMORY_LIMIT).build();
 
-    private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>().add(
-            CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).build();
+    private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
+            .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
+            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -68,6 +76,11 @@ public class ResourceGroup implements Writable {
     private long version;
 
     private double memoryLimitPercent;
+
+    private QueryQueue queryQueue;
+    private int maxConcurrency = Integer.MAX_VALUE;
+    private int maxQueueSize = 0;
+    private int queueTimeout = 0;
 
     private ResourceGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
@@ -85,11 +98,54 @@ public class ResourceGroup implements Writable {
         }
     }
 
-    public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
-        checkProperties(properties);
-        return new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
+    // called when first create a resource group, load from image or user new create a group
+    public void initQueryQueue() {
+        resetQueueProperty(properties);
+        // if query queue property is not set, when use default value
+        this.queryQueue = new QueryQueue(maxConcurrency, maxQueueSize, queueTimeout);
     }
 
+    void resetQueryQueue(QueryQueue queryQueue) {
+        resetQueueProperty(properties);
+        this.queryQueue = queryQueue;
+        this.queryQueue.resetQueueProperty(this.maxConcurrency, this.maxQueueSize, this.queueTimeout);
+
+    }
+
+    private void resetQueueProperty(Map<String, String> properties) {
+        if (properties.containsKey(MAX_CONCURRENCY)) {
+            this.maxConcurrency = Integer.parseInt(properties.get(MAX_CONCURRENCY));
+        } else {
+            this.maxConcurrency = Integer.MAX_VALUE;
+            properties.put(MAX_CONCURRENCY, String.valueOf(this.maxConcurrency));
+        }
+        if (properties.containsKey(MAX_QUEUE_SIZE)) {
+            this.maxQueueSize = Integer.parseInt(properties.get(MAX_QUEUE_SIZE));
+        } else {
+            this.maxQueueSize = 0;
+            properties.put(MAX_QUEUE_SIZE, String.valueOf(maxQueueSize));
+        }
+        if (properties.containsKey(QUEUE_TIMEOUT)) {
+            this.queueTimeout = Integer.parseInt(properties.get(QUEUE_TIMEOUT));
+        } else {
+            this.queueTimeout = 0;
+            properties.put(QUEUE_TIMEOUT, String.valueOf(queueTimeout));
+        }
+    }
+
+    public QueryQueue getQueryQueue() {
+        return this.queryQueue;
+    }
+
+    // new resource group
+    public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
+        checkProperties(properties);
+        ResourceGroup newResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
+        newResourceGroup.initQueryQueue();
+        return newResourceGroup;
+    }
+
+    // alter resource group
     public static ResourceGroup copyAndUpdate(ResourceGroup resourceGroup, Map<String, String> updateProperties)
             throws DdlException {
         Map<String, String> newProperties = new HashMap<>(resourceGroup.getProperties());
@@ -100,8 +156,13 @@ public class ResourceGroup implements Writable {
         }
 
         checkProperties(newProperties);
-        return new ResourceGroup(
-           resourceGroup.getId(), resourceGroup.getName(), newProperties, resourceGroup.getVersion() + 1);
+        ResourceGroup newResourceGroup = new ResourceGroup(
+                resourceGroup.getId(), resourceGroup.getName(), newProperties, resourceGroup.getVersion() + 1);
+
+        // note(wb) query queue should be unique and can not be copy
+        newResourceGroup.resetQueryQueue(resourceGroup.getQueryQueue());
+
+        return newResourceGroup;
     }
 
     private static void checkProperties(Map<String, String> properties) throws DdlException {
@@ -139,6 +200,35 @@ public class ResourceGroup implements Writable {
             String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
                 throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+            }
+        }
+
+        // check queue property
+        if (properties.containsKey(MAX_CONCURRENCY)) {
+            try {
+                if (Integer.parseInt(properties.get(MAX_CONCURRENCY)) < 0) {
+                    throw new DdlException(MAX_CONCURRENCY + " requires a positive integer");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(MAX_CONCURRENCY + " requires a positive integer");
+            }
+        }
+        if (properties.containsKey(MAX_QUEUE_SIZE)) {
+            try {
+                if (Integer.parseInt(properties.get(MAX_QUEUE_SIZE)) < 0) {
+                    throw new DdlException(MAX_QUEUE_SIZE + " requires a positive integer");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(MAX_QUEUE_SIZE + " requires a positive integer");
+            }
+        }
+        if (properties.containsKey(QUEUE_TIMEOUT)) {
+            try {
+                if (Integer.parseInt(properties.get(QUEUE_TIMEOUT)) < 0) {
+                    throw new DdlException(QUEUE_TIMEOUT + " requires a positive integer");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(QUEUE_TIMEOUT + " requires a positive integer");
             }
         }
     }
@@ -187,5 +277,10 @@ public class ResourceGroup implements Writable {
     public static ResourceGroup read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ResourceGroup.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        this.initQueryQueue();
     }
 }

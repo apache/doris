@@ -79,11 +79,6 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
     return create_column_const(size, get_default());
 }
 
-DataTypePtr IDataType::promote_numeric_type() const {
-    LOG(FATAL) << fmt::format("Data type {} can't be promoted.", get_name());
-    return nullptr;
-}
-
 size_t IDataType::get_size_of_value_in_memory() const {
     LOG(FATAL) << fmt::format("Value of type {} in memory is not of fixed size.", get_name());
     return 0;

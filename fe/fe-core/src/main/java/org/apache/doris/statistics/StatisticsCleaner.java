@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -101,13 +102,18 @@ public class StatisticsCleaner extends MasterDaemon {
     }
 
     private void clearJobTbl() {
+        clearJobTbl(StatisticsRepository::fetchExpiredAutoJob, true);
+        clearJobTbl(StatisticsRepository::fetchExpiredOnceJobs, false);
+    }
+
+    private void clearJobTbl(BiFunction<Integer, Long, List<ResultRow>> fetchFunc, boolean taskOnly) {
         List<String> jobIds = null;
         long offset = 0;
         do {
             jobIds = new ArrayList<>();
-            offset = findExpiredJobs(jobIds, offset);
+            offset = findExpiredJobs(jobIds, offset, fetchFunc);
             doDelete("job_id", jobIds, FeConstants.INTERNAL_DB_NAME + "."
-                    + StatisticConstants.ANALYSIS_JOB_TABLE);
+                    + StatisticConstants.ANALYSIS_JOB_TABLE, taskOnly);
         } while (!jobIds.isEmpty());
     }
 
@@ -165,22 +171,22 @@ public class StatisticsCleaner extends MasterDaemon {
     private void deleteExpiredStats(ExpiredStats expiredStats, String tblName) {
         doDelete("catalog_id", expiredStats.expiredCatalog.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("db_id", expiredStats.expiredDatabase.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("tbl_id", expiredStats.expiredTable.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("idx_id", expiredStats.expiredIdxId.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
         doDelete("id", expiredStats.ids.stream()
                         .map(String::valueOf).collect(Collectors.toList()),
-                FeConstants.INTERNAL_DB_NAME + "." + tblName);
+                FeConstants.INTERNAL_DB_NAME + "." + tblName, false);
     }
 
-    private void doDelete(String/*col name*/ colName, List<String> pred, String tblName) {
+    private void doDelete(String/*col name*/ colName, List<String> pred, String tblName, boolean taskOnly) {
         String deleteTemplate = "DELETE FROM " + tblName + " WHERE ${left} IN (${right})";
         if (CollectionUtils.isEmpty(pred)) {
             return;
@@ -190,6 +196,9 @@ public class StatisticsCleaner extends MasterDaemon {
         params.put("left", colName);
         params.put("right", right);
         String sql = new StringSubstitutor(params).replace(deleteTemplate);
+        if (taskOnly) {
+            sql += " AND task_id != -1";
+        }
         try {
             StatisticsUtil.execUpdate(sql);
         } catch (Exception e) {
@@ -255,10 +264,11 @@ public class StatisticsCleaner extends MasterDaemon {
         return pos;
     }
 
-    private long findExpiredJobs(List<String> jobIds, long offset) {
+    private long findExpiredJobs(List<String> jobIds, long offset, BiFunction<Integer, Long, List<ResultRow>>
+            fetchFunc) {
         long pos = offset;
         while (pos < jobTbl.getRowCount() && jobIds.size() < Config.max_allowed_in_element_num_of_delete) {
-            List<ResultRow> rows = StatisticsRepository.fetchExpiredJobs(StatisticConstants.FETCH_LIMIT, pos);
+            List<ResultRow> rows = fetchFunc.apply(StatisticConstants.FETCH_LIMIT, pos);
             for (ResultRow r : rows) {
                 try {
                     jobIds.add(r.getColumnValue("job_id"));

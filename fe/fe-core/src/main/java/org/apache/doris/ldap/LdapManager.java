@@ -25,11 +25,11 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.util.List;
 import java.util.Map;
@@ -115,7 +115,7 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd, String remoteIp, List<UserIdentity> currentUser) {
         if (checkUserPasswd(fullName, passwd)) {
-            currentUser.add(UserIdentity.createAnalyzedUserIdentWithIp(fullName, remoteIp));
+            currentUser.addAll(Env.getCurrentEnv().getAuth().getUserIdentityForLdap(fullName, remoteIp));
             return true;
         }
         return false;

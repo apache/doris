@@ -330,6 +330,7 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "10");
+DEFINE_mInt32(max_single_replica_compaction_threads, "10");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -370,6 +371,9 @@ DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
 
+// sleep interval in second after update replica infos
+DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
+
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 DEFINE_mInt32(compaction_task_num_per_disk, "2");
@@ -387,6 +391,9 @@ DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
+
+// Interval to picking rowset to compact, in seconds
+DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
@@ -997,6 +1004,11 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mInt32(schema_cache_capacity, "1024");
+DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
+
+// enable feature binlog, default false
+DEFINE_Bool(enable_feature_binlog, "false");
 
 #ifdef BE_TEST
 // test s3

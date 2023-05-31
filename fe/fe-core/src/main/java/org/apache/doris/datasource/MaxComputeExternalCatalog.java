@@ -36,9 +36,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
     private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
 
-    public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
-        this.type = "max_compute";
+    public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
     }
 

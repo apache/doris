@@ -512,8 +512,16 @@ public class ArithmeticExpr extends Expr {
                     }
                     castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
                 } else if (op == Operator.MOD) {
-                    castChild(type, 0);
-                    castChild(type, 1);
+                    // TODO use max int part + max scale of two operands as result type
+                    // because BE require the result and operands types are the exact the same decimalv3 type
+                    precision = Math.max(widthOfIntPart1, widthOfIntPart2) + scale;
+                    if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        type = castBinaryOp(Type.DOUBLE);
+                    } else {
+                        type = ScalarType.createDecimalV3Type(precision, scale);
+                        castChild(type, 0);
+                        castChild(type, 1);
+                    }
                 }
                 break;
             case INT_DIVIDE:

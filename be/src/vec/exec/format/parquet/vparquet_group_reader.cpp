@@ -97,7 +97,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
-    for (auto* ctx : _dict_filter_conjuncts) {
+    for (auto& ctx : _dict_filter_conjuncts) {
         if (ctx) {
             ctx->close(_state);
         }
@@ -110,8 +110,8 @@ Status RowGroupReader::init(
         std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts) {
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
@@ -162,7 +162,7 @@ Status RowGroupReader::init(
         } else {
             if (_slot_id_to_filter_conjuncts->find(slot_id) !=
                 _slot_id_to_filter_conjuncts->end()) {
-                for (VExprContext* ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
                     _filter_conjuncts.push_back(ctx);
                 }
             }
@@ -174,7 +174,7 @@ Status RowGroupReader::init(
         auto& [value, slot_desc] = kv.second;
         auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
         if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (VExprContext* ctx : iter->second) {
+            for (auto& ctx : iter->second) {
                 _filter_conjuncts.push_back(ctx);
             }
         }
@@ -206,8 +206,8 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
     }
 
     // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
-    for (VExprContext* ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
-        const VExpr* root_expr = ctx->root();
+    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+        const auto& root_expr = ctx->root();
         if (root_expr->node_type() == TExprNodeType::FUNCTION_CALL) {
             std::string is_null_str;
             std::string function_name = root_expr->fn().name.function_name;
@@ -296,8 +296,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
-        Status st =
-                VExprContext::filter_block(_lazy_read_ctx.vconjunct_ctx, block, block->columns());
+        Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
         *read_rows = block->rows();
         return st;
     }
@@ -326,11 +325,12 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         for (uint32_t i = 0; i < column_to_keep; ++i) {
             columns_to_filter[i] = i;
         }
-        if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
+        if (!_lazy_read_ctx.conjuncts.empty()) {
             std::vector<IColumn::Filter*> filters;
             if (_position_delete_ctx.has_filter) {
                 filters.push_back(_pos_delete_filter_ptr.get());
             }
+
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                             _filter_conjuncts, &filters, block, columns_to_filter,
@@ -441,7 +441,12 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         if (_position_delete_ctx.has_filter) {
             filters.push_back(_pos_delete_filter_ptr.get());
         }
-        RETURN_IF_ERROR(VExprContext::execute_conjuncts(_filter_conjuncts, &filters, block,
+
+        VExprContextSPtrs filter_contexts;
+        for (auto& conjunct : _filter_conjuncts) {
+            filter_contexts.emplace_back(conjunct);
+        }
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
                                                         &result_filter, &can_filter_all));
 
         if (_lazy_read_ctx.resize_first_column) {
@@ -589,7 +594,7 @@ Status RowGroupReader::_fill_partition_columns(
 
 Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
@@ -598,7 +603,7 @@ Status RowGroupReader::_fill_missing_columns(
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
-            auto* ctx = kv.second;
+            auto& ctx = kv.second;
             auto origin_column_num = block->columns();
             int result_column_id = -1;
             // PT1 => dest primitive type
@@ -761,10 +766,12 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
 
         // 2.2 Execute conjuncts and filter block.
-        const std::vector<VExprContext*>* ctxs = nullptr;
+        VExprContextSPtrs ctxs;
         auto iter = _slot_id_to_filter_conjuncts->find(slot_id);
         if (iter != _slot_id_to_filter_conjuncts->end()) {
-            ctxs = &(iter->second);
+            for (auto& ctx : iter->second) {
+                ctxs.push_back(ctx);
+            }
         } else {
             std::stringstream msg;
             msg << "_slot_id_to_filter_conjuncts: slot_id [" << slot_id << "] not found";
@@ -779,7 +786,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                *ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep)));
+                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep)));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
@@ -795,10 +802,10 @@ Status RowGroupReader::_rewrite_dict_predicates() {
 
         // About Performance: if dict_column size is too large, it will generate a large IN filter.
         if (dict_column->size() > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
-            for (auto& ctx : (*ctxs)) {
+            it = _dict_filter_cols.erase(it);
+            for (auto& ctx : ctxs) {
                 _filter_conjuncts.push_back(ctx);
             }
-            it = _dict_filter_cols.erase(it);
             continue;
         }
 
@@ -825,7 +832,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
 
 Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id,
                                                bool is_nullable) {
-    VExpr* root;
+    VExprSPtr root;
     if (dict_codes.size() == 1) {
         {
             TFunction fn;
@@ -850,7 +857,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable);
-            root = _obj_pool->add(VectorizedFnCall::create_unique(texpr_node).release());
+            root = VectorizedFnCall::create_shared(texpr_node);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -861,8 +868,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
-            root->add_child(slot_ref_expr);
+            root->add_child(VSlotRef::create_shared(slot));
         }
         {
             TExprNode texpr_node;
@@ -872,8 +878,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             int_literal.__set_value(dict_codes[0]);
             texpr_node.__set_int_literal(int_literal);
             texpr_node.__set_is_nullable(is_nullable);
-            VExpr* literal_expr = _obj_pool->add(VLiteral::create_unique(texpr_node).release());
-            root->add_child(literal_expr);
+            root->add_child(VLiteral::create_shared(texpr_node));
         }
     } else {
         {
@@ -888,13 +893,13 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 
-            root = _obj_pool->add(vectorized::VDirectInPredicate::create_unique(node).release());
+            root = vectorized::VDirectInPredicate::create_shared(node);
             std::shared_ptr<HybridSetBase> hybrid_set(
                     create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            static_cast<vectorized::VDirectInPredicate*>(root)->set_filter(hybrid_set);
+            static_cast<vectorized::VDirectInPredicate*>(root.get())->set_filter(hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -905,12 +910,10 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
                     break;
                 }
             }
-            VExpr* slot_ref_expr = _obj_pool->add(VSlotRef::create_unique(slot).release());
-            root->add_child(slot_ref_expr);
+            root->add_child(VSlotRef::create_shared(slot));
         }
     }
-    VExprContext* rewritten_conjunct_ctx =
-            _obj_pool->add(VExprContext::create_unique(root).release());
+    VExprContextSPtr rewritten_conjunct_ctx = VExprContext::create_shared(root);
     RETURN_IF_ERROR(rewritten_conjunct_ctx->prepare(_state, *_row_descriptor));
     RETURN_IF_ERROR(rewritten_conjunct_ctx->open(_state));
     _dict_filter_conjuncts.push_back(rewritten_conjunct_ctx);
