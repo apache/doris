@@ -1025,6 +1025,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
 
+// enable set in BitmapValue
+DECLARE_Bool(enable_set_in_bitmap_value);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
