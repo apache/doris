@@ -28,13 +28,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * For resource group drop
+ * For workload group drop
  */
-public class DropResourceGroupOperationLog implements Writable {
+public class DropWorkloadGroupOperationLog implements Writable {
     @SerializedName(value = "id")
     private long id;
 
-    public DropResourceGroupOperationLog(long id) {
+    public DropWorkloadGroupOperationLog(long id) {
         this.id = id;
     }
 
@@ -47,7 +47,7 @@ public class DropResourceGroupOperationLog implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static DropResourceGroupOperationLog read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DropResourceGroupOperationLog.class);
+    public static DropWorkloadGroupOperationLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropWorkloadGroupOperationLog.class);
     }
 }

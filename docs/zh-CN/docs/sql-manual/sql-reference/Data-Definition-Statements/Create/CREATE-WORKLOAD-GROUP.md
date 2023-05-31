@@ -1,6 +1,6 @@
 ---
 {
-    "title": "资源组",
+    "title": "CREATE-WORKLOAD-GROUP",
     "language": "zh-CN"
 }
 ---
@@ -24,13 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 资源组
+## CREATE-WORKLOAD-GROUP
+
+### Name
+
+CREATE WORKLOAD GROUP
 
 <version since="dev"></version>
 
-资源组可限制组内任务在单个be节点上的计算资源和内存资源的使用，从而达到资源隔离的目的。
+### Description
 
-## 资源组属性
+该语句用于创建资源组。资源组可实现单个be上cpu资源和内存资源的隔离。
+
+语法：
+
+```sql
+CREATE WORKLOAD GROUP [IF NOT EXISTS] "rg_name"
+PROPERTIES (
+    property_list
+);
+```
+
+说明：
+
+property_list 支持的属性：
 
 * cpu_share：必选，用于设置资源组获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的资源组可获取cpu资源的权重。例如，用户创建了3个资源组 rg-a、rg-b和rg-c，cpu_share 分别为 10、30、40，某一时刻rg-a和rg-b正在跑任务，而rg-c没有任务，此时rg-a可获得 25% (10 / (10 + 30))的cpu资源，而资源组rg-b可获得75%的cpu资源。如果系统只有一个资源组正在运行，则不管其cpu_share的值为多少，它都可以获取全部的cpu资源。
 
@@ -38,33 +55,22 @@ under the License.
 
 * enable_memory_overcommit: 可选，用于开启资源组内存软隔离，默认为false。如果设置为false，则该资源组为内存硬隔离，系统检测到资源组内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该资源组为内存软隔离，如果系统有空闲内存资源则该资源组在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有资源组开启该配置时，所有资源组的 memory_limit 总合低于100%，剩余部分用于资源组内存超发。
 
-## 资源组使用
+### Example
 
-1. 开启 experimental_enable_resource_group 配置项，在fe.conf中设置：
-```
-experimental_enable_resource_group=true
-```
-在开启该配置后系统会自动创建名为`normal`的默认资源组。
+1. 创建名为g1的资源组：
 
-2. 创建资源组：
-```
-create resource group if not exists g1
-properties (
-    "cpu_share"="10",
-    "memory_limit"="30%",
-    "enable_memory_overcommit"="true"
-);
-```
-创建资源组详细可参考：[CREATE-RESOURCE-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE-GROUP.md)，另删除资源组可参考[DROP-RESOURCE-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE-GROUP.md)；修改资源组可参考：[ALTER-RESOURCE-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE-GROUP.md)；查看资源组可参考：[RESOURCE_GROUPS()](../sql-manual/sql-functions/table-functions/resource-group.md)和[SHOW-RESOURCE-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-RESOURCE-GROUPS.md)。
+   ```sql
+    create workload group if not exists g1
+    properties (
+        "cpu_share"="10",
+        "memory_limit"="30%",
+        "enable_memory_overcommit"="true"
+    );
+   ```
 
-3. 开启pipeline执行引擎，资源组cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
-```
-set experimental_enable_pipeline_engine = true;
-```
+### Keywords
 
-4. 查询绑定资源组。目前主要通过指定session变量的方式绑定查询到资源组。如果用户不指定资源组，那么查询默认会提交到`normal`资源组:
-```
-set resource_group = g1;
-```
+    CREATE, WORKLOAD, GROUP
 
-5. 执行查询，查询将关联到 g1 资源组。
+### Best Practice
+

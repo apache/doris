@@ -35,7 +35,7 @@ namespace pipeline {
 class PipelineTask;
 }
 
-class TPipelineResourceGroup;
+class TPipelineWorkloadGroup;
 class MemTrackerLimiter;
 
 namespace taskgroup {
@@ -138,11 +138,11 @@ struct TaskGroupInfo {
     bool enable_memory_overcommit;
     int64_t version;
 
-    static Status parse_group_info(const TPipelineResourceGroup& resource_group,
+    static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
                                    TaskGroupInfo* task_group_info);
 
 private:
-    static bool check_group_info(const TPipelineResourceGroup& resource_group);
+    static bool check_group_info(const TPipelineWorkloadGroup& resource_group);
 };
 
 } // namespace taskgroup

@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DROP-RESOURCE-GROUP",
-    "language": "zh-CN"
+"title": "ALTER-WORKLOAD -GROUP",
+"language": "zh-CN"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,33 +24,48 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-RESOURCE-GROUP
+## ALTER-WORKLOAD -GROUP
 
 ### Name
 
-DROP RESOURCE GROUP
-
-### Description
+ALTER WORKLOAD GROUP 
 
 <version since="dev"></version>
 
-该语句用于删除资源组。
+### Description
+
+该语句用于修改资源组。
+
+语法：
 
 ```sql
-DROP RESOURCE GROUP [IF EXISTS] 'rg_name'
+ALTER WORKLOAD GROUP  "rg_name"
+PROPERTIES (
+    property_list
+);
 ```
+
+注意：
+
+* 修改 memory_limit 属性时不可使所有 memory_limit 值的总和超过100%；
+* 支持修改部分属性，例如只修改cpu_share的话，properties里只填cpu_share即可。
 
 ### Example
 
-1. 删除名为 g1 的资源组：
-    
+1. 修改名为 g1 的资源组：
+
     ```sql
-    drop resource group if exists g1;
+    alter workload group g1
+    properties (
+        "cpu_share"="30",
+        "memory_limit"="30%"
+    );
     ```
 
 ### Keywords
 
-    DROP, RESOURCE, GROUP
+```sql
+ALTER, WORKLOAD , GROUP
+```
 
 ### Best Practice
-

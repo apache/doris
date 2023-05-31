@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.resourcegroup;
+package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -27,54 +27,54 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 
-public class ResourceGroupTest {
+public class WorkloadGroupTest {
 
     @Test
     public void testCreateNormal() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(ResourceGroup.CPU_SHARE, "10");
-        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.CPU_SHARE, "10");
+        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
-        ResourceGroup group1 = ResourceGroup.create(name1, properties1);
+        WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
         Assert.assertEquals(5, group1.getProperties().size());
-        Assert.assertTrue(group1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
+        Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
         Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
 
     @Test(expected = DdlException.class)
     public void testNotSupportProperty() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(ResourceGroup.CPU_SHARE, "10");
-        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.CPU_SHARE, "10");
+        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         properties1.put("share", "10");
         String name1 = "g1";
-        ResourceGroup.create(name1, properties1);
+        WorkloadGroup.create(name1, properties1);
     }
 
     @Test(expected = DdlException.class)
     public void testRequiredProperty() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
         String name1 = "g1";
-        ResourceGroup.create(name1, properties1);
+        WorkloadGroup.create(name1, properties1);
     }
 
     @Test
     public void testCpuShareValue() {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(ResourceGroup.CPU_SHARE, "0");
-        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.CPU_SHARE, "0");
+        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
         try {
-            ResourceGroup.create(name1, properties1);
+            WorkloadGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
         }
 
-        properties1.put(ResourceGroup.CPU_SHARE, "cpu");
+        properties1.put(WorkloadGroup.CPU_SHARE, "cpu");
         try {
-            ResourceGroup.create(name1, properties1);
+            WorkloadGroup.create(name1, properties1);
             Assert.fail();
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("requires a positive integer."));
@@ -84,10 +84,10 @@ public class ResourceGroupTest {
     @Test
     public void testGetProcNodeData() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(ResourceGroup.CPU_SHARE, "10");
-        properties1.put(ResourceGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.CPU_SHARE, "10");
+        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
         String name1 = "g1";
-        ResourceGroup group1 = ResourceGroup.create(name1, properties1);
+        WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
 
         BaseProcResult result = new BaseProcResult();
         group1.getProcNodeData(result);
