@@ -42,9 +42,9 @@ suite("test_cast_as_decimalv3") {
         INSERT INTO divtest VALUES(3,5.00)
     """
     qt_select1 """
-        select cast(1 as decimalv3(16,2)) / val from divtest order by id
+        select cast(1 as decimalv3(3,2)) / val from divtest order by id
     """
     qt_select2 """
-        select cast(1 as DECIMALV3(16, 2)) /  cast(3 as DECIMALV3(16, 2))
+        select cast(1 as DECIMALV3(5, 2)) /  cast(3 as DECIMALV3(5, 2))
     """ 
 }

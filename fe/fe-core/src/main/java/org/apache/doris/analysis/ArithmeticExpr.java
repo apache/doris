@@ -508,6 +508,9 @@ public class ArithmeticExpr extends Expr {
                 } else if (op == Operator.DIVIDE && t1TargetType.isDecimalV3()) {
                     int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
                     int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
+                    if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        leftPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+                    }
                     if (leftPrecision < leftScale) {
                         type = castBinaryOp(Type.DOUBLE);
                         break;

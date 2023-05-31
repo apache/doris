@@ -163,7 +163,7 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select 1 / 10.0;",
-                "0.1");
+                "0.1000");
     }
 
     @Test
