@@ -45,51 +45,43 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalSetOperation()).then(filter -> {
-            LogicalSetOperation setOperation = filter.child();
+        return logicalFilter(logicalSetOperation())
+                .when(f -> f.child().getQualifier() == Qualifier.ALL)
+                .then(filter -> {
+                    LogicalSetOperation setOperation = filter.child();
 
-            if (setOperation instanceof LogicalUnion && ((LogicalUnion) setOperation).hasPushedFilter()) {
-                return filter;
-            }
+                    List<Plan> newChildren = new ArrayList<>();
+                    boolean allOneRowRelation = true;
+                    boolean hasOneRowRelation = false;
+                    for (Plan child : setOperation.children()) {
+                        if (child instanceof OneRowRelation) {
+                            // We shouldn't push down the 'filter' to 'oneRowRelation'.
+                            hasOneRowRelation = true;
+                            newChildren.add(child);
+                            continue;
+                        } else {
+                            allOneRowRelation = false;
+                        }
+                        Map<Expression, Expression> replaceMap = new HashMap<>();
+                        for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
+                            NamedExpression output = setOperation.getOutputs().get(i);
+                            replaceMap.put(output, child.getOutput().get(i));
+                        }
 
-            List<Plan> newChildren = new ArrayList<>();
-            boolean allOneRowRelation = true;
-            boolean hasOneRowRelation = false;
-            for (Plan child : setOperation.children()) {
-                if (child instanceof OneRowRelation) {
-                    // We shouldn't push down the 'filter' to 'oneRowRelation'.
-                    hasOneRowRelation = true;
-                    newChildren.add(child);
-                    continue;
-                } else {
-                    allOneRowRelation = false;
-                }
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
-                    NamedExpression output = setOperation.getOutputs().get(i);
-                    replaceMap.put(output, child.getOutput().get(i));
-                }
+                        Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
+                                ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
+                        newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
+                    }
 
-                Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
-                        ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
-                newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
-            }
+                    if (allOneRowRelation) {
+                        return filter;
+                    }
 
-            if (allOneRowRelation) {
-                return filter;
-            }
-
-            if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalFilter<>(filter.getConjuncts(),
-                        ((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
-            }
-
-            if (hasOneRowRelation) {
-                // If there are some `OneRowRelation` exists, we need to keep the `filter`.
-                return filter.withChildren(
-                        ((LogicalUnion) setOperation).withHasPushedFilter().withNewChildren(newChildren));
-            }
-            return setOperation.withNewChildren(newChildren);
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
+                    if (hasOneRowRelation) {
+                        // If there are some `OneRowRelation` exists, we need to keep the `filter`.
+                        return filter.withChildren(((LogicalUnion) setOperation).withNewChildren(newChildren));
+                    }
+                    return setOperation.withNewChildren(newChildren);
+                }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
     }
 }

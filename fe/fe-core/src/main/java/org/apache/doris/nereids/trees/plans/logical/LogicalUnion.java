@@ -26,39 +26,28 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Logical Union.
  */
 public class LogicalUnion extends LogicalSetOperation implements OutputPrunable {
-    // When there is an agg on the union and there is a filter on the agg,
-    // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
-    private final boolean hasPushedFilter;
-
     public LogicalUnion(Qualifier qualifier, List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, inputs);
-        this.hasPushedFilter = false;
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, boolean hasPushedFilter,
-            List<Plan> inputs) {
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, inputs);
-        this.hasPushedFilter = hasPushedFilter;
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, boolean hasPushedFilter,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> inputs) {
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, groupExpression, logicalProperties, inputs);
-        this.hasPushedFilter = hasPushedFilter;
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalUnion", "qualifier", qualifier, "outputs", outputs, "hasPushedFilter",
-                hasPushedFilter);
+        return Utils.toSqlString("LogicalUnion", "qualifier", qualifier, "outputs", outputs);
     }
 
     @Override
@@ -70,12 +59,7 @@ public class LogicalUnion extends LogicalSetOperation implements OutputPrunable 
             return false;
         }
         LogicalUnion that = (LogicalUnion) o;
-        return super.equals(that) && hasPushedFilter == that.hasPushedFilter;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), hasPushedFilter);
+        return super.equals(that);
     }
 
     @Override
@@ -85,35 +69,27 @@ public class LogicalUnion extends LogicalSetOperation implements OutputPrunable 
 
     @Override
     public LogicalUnion withChildren(List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, children);
+        return new LogicalUnion(qualifier, outputs, children);
     }
 
     @Override
     public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, groupExpression,
+        return new LogicalUnion(qualifier, outputs, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public LogicalUnion withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, Optional.empty(), logicalProperties, children);
+        return new LogicalUnion(qualifier, outputs, Optional.empty(), logicalProperties, children);
     }
 
     @Override
     public LogicalUnion withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalUnion(qualifier, newOutputs, hasPushedFilter, Optional.empty(), Optional.empty(), children);
+        return new LogicalUnion(qualifier, newOutputs, Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalUnion withAllQualifier() {
-        return new LogicalUnion(Qualifier.ALL, outputs, hasPushedFilter, Optional.empty(), Optional.empty(), children);
-    }
-
-    public boolean hasPushedFilter() {
-        return hasPushedFilter;
-    }
-
-    public LogicalUnion withHasPushedFilter() {
-        return new LogicalUnion(qualifier, outputs, true, Optional.empty(), Optional.empty(), children);
+        return new LogicalUnion(Qualifier.ALL, outputs, Optional.empty(), Optional.empty(), children);
     }
 
     @Override
