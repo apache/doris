@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.resourcegroup;
+package org.apache.doris.resource.workloadgroup;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;

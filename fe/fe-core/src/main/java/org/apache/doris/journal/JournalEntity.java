@@ -81,9 +81,9 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
+import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
@@ -113,7 +113,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
-import org.apache.doris.resource.resourcegroup.ResourceGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -774,14 +774,14 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_RESOURCE_GROUP:
-            case OperationType.OP_ALTER_RESOURCE_GROUP: {
-                data = ResourceGroup.read(in);
+            case OperationType.OP_CREATE_WORKLOAD_GROUP:
+            case OperationType.OP_ALTER_WORKLOAD_GROUP: {
+                data = WorkloadGroup.read(in);
                 isRead = true;
                 break;
             }
-            case OperationType.OP_DROP_RESOURCE_GROUP: {
-                data = DropResourceGroupOperationLog.read(in);
+            case OperationType.OP_DROP_WORKLOAD_GROUP: {
+                data = DropWorkloadGroupOperationLog.read(in);
                 isRead = true;
                 break;
             }

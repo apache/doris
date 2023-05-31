@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.resourcegroup;
+package org.apache.doris.resource.workloadgroup;
 
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query

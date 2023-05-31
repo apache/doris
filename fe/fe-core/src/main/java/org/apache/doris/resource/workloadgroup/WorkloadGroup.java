@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.resourcegroup;
+package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
@@ -24,7 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TPipelineResourceGroup;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -40,8 +40,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ResourceGroup implements Writable, GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(ResourceGroup.class);
+public class WorkloadGroup implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
 
     public static final String CPU_SHARE = "cpu_share";
 
@@ -82,11 +82,11 @@ public class ResourceGroup implements Writable, GsonPostProcessable {
     private int maxQueueSize = 0;
     private int queueTimeout = 0;
 
-    private ResourceGroup(long id, String name, Map<String, String> properties) {
+    private WorkloadGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
     }
 
-    private ResourceGroup(long id, String name, Map<String, String> properties, long version) {
+    private WorkloadGroup(long id, String name, Map<String, String> properties, long version) {
         this.id = id;
         this.name = name;
         this.properties = properties;
@@ -138,17 +138,17 @@ public class ResourceGroup implements Writable, GsonPostProcessable {
     }
 
     // new resource group
-    public static ResourceGroup create(String name, Map<String, String> properties) throws DdlException {
+    public static WorkloadGroup create(String name, Map<String, String> properties) throws DdlException {
         checkProperties(properties);
-        ResourceGroup newResourceGroup = new ResourceGroup(Env.getCurrentEnv().getNextId(), name, properties);
-        newResourceGroup.initQueryQueue();
-        return newResourceGroup;
+        WorkloadGroup newWorkloadGroup = new WorkloadGroup(Env.getCurrentEnv().getNextId(), name, properties);
+        newWorkloadGroup.initQueryQueue();
+        return newWorkloadGroup;
     }
 
     // alter resource group
-    public static ResourceGroup copyAndUpdate(ResourceGroup resourceGroup, Map<String, String> updateProperties)
+    public static WorkloadGroup copyAndUpdate(WorkloadGroup workloadGroup, Map<String, String> updateProperties)
             throws DdlException {
-        Map<String, String> newProperties = new HashMap<>(resourceGroup.getProperties());
+        Map<String, String> newProperties = new HashMap<>(workloadGroup.getProperties());
         for (Map.Entry<String, String> kv : updateProperties.entrySet()) {
             if (!Strings.isNullOrEmpty(kv.getValue())) {
                 newProperties.put(kv.getKey(), kv.getValue());
@@ -156,13 +156,13 @@ public class ResourceGroup implements Writable, GsonPostProcessable {
         }
 
         checkProperties(newProperties);
-        ResourceGroup newResourceGroup = new ResourceGroup(
-                resourceGroup.getId(), resourceGroup.getName(), newProperties, resourceGroup.getVersion() + 1);
+        WorkloadGroup newWorkloadGroup = new WorkloadGroup(
+                workloadGroup.getId(), workloadGroup.getName(), newProperties, workloadGroup.getVersion() + 1);
 
         // note(wb) query queue should be unique and can not be copy
-        newResourceGroup.resetQueryQueue(resourceGroup.getQueryQueue());
+        newWorkloadGroup.resetQueryQueue(workloadGroup.getQueryQueue());
 
-        return newResourceGroup;
+        return newWorkloadGroup;
     }
 
     private static void checkProperties(Map<String, String> properties) throws DdlException {
@@ -264,8 +264,8 @@ public class ResourceGroup implements Writable, GsonPostProcessable {
         return GsonUtils.GSON.toJson(this);
     }
 
-    public TPipelineResourceGroup toThrift() {
-        return new TPipelineResourceGroup().setId(id).setName(name).setProperties(properties).setVersion(version);
+    public TPipelineWorkloadGroup toThrift() {
+        return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(properties).setVersion(version);
     }
 
     @Override
@@ -274,9 +274,9 @@ public class ResourceGroup implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
-    public static ResourceGroup read(DataInput in) throws IOException {
+    public static WorkloadGroup read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ResourceGroup.class);
+        return GsonUtils.GSON.fromJson(json, WorkloadGroup.class);
     }
 
     @Override

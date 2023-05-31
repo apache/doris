@@ -28,17 +28,17 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterResourceGroupStmt extends DdlStmt {
-    private final String resourceGroupName;
+public class AlterWorkloadGroupStmt extends DdlStmt {
+    private final String workloadGroupName;
     private final Map<String, String> properties;
 
-    public AlterResourceGroupStmt(String resourceGroupName, Map<String, String> properties) {
-        this.resourceGroupName = resourceGroupName;
+    public AlterWorkloadGroupStmt(String workloadGroupName, Map<String, String> properties) {
+        this.workloadGroupName = workloadGroupName;
         this.properties = properties;
     }
 
-    public String getResourceGroupName() {
-        return resourceGroupName;
+    public String getWorkloadGroupName() {
+        return workloadGroupName;
     }
 
     public Map<String, String> getProperties() {
@@ -62,7 +62,7 @@ public class AlterResourceGroupStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER RESOURCE GROUP '").append(resourceGroupName).append("' ");
+        sb.append("ALTER RESOURCE GROUP '").append(workloadGroupName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }

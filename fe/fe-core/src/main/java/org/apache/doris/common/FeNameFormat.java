@@ -129,8 +129,8 @@ public class FeNameFormat {
         checkCommonName("resource", resourceName);
     }
 
-    public static void checkResourceGroupName(String resourceGroupName) throws AnalysisException {
-        checkCommonName("resource group", resourceGroupName);
+    public static void checkWorkloadGroupName(String workloadGroupName) throws AnalysisException {
+        checkCommonName("workload group", workloadGroupName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

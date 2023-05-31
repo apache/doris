@@ -78,10 +78,10 @@ public class MysqlProto {
 
         context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
-        // check resource group level. user name may contains resource group level.
+        // check workload group level. user name may contains workload group level.
         // eg:
         // ...@user_name#HIGH
-        // set resource group if it is valid, or just ignore it
+        // set workload group if it is valid, or just ignore it
         String[] strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];

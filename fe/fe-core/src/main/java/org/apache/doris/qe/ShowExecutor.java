@@ -76,7 +76,6 @@ import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
-import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -102,6 +101,7 @@ import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
+import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
@@ -332,8 +332,8 @@ public class ShowExecutor {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
-        } else if (stmt instanceof ShowResourceGroupsStmt) {
-            handleShowResourceGroups();
+        } else if (stmt instanceof ShowWorkloadGroupsStmt) {
+            handleShowWorkloadGroups();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -1807,11 +1807,11 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowResourceGroups() {
-        ShowResourceGroupsStmt showStmt = (ShowResourceGroupsStmt) stmt;
-        List<List<String>> resourceGroupsInfos = Env.getCurrentEnv().getResourceGroupMgr().getResourcesInfo();
+    private void handleShowWorkloadGroups() {
+        ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
+        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
 
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resourceGroupsInfos);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
     private void handleShowExport() throws AnalysisException {

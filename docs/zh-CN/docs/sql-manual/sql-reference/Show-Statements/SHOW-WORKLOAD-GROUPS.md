@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW-RESOURCE-GROUPS",
-    "language": "en"
+    "title": "SHOW-WORKLOAD-GROUPS",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,34 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW-RESOURCE-GROUPS
+## SHOW-WORKLOAD-GROUPS
 
 ### Name
 
-SHOW RESOURCE GROUPS
+SHOW WORKLOAD GROUPS
 
 <version since="dev"></version>
 
 ### Description
 
-This statement is used to display all resource groups.
+该语句用于展示所有资源组。
 
-grammar:
+语法：
 
 ```sql
-SHOW RESOURCE GROUPS;
+SHOW WORKLOAD GROUPS;
 ```
 
-Description:
+说明：
 
-This statement only does a simple display of resource groups, for a more complex display refer to tvf resource_groups().
+该语句仅做资源组简单展示，更复杂的展示可参考 tvf workload_groups().
 
 ### Example
 
-1. Show all resource groups:
+1. 展示所有资源组：
     
     ```sql
-    mysql> show resource groups;
+    mysql> show workload groups;
     +----------+--------+--------------------------+---------+
     | Id       | Name   | Item                     | Value   |
     +----------+--------+--------------------------+---------+
@@ -65,6 +65,6 @@ This statement only does a simple display of resource groups, for a more complex
 
 ### Keywords
 
-    SHOW, RESOURCE, GROUPS, GROUP
+    SHOW, WORKLOAD, GROUPS, GROUP
 
 ### Best Practice

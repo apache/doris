@@ -685,9 +685,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            if (params.__isset.resource_groups && !params.resource_groups.empty()) {
+            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
                                                                          &task_group_info);
                 if (status.ok()) {
                     auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
