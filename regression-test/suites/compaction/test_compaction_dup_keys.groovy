@@ -141,7 +141,7 @@ suite("test_compaction_dup_keys") {
             String tablet_id = tablet[0]
             def compactionStatusUrlIndex = 18
 
-            (code, out, err) = curl("POST", tablet[compactionStatusUrlIndex])
+            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             
