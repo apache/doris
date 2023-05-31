@@ -67,6 +67,9 @@ public class MTMVJob implements Writable, Comparable {
     @SerializedName("mvName")
     private String mvName;
 
+    @SerializedName("mvId")
+    private long mvId;
+
     @SerializedName("query")
     private String query;
 
@@ -164,6 +167,14 @@ public class MTMVJob implements Writable, Comparable {
 
     public void setMVName(String mvName) {
         this.mvName = mvName;
+    }
+
+    public long getMvId() {
+        return mvId;
+    }
+
+    public void setMvId(long mvId) {
+        this.mvId = mvId;
     }
 
     public String getQuery() {

@@ -80,6 +80,7 @@ public class MTMVJobFactory {
         job.setSchedule(genJobSchedule(materializedView));
         job.setDBName(dbName);
         job.setMVName(materializedView.getName());
+        job.setMvId(materializedView.getId());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;
@@ -91,6 +92,7 @@ public class MTMVJobFactory {
         job.setTriggerMode(TriggerMode.ONCE);
         job.setDBName(dbName);
         job.setMVName(materializedView.getName());
+        job.setMvId(materializedView.getId());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;

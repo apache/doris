@@ -58,10 +58,10 @@ public class MTMVTaskManager {
 
     private static final Logger LOG = LogManager.getLogger(MTMVTaskManager.class);
 
-    // jobId -> pending tasks, one job can dispatch many tasks
+    // mvId -> pending tasks, one job can dispatch many tasks
     private final Map<Long, PriorityBlockingQueue<MTMVTaskExecutor>> pendingTaskMap = Maps.newConcurrentMap();
 
-    // jobId -> running tasks, only one task will be running for one job.
+    // mvId -> running tasks, only one task will be running for one job.
     private final Map<Long, MTMVTaskExecutor> runningTaskMap = Maps.newConcurrentMap();
 
     private final MTMVTaskExecutorPool taskExecutorPool = new MTMVTaskExecutorPool();
@@ -162,9 +162,9 @@ public class MTMVTaskManager {
             return;
         }
         try {
-            long jobId = task.getJobId();
+            long mvId = task.getJob().getMvId();
             PriorityBlockingQueue<MTMVTaskExecutor> tasks =
-                    pendingTaskMap.computeIfAbsent(jobId, u -> Queues.newPriorityBlockingQueue());
+                    pendingTaskMap.computeIfAbsent(mvId, u -> Queues.newPriorityBlockingQueue());
             tasks.offer(task);
         } finally {
             unlock();
@@ -186,10 +186,10 @@ public class MTMVTaskManager {
     private void checkRunningTask() {
         Iterator<Long> runningIterator = runningTaskMap.keySet().iterator();
         while (runningIterator.hasNext()) {
-            Long jobId = runningIterator.next();
-            MTMVTaskExecutor taskExecutor = runningTaskMap.get(jobId);
+            Long mvId = runningIterator.next();
+            MTMVTaskExecutor taskExecutor = runningTaskMap.get(mvId);
             if (taskExecutor == null) {
-                LOG.warn("failed to get running task by jobId:{}", jobId);
+                LOG.warn("failed to get running task by mvId:{}", mvId);
                 runningIterator.remove();
                 return;
             }
@@ -226,10 +226,10 @@ public class MTMVTaskManager {
 
         Iterator<Long> pendingIterator = pendingTaskMap.keySet().iterator();
         while (pendingIterator.hasNext()) {
-            Long jobId = pendingIterator.next();
-            MTMVTaskExecutor runningTaskExecutor = runningTaskMap.get(jobId);
+            Long mvId = pendingIterator.next();
+            MTMVTaskExecutor runningTaskExecutor = runningTaskMap.get(mvId);
             if (runningTaskExecutor == null) {
-                Queue<MTMVTaskExecutor> taskQueue = pendingTaskMap.get(jobId);
+                Queue<MTMVTaskExecutor> taskQueue = pendingTaskMap.get(mvId);
                 if (taskQueue.size() == 0) {
                     pendingIterator.remove();
                 } else {
@@ -238,9 +238,10 @@ public class MTMVTaskManager {
                     }
                     MTMVTaskExecutor pendingTaskExecutor = taskQueue.poll();
                     taskExecutorPool.executeTask(pendingTaskExecutor);
-                    runningTaskMap.put(jobId, pendingTaskExecutor);
+                    runningTaskMap.put(mvId, pendingTaskExecutor);
                     // change status from PENDING to Running
-                    changeAndLogTaskStatus(jobId, pendingTaskExecutor.getTask(), TaskState.PENDING, TaskState.RUNNING);
+                    changeAndLogTaskStatus(pendingTaskExecutor.getJobId(), pendingTaskExecutor.getTask(),
+                            TaskState.PENDING, TaskState.RUNNING);
                     currentRunning++;
                 }
             }
