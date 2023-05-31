@@ -805,6 +805,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (!res.ok()) {
             if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
                 res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+                res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
                 (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
                  need_remaining_after_evaluate)) {
                 // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
