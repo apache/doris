@@ -164,8 +164,9 @@ public class MTMVTaskManager {
         }
         try {
             long mvId = task.getJob().getMvId();
+            long jobId = task.getJobId();
             PriorityBlockingQueue<MTMVTaskExecutor> tasks =
-                    getOrCreateJobPendingTaskMap(mvId).computeIfAbsent(mvId, u -> Queues.newPriorityBlockingQueue());
+                    getOrCreateJobPendingTaskMap(mvId).computeIfAbsent(jobId, u -> Queues.newPriorityBlockingQueue());
             tasks.offer(task);
         } finally {
             unlock();
@@ -423,6 +424,7 @@ public class MTMVTaskManager {
 
             if (taskQueue.size() == 0) {
                 getOrCreateJobPendingTaskMap(mvId).remove(jobId);
+                return;
             }
 
             MTMVTaskExecutor pendingTask = taskQueue.poll();
