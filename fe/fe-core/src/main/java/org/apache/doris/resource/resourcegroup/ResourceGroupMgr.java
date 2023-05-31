@@ -32,8 +32,10 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.DropResourceGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -99,7 +101,11 @@ public class ResourceGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<TPipelineResourceGroup> getResourceGroup(String groupName) throws UserException {
+    public List<TPipelineResourceGroup> getResourceGroup(ConnectContext context) throws UserException {
+        String groupName = context.getSessionVariable().getResourceGroup();
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
+        }
         List<TPipelineResourceGroup> resourceGroups = Lists.newArrayList();
         readLock();
         try {
