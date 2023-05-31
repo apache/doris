@@ -328,12 +328,12 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
-    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName)
+    public MTMVUtils.TaskSubmitStatus refreshMTMV(String dbName, String mvName)
             throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         MaterializedView mv = (MaterializedView) db.getTableOrMetaException(mvName, TableType.MATERIALIZED_VIEW);
         MTMVJob mtmvJob = MTMVJobFactory.genOnceJob(mv, dbName);
-        Env.getCurrentEnv().getMTMVJobManager().createJob(mtmvJob, false);
+        createJob(mtmvJob, false);
         return submitJobTask(mtmvJob.getName());
     }
 

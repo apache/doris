@@ -164,7 +164,7 @@ public class Alter {
         }
         String db = stmt.getMvName().getDb();
         String tbl = stmt.getMvName().getTbl();
-        TaskSubmitStatus status = Env.getCurrentEnv().getMTMVJobManager().refreshMTMVTask(db, tbl);
+        TaskSubmitStatus status = Env.getCurrentEnv().getMTMVJobManager().refreshMTMV(db, tbl);
         if (status != TaskSubmitStatus.SUBMITTED) {
             throw new DdlException("Refresh MaterializedView with " + status.toString());
         }
