@@ -97,7 +97,7 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalCTEProducer", "[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCTEProducer", "cteId", cteId);
     }
 
     @Override
