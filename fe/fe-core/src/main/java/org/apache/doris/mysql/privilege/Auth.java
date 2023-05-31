@@ -943,6 +943,15 @@ public class Auth implements Writable {
         }
     }
 
+    public String getWorkloadGroup(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getWorkloadGroup(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
