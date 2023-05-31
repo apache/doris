@@ -426,18 +426,7 @@ public class CastExpr extends Expr {
         } catch (AnalysisException ae) {
             targetExpr = this;
         } catch (NumberFormatException nfe) {
-            // may be date or datetime, represented as string, we try to parse the string to date or datetime
-            try {
-                LiteralExpr dateLiteral = ((LiteralExpr) value.castTo(Type.DATETIME));
-                targetExpr = castTo(dateLiteral);
-                if (targetTypeDef != null) {
-                    targetExpr.setType(targetTypeDef.getType());
-                } else {
-                    targetExpr.setType(type);
-                }
-            } catch (Exception e) {
-                targetExpr = new NullLiteral();
-            }
+            targetExpr = new NullLiteral();
         }
         return targetExpr;
     }
