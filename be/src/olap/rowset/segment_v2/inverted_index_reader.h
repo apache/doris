@@ -99,7 +99,9 @@ public:
 
     uint32_t get_index_id() const { return _index_meta.index_id(); }
 
-    const std::map<string, string>& get_index_properties() const { return _index_meta.properties(); }
+    const std::map<string, string>& get_index_properties() const {
+        return _index_meta.properties();
+    }
 
     static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
                                                         const std::string& value,
