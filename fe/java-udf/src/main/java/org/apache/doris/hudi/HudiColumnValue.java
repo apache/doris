@@ -23,6 +23,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -78,6 +79,11 @@ public class HudiColumnValue implements ColumnValue {
     @Override
     public double getDouble() {
         return (double) inspectObject();
+    }
+
+    @Override
+    public BigInteger getBigInteger() {
+        return null;
     }
 
     @Override

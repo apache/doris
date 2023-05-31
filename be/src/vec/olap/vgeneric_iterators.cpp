@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
+#include "olap/schema_cache.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -40,11 +41,6 @@ class RuntimeProfile;
 using namespace ErrorCode;
 
 namespace vectorized {
-VStatisticsIterator::~VStatisticsIterator() {
-    for (auto& pair : _column_iterators_map) {
-        delete pair.second;
-    }
-}
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -57,7 +53,7 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
                 RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
                                                               &_column_iterators_map[unique_id]));
             }
-            _column_iterators.push_back(_column_iterators_map[unique_id]);
+            _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
 
         _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
@@ -355,7 +351,7 @@ public:
     // Client should not use iterators anymore.
     VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v) : _origin_iters(std::move(v)) {}
 
-    ~VUnionIterator() override {}
+    ~VUnionIterator() override = default;
 
     Status init(const StorageReadOptions& opts) override;
 
@@ -374,7 +370,7 @@ public:
 
 private:
     const Schema* _schema = nullptr;
-    RowwiseIterator* _cur_iter = nullptr;
+    RowwiseIteratorUPtr _cur_iter = nullptr;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
@@ -391,7 +387,7 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     for (auto& iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }
-    _cur_iter = _origin_iters.back().get();
+    _cur_iter = std::move(_origin_iters.back());
     _schema = &_cur_iter->schema();
     return Status::OK();
 }
@@ -402,7 +398,7 @@ Status VUnionIterator::next_batch(Block* block) {
         if (st.is<END_OF_FILE>()) {
             _origin_iters.pop_back();
             if (!_origin_iters.empty()) {
-                _cur_iter = _origin_iters.back().get();
+                _cur_iter = std::move(_origin_iters.back());
             } else {
                 _cur_iter = nullptr;
             }

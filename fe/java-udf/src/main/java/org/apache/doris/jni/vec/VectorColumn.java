@@ -24,6 +24,7 @@ import org.apache.doris.jni.vec.ColumnType.Type;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -272,6 +273,8 @@ public class VectorColumn {
                 return appendInt(0);
             case BIGINT:
                 return appendLong(0);
+            case LARGEINT:
+                return appendBigInteger(BigInteger.ZERO);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -396,6 +399,29 @@ public class VectorColumn {
 
     public double getDouble(int rowId) {
         return OffHeap.getDouble(null, data + rowId * 8L);
+    }
+
+    public int appendBigInteger(BigInteger v) {
+        reserve(appendIndex + 1);
+        putBigInteger(appendIndex, v);
+        return appendIndex++;
+    }
+
+    private void putBigInteger(int rowId, BigInteger v) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = TypeNativeBytes.getBigIntegerBytes(v);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
+    }
+
+    public byte[] getBigIntegerBytes(int rowId) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = new byte[typeSize];
+        OffHeap.copyMemory(null, data + (long) rowId * typeSize, bytes, OffHeap.BYTE_ARRAY_OFFSET, typeSize);
+        return bytes;
+    }
+
+    public BigInteger getBigInteger(int rowId) {
+        return TypeNativeBytes.getBigInteger(getBigIntegerBytes(rowId));
     }
 
     public int appendDecimal(BigDecimal v) {
@@ -549,6 +575,9 @@ public class VectorColumn {
             case BIGINT:
                 appendLong(o.getLong());
                 break;
+            case LARGEINT:
+                appendBigInteger(o.getBigInteger());
+                break;
             case FLOAT:
                 appendFloat(o.getFloat());
                 break;
@@ -603,6 +632,9 @@ public class VectorColumn {
                 break;
             case BIGINT:
                 sb.append(getLong(i));
+                break;
+            case LARGEINT:
+                sb.append(getBigInteger(i));
                 break;
             case FLOAT:
                 sb.append(getFloat(i));

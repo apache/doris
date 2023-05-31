@@ -79,6 +79,7 @@ public class OperationType {
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+    public static final short OP_INVERTED_INDEX_JOB = 221;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -290,6 +291,9 @@ public class OperationType {
 
     // query stats 440 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
+
+    // update binlog config
+    public static final short OP_UPDATE_BINLOG_CONFIG = 425;
 
     /**
      * Get opcode name by op code.

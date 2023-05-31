@@ -234,7 +234,6 @@ public class StreamLoadPlanner {
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        scanNode.convertToVectorized();
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();

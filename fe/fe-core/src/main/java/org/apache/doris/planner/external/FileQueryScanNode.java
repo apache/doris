@@ -139,7 +139,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
-        setColumnPositionMappingForTextFile();
+        setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
     }
@@ -167,6 +167,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
+        // Update required slots in scanRangeLocations.
+        for (TScanRangeLocations location : scanRangeLocations) {
+            location.getScanRange().getExtScanRange().getFileScanRange()
+                .getParams().setRequiredSlots(params.getRequiredSlots());
+        }
     }
 
     @Override
@@ -184,7 +189,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         createScanRangeLocations();
     }
 
-    private void setColumnPositionMappingForTextFile()
+    private void setColumnPositionMapping()
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();

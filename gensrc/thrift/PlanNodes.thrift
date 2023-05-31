@@ -340,6 +340,7 @@ struct TFileScanRangeParams {
     18: optional list<i32> column_idxs
     // Map of slot to its position in table schema. Only for Hive external table.
     19: optional map<string, i32> slot_name_to_schema_pos
+    20: optional list<Exprs.TExpr> pre_filter_exprs_list
 }
 
 struct TFileRangeDesc {
@@ -596,6 +597,7 @@ struct TOlapScanNode {
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
+  17: optional i32 schema_version
 }
 
 struct TEqJoinCondition {
@@ -675,6 +677,8 @@ struct TNestedLoopJoinNode {
   6: optional Exprs.TExpr vjoin_conjunct
 
   7: optional bool is_mark
+
+  8: optional list<Exprs.TExpr> join_conjuncts
 }
 
 struct TMergeJoinNode {

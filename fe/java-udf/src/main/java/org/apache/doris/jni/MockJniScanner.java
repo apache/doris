@@ -25,6 +25,7 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -86,6 +87,11 @@ public class MockJniScanner extends JniScanner {
         @Override
         public double getDouble() {
             return (double) (j + i - 15) / (i + 1);
+        }
+
+        @Override
+        public BigInteger getBigInteger() {
+            return BigInteger.valueOf(getLong());
         }
 
         @Override

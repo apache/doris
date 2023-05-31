@@ -64,7 +64,7 @@ public class NereidsTracer {
     }
 
     public static String getCurrentTime() {
-        return TimeUtils.getElapsedTimeMs(NereidsTracer.startTime) / 1000 + "us";
+        return TimeUtils.getElapsedTimeMs(NereidsTracer.startTime) + "ms";
     }
 
     /** log rewrite event when open switch */
