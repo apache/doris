@@ -3242,7 +3242,6 @@ void Tablet::set_binlog_config(BinlogConfig binlog_config) {
     tablet_meta()->set_binlog_config(std::move(binlog_config));
 }
 
-// caller should hold meta_lock
 Status Tablet::calc_delete_bitmap_between_segments(
         RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
         DeleteBitmapPtr delete_bitmap) {
@@ -3265,7 +3264,9 @@ Status Tablet::calc_delete_bitmap_between_segments(
     RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
 
     LOG(INFO) << fmt::format(
-            "calculate delete bitmap between segments with merged pkindex in {} us",
+            "construct delete bitmap between segments, "
+            "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
+            tablet_id(), rowset_id, num_segments, delete_bitmap->delete_bitmap.size(),
             watch.get_elapse_time_us());
     return Status::OK();
 }

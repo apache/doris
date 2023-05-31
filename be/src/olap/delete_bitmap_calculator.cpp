@@ -143,7 +143,6 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
         _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
         _heap->push(&_contexts.back());
     }
-
     return Status::OK();
 }
 

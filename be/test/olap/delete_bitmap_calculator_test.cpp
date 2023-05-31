@@ -46,17 +46,8 @@ using namespace ErrorCode;
 static StorageEngine* k_engine = nullptr;
 static std::string kSegmentDir = "./ut_dir/delete_bitmap_calculator_test";
 static RowsetId rowset_id {0};
-static std::string resource_id = "10000";
 
 using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
-
-// 0,  1,  2,  3
-// 10, 11, 12, 13
-// 20, 21, 22, 23
-static void __attribute((unused)) DefaultIntGenerator(size_t rid, int cid, RowCursorCell& cell) {
-    cell.set_not_null();
-    *(int*)cell.mutable_cell_ptr() = rid * 10 + cid;
-}
 
 static TabletColumn create_int_sequence_value(int32_t id, bool is_nullable = true,
                                               bool is_bf_column = false,
