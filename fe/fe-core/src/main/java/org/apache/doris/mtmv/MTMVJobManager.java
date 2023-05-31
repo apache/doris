@@ -66,6 +66,7 @@ public class MTMVJobManager {
 
     private final Map<Long, MTMVJob> idToJobMap;
     private final Map<String, MTMVJob> nameToJobMap;
+    // mvId -> ScheduledFuture
     private final Map<Long, ScheduledFuture<?>> periodFutureMap;
 
     private final MTMVTaskManager taskManager;
@@ -321,7 +322,7 @@ public class MTMVJobManager {
         if (job == null) {
             return false;
         }
-        return taskManager.killTask(job.getId(), clearPending);
+        return taskManager.killTask(job.getMvId(), job.getId(), clearPending);
     }
 
     public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
@@ -522,6 +523,10 @@ public class MTMVJobManager {
 
     public MTMVJob getJob(String jobName) {
         return nameToJobMap.get(jobName);
+    }
+
+    public MTMVJob getJob(Long jobId) {
+        return idToJobMap.get(jobId);
     }
 
     public long write(DataOutputStream dos, long checksum) throws IOException {
