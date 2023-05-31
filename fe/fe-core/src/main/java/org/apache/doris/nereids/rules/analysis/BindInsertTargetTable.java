@@ -44,9 +44,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -90,8 +92,9 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
                     NereidsParser expressionParser = new NereidsParser();
 
+                    // generate slots not mentioned in sql, mv slots and shaded slots.
                     for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                        if (RelationUtil.isMv(column)) {
+                        if (column.isMaterializedViewSlot()) {
                             List<SlotRef> refs = column.getRefColumns();
                             // now we have to replace the column to slots.
                             Preconditions.checkArgument(refs != null,
@@ -99,7 +102,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             Expression parsedExpression = expressionParser.parseExpression(
                                     column.getDefineExpr().toSql());
                             Expression boundExpression = SlotReplacer.INSTANCE
-                                    .repalce(parsedExpression, columnToOutput);
+                                    .replace(parsedExpression, columnToOutput);
 
                             NamedExpression slot = boundExpression instanceof NamedExpression
                                     ? ((NamedExpression) boundExpression)
@@ -127,9 +130,26 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             }
                         }
                     }
+                    List<NamedExpression> fullOutputExprs = ImmutableList.copyOf(columnToOutput.values());
 
-                    return boundSink.withChildren(new LogicalProject<>(ImmutableList.copyOf(columnToOutput.values()),
-                            boundSink.child()));
+                    LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, boundSink.child());
+
+                    // add cast project
+                    List<NamedExpression> castExprs = Lists.newArrayList();
+                    for (int i = 0; i < table.getFullSchema().size(); ++i) {
+                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(fullOutputExprs.get(i),
+                                DataType.fromCatalogType(table.getFullSchema().get(i).getType()));
+                        if (castExpr instanceof NamedExpression) {
+                            castExprs.add(((NamedExpression) castExpr));
+                        } else {
+                            castExprs.add(new Alias(castExpr, castExpr.toSql()));
+                        }
+                    }
+                    if (!castExprs.equals(fullOutputExprs)) {
+                        fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
+                    }
+
+                    return boundSink.withChildren(fullOutputProject);
 
                 }).toRule(RuleType.BINDING_INSERT_TARGET_TABLE);
     }
@@ -161,7 +181,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
         return colsName == null
                 ? table.getFullSchema().stream().filter(column -> column.isVisible()
-                        && !RelationUtil.isMv(column))
+                        && !column.isMaterializedViewSlot())
                 .collect(Collectors.toList())
                 : colsName.stream().map(cn -> {
                     Column column = table.getColumn(cn);
@@ -176,7 +196,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
         public static final SlotReplacer INSTANCE = new SlotReplacer();
 
-        public Expression repalce(Expression e, Map<String, NamedExpression> replaceMap) {
+        public Expression replace(Expression e, Map<String, NamedExpression> replaceMap) {
             return e.accept(this, replaceMap);
         }
 

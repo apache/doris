@@ -189,21 +189,25 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
      * get output physical properties
      */
     public PhysicalProperties getRequirePhysicalProperties() {
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-        List<Column> distributedColumns = distributionInfo.getDistributionColumns();
-        List<Integer> columnIndexes = Lists.newArrayList();
-        int idx = 0;
-        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-            if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                columnIndexes.add(i);
-                idx++;
-                if (idx == distributedColumns.size()) {
-                    break;
+        if (targetTable.isPartitioned()) {
+            HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
+            List<Column> distributedColumns = distributionInfo.getDistributionColumns();
+            List<Integer> columnIndexes = Lists.newArrayList();
+            int idx = 0;
+            for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+                if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
+                    columnIndexes.add(i);
+                    idx++;
+                    if (idx == distributedColumns.size()) {
+                        break;
+                    }
                 }
             }
+            return PhysicalProperties.createHash(columnIndexes.stream()
+                    .map(colIdx -> child().getOutput().get(colIdx).getExprId())
+                    .collect(Collectors.toList()), ShuffleType.NATURAL);
+        } else {
+            return PhysicalProperties.GATHER;
         }
-        return PhysicalProperties.createHash(columnIndexes.stream()
-                .map(colIdx -> child().getOutput().get(colIdx).getExprId())
-                .collect(Collectors.toList()), ShuffleType.NATURAL);
     }
 }

@@ -288,12 +288,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        boolean isInsertIntoUnpartitionedTable = physicalPlan instanceof PhysicalOlapTableSink
-                && !((PhysicalOlapTableSink<?>) physicalPlan).getTargetTable().isPartitioned();
         if (isFragmentPartitioned(rootFragment)) {
-            if (!(physicalPlan instanceof PhysicalOlapTableSink) || isInsertIntoUnpartitionedTable) {
-                rootFragment = exchangeToMergeFragment(rootFragment, context);
-            }
+            rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
         if (rootFragment.getOutputExprs() == null) {
@@ -346,35 +342,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = currentFragment;
         }
 
-        // get The first Project.
-        PhysicalPlan plan = olapTableSink;
-        while (!(plan instanceof PhysicalProject) && !(plan instanceof PhysicalLeaf)) {
-            plan = ((PhysicalPlan) plan.child(0));
-        }
-
-        List<NamedExpression> ne;
-        if (plan instanceof PhysicalProject) {
-            ne = plan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList());
-        } else {
-            ne = plan.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList());
-        }
-
-        List<Expr> outputExprs = ne.stream()
-                .map(slot -> ExpressionTranslator.translate(slot, context))
-                .collect(Collectors.toList());
-
-        List<Expr> castExprs = Lists.newArrayList();
-        for (int i = 0; i < targetTableColumns.size(); ++i) {
-            Type lhs = targetTableColumns.get(i).getType();
-            Type rhs = outputExprs.get(i).getType();
-            if (!lhs.equals(rhs)) {
-                castExprs.add(new CastExpr(lhs, outputExprs.get(i)));
-            } else {
-                castExprs.add(outputExprs.get(i));
-            }
-        }
-
-        rootFragment.setOutputExprs(castExprs);
         rootFragment.setSink(sink);
 
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);

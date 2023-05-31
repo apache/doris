@@ -75,7 +75,8 @@ public interface Project {
                 .filter(e -> e instanceof Alias)
                 .collect(Collectors.toMap(
                         NamedExpression::toSlot,
-                        e -> (Alias) e));
+                        e -> (Alias) e,
+                        (v1, v2) -> v1));
         return getProjects().stream()
                 .map(expr -> {
                     if (expr instanceof Alias) {
