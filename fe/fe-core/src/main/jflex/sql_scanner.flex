@@ -287,6 +287,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("largeint", new Integer(SqlParserSymbols.KW_LARGEINT));
         keywordMap.put("last", new Integer(SqlParserSymbols.KW_LAST));
         keywordMap.put("lateral", new Integer(SqlParserSymbols.KW_LATERAL));
+        keywordMap.put("ldap", new Integer(SqlParserSymbols.KW_LDAP));
         keywordMap.put("ldap_admin_password", new Integer(SqlParserSymbols.KW_LDAP_ADMIN_PASSWORD));
         keywordMap.put("left", new Integer(SqlParserSymbols.KW_LEFT));
         keywordMap.put("less", new Integer(SqlParserSymbols.KW_LESS));
