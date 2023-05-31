@@ -19,6 +19,9 @@
 
 #include "common/config.h"
 #include "io/fs/file_reader.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 namespace doris {
@@ -36,8 +39,9 @@ Status PrimaryKeyIndexBuilder::init() {
             new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
     RETURN_IF_ERROR(_primary_key_index_builder->init());
 
-    return segment_v2::BloomFilterIndexWriter::create(segment_v2::BloomFilterOptions(), type_info,
-                                                      &_bloom_filter_index_builder);
+    _bloom_filter_index_builder.reset(new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(
+            segment_v2::BloomFilterOptions(), type_info));
+    return Status::OK();
 }
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
