@@ -137,11 +137,11 @@ public enum ExpressionEvaluator {
         ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder =
                 new ImmutableMultimap.Builder<String, FunctionInvoker>();
         List<Class> classes = ImmutableList.of(
+                DateTimeAcquire.class,
                 DateTimeExtractAndTransform.class,
                 ExecutableFunctions.class,
                 DateLiteral.class,
                 DateTimeArithmetic.class,
-                DateTimeAcquire.class,
                 NumericArithmetic.class
         );
         for (Class cls : classes) {
