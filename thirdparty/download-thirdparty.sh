@@ -368,6 +368,7 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
     if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.9.211.patch"
         if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
             tar xzf aws-crt-cpp-1.9.211.tar.gz
         else
