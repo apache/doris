@@ -96,7 +96,7 @@ public class PhysicalCTEAnchor<
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalCTEAnchor", "[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCTEAnchor", "cteId", cteId);
     }
 
     @Override
