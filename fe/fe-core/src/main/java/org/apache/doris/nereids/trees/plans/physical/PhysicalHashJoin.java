@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -132,7 +133,8 @@ public class PhysicalHashJoin<
         List<Object> args = Lists.newArrayList("type", joinType,
                 "hashJoinCondition", hashJoinConjuncts,
                 "otherJoinCondition", otherJoinConjuncts,
-                "stats", statistics);
+                "stats", statistics,
+                "fr", getMutableState(AbstractPlan.FRAGMENT_ID));
         if (markJoinSlotReference.isPresent()) {
             args.add("isMarkJoin");
             args.add("true");
