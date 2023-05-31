@@ -28,6 +28,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <roaring/roaring.hh>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -106,6 +108,8 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    int32_t allocate_seq_id() override { return _next_seq.fetch_add(1); };
+
     // Maybe modified by local schema change
     vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
         return _context.schema_change_recorder.get();
@@ -158,8 +162,13 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
+    std::atomic<int32_t> _next_seq;
     std::atomic<int32_t> _num_segment;
     std::atomic<int32_t> _num_flushed_segment;
+    roaring::Roaring _seq_set;
+    roaring::Roaring _flushed_set;
+    std::mutex _seq_set_mutex;
+    std::mutex _flushed_set_mutex;
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
