@@ -49,7 +49,6 @@ public enum ExpressionEvaluator {
     INSTANCE;
 
     private ImmutableMultimap<String, FunctionInvoker> functions;
-    // the not eval non-empty arguments datetime function
 
     ExpressionEvaluator() {
         registerFunctions();

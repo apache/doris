@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -449,17 +448,10 @@ public class DateTimeExtractAndTransform {
                 .plusSeconds(second.getValue())
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
-                .atZoneSameInstant(getTimeZone());
+                .atZoneSameInstant(DateUtils.getTimeZone());
         return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
                         dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
-    }
-
-    public static ZoneId getTimeZone() {
-        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null) {
-            return ZoneId.systemDefault();
-        }
-        return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
     }
 
     /**
@@ -509,7 +501,7 @@ public class DateTimeExtractAndTransform {
         }
         return ((int) Duration.between(
                 specialLowerBound,
-                dateTime.atZone(getTimeZone())
+                dateTime.atZone(DateUtils.getTimeZone())
                         .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
                         .toLocalDateTime()).getSeconds());
     }

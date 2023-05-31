@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.TextStyle;
@@ -158,5 +160,12 @@ public class DateUtils {
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
         return accessor.isSupported(field) ? accessor.get(field) : /*default value*/ 0;
+    }
+
+    public static ZoneId getTimeZone() {
+        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null) {
+            return ZoneId.systemDefault();
+        }
+        return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
     }
 }
