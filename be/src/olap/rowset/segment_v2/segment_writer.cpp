@@ -141,7 +141,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
              flush_ctx->block->bytes() > config::segment_compression_threshold_kb * 1024)
                     ? _tablet_schema->compression_type()
                     : NO_COMPRESSION;
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -762,6 +762,8 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
         }
         *index_size = _file_writer->bytes_appended() - index_start;
     }
+    // for copmaction dup without key table optimization , add index size in the footer 20230529
+    _footer.set_index_footprint(*index_size);
 
     // reset all column writers and data_conveter
     clear();

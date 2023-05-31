@@ -40,6 +40,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "olap/tablet_schema_cache.h"
 #include "olap/utils.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -319,6 +320,7 @@ void show_segment_footer(const std::string& file_name) {
 }
 
 int main(int argc, char** argv) {
+    doris::TabletSchemaCache::create_global_schema_cache();
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
