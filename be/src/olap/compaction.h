@@ -48,6 +48,7 @@ class RowsetWriter;
 //  4. gc output rowset if failed
 class Compaction {
 public:
+    friend class CompactionDupnokeyOpt;
     Compaction(const TabletSharedPtr& tablet, const std::string& label);
     virtual ~Compaction();
 
@@ -86,9 +87,12 @@ protected:
     int64_t get_avg_segment_rows();
 
     bool handle_ordered_data_compaction();
+
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
     void build_basic_info();
+    // duplicate without key optimization
+    bool handle_duplicate_nokey_compaction();
 
 protected:
     // the root tracker for this compaction

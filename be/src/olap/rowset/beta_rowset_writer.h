@@ -71,6 +71,8 @@ public:
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const vectorized::Block* block) override;
+    Status add_segment(RowsetSharedPtr rowset, segment_v2::SegmentSharedPtr seg);
+    Status close_writers();
 
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;

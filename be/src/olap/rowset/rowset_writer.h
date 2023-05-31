@@ -60,6 +60,7 @@ public:
     }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
+    virtual Status add_segment(RowsetSharedPtr rowset, segment_v2::SegmentSharedPtr seg) = 0;
     virtual Status add_rowset(RowsetSharedPtr rowset) = 0;
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building

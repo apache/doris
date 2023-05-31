@@ -132,6 +132,27 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     }
     return Status::OK();
 }
+
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr& segment) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>();
+    }
+    DCHECK(seg_id >= 0);
+    auto seg_path = segment_file_path(seg_id);
+    io::SegmentCachePathPolicy cache_policy;
+    cache_policy.set_cache_path(segment_cache_path(seg_id));
+    auto type = config::enable_file_cache ? config::file_cache_type : "";
+    io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
+                                       &segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
+                     << " : " << s.to_string();
+    }
+    return s;
+}
+
 Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
     return load_segments(0, num_segments(), segments);
 }
@@ -217,6 +238,54 @@ Status BetaRowset::remove() {
 
 void BetaRowset::do_close() {
     // do nothing.
+}
+Status BetaRowset::link_segment_to(size_t seg_id, const std::string& dir, RowsetId new_rowset_id,
+                                   size_t new_rowset_seg_id) {
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>();
+    }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+    io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
+    auto dst_path = segment_file_path(dir, new_rowset_id, new_rowset_seg_id);
+    bool dst_path_exist = false;
+    if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
+        LOG(WARNING) << "failed to create hard link, file already exist: " << dst_path;
+        return Status::Error<FILE_ALREADY_EXIST>();
+    }
+    auto src_path = segment_file_path(seg_id);
+    // TODO(lingbin): how external storage support link?
+    //     use copy? or keep refcount to avoid being delete?
+    if (!local_fs->link_file(src_path, dst_path).ok()) {
+        LOG(WARNING) << "fail to create hard link. from=" << src_path << ", "
+                     << "to=" << dst_path << ", errno=" << Errno::no();
+        return Status::Error<OS_ERROR>();
+    }
+    for (auto& column : _schema->columns()) {
+        // if (column.has_inverted_index()) {
+        const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+        if (index_meta) {
+            std::string inverted_index_src_file_path =
+                    InvertedIndexDescriptor::get_index_file_name(src_path, index_meta->index_id());
+            std::string inverted_index_dst_file_path =
+                    InvertedIndexDescriptor::get_index_file_name(dst_path, index_meta->index_id());
+
+            if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
+                         .ok()) {
+                LOG(WARNING) << "fail to create hard link. from=" << inverted_index_src_file_path
+                             << ", "
+                             << "to=" << inverted_index_dst_file_path << ", errno=" << Errno::no();
+                return Status::Error<OS_ERROR>();
+            }
+            LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
+                      << ", "
+                      << "to=" << inverted_index_dst_file_path;
+        }
+    }
+    return Status::OK();
 }
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,

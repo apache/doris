@@ -82,6 +82,7 @@ public:
                         std::unique_ptr<RowwiseIterator>* iter);
 
     uint32_t id() const { return _segment_id; }
+    uint64_t size() const;
 
     RowsetId rowset_id() const { return _rowset_id; }
 

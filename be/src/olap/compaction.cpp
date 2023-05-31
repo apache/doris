@@ -35,6 +35,7 @@
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
+#include "olap/compaction_dupnokey_opt.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
@@ -263,21 +264,42 @@ bool Compaction::handle_ordered_data_compaction() {
     }
     return true;
 }
+bool Compaction::handle_duplicate_nokey_compaction() {
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
+        !should_vertical_compaction()) {
+        // The remote file system does not support to link files.
+        return false;
+    }
+
+    if (!(_tablet->keys_type() == KeysType::DUP_KEYS && _tablet->num_key_columns() == 0)) {
+        return false;
+    }
+    // check delete version: if compaction type is base compaction and
+    // has a delete version, use original compaction
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+        for (auto& rowset : _input_rowsets) {
+            if (rowset->rowset_meta()->has_delete_predicate()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 Status Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
-    if (handle_ordered_data_compaction()) {
+    auto finish_compaction = [this, &watch](const char* compaction_type) {
         RETURN_IF_ERROR(modify_rowsets());
 
         int64_t now = UnixMillis();
-        if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        if (this->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             _tablet->set_last_cumu_compaction_success_time(now);
-        } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+        } else if (this->compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
-        LOG(INFO) << "succeed to do ordered data " << compaction_name()
+        LOG(INFO) << "succeed to do " << compaction_type << " data " << compaction_name()
                   << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
@@ -286,6 +308,18 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                   << "s. cumulative_compaction_policy="
                   << (cumu_policy == nullptr ? "quick" : cumu_policy->name());
         return Status::OK();
+    };
+
+    if (handle_ordered_data_compaction()) {
+        return finish_compaction("ordered");
+    }
+    if (handle_duplicate_nokey_compaction()) {
+        CompactionDupnokeyOpt opt(*this);
+        Status st = opt.handle_duplicate_nokey_compaction();
+        if (!st.ok()) {
+            return st;
+        }
+        return finish_compaction("duplicate_nokey_opt");
     }
     build_basic_info();
 

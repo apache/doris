@@ -168,7 +168,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
-        !_stop_consume && ExecEnv::GetInstance()->initialized()) {
+        !_stop_consume) {
         flush_untracked_mem();
     }
     // Large memory alloc should use allocator.h

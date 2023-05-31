@@ -452,6 +452,28 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     return Status::OK();
 }
 
+Status BetaRowsetWriter::add_segment(RowsetSharedPtr rowset, segment_v2::SegmentSharedPtr seg) {
+    RETURN_IF_ERROR(rowset->link_segment_to(seg->id(), _context.rowset_dir, _context.rowset_id,
+                                            _segment_start_id + _num_segment.fetch_add(1)));
+    auto footer = seg->footer();
+    _num_rows_written += footer.num_rows();
+    _total_data_size += seg->size();
+    if (footer.has_index_footprint()) {
+        _total_index_size += footer.index_footprint();
+    }
+    // append key_bound to current rowset
+    // add empty key bound , only used for dup without key table
+    // TODO: we shoud use get rowset->get_segments_key_bounds
+    // to get the real key bound from rowset metadata.
+
+    KeyBoundsPB key_bounds;
+
+    key_bounds.set_min_key("");
+    key_bounds.set_max_key("");
+    _segments_encoded_key_bounds.push_back(key_bounds);
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
@@ -533,6 +555,19 @@ RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_r
     }
     _already_built = true;
     return rowset;
+}
+
+Status BetaRowsetWriter::close_writers() {
+    for (auto& file_writer : _file_writers) {
+        Status status = file_writer->close();
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to close file writer, path=" << file_writer->path()
+                         << " res=" << status;
+
+            return status;
+        }
+    }
+    return Status::OK();
 }
 
 RowsetSharedPtr BetaRowsetWriter::build() {

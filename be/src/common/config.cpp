@@ -327,6 +327,8 @@ DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
+DEFINE_mInt32(dup_without_key_opt_compaction_min_segment_size, "1000");
+
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "10");

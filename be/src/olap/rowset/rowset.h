@@ -199,7 +199,9 @@ public:
                     << _rowset_state_machine.rowset_state() << ", version:" << start_version()
                     << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
     }
-
+    // hard link one segment in this rowset to `dir` to form new rowset's new segment.
+    virtual Status link_segment_to(size_t seg_id, const std::string& dir, RowsetId new_rowset_id,
+                                   size_t new_rowset_seg_id) = 0;
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,

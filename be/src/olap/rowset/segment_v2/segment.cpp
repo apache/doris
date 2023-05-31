@@ -221,6 +221,10 @@ Status Segment::_parse_footer() {
     return Status::OK();
 }
 
+uint64_t Segment::size() const {
+    return _file_reader->size();
+}
+
 Status Segment::_load_pk_bloom_filter() {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_footer.has_primary_key_index_meta());

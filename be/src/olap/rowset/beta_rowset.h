@@ -70,6 +70,8 @@ public:
 
     Status remove() override;
 
+    Status link_segment_to(size_t seg_id, const std::string& dir, RowsetId new_rowset_id,
+                           size_t new_rowset_seg_id) override;
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                          size_t new_rowset_start_seg_id = 0,
                          std::set<int32_t>* without_index_column_uids = nullptr) override;
@@ -86,6 +88,8 @@ public:
     bool check_path(const std::string& path) override;
 
     bool check_file_exist() override;
+
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr& segment);
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
