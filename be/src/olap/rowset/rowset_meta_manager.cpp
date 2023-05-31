@@ -166,14 +166,14 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
                                                                  std::string_view binlog_version,
                                                                  int64_t segment_idx) {
     auto prefix_key = make_binlog_filename_key(tablet_uid, binlog_version);
-    LOG(INFO) << fmt::format("prefix_key:{}", prefix_key);
+    VLOG_DEBUG << fmt::format("prefix_key:{}", prefix_key);
 
     std::vector<std::string> binlog_files;
     std::string rowset_id;
     int64_t num_segments = -1;
     auto traverse_func = [&rowset_id, &num_segments](const std::string& key,
                                                      const std::string& value) -> bool {
-        LOG(INFO) << fmt::format("key:{}, value:{}", key, value);
+        VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
         // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
         // check starts with "binlog_meta_"
         if (!starts_with_binlog_meta(key)) {
@@ -196,7 +196,6 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
 
         return false;
     };
-    LOG(INFO) << "result:" << rowset_id;
 
     // get binlog meta by prefix
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
@@ -224,16 +223,16 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
 
 std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
         OlapMeta* meta, TabletUid tablet_uid, std::string_view binlog_version) {
-    LOG(INFO) << fmt::format("tablet_uid:{}, binlog_version:{}", tablet_uid.to_string(),
-                             binlog_version);
+    VLOG_DEBUG << fmt::format("tablet_uid:{}, binlog_version:{}", tablet_uid.to_string(),
+                              binlog_version);
     auto prefix_key = make_binlog_filename_key(tablet_uid, binlog_version);
-    LOG(INFO) << fmt::format("prefix_key:{}", prefix_key);
+    VLOG_DEBUG << fmt::format("prefix_key:{}", prefix_key);
 
     std::string rowset_id;
     int64_t num_segments = -1;
     auto traverse_func = [&rowset_id, &num_segments](const std::string& key,
                                                      const std::string& value) -> bool {
-        LOG(INFO) << fmt::format("key:{}, value:{}", key, value);
+        VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
         // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
         auto pos = key.rfind("_");
         if (pos == std::string::npos) {
@@ -248,7 +247,6 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
 
         return false;
     };
-    LOG(INFO) << "result:" << rowset_id;
 
     // get binlog meta by prefix
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
@@ -267,7 +265,7 @@ std::string RowsetMetaManager::get_binlog_rowset_meta(OlapMeta* meta, TabletUid 
                                                       std::string_view binlog_version,
                                                       std::string_view rowset_id) {
     auto binlog_data_key = make_binlog_data_key(tablet_uid.to_string(), binlog_version, rowset_id);
-    LOG(INFO) << fmt::format("get binlog_meta_key:{}", binlog_data_key);
+    VLOG_DEBUG << fmt::format("get binlog_meta_key:{}", binlog_data_key);
 
     std::string binlog_meta_value;
     Status status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_meta_value);

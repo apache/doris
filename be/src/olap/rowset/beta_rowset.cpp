@@ -414,8 +414,8 @@ Status BetaRowset::add_to_binlog() {
     std::string binlog_dir;
 
     auto segments_num = num_segments();
-    LOG(INFO) << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
-                             rowset_id().to_string(), segments_num);
+    VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
+                              rowset_id().to_string(), segments_num);
     for (int i = 0; i < segments_num; ++i) {
         auto seg_file = segment_file_path(i);
 
@@ -432,7 +432,7 @@ Status BetaRowset::add_to_binlog() {
         auto binlog_file =
                 (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
                         .string();
-        LOG(INFO) << "link " << seg_file << " to " << binlog_file;
+        VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
         if (!local_fs->link_file(seg_file, binlog_file).ok()) {
             LOG(WARNING) << "fail to create hard link. from=" << seg_file << ", "
                          << "to=" << binlog_file << ", errno=" << Errno::no();

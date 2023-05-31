@@ -526,14 +526,12 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         status.to_thrift(&tstatus);
         return;
     }
-    LOG(INFO) << "remote rowset meta pb: " << rowset_meta_pb.ShortDebugString();
     // rewrite rowset meta
     rowset_meta_pb.set_tablet_id(local_tablet_id);
     rowset_meta_pb.set_partition_id(local_tablet->tablet_meta()->partition_id());
     rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
     rowset_meta_pb.set_txn_id(txn_id);
     rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
-    LOG(INFO) << "local rowset meta pb: " << rowset_meta_pb.ShortDebugString();
     auto rowset_meta = std::make_shared<RowsetMeta>();
     if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
         LOG(WARNING) << "failed to init rowset meta from " << get_rowset_meta_url;
