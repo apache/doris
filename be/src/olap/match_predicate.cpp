@@ -21,6 +21,7 @@
 
 #include "exec/olap_utils.h"
 #include "olap/field.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -42,6 +43,10 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                                 uint32_t num_rows, roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
+    }
+    if (_skip_evaluate(iterator)) {
+        LOG(INFO) << "match predicate evaluate skipped.";
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>();
     }
     auto column_desc = schema.column(_column_id);
     roaring::Roaring roaring;
@@ -109,6 +114,17 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
         DCHECK(false);
     }
     return ret;
+}
+
+bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
+    if (_match_type == MatchType::MATCH_PHRASE &&
+        iterator->get_inverted_index_reader_type() ==
+                InvertedIndexReaderType::FULLTEXT &&
+        get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
+                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+        return true;
+    }
+    return false;
 }
 
 } // namespace doris

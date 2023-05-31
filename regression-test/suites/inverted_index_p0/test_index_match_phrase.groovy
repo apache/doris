@@ -16,8 +16,8 @@
 // under the License.
 
 
-suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
-    def indexTbName1 = "index_range_match_term_and_phrase_select"
+suite("test_index_match_phrase_select", "inverted_index_select"){
+    def indexTbName1 = "test_index_match_phrase_select"
     def varchar_colume1 = "name"
     def varchar_colume2 = "grade"
     def varchar_colume3 = "fatherName"
@@ -111,8 +111,9 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
     
     for (int i = 0; i < 2; i++) {
         logger.info("select table with index times " + i)
-        // case 1
+        // case1: match phrase with index but support_phrase=fasle
         if (i > 0) {
+            // case2: match phrase with index and support_phrase=true
             logger.info("it's " + i + " times select, not first select, drop all index before select again")
             sql """
                 ALTER TABLE ${indexTbName1}
@@ -130,13 +131,13 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
             logger.info("it's " + i + " times select, readd all index before select again")
             sql """
                 ALTER TABLE ${indexTbName1}
-                    add index ${varchar_colume1}_idx(`${varchar_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${varchar_colume1} index',
-                    add index ${varchar_colume2}_idx(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index',
-                    add index ${varchar_colume3}_idx(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index',
+                    add index ${varchar_colume1}_idx(`${varchar_colume1}`) USING INVERTED PROPERTIES("parser"="english", "support_phrase" = "true") COMMENT '${varchar_colume1} index',
+                    add index ${varchar_colume2}_idx(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none", "support_phrase" = "true") COMMENT '${varchar_colume2} index',
+                    add index ${varchar_colume3}_idx(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard", "support_phrase" = "true") COMMENT ' ${varchar_colume3} index',
                     add index ${int_colume1}_idx(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index',
-                    add index ${string_colume1}_idx(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index',
-                    add index ${char_colume1}_idx(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index',
-                    add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
+                    add index ${string_colume1}_idx(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english", "support_phrase" = "true") COMMENT '${string_colume1} index',
+                    add index ${char_colume1}_idx(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard", "support_phrase" = "true") COMMENT '${char_colume1} index',
+                    add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard", "support_phrase" = "true") COMMENT '${text_colume1} index';
             """
             wait_for_latest_op_on_table_finish(indexTbName1, timeout)
             sql """ build index ${varchar_colume1}_idx on ${indexTbName1} """
@@ -155,112 +156,80 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
             wait_for_build_index_on_partition_finish(indexTbName1, timeout)
         }
 
-        // case1: match term
-        // case1.0 test match ""
+        // case1: test match_phrase ""
         try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
         try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume2} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${varchar_colume2} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
         try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${varchar_colume3} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
         try {
-            sql """ select * from ${indexTbName1} where ${string_colume1} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${string_colume1} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
         try {
-            sql """ select * from ${indexTbName1} where ${char_colume1} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${char_colume1} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
         try {
-            sql """ select * from ${indexTbName1} where ${text_colume1} match_any "" order by name; """
+            sql """ select * from ${indexTbName1} where ${text_colume1} match_phrase "" order by name; """
         } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
+            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_phrase,  result: " + ex)
         }
 
-        // case1.0 test int colume cannot use match
+        // case2: test int colume cannot use match_phrase
         def colume_match_result = "fail"
         try {
-            drop_result = sql "select * from ${indexTbName1} where ${int_colume1} match_any 9"
+            drop_result = sql "select * from ${indexTbName1} where ${int_colume1} match_phrase 9"
             colume_match_result = 'success'
         } catch(Exception ex) {
             logger.info("int colume should not match succ, result: " + ex)
         }
         assertEquals(colume_match_result, 'fail')
 
-        // case2: match same term with different way
-        // case2.0： test varchar default(simple) match same term with different way
-        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'zhang san' order by name; """
-        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_all "zhang san" order by name; """
-        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_all '"zhang san"' order by name; """
-        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'san' order by name; """
-        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'not exist name' order by name; """
+        // case3: test match_phrase varchar column with english parser
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase 'zhang san' order by name; """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase "li si" order by name; """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase '"si li"' order by name; """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase 'san zhang' order by name; """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_phrase 'not exist name' order by name; """
 
-        // case2.1: test varchar none match same term with different way and repeate 5 times
-        for (int test_times = 0; test_times < 5; test_times++) {
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade 5' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}="grade 5" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade none' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade 5' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match "grade 5" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade none' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade' order by name """
-        }
+        // case4: test match_phrase varchar column with none parser
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade 5' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}="grade 5" order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade none' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match_phrase 'grade 5' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match_phrase 'grade none' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match_phrase 'grade' order by name """
 
-        // cas2.2 test varchar standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'zhang yi' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_all "zhang yi" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any '"zhang yi"' order by name """
-        }
+        // cas5: test match_phrase varchar column with standard parser
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_phrase 'zhang yi' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_phrase "li liu" order by name """
 
-        // case3: test char standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
-            qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any 'tall:100cm, weight: 30kg, hobbies:' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any '"tall:100cm, weight: 30kg, hobbies:"' order by name """
-        }
+        // case6: test match_phrase char column with standard parser
+        qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_phrase "tall:100cm" order by name """
+        qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_phrase "weight: hobbies:" order by name """
+        qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_phrase "hobbies: sing" order by name """
 
-        // case4: test string simple match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
-            qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_all 'A naughty boy' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any "A naughty boy" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any '"A naughty boy"' order by name """
-        }
+        // case7: test match_phrase string column with english parser
+        qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_phrase 'a quiet little boy' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_phrase "A naughty boy" order by name """
+        qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_phrase 'a boy' order by name """
 
-        // case5: test text standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
-            qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all 'i just want go outside' order by name """
-            qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_any "i just want go outside" order by name """
-            qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all '"i just want go outside"' order by name """
-        }
-
-        // case6: test term and phrase mix select
-        qt_sql """
-            select * from ${indexTbName1} where
-                ${varchar_colume1} match_any 'zhang san' and 
-                ${varchar_colume2} = 'grade 5' or
-                ${varchar_colume3} match_all "zhang yi"
-                order by name
-            """
-
-        qt_sql """
-            select * from ${indexTbName1} where
-                ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" and
-                ${string_colume1} match_any "A naughty boy" or
-                ${text_colume1} match_all "i just want go outside"
-                order by name
-            """
+        // case8: test match_phrase text column with standard parser
+        qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_phrase 'i just want go outside' order by name """
+        qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_phrase "good" order by name """
 
     }
 
