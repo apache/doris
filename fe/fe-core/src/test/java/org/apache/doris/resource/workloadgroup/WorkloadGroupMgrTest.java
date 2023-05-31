@@ -137,8 +137,8 @@ public class WorkloadGroupMgrTest {
         String name1 = "g1";
         CreateWorkloadGroupStmt stmt1 = new CreateWorkloadGroupStmt(false, name1, properties1);
         workloadGroupMgr.createWorkloadGroup(stmt1);
-        context.getSessionVariable().setWorkload(name1);
-        List<TPipelineWorkloadGroup> tWorkloadGroups1 = workloadGroupMgr.getWorkloadGroup(name1);
+        context.getSessionVariable().setWorkloadGroup(name1);
+        List<TPipelineWorkloadGroup> tWorkloadGroups1 = workloadGroupMgr.getWorkloadGroup(context);
         Assert.assertEquals(1, tWorkloadGroups1.size());
         TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups1.get(0);
         Assert.assertEquals(name1, tWorkloadGroup1.getName());
@@ -165,13 +165,13 @@ public class WorkloadGroupMgrTest {
         CreateWorkloadGroupStmt createStmt = new CreateWorkloadGroupStmt(false, name, properties);
         workloadGroupMgr.createWorkloadGroup(createStmt);
         context.getSessionVariable().setWorkloadGroup(name);
-        Assert.assertEquals(1, workloadGroupMgr.getWorkloadGroup(name).size());
+        Assert.assertEquals(1, workloadGroupMgr.getWorkloadGroup(context).size());
 
         DropWorkloadGroupStmt dropStmt = new DropWorkloadGroupStmt(false, name);
         workloadGroupMgr.dropWorkloadGroup(dropStmt);
         try {
             context.getSessionVariable().setWorkloadGroup(name);
-            workloadGroupMgr.getWorkloadGroup(name);
+            workloadGroupMgr.getWorkloadGroup(context);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
@@ -211,7 +211,7 @@ public class WorkloadGroupMgrTest {
         workloadGroupMgr.alterWorkloadGroup(stmt2);
 
         context.getSessionVariable().setWorkloadGroup(name);
-        List<TPipelineWorkloadGroup> tWorkloadGroups = workloadGroupMgr.getWorkloadGroup(name);
+        List<TPipelineWorkloadGroup> tWorkloadGroups = workloadGroupMgr.getWorkloadGroup(context);
         Assert.assertEquals(1, tWorkloadGroups.size());
         TPipelineWorkloadGroup tWorkloadGroup1 = tWorkloadGroups.get(0);
         Assert.assertEquals(tWorkloadGroup1.getProperties().get(WorkloadGroup.CPU_SHARE), "5");
