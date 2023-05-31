@@ -49,8 +49,11 @@ DECIMALV3 has a very complex set of type inference rules. For different expressi
 
 * Plus / Minus: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y) + 1, max(b, y)).
 * Multiply: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y).
-* Divide: DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b).
-
+* Divide: DECIMALV3(p1, s1) + DECIMALV3(p2, s2) -> DECIMALV3(p1 + s2 + div_precision_increment, s1 + div_precision_increment).div_precision_increment default 4.
+It is worth noting that the process of division calculation is as follows:
+DECIMALV3(p1, s1) / DECIMALV3(p2, s2) is first converted to DECIMALV3(p1 + s2 + div_precision_increment, s1 + s2) / DECIMALV3(p2, s2) and then the calculation is performed. Therefore, it is possible that DECIMALV3(p1 + s2 + div_precision_increment, s1 + div_precision_increment) satisfies the range of DECIMALV3, 
+but due to the conversion to DECIMALV3(p1 + s2 + div_precision_increment, s1 + s2), 
+it exceeds the range. Currently, Doris handles this by converting it to Double for calculation.
 #### Aggregation functions
 
 * SUM / MULTI_DISTINCT_SUM: SUM(DECIMALV3(a, b)) -> DECIMALV3(38, b).

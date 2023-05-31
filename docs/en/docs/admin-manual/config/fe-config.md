@@ -2740,4 +2740,3 @@ Default: 4
 
 This variable indicates the number of digits by which to increase the scale of the result of 
 division operations performed with the `/` operator. 
-The default value is 4, and it is currently only used for the DECIMALV3 type and nereids_planner.
