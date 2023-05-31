@@ -116,6 +116,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -2429,7 +2430,17 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
     assert(column_ptr->size() == rowids.size());
     auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
-    vectorized::JsonbSerializeUtil::jsonb_to_block(tablet_schema, cids, *string_column, block);
+    vectorized::DataTypeSerDeSPtrs serdes;
+    serdes.resize(cids.size());
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    for (int i = 0; i < cids.size(); ++i) {
+        const TabletColumn& column = tablet_schema->column(cids[i]);
+        vectorized::DataTypePtr type =
+                vectorized::DataTypeFactory::instance().create_data_type(column);
+        col_uid_to_idx[column.unique_id()] = i;
+        serdes[i] = type->get_serde();
+    }
+    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block);
     return Status::OK();
 }
 
@@ -2477,7 +2488,7 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
 
 Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                                RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
-                               OlapReaderStatistics& stats, vectorized::Block* block,
+                               OlapReaderStatistics& stats, std::string& values,
                                bool write_to_cache) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
@@ -2525,11 +2536,12 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
     assert(column_ptr->size() == 1);
     auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
+    StringRef value = string_column->get_data_at(0);
+    values = value.to_string();
     if (write_to_cache) {
         StringRef value = string_column->get_data_at(0);
         RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(*desc, *string_column, *block);
     return Status::OK();
 }
 
@@ -2684,10 +2696,15 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
             auto index_column = index_type->create_column();
             Slice last_key_slice(last_key);
             RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
+            auto current_ordinal = iter->get_current_ordinal();
+            DCHECK(total == remaining + current_ordinal)
+                    << "total: " << total << ", remaining: " << remaining
+                    << ", current_ordinal: " << current_ordinal;
 
             size_t num_read = num_to_read;
             RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
-            DCHECK(num_to_read == num_read);
+            DCHECK(num_to_read == num_read)
+                    << "num_to_read: " << num_to_read << ", num_read: " << num_read;
             last_key = index_column->get_data_at(num_read - 1).to_string();
 
             // exclude last_key, last_key will be read in next batch.
@@ -2956,8 +2973,8 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
 
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-    RETURN_IF_ERROR(
-            calc_delete_bitmap(rowset, segments, nullptr, delete_bitmap, cur_version - 1, true));
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &cur_rowset_ids, delete_bitmap,
+                                       cur_version - 1, true));
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         _tablet_meta->delete_bitmap().merge(
@@ -2998,25 +3015,9 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
-    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
-                                       cur_version - 1, false, rowset_writer));
-
-    // Check the delete_bitmap correctness, now the check is only enabled in DEBUG env.
-    if (load_info->num_keys != 0) {
-        DeleteBitmap rs_bm(tablet_id());
-        delete_bitmap->subset({rowset->rowset_id(), 0, 0},
-                              {rowset->rowset_id(), UINT32_MAX, INT64_MAX}, &rs_bm);
-        auto num_rows = rowset->num_rows();
-        auto bitmap_cardinality = rs_bm.cardinality();
-        std::string err_msg = fmt::format(
-                "The delete bitmap of unique key table may not correct, expect num unique keys:"
-                "{}, "
-                "now the num_rows: {}, delete bitmap cardinality: {}, num sgements: {}",
-                load_info->num_keys, num_rows, bitmap_cardinality, rowset->num_segments());
-        DCHECK_EQ(load_info->num_keys, num_rows - bitmap_cardinality) << err_msg;
-        if (load_info->num_keys != num_rows - bitmap_cardinality) {
-            return Status::InternalError(err_msg);
-        }
+    if (!rowset_ids_to_add.empty()) {
+        RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
+                                           cur_version - 1, false, rowset_writer));
     }
 
     // update version without write lock, compaction and publish_txn

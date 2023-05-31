@@ -331,7 +331,6 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
-        boolean enableStoreRowColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -401,7 +400,6 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException(
                         PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
             }
-
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                 enableUniqueKeyMergeOnWrite = true;
                 if (properties != null) {
@@ -409,7 +407,6 @@ public class CreateTableStmt extends DdlStmt {
                     // so we just clone a properties map here.
                     enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
                             new HashMap<>(properties));
-                    enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
                 }
             }
 
@@ -455,7 +452,8 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
-        if (enableStoreRowColumn) {
+        // add a hidden column as row store
+        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
         }
         if (Config.enable_hidden_version_column_by_default && keysDesc != null

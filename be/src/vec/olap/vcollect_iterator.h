@@ -53,7 +53,8 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
+              std::vector<std::pair<int, int>> rs_readers_segment_offsets);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -329,7 +330,9 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
+    // when we use scanner pooling + query with topn_with_limit, we use it.
     std::vector<RowsetReaderSharedPtr> _rs_readers;
+    std::vector<std::pair<int, int>> _rs_readers_segment_offsets;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

@@ -1037,6 +1037,8 @@ void TabletSchema::set_partial_update_info(bool is_partial_update,
                                            const std::set<string>& partial_update_input_columns) {
     _is_partial_update = is_partial_update;
     _partial_update_input_columns = partial_update_input_columns;
+    _missing_cids.clear();
+    _update_cids.clear();
     for (auto i = 0; i < _cols.size(); ++i) {
         if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
             _missing_cids.emplace_back(i);

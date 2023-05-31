@@ -36,7 +36,9 @@ import java.util.List;
 
 public class IcebergExternalTable extends ExternalTable {
 
-    public static final int ICEBERG_DATETIME_SCALE_MS = 3;
+    // https://iceberg.apache.org/spec/#schemas-and-data-types
+    // All time and timestamp values are stored with microsecond precision
+    public static final int ICEBERG_DATETIME_SCALE_MS = 6;
 
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);

@@ -86,6 +86,9 @@ public:
 
     static void build_version(parquet::WriterProperties::Builder& builder,
                               const TParquetVersion::type& parquet_version);
+    static void build_schema_data_logical_type(
+            std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
+            const TParquetDataLogicalType::type& column_data_logical_type);
 };
 
 class VFileWriterWrapper {
@@ -134,11 +137,9 @@ public:
 private:
     parquet::RowGroupWriter* get_rg_writer();
 
-    void parse_schema(const std::vector<TParquetSchema>& parquet_schemas);
+    Status parse_schema();
 
-    void parse_properties(const TParquetCompressionType::type& compression_type,
-                          const bool& parquet_disable_dictionary,
-                          const TParquetVersion::type& parquet_version);
+    Status parse_properties();
 
 private:
     std::shared_ptr<ParquetOutputStream> _outstream;
@@ -147,6 +148,11 @@ private:
     std::unique_ptr<parquet::ParquetFileWriter> _writer;
     parquet::RowGroupWriter* _rg_writer;
     const int64_t _max_row_per_group = 10;
+
+    const std::vector<TParquetSchema>& _parquet_schemas;
+    const TParquetCompressionType::type& _compression_type;
+    const bool& _parquet_disable_dictionary;
+    const TParquetVersion::type& _parquet_version;
 };
 
 } // namespace doris::vectorized

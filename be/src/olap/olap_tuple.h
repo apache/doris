@@ -59,6 +59,8 @@ public:
         _nulls.clear();
     }
 
+    std::string operator[](size_t index) const { return _values[index]; }
+
 private:
     friend std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple);
 

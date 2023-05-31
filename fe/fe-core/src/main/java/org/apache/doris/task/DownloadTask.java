@@ -64,7 +64,7 @@ public class DownloadTask extends AgentTask {
     }
 
     public TDownloadReq toThrift() {
-        TNetworkAddress address = new TNetworkAddress(brokerAddr.ip, brokerAddr.port);
+        TNetworkAddress address = new TNetworkAddress(brokerAddr.host, brokerAddr.port);
         TDownloadReq req = new TDownloadReq(jobId, srcToDestPath, address);
         req.setBrokerProp(brokerProperties);
         req.setStorageBackend(storageType.toThrift());

@@ -41,6 +41,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -970,6 +971,13 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         olapTable.deleteIndexInfo(mvName);
+        try {
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(),
+                    Env.getCurrentInternalCatalog().getDbOrDdlException(olapTable.getQualifiedDbName()).getId(),
+                    olapTable.getId(), mvIndexId);
+        } catch (DdlException e) {
+            LOG.info("failed to clean stats for mv {} from {}", mvName, olapTable.getName(), e);
+        }
         return mvIndexId;
     }
 
@@ -993,9 +1001,11 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                 }
             }
-
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);
             olapTable.deleteIndexInfo(rollupIndexName);
+
+            env.getQueryStats().clear(env.getCurrentCatalog().getId(), db.getId(),
+                    olapTable.getId(), rollupIndexId);
         } finally {
             olapTable.writeUnlock();
         }
@@ -1257,12 +1267,12 @@ public class MaterializedViewHandler extends AlterHandler {
 
     public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
             throws UserException {
-        Map<String, Table> olapTables = addMVClause.getTables();
+        Map<String, TableIf> olapTables = addMVClause.getTables();
         try {
-            olapTables.values().forEach(Table::readLock);
+            olapTables.values().forEach(TableIf::readLock);
             Env.getCurrentEnv().createTable(addMVClause);
         } finally {
-            olapTables.values().forEach(Table::readUnlock);
+            olapTables.values().forEach(TableIf::readUnlock);
         }
     }
 }

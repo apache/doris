@@ -149,9 +149,8 @@ public:
 
     static Status create_expr(ObjectPool* pool, const TExprNode& texpr_node, VExpr** expr);
 
-    static Status create_tree_from_thrift(doris::ObjectPool* pool,
-                                          const std::vector<doris::TExprNode>& nodes, int* node_idx,
-                                          VExpr** root_expr, VExprContext** ctx);
+    static Status create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNode>& nodes,
+                                          int* node_idx, VExpr** root_expr, VExprContext** ctx);
     virtual const std::vector<VExpr*>& children() const { return _children; }
     void set_children(std::vector<VExpr*> children) { _children = children; }
     virtual std::string debug_string() const;
@@ -178,7 +177,7 @@ public:
     int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
@@ -211,9 +210,11 @@ protected:
         return out.str();
     }
 
+    Status check_constant(const Block& block, ColumnNumbers arguments) const;
+
     /// Helper function that calls ctx->register(), sets fn_context_index_, and returns the
     /// registered FunctionContext
-    void register_function_context(doris::RuntimeState* state, VExprContext* context);
+    void register_function_context(RuntimeState* state, VExprContext* context);
 
     /// Helper function to initialize function context, called in `open` phase of VExpr:
     /// 1. Set constant columns result of function arguments.

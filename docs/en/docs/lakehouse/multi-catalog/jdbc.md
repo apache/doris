@@ -256,10 +256,10 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
 >
 > `include_database_list`:
-> When `only_specified_database=true`, only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > `exclude_database_list`:
-> When `only_specified_database=true`, specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 >
@@ -379,7 +379,9 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | int                                    | INT         |                                                              |
 | bigint                                 | BIGINT      |                                                              |
 | real                                   | FLOAT       |                                                              |
-| float/money/smallmoney                 | DOUBLE      |                                                              |
+| float                 | DOUBLE      |                                                              |
+| money | DECIMAL(19,4) | |
+| smallmoney | DECIMAL(10,4) | |
 | decimal/numeric                        | DECIMAL     |                                                              |
 | date                                   | DATE        |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2  |                                                              |
@@ -534,7 +536,7 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
    ```
 
-   Such errors occur because the `driver_class` has been wrongly put when creating the Resource. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
+   Such errors occur because the `driver_class` has been wrongly put when creating the catalog. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
 
 5. How to fix communication link failures?
 

@@ -263,7 +263,7 @@ public class FileGroupInfo {
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
         } else {
             params.setBrokerAddresses(new ArrayList<>());
         }

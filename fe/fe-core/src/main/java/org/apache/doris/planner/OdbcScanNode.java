@@ -27,12 +27,15 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -91,6 +94,8 @@ public class OdbcScanNode extends ScanNode {
     private String connectString;
     private TOdbcTableType odbcType;
 
+    private OdbcTable tbl;
+
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
@@ -99,6 +104,7 @@ public class OdbcScanNode extends ScanNode {
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
+        this.tbl = tbl;
     }
 
     @Override
@@ -245,5 +251,12 @@ public class OdbcScanNode extends ScanNode {
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
         cardinality = (long) statsDeriveResult.getRowCount();
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
+                tbl.getId(), -1L);
     }
 }

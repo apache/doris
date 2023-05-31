@@ -99,6 +99,7 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
     _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+    _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
 template <bool is_binary_format>
@@ -894,10 +895,12 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
     }
 
+    uint64_t bytes_sent = 0;
     // copy MysqlRowBuffer to Thrift
     result->result_batch.rows.resize(num_rows);
     for (int i = 0; i < num_rows; ++i) {
         result->result_batch.rows[i].append(rows_buffer[i].buf(), rows_buffer[i].length());
+        bytes_sent += rows_buffer[i].length();
     }
 
     if (status) {
@@ -912,6 +915,9 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         if (status.ok()) {
             _written_rows += num_rows;
+            if (!_is_dry_run) {
+                _bytes_sent += bytes_sent;
+            }
         } else {
             LOG(WARNING) << "append result batch to sink failed.";
         }
@@ -928,6 +934,7 @@ bool VMysqlResultWriter<is_binary_format>::can_sink() {
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::close() {
     COUNTER_SET(_sent_rows_counter, _written_rows);
+    COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();
 }
 

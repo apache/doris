@@ -153,8 +153,7 @@ public class RestoreJobTest {
 
         new Expectations() {
             {
-                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
-                        anyString, (TStorageMedium) any);
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, (TStorageMedium) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> selectBackendIdsForReplicaCreation(

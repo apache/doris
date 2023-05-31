@@ -67,8 +67,7 @@ public class InsertStreamTxnExecutor {
                 txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadStmt);
         // Will using load id as query id in fragment
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadStmt.getId());
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
-                .needLoadAvailable().needQueryAvailable().build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
         List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (beIds.isEmpty()) {
             throw new UserException("No available backend to match the policy: " + policy);

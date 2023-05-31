@@ -131,6 +131,8 @@ public class OperationType {
     // replaced by OP_GLOBAL_VARIABLE_V2
     public static final short OP_GLOBAL_VARIABLE = 73;
 
+    @Deprecated
+    // remove be removed in 3.0
     public static final short OP_CREATE_CLUSTER = 74;
     public static final short OP_DROP_CLUSTER = 75;
     public static final short OP_EXPAND_CLUSTER = 76;
@@ -285,6 +287,9 @@ public class OperationType {
     public static final short OP_CREATE_RESOURCE_GROUP = 410;
     public static final short OP_DROP_RESOURCE_GROUP = 411;
     public static final short OP_ALTER_RESOURCE_GROUP = 412;
+
+    // query stats 440 ~ 424
+    public static final short OP_CLEAN_QUERY_STATS = 420;
 
     /**
      * Get opcode name by op code.

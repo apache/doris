@@ -82,8 +82,12 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #define CREATE_AND_START_THREAD(type, pool_name)
 #endif // BE_TEST
 
-    CREATE_AND_START_POOL(CREATE_TABLE, _create_tablet_workers);
-    CREATE_AND_START_POOL(DROP_TABLE, _drop_tablet_workers);
+    _create_tablet_workers.reset(
+            new CreateTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
+    _create_tablet_workers->start();
+    _drop_tablet_workers.reset(
+            new DropTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
+    _drop_tablet_workers->start();
 
     // Both PUSH and REALTIME_PUSH type use _push_workers
     CREATE_AND_START_POOL(PUSH, _push_workers);

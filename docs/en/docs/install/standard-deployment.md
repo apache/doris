@@ -48,7 +48,7 @@ Doris, as an open source OLAP database with an MPP architecture, can run on most
 
 | Soft | Version | 
 |---|---|
-| Java | 1.8 and above |
+| Java | 1.8  |
 | GCC  | 4.8.2 and above |
 
 #### OS Installation Requirements

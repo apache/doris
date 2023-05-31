@@ -83,6 +83,10 @@ public class Checkpoint extends MasterDaemon {
     // public for unit test, so that we can trigger checkpoint manually.
     // DO NOT call it manually outside the unit test.
     public synchronized void doCheckpoint() throws CheckpointException {
+        if (!Env.getServingEnv().isHttpReady()) {
+            LOG.info("Http server is not ready.");
+            return;
+        }
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;

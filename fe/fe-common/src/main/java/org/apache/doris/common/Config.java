@@ -1486,7 +1486,7 @@ public class Config extends ConfigBase {
 
     // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_resource_group = false;
+    public static boolean enable_resource_group = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1505,8 +1505,8 @@ public class Config extends ConfigBase {
     /**
      * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_date_conversion = false;
+    @ConfField(mutable = true)
+    public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
@@ -1756,7 +1756,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1902,7 +1902,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = false;
+    public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
@@ -1940,12 +1940,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int max_instance_num = 128;
 
-
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.
      * It is a very dangerous operation, should only be used in test env.
      */
+
     @ConfField(mutable = false)
     public static boolean enable_delete_existing_files  = false;
     /*
@@ -1961,4 +1961,20 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static long stats_cache_size = 10_0000;
+
+    /**
+     * This configuration is used to enable the statistics of query information, which will record
+     * the access status of databases, tables, and columns, and can be used to guide the
+     * optimization of table structures
+     *
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_query_hit_stats = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，" + "以及不可查询的具体原因。",
+            "When set to true, if a query is unable to select a healthy replica, "
+                    + "the detailed information of all the replicas of the tablet,"
+                    + " including the specific reason why they are unqueryable, will be printed out."})
+    public static boolean show_details_for_unaccessible_tablet = false;
 }
