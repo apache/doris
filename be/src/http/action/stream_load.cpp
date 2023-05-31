@@ -421,13 +421,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_file_size(ctx->body_bytes);
         ctx->body_sink = file_sink;
     }
-    
-    std::map<string,string> properties {};
-    for (const auto& property: http_req->headers()) {
-        properties.insert(std::pair(property.first,property.second));
+
+    std::map<string, string> properties {};
+    for (const auto& property : http_req->headers()) {
+        properties.insert(std::pair(property.first, property.second));
     }
     request.__set_properties(properties);
-    
 
 #ifndef BE_TEST
     // plan this load
