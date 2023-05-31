@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.resourcegroup.ResourceGroupMgr;
 
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -56,6 +57,9 @@ public class CommonUserProperties implements Writable {
 
     @SerializedName("insertTimeout")
     private int insertTimeout = -1;
+
+    @SerializedName("workloadGroup")
+    private String workloadGroup = ResourceGroupMgr.DEFAULT_GROUP_NAME;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -131,6 +135,14 @@ public class CommonUserProperties implements Writable {
 
     public void setInsertTimeout(int insertTimeout) {
         this.insertTimeout = insertTimeout;
+    }
+
+    public String getWorkloadGroup() {
+        return workloadGroup;
+    }
+
+    public void setWorkloadGroup(String workloadGroup) {
+        this.workloadGroup = workloadGroup;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

@@ -405,7 +405,7 @@ public class SessionVariable implements Serializable, Writable {
     public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
-    public String resourceGroup = "normal";
+    public String resourceGroup = "";
 
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = AUTO_COMMIT)

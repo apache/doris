@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineResourceGroup;
 
 import com.google.common.collect.Maps;
@@ -128,6 +129,7 @@ public class ResourceGroupMgrTest {
     @Test
     public void testGetResourceGroup() throws UserException {
         Config.enable_resource_group = true;
+        ConnectContext context = new ConnectContext();
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(ResourceGroup.CPU_SHARE, "10");
@@ -135,14 +137,16 @@ public class ResourceGroupMgrTest {
         String name1 = "g1";
         CreateResourceGroupStmt stmt1 = new CreateResourceGroupStmt(false, name1, properties1);
         resourceGroupMgr.createResourceGroup(stmt1);
-        List<TPipelineResourceGroup> tResourceGroups1 = resourceGroupMgr.getResourceGroup(name1);
+        context.getSessionVariable().setResourceGroup(name1);
+        List<TPipelineResourceGroup> tResourceGroups1 = resourceGroupMgr.getResourceGroup(context);
         Assert.assertEquals(1, tResourceGroups1.size());
         TPipelineResourceGroup tResourceGroup1 = tResourceGroups1.get(0);
         Assert.assertEquals(name1, tResourceGroup1.getName());
         Assert.assertTrue(tResourceGroup1.getProperties().containsKey(ResourceGroup.CPU_SHARE));
 
         try {
-            resourceGroupMgr.getResourceGroup("g2");
+            context.getSessionVariable().setResourceGroup("g2");
+            resourceGroupMgr.getResourceGroup(context);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
@@ -152,6 +156,7 @@ public class ResourceGroupMgrTest {
     @Test
     public void testDropResourceGroup() throws UserException {
         Config.enable_resource_group = true;
+        ConnectContext context = new ConnectContext();
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(ResourceGroup.CPU_SHARE, "10");
@@ -159,12 +164,14 @@ public class ResourceGroupMgrTest {
         String name = "g1";
         CreateResourceGroupStmt createStmt = new CreateResourceGroupStmt(false, name, properties);
         resourceGroupMgr.createResourceGroup(createStmt);
-        Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(name).size());
+        context.getSessionVariable().setResourceGroup(name);
+        Assert.assertEquals(1, resourceGroupMgr.getResourceGroup(context).size());
 
         DropResourceGroupStmt dropStmt = new DropResourceGroupStmt(false, name);
         resourceGroupMgr.dropResourceGroup(dropStmt);
         try {
-            resourceGroupMgr.getResourceGroup(name);
+            context.getSessionVariable().setResourceGroup(name);
+            resourceGroupMgr.getResourceGroup(context);
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
@@ -181,6 +188,7 @@ public class ResourceGroupMgrTest {
     @Test
     public void testAlterResourceGroup() throws UserException {
         Config.enable_resource_group = true;
+        ConnectContext context = new ConnectContext();
         ResourceGroupMgr resourceGroupMgr = new ResourceGroupMgr();
         Map<String, String> properties = Maps.newHashMap();
         String name = "g1";
@@ -202,7 +210,8 @@ public class ResourceGroupMgrTest {
         AlterResourceGroupStmt stmt2 = new AlterResourceGroupStmt(name, newProperties);
         resourceGroupMgr.alterResourceGroup(stmt2);
 
-        List<TPipelineResourceGroup> tResourceGroups = resourceGroupMgr.getResourceGroup(name);
+        context.getSessionVariable().setResourceGroup(name);
+        List<TPipelineResourceGroup> tResourceGroups = resourceGroupMgr.getResourceGroup(context);
         Assert.assertEquals(1, tResourceGroups.size());
         TPipelineResourceGroup tResourceGroup1 = tResourceGroups.get(0);
         Assert.assertEquals(tResourceGroup1.getProperties().get(ResourceGroup.CPU_SHARE), "5");
