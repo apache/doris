@@ -84,7 +84,9 @@ public abstract class JniScanner {
     }
 
     protected void resetTable() {
-        vectorTable.reset();
+        if (vectorTable != null) {
+            vectorTable.reset();
+        }
     }
 
     protected void releaseColumn(int fieldId) {

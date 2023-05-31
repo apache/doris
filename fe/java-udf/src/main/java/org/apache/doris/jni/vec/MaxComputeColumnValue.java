@@ -33,6 +33,7 @@ import org.apache.arrow.vector.util.DecimalUtility;
 import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -118,6 +119,13 @@ public class MaxComputeColumnValue implements ColumnValue {
         skippedIfNull();
         Float8Vector doubleCol = (Float8Vector) column;
         return doubleCol.get(idx++);
+    }
+
+    @Override
+    public BigInteger getBigInteger() {
+        skippedIfNull();
+        BigIntVector longCol = (BigIntVector) column;
+        return BigInteger.valueOf(longCol.get(idx++));
     }
 
     @Override
