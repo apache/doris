@@ -128,6 +128,7 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
                                               std::vector<SegmentSharedPtr> const& segments,
                                               size_t seq_col_length, size_t max_batch_size) {
     _rowset_id = rowset_id;
+    _seq_col_length = seq_col_length;
     _comparator = MergeIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
     _contexts.reserve(segments.size());
     _heap = std::make_unique<Heap>(_comparator);
@@ -136,7 +137,7 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
         RETURN_IF_ERROR(segment->load_index());
         auto pk_idx = segment->get_primary_key_index();
         std::unique_ptr<segment_v2::IndexedColumnIterator> index;
-        pk_idx->new_iterator(&index);
+        RETURN_IF_ERROR(pk_idx->new_iterator(&index));
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
         _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
@@ -147,7 +148,7 @@ Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
 }
 
 Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
-    // get the position of a out-of-date row
+    // get the location of a out-of-date row
     while (!_heap->empty()) {
         auto cur_ctx = _heap->top();
         _heap->pop();
@@ -171,8 +172,10 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         auto nxt_ctx = _heap->top();
         Slice nxt_key;
         RETURN_IF_ERROR(nxt_ctx->get_current_key(nxt_key));
-        Status st = _comparator.is_key_same(cur_key, nxt_key) ? cur_ctx->advance()
-                                                              : cur_ctx->seek_at_or_after(nxt_key);
+        Status st = _comparator.is_key_same(cur_key, nxt_key)
+                            ? cur_ctx->advance()
+                            : cur_ctx->seek_at_or_after(Slice(
+                                      nxt_key.get_data(), nxt_key.get_size() - _seq_col_length));
         if (st.is<ErrorCode::END_OF_FILE>()) {
             continue;
         }

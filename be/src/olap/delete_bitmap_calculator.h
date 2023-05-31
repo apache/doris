@@ -106,6 +106,7 @@ private:
     RowsetId _rowset_id;
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
+    size_t _seq_col_length;
 };
 
 } // namespace doris
