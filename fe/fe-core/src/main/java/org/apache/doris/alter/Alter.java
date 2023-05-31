@@ -69,7 +69,6 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVJobFactory;
-import org.apache.doris.mtmv.MTMVUtils.TaskSubmitStatus;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterViewInfo;
@@ -164,10 +163,7 @@ public class Alter {
         }
         String db = stmt.getMvName().getDb();
         String tbl = stmt.getMvName().getTbl();
-        TaskSubmitStatus status = Env.getCurrentEnv().getMTMVJobManager().refreshMTMV(db, tbl);
-        if (status != TaskSubmitStatus.SUBMITTED) {
-            throw new DdlException("Refresh MaterializedView with " + status.toString());
-        }
+        Env.getCurrentEnv().getMTMVJobManager().refreshMTMV(db, tbl);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
