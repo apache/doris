@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -128,10 +126,5 @@ public class RelationUtil {
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-    }
-
-    public static boolean isMv(Column column) {
-        return column.getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-                || column.getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 }
