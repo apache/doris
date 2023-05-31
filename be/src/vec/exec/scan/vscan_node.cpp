@@ -152,7 +152,7 @@ Status VScanNode::_init_profile() {
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
     _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
-    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcquireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));

@@ -73,6 +73,8 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _file_counter =
+            ADD_COUNTER(_parent->_scanner_profile, "FileReaderCounter", TUnit::UNIT);
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -465,6 +467,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::OK();
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
+        COUNTER_UPDATE(_file_counter, 1);
 
         // create reader for specific format
         // TODO: add json, avro

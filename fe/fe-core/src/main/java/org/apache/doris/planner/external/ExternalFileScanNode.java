@@ -617,22 +617,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         if (detailLevel == TExplainLevel.VERBOSE) {
             output.append(prefix).append("backends:").append("\n");
-            for (TScanRangeLocations locations : scanRangeLocations) {
-                output.append(prefix).append("  ").append(locations.getLocations().get(0).backend_id).append("\n");
-                List<TFileRangeDesc> files = locations.getScanRange().getExtScanRange().getFileScanRange().getRanges();
-                for (int i = 0; i < 3; i++) {
-                    if (i >= files.size()) {
-                        break;
-                    }
-                    TFileRangeDesc file = files.get(i);
-                    output.append(prefix).append("    ").append(file.getPath()).append(" start: ")
-                            .append(file.getStartOffset()).append(" length: ").append(file.getSize()).append("\n");
-                }
-            }
-        }
-
-        if (detailLevel == TExplainLevel.VERBOSE) {
-            output.append(prefix).append("backends:").append("\n");
             Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
             // 1. group by backend id
             for (TScanRangeLocations locations : scanRangeLocations) {
@@ -640,7 +624,6 @@ public class ExternalFileScanNode extends ExternalScanNode {
                         locations.getScanRange().getExtScanRange().getFileScanRange().getRanges());
             }
             for (long beId : scanRangeLocationsMap.keySet()) {
-                output.append(prefix).append("  ").append(beId).append("\n");
                 List<TFileRangeDesc> fileRangeDescs = Lists.newArrayList(scanRangeLocationsMap.get(beId));
                 // 2. sort by file start offset
                 Collections.sort(fileRangeDescs, new Comparator<TFileRangeDesc>() {
@@ -651,6 +634,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 });
                 // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
+                output.append(prefix).append("  ").append(beId).append(": ").append(size).append(" files\n");
                 if (size <= 4) {
                     for (TFileRangeDesc file : fileRangeDescs) {
                         output.append(prefix).append("    ").append(file.getPath()).append(" start: ")
