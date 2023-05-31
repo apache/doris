@@ -520,6 +520,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeTime>();
         break;
     }
+    case PGenericType::TIMEV2: {
+        nested = std::make_shared<DataTypeTimeV2>();
+        break;
+    }
     case PGenericType::AGG_STATE: {
         DataTypes sub_types;
         for (auto child : pcolumn.children()) {

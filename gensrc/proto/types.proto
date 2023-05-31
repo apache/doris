@@ -109,6 +109,7 @@ message PGenericType {
         QUANTILE_STATE = 34;
         TIME = 35;
         AGG_STATE = 36;
+        TIMEV2 = 37;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

@@ -1,0 +1,45 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_time_diff_microseconds") {
+     sql """ DROP TABLE IF EXISTS tbl_time """
+      sql """
+        CREATE TABLE IF NOT EXISTS tbl_time (
+        `id` int(11) ,
+        `t1` DATETIMEV2(6) ,
+        `t2` DATETIMEV2(6) 
+        )
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true",
+        "replication_num" = "1"
+        );
+    """
+     sql """
+        INSERT INTO tbl_time VALUES(1,'0001-01-01 00:00:00.114514','0001-01-01 00:00:00.000000');
+    """
+    sql """
+        INSERT INTO tbl_time VALUES(2,'0001-01-03 19:19:00.000000','0001-01-01 00:00:00.000000');
+    """
+    sql """
+        INSERT INTO tbl_time VALUES(3,'0001-01-03 19:00:00.000000','0001-01-22 00:00:00.000000');
+    """
+    qt_select1 """
+        select timediff(t1,t2) from tbl_time order by id
+    """
+}
