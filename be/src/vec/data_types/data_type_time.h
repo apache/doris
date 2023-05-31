@@ -46,7 +46,7 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeTime  : public DataTypeNumberBase<Float64> {
+class DataTypeTime : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTime() = default;
 
@@ -72,7 +72,7 @@ public:
     const char* get_family_name() const override { return "time"; }
 };
 
-class DataTypeTimeV2 : public DataTypeNumberBase<Float64>{
+class DataTypeTimeV2 : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2() = default;
 
@@ -93,7 +93,9 @@ public:
     bool can_be_used_in_boolean_context() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeV2SerDe>(); };
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeTimeV2SerDe>();
+    };
     TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     const char* get_family_name() const override { return "timev2"; }
 };
