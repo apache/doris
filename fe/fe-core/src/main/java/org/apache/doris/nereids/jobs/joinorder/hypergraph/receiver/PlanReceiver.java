@@ -30,7 +30,6 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -48,9 +47,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -58,7 +57,6 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -336,49 +334,6 @@ public class PlanReceiver implements AbstractReceiver {
         }
     }
 
-    /**
-     * The top project of (T1, T2, T3) is different after reorder
-     * we need merge Project1 and Project2 as Project4 after reorder
-     * T1 join T2 join T3:
-     *    Project1(a, e + f)
-     *        join(a = e)
-     *            Project2(a, b + d as e)
-     *                join(a = c)
-     *                    T1(a, b)
-     *                    T2(c, d)
-     *        T3(e, f)
-     *
-     * after reorder:
-     * T1 join T3 join T2:
-     *    Project4(a, b + d + f)
-     *        join(a = c)
-     *            Project3(a, b, f)
-     *                join(a = e)
-     *                    T1(a, b)
-     *                    T3(e, f)
-     *        T2(c, d)
-     */
-    private List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
-            List<NamedExpression> parentProjects) {
-        Map<Expression, Alias> replaceMap = childProjects.stream().filter(e -> e instanceof Alias)
-                .collect(Collectors.toMap(NamedExpression::toSlot, e -> (Alias) e));
-        return parentProjects.stream().map(expr -> {
-            if (expr instanceof Alias) {
-                Alias alias = (Alias) expr;
-                Expression insideExpr = alias.child();
-                Expression newInsideExpr = insideExpr.rewriteUp(e -> {
-                    Alias getAlias = replaceMap.get(e);
-                    return getAlias == null ? e : getAlias.child();
-                });
-                return newInsideExpr == insideExpr ? expr
-                        : alias.withChildren(ImmutableList.of(newInsideExpr));
-            } else {
-                Alias getAlias = replaceMap.get(expr);
-                return getAlias == null ? expr : getAlias;
-            }
-        }).collect(ImmutableList.toImmutableList());
-    }
-
     private List<Plan> proposeProject(List<Plan> allChild, List<Edge> edges, long left, long right) {
         long fullKey = LongBitmap.newBitmapUnion(left, right);
         List<Slot> outputs = allChild.get(0).getOutput();
@@ -401,8 +356,29 @@ public class PlanReceiver implements AbstractReceiver {
             if (complexProjects.isEmpty()) {
                 complexProjects = complexProjectMap.get(bitmap);
             } else {
+                // The top project of (T1, T2, T3) is different after reorder
+                // we need merge Project1 and Project2 as Project4 after reorder
+                // T1 join T2 join T3:
+                //    Project1(a, e + f)
+                //        join(a = e)
+                //            Project2(a, b + d as e)
+                //                join(a = c)
+                //                    T1(a, b)
+                //                    T2(c, d)
+                //        T3(e, f)
+                //
+                // after reorder:
+                // T1 join T3 join T2:
+                //    Project4(a, b + d + f)
+                //        join(a = c)
+                //            Project3(a, b, f)
+                //                join(a = e)
+                //                    T1(a, b)
+                //                    T3(e, f)
+                //        T2(c, d)
+                //
                 complexProjects =
-                        mergeProjections(complexProjects, complexProjectMap.get(bitmap));
+                        PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap));
             }
         }
         allProjects.addAll(complexProjects);
@@ -434,7 +410,7 @@ public class PlanReceiver implements AbstractReceiver {
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());
         }
-        Preconditions.checkArgument(!projects.isEmpty() && projects.size() == allProjects.size());
+        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size());
 
         return allChild;
     }

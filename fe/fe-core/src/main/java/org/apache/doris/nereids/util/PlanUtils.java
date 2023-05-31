@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -25,11 +26,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Util for plan
@@ -66,5 +70,29 @@ public class PlanUtils {
 
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
         return project(projects, plan).map(Plan.class::cast).orElse(plan);
+    }
+
+    /**
+     * merge childProjects with parentProjects
+     */
+    public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
+            List<NamedExpression> parentProjects) {
+        Map<Expression, Alias> replaceMap = childProjects.stream().filter(e -> e instanceof Alias)
+                .collect(Collectors.toMap(NamedExpression::toSlot, e -> (Alias) e));
+        return parentProjects.stream().map(expr -> {
+            if (expr instanceof Alias) {
+                Alias alias = (Alias) expr;
+                Expression insideExpr = alias.child();
+                Expression newInsideExpr = insideExpr.rewriteUp(e -> {
+                    Alias getAlias = replaceMap.get(e);
+                    return getAlias == null ? e : getAlias.child();
+                });
+                return newInsideExpr == insideExpr ? expr
+                        : alias.withChildren(ImmutableList.of(newInsideExpr));
+            } else {
+                Alias getAlias = replaceMap.get(expr);
+                return getAlias == null ? expr : getAlias;
+            }
+        }).collect(ImmutableList.toImmutableList());
     }
 }
