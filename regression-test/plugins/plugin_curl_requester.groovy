@@ -16,10 +16,10 @@
 // under the License.
 
 import org.apache.doris.regression.suite.Suite
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
 Suite.metaClass.curl = { String method, String url /* param */-> 
     Suite suite = delegate as Suite
-    logger = suite.getLogger();
     if (method != "GET" && method != "POST")
     {
         throw new Exception(String.format("invalid curl method: %s", method))
@@ -31,7 +31,9 @@ Suite.metaClass.curl = { String method, String url /* param */->
     
     Integer timeout = 10; // 10 seconds;
 
-    def process = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString().execute()
+    String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
+    logger.info("curl cmd: " + cmd)
+    def process = cmd.execute()
     int code = process.waitFor()
     String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
     String out = process.getText()
