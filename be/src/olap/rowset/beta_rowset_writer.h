@@ -28,6 +28,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <roaring/roaring.hh>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -80,7 +82,8 @@ public:
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                 const FlushContext* ctx = nullptr) override;
+                                 const FlushContext* ctx = nullptr,
+                                 std::optional<int32_t> flush_id = std::nullopt) override;
 
     RowsetSharedPtr build() override;
 
@@ -106,6 +109,8 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    int32_t allocate_flush_id() override { return _num_flush.fetch_add(1); };
+
     // Maybe modified by local schema change
     vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
         return _context.schema_change_recorder.get();
@@ -126,11 +131,16 @@ private:
                       std::unique_ptr<segment_v2::SegmentWriter>* writer,
                       const FlushContext* flush_ctx = nullptr);
 
+    Status _add_block_to_one_segment(const vectorized::Block* block,
+                                     std::unique_ptr<segment_v2::SegmentWriter>* writer);
+
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                      bool is_segcompaction, int64_t begin, int64_t end,
-                                     const FlushContext* ctx = nullptr);
+                                     const FlushContext* ctx = nullptr,
+                                     std::optional<int32_t> flush_id = std::nullopt);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  const FlushContext* ctx = nullptr);
+                                  const FlushContext* ctx = nullptr,
+                                  std::optional<int32_t> flush_id = std::nullopt);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
@@ -158,8 +168,13 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
+    std::atomic<int32_t> _num_flush;
     std::atomic<int32_t> _num_segment;
     std::atomic<int32_t> _num_flushed_segment;
+    roaring::Roaring _segment_set;
+    roaring::Roaring _flushed_set;
+    std::mutex _segment_set_mutex;
+    std::mutex _flushed_set_mutex;
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted

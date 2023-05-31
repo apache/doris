@@ -484,8 +484,12 @@ Status MemTable::_do_flush() {
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
+    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx, _flush_id));
     return Status::OK();
+}
+
+void MemTable::assign_flush_id() {
+    _flush_id = std::optional<int32_t> {_rowset_writer->allocate_flush_id()};
 }
 
 Status MemTable::close() {

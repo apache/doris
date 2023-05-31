@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -145,6 +146,8 @@ public:
         _delta_writer_callback = callback;
     }
 
+    void assign_flush_id();
+
 private:
     Status _do_flush();
 
@@ -225,6 +228,7 @@ private:
     void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
     std::function<void(MemTableStat&)> _delta_writer_callback;
+    std::optional<int32_t> _flush_id = std::nullopt;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

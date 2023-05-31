@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <optional>
+
 #include "common/factory_creator.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
@@ -69,7 +71,8 @@ public:
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
     virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                         const FlushContext* ctx = nullptr) {
+                                         const FlushContext* ctx = nullptr,
+                                         std::optional<int32_t> flush_id = std::nullopt) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
@@ -98,6 +101,8 @@ public:
     }
 
     virtual int32_t get_atomic_num_segment() const = 0;
+
+    virtual int32_t allocate_flush_id() = 0;
 
     virtual bool is_doing_segcompaction() const = 0;
 
