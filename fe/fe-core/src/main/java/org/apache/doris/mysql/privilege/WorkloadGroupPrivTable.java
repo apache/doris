@@ -15,37 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.mysql.privilege;
 
-/**
- * CaseSensibility Enum.
- **/
-public enum CaseSensibility {
-    CLUSTER(true),
-    CATALOG(true),
-    DATABASE(true),
-    TABLE(true),
-    ROLLUP(true),
-    PARTITION(false),
-    COLUMN(false),
-    USER(true),
-    ROLE(false),
-    HOST(false),
-    LABEL(false),
-    VARIABLES(true),
-    RESOURCE(true),
-    CONFIG(true),
-    ROUTINE_LOAD(true),
-    WORKLOAD_GROUP(true);
+public class WorkloadGroupPrivTable extends PrivTable {
 
-    private boolean caseSensitive;
+    public void getPrivs(String workloadGroupName, PrivBitSet savedPrivs) {
+        WorkloadGroupPrivEntry matchedEntry = null;
+        for (PrivEntry entry : entries) {
+            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+            if (!workloadGroupPrivEntry.getWorkloadGroupPattern().match(workloadGroupName)) {
+                continue;
+            }
 
-    private CaseSensibility(boolean caseSensitive) {
-        this.caseSensitive  = caseSensitive;
+            matchedEntry = workloadGroupPrivEntry;
+            break;
+        }
+        if (matchedEntry == null) {
+            return;
+        }
+
+        savedPrivs.or(matchedEntry.getPrivSet());
     }
-
-    public boolean getCaseSensibility() {
-        return caseSensitive;
-    }
-
 }
