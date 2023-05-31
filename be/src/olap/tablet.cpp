@@ -1547,7 +1547,8 @@ bool Tablet::_contains_rowset(const RowsetId rowset_id) {
 // need check if consecutive version missing in full report
 // alter tablet will ignore this check
 void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
-                                      bool enable_consecutive_missing_check) {
+                                      bool enable_consecutive_missing_check,
+                                      bool enable_path_check) {
     std::shared_lock rdlock(_meta_lock);
     tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
     tablet_info->__set_schema_hash(_tablet_meta->schema_hash());
@@ -1597,10 +1598,22 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // and perform state modification operations.
     }
 
-    if ((has_version_cross || is_io_error_too_times()) && tablet_state() == TABLET_RUNNING) {
-        LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
-                  << ", ioe times=" << get_io_error_times();
-        tablet_info->__set_used(false);
+    if (tablet_state() == TABLET_RUNNING) {
+        if (has_version_cross || is_io_error_too_times()) {
+            LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
+                      << ", ioe times=" << get_io_error_times();
+            tablet_info->__set_used(false);
+        }
+
+        if (enable_path_check && !tablet_path().empty()) {
+            std::error_code ec;
+            // tablet path not exists or is a regular file
+            if (!std::filesystem::is_directory(tablet_path(), ec) &&
+                (ec.value() == ENOENT || ec.value() == 0)) {
+                LOG(INFO) << "report " << full_name() << " as bad, tablet directory not found";
+                tablet_info->__set_used(false);
+            }
+        }
     }
 
     if (tablet_state() == TABLET_SHUTDOWN) {
