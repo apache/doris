@@ -548,7 +548,7 @@ struct TStreamLoadPutRequest {
     16: optional PlanNodes.TFileCompressType compress_type
     17: optional string token
 
-    // all properties of stream load
+    // properties of stream load
     18: required map<string,string> properties
 }
 
