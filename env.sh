@@ -110,7 +110,7 @@ if [[ -z "${DORIS_TOOLCHAIN}" ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         DORIS_TOOLCHAIN=clang
     else
-        DORIS_TOOLCHAIN=gcc
+        DORIS_TOOLCHAIN=clang
     fi
 fi
 

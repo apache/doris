@@ -33,7 +33,6 @@ import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
-import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -48,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -57,8 +55,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
@@ -200,7 +196,8 @@ public class NereidsPlanner extends Planner {
             }
 
             // minidump of input must be serialized first, this process ensure minidump string not null
-            if (!statementContext.getConnectContext().getSessionVariable().isPlayNereidsDump()) {
+            if (!statementContext.getConnectContext().getSessionVariable().isPlayNereidsDump()
+                    && statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
                 MinidumpUtils.init();
                 String queryId = DebugUtil.printId(statementContext.getConnectContext().queryId());
                 try {
@@ -310,25 +307,12 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
+    // DependsRules: EnsureProjectOnTopJoin.class
     private void dpHypOptimize() {
         Group root = getRoot();
-        boolean changeRoot = false;
-        if (root.isInnerJoinGroup()) {
-            // If the root group is join group, DPHyp can change the root group.
-            // To keep the root group is not changed, we add a project operator above join
-            List<NamedExpression> outputs = ImmutableList.copyOf(root.getLogicalExpression().getPlan().getOutput());
-            LogicalPlan plan = new LogicalProject<>(outputs, root.getLogicalExpression().getPlan());
-            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, true);
-            root = copyInResult.correspondingExpression.getOwnerGroup();
-            Preconditions.checkArgument(copyInResult.generateNewExpression,
-                    "the top project node can't be generated for dpHypOptimize");
-            changeRoot = true;
-        }
+        // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
     }
 
     /**
@@ -380,14 +364,16 @@ public class NereidsPlanner extends Planner {
     }
 
     private void serializeOutputToDumpFile(Plan resultPlan, ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
     }
 
     private void serializeStatUsed(ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+        if (connectContext.getSessionVariable().isPlayNereidsDump()
+                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
             return;
         }
         JSONObject jsonObj = connectContext.getMinidump();

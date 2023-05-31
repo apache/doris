@@ -81,6 +81,35 @@ private:
     vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
 };
 
+class MemTableStat {
+public:
+    MemTableStat& operator+=(MemTableStat& stat) {
+        raw_rows += stat.raw_rows;
+        merged_rows += stat.merged_rows;
+        sort_ns += stat.sort_ns;
+        agg_ns += stat.agg_ns;
+        put_into_output_ns += stat.put_into_output_ns;
+        delete_bitmap_ns += stat.delete_bitmap_ns;
+        segment_writer_ns += stat.segment_writer_ns;
+        duration_ns += stat.duration_ns;
+        sort_times += stat.sort_times;
+        agg_times += stat.agg_times;
+
+        return *this;
+    }
+
+    int64_t raw_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t sort_ns = 0;
+    int64_t agg_ns = 0;
+    int64_t put_into_output_ns = 0;
+    int64_t delete_bitmap_ns = 0;
+    int64_t segment_writer_ns = 0;
+    int64_t duration_ns = 0;
+    int32_t sort_times = 0;
+    int32_t agg_times = 0;
+};
+
 class MemTable {
 public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
@@ -110,12 +139,13 @@ public:
     Status close();
 
     int64_t flush_size() const { return _flush_size; }
-    int64_t merged_rows() const { return _merged_rows; }
 
-    void set_callback(std::function<void(int64_t)> callback) { _delta_writer_callback = callback; }
+    void set_callback(std::function<void(MemTableStat&)> callback) {
+        _delta_writer_callback = callback;
+    }
 
 private:
-    Status _do_flush(int64_t& duration_ns);
+    Status _do_flush();
 
 private:
     // for vectorized
@@ -176,8 +206,7 @@ private:
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.
-    int64_t _rows = 0;
-    int64_t _merged_rows = 0;
+    MemTableStat _stat;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
@@ -191,9 +220,9 @@ private:
                            int row_pos);
     template <bool is_final>
     void _aggregate();
-    void _prepare_block_for_flush(vectorized::Block& in_block);
+    void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
-    std::function<void(int64_t)> _delta_writer_callback;
+    std::function<void(MemTableStat&)> _delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

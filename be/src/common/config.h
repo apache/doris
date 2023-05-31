@@ -371,6 +371,7 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 // This config can be set to limit thread number in compaction thread pool.
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
+DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -410,6 +411,8 @@ DECLARE_mInt64(total_permits_for_compaction_score);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
+// sleep interval in second after update replica infos
+DECLARE_mInt32(update_replica_infos_interval_seconds);
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -424,6 +427,9 @@ DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
 DECLARE_mInt32(base_compaction_trace_threshold);
 DECLARE_mInt32(cumulative_compaction_trace_threshold);
 DECLARE_mBool(disable_compaction_trace_log);
+
+// Interval to picking rowset to compact, in seconds
+DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
@@ -1010,9 +1016,17 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
-
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
+// enable cache for high concurrent point query work load
+DECLARE_mInt32(schema_cache_capacity);
+DECLARE_mInt32(schema_cache_sweep_time_sec);
+
+// enable binlog
+DECLARE_Bool(enable_feature_binlog);
+
+// enable set in BitmapValue
+DECLARE_Bool(enable_set_in_bitmap_value);
 
 #ifdef BE_TEST
 // test s3

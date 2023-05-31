@@ -16,7 +16,7 @@ PhysicalTopN
 ----------------------PhysicalDistribute
 ------------------------PhysicalQuickSort
 --------------------------PhysicalProject
-----------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((cast(0.9 as DECIMALV3(1, 1)) * rank_col) as DOUBLE))
+----------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute
 ----------------------------------hashAgg[LOCAL]
@@ -45,7 +45,7 @@ PhysicalTopN
 ------------------------PhysicalDistribute
 --------------------------PhysicalQuickSort
 ----------------------------PhysicalProject
-------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((cast(0.9 as DECIMALV3(1, 1)) * rank_col) as DOUBLE))
+------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
 --------------------------------hashAgg[GLOBAL]
 ----------------------------------PhysicalDistribute
 ------------------------------------hashAgg[LOCAL]
