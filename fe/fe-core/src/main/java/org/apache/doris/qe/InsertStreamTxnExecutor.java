@@ -151,8 +151,6 @@ public class InsertStreamTxnExecutor {
                 throw new TException(e);
             }
         }
-
-
     }
 
     public void commitTransaction() throws TException, TimeoutException,
