@@ -420,9 +420,6 @@ public:
         if (_ch_cur_pb_block) {
             delete _ch_cur_pb_block;
         }
-        if (_closure) {
-            delete _closure;
-        }
     }
 
     void ch_roll_pb_block() override {
@@ -495,12 +492,12 @@ public:
     pipeline::SelfDeleteClosure<PTransmitDataResult>* get_closure(
             InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
         if (!_closure) {
-            _closure = new pipeline::SelfDeleteClosure<PTransmitDataResult>();
+            _closure.reset(new pipeline::SelfDeleteClosure<PTransmitDataResult>());
         } else {
             _closure->cntl.Reset();
         }
         _closure->init(id, eos, data);
-        return _closure;
+        return _closure.get();
     }
 
 private:
@@ -508,7 +505,7 @@ private:
 
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
-    pipeline::SelfDeleteClosure<PTransmitDataResult>* _closure = nullptr;
+    std::unique_ptr<pipeline::SelfDeleteClosure<PTransmitDataResult>> _closure = nullptr;
 };
 
 } // namespace vectorized
