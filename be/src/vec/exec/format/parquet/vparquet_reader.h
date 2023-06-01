@@ -36,6 +36,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/format/file_meta_cache.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_reader.h"
@@ -92,7 +93,7 @@ public:
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache = nullptr,
+                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -213,9 +214,9 @@ private:
     FileDescription _file_description;
     std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
+    FileMetaCache::CacheHandle _cached_file_meta;
     FileMetaData* _file_metadata = nullptr;
-    // set to true if _file_metadata is owned by this reader.
-    // otherwise, it is owned by someone else, such as _kv_cache
+    // otherwise, it is owned by FileMetaCache
     bool _is_file_metadata_owned = false;
     const tparquet::FileMetaData* _t_metadata;
     std::unique_ptr<RowGroupReader> _current_group_reader = nullptr;
@@ -254,9 +255,9 @@ private:
     io::IOContext* _io_ctx;
     RuntimeState* _state;
     // Cache to save some common part such as file footer.
-    // Owned by scan node and shared by all parquet readers of this scan node.
     // Maybe null if not used
-    ShardedKVCache* _kv_cache = nullptr;
+    FileMetaCache* _meta_cache = nullptr;
+    // set to true if _file_metadata is owned by this reader.
     bool _enable_lazy_mat = true;
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;

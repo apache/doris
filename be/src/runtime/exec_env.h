@@ -66,6 +66,7 @@ template <class T>
 class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
+class FileMetaCache;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -169,6 +170,7 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
+    FileMetaCache* file_meta_cache() { return _file_meta_cache; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -250,6 +252,7 @@ private:
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;
+    FileMetaCache* _file_meta_cache = nullptr;
 };
 
 template <>

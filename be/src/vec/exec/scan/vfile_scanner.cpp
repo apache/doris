@@ -592,7 +592,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _kv_cache, _state->query_options().enable_parquet_lazy_mat);
+                    ExecEnv::GetInstance()->file_meta_cache(), _state->query_options().enable_parquet_lazy_mat);
             RETURN_IF_ERROR(parquet_reader->open());
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());

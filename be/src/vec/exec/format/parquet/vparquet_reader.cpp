@@ -69,7 +69,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache,
+                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
                              bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
@@ -80,7 +80,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _kv_cache(kv_cache),
+          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat) {
     _init_profile();
     _init_system_properties();
@@ -221,32 +221,29 @@ Status ParquetReader::_open_file() {
             return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
         size_t meta_size = 0;
-        if (_kv_cache == nullptr) {
+        if (_meta_cache == nullptr) {
             _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            _column_statistics.read_bytes += meta_size;
+            // parse magic number & parse meta data
+            _column_statistics.read_calls += 1;
         } else {
             _is_file_metadata_owned = false;
-            _file_metadata = _kv_cache->get<FileMetaData>(
-                    _meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
-                        FileMetaData* meta;
-                        Status st = parse_thrift_footer(_file_reader, &meta, &meta_size, _io_ctx);
-                        if (!st) {
-                            LOG(INFO) << "failed to parse parquet footer for "
-                                      << _file_description.path << ", err: " << st;
-                            return nullptr;
-                        }
-                        return meta;
-                    });
+            FileMetaCache::CacheHandle cache_handle;
+            auto hit_cache = _meta_cache->lookup({_file_reader->path(), 0L}, &cache_handle);
+            if (hit_cache) {
+                _cached_file_meta = std::move(cache_handle);
+            } else {
+                FileMetaData* meta;
+                RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &meta, &meta_size, _io_ctx));
+                _meta_cache->insert({_file_reader->path(), 0L}, meta, &_cached_file_meta);
+                _column_statistics.read_bytes += meta_size;
+                // parse magic number & parse meta data
+                _column_statistics.read_calls += 1;
+            }
+            _file_metadata = (FileMetaData*) _cached_file_meta.data();
         }
-
-        if (_file_metadata == nullptr) {
-            return Status::InternalError("failed to get file meta data: {}",
-                                         _file_description.path);
-        }
-        _column_statistics.read_bytes += meta_size;
-        // parse magic number & parse meta data
-        _column_statistics.read_calls += 1;
     }
     return Status::OK();
 }
