@@ -34,6 +34,7 @@ add_library(Olap STATIC
     compaction_permit_limiter.cpp   
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
+    delete_bitmap_calculator.cpp
     delete_handler.cpp
     delta_writer.cpp
     hll.cpp
