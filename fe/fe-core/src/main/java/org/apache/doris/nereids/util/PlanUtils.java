@@ -77,8 +77,9 @@ public class PlanUtils {
      */
     public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
             List<NamedExpression> parentProjects) {
-        Map<Expression, Alias> replaceMap = childProjects.stream().filter(e -> e instanceof Alias)
-                .collect(Collectors.toMap(NamedExpression::toSlot, e -> (Alias) e));
+        Map<Expression, Alias> replaceMap =
+                childProjects.stream().filter(e -> e instanceof Alias).collect(
+                        Collectors.toMap(NamedExpression::toSlot, e -> (Alias) e, (v1, v2) -> v1));
         return parentProjects.stream().map(expr -> {
             if (expr instanceof Alias) {
                 Alias alias = (Alias) expr;
