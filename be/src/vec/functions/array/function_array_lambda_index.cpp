@@ -45,11 +45,12 @@ class FunctionContext;
 namespace doris::vectorized {
 
 // array_first_index([0, 1, 0]) -> [2]
-class FunctionArrayFirstIndex : public IFunction {
+template <bool first>
+class FunctionArrayLambdaIndex : public IFunction {
 public:
-    static constexpr auto name = "array_first_index";
+    static constexpr auto name = first ? "array_first_index" : "array_last_index";
 
-    static FunctionPtr create() { return std::make_shared<FunctionArrayFirstIndex>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionArrayLambdaIndex>(); }
 
     String get_name() const override { return name; }
 
@@ -88,10 +89,21 @@ public:
 
             // default index is 0 if such index is not found
             size_t first_index = 0;
-            for (size_t off = src_offset[i - 1]; off < src_offset[i]; ++off) {
-                if (!src_nested_data.is_null_at(off) && src_nested_data.get_bool(off)) {
-                    first_index = off - src_offset[i - 1] + 1;
-                    break;
+            size_t start_index = src_offset[i - 1];
+            size_t end_index = src_offset[i];
+            for (size_t off = start_index; off < end_index; ++off) {
+                if constexpr (first) {
+                    if (!src_nested_data.is_null_at(off) && src_nested_data.get_bool(off)) {
+                        first_index = off - start_index + 1;
+                        break;
+                    }
+                } else {
+                    size_t reverse_off = start_index + (end_index - 1 - off);
+                    if (!src_nested_data.is_null_at(reverse_off) &&
+                        src_nested_data.get_bool(reverse_off)) {
+                        first_index = reverse_off - start_index + 1;
+                        break;
+                    }
                 }
             }
             result_data[i] = first_index;
@@ -101,8 +113,9 @@ public:
     }
 };
 
-void register_function_array_first_index(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayFirstIndex>();
+void register_function_array_lambda_index(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayLambdaIndex<true>>();
+    factory.register_function<FunctionArrayLambdaIndex<false>>();
 }
 
 } // namespace doris::vectorized
