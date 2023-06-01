@@ -165,10 +165,11 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    std::atomic<int32_t> _next_segment_id;
-    std::atomic<int32_t> _num_segment;
-    roaring::Roaring _segment_set;
-    std::mutex _segment_set_mutex;
+    std::atomic<int32_t> _next_segment_id; // the next available segment_id (offset),
+                                           // also the numer of allocated segments
+    std::atomic<int32_t> _num_segment;     // number of consecutive flushed segments
+    roaring::Roaring _segment_set;         // bitmap set to record flushed segment id
+    std::mutex _segment_set_mutex;         // mutex for _segment_set
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
