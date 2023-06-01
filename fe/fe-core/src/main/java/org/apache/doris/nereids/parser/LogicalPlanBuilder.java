@@ -102,6 +102,9 @@ import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
+import org.apache.doris.nereids.DorisParser.UpdateContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -210,6 +213,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -313,6 +317,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return withExplain(sink, ctx.explain());
         }
         return new InsertIntoTableCommand(sink, labelName);
+    }
+
+    @Override
+    public Object visitUpdate(UpdateContext ctx) {
+        LogicalPlan query = withCheckPolicy(new UnboundRelation(
+                RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
+        if (ctx.fromClause() != null) {
+            query = new LogicalJoin<>(
+                    JoinType.INNER_JOIN,
+                    query,
+                    visitFromClause(ctx.fromClause())
+            );
+        }
+        query = withFilter(query, Optional.of(ctx.whereClause()));
+        String tableAlias = ctx.tableAlias() == null ? null : ctx.tableAlias().getText();
+        return new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query);
     }
 
     /**
@@ -1316,6 +1337,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.ident.stream()
             .map(RuleContext::getText)
             .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Pair<List<String>, Expression> visitUpdateAssignment(UpdateAssignmentContext ctx) {
+        return Pair.of(visitMultipartIdentifier(ctx.multipartIdentifier()), getExpression(ctx.expression()));
+    }
+
+    @Override
+    public List<Pair<List<String>, Expression>> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
+        return ctx.assignments.stream()
+                .map(this::visitUpdateAssignment)
+                .collect(Collectors.toList());
     }
 
     /**
