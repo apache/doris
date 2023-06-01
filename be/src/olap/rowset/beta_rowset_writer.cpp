@@ -408,6 +408,17 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     return status;
 }
 
+Status BetaRowsetWriter::_do_add_block(const vectorized::Block* block,
+                                       std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                                       size_t row_offset, size_t input_row_num) {
+    auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
+    if (UNLIKELY(!s.ok())) {
+        LOG(WARNING) << "failed to append block: " << s.to_string();
+        return Status::Error<WRITER_DATA_WRITE_ERROR>();
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
                                     std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
                                     const FlushContext* flush_ctx) {
@@ -418,11 +429,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
 
     if (flush_ctx != nullptr && flush_ctx->segment_id.has_value()) {
         // the entire block (memtable) should be flushed into single segment
-        auto s = (*segment_writer)->append_block(block, row_offset, block_row_num);
-        if (UNLIKELY(!s.ok())) {
-            LOG(WARNING) << "failed to append block: " << s.to_string();
-            return Status::Error<WRITER_DATA_WRITE_ERROR>();
-        }
+        RETURN_IF_ERROR(_do_add_block(block, segment_writer, 0, block_row_num));
         _raw_num_rows_written += block_row_num;
         return Status::OK();
     }
@@ -437,11 +444,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
-        if (UNLIKELY(!s.ok())) {
-            LOG(WARNING) << "failed to append block: " << s.to_string();
-            return Status::Error<WRITER_DATA_WRITE_ERROR>();
-        }
+        RETURN_IF_ERROR(_do_add_block(block, segment_writer, row_offset, input_row_num));
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
