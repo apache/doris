@@ -119,7 +119,7 @@ suite("test_map_load_and_compaction", "p0") {
         // wait compactions done
         do {
             Thread.sleep(1000)
-            def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def cs = parseJson(out.trim())
