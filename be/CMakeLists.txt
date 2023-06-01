@@ -1038,7 +1038,11 @@ add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
 if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
-    add_subdirectory(${SRC_DIR}/tools)
+    add_subdirectory(${SRC_DIR}/tools/meta_tool)
+endif()
+
+if (BUILD_SEGMENT_TOOL AND BUILD_SEGMENT_TOOL STREQUAL "ON")
+    add_subdirectory(${SRC_DIR}/tools/build_segment_tool)
 endif()
 
 add_subdirectory(${SRC_DIR}/util)

@@ -98,7 +98,7 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
+Status TabletManager::add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force) {
     Status res = Status::OK();
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
@@ -349,7 +349,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         }
         // Add tablet to StorageEngine will make it visible to user
         // Will persist tablet meta
-        res = _add_tablet_unlocked(new_tablet_id, tablet, /*update_meta*/ true, false);
+        res = add_tablet_unlocked(new_tablet_id, tablet, /*update_meta*/ true, false);
         if (!res.ok()) {
             LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
             break;
@@ -357,7 +357,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         is_tablet_added = true;
 
         // TODO(lingbin): The following logic seems useless, can be removed?
-        // Because if _add_tablet_unlocked() return OK, we must can get it from map.
+        // Because if add_tablet_unlocked() return OK, we must can get it from map.
         TabletSharedPtr tablet_ptr = _get_tablet_unlocked(new_tablet_id);
         if (tablet_ptr == nullptr) {
             res = Status::Error<TABLE_NOT_FOUND>();
@@ -830,7 +830,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            _add_tablet_unlocked(tablet_id, tablet, update_meta, force),
+            add_tablet_unlocked(tablet_id, tablet, update_meta, force),
             strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
     return Status::OK();

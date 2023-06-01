@@ -120,6 +120,8 @@ public:
 
     Status wait_flying_segcompaction() override;
 
+    void set_writer_path(const std::string& path) override { _context.rowset_dir = path; }
+
 private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);

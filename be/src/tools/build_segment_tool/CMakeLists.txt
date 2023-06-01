@@ -16,32 +16,34 @@
 # under the License.
 
 # where to put generated libraries
-set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/tools")
+set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/tools/build_segment_tool")
 
 # where to put generated binaries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/tools")
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/tools/build_segment_tool")
 
-add_executable(meta_tool
-    meta_tool.cpp
+add_executable(segment_builder
+    segment_builder.cpp
+    build_helper.cpp
+    builder_scanner_memtable.cpp
 )
 
-pch_reuse(meta_tool)
+# pch_reuse(build_segment_tool)
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-set_target_properties(meta_tool PROPERTIES ENABLE_EXPORTS 1)
+set_target_properties(segment_builder PROPERTIES ENABLE_EXPORTS 1)
 
-target_link_libraries(meta_tool
+target_link_libraries(segment_builder
     ${DORIS_LINK_LIBS}
 )
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
-install(TARGETS meta_tool DESTINATION ${OUTPUT_DIR}/lib/)
+install(TARGETS segment_builder DESTINATION ${OUTPUT_DIR}/lib/)
 
 if (NOT OS_MACOSX)
 # Meta tool never need debug info
-add_custom_command(TARGET meta_tool POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:meta_tool> $<TARGET_FILE:meta_tool>.dbg
-    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:meta_tool>
-    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
+add_custom_command(TARGET segment_builder POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:segment_builder> $<TARGET_FILE:segment_builder>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:segment_builder>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:segment_builder>.dbg $<TARGET_FILE:segment_builder>
     )
 endif()

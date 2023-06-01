@@ -117,6 +117,7 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
+    -l 'build-segment-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'java-udf' \
@@ -137,6 +138,7 @@ BUILD_BE=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
+BUILD_SEGMENT_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
@@ -149,12 +151,13 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
-    BUILD_BROKER=1
-    BUILD_AUDIT=1
-    BUILD_META_TOOL='OFF'
-    BUILD_SPARK_DPP=1
-    BUILD_HIVE_UDF=1
-    BUILD_JAVA_UDF=1
+    BUILD_BROKER=0
+    BUILD_AUDIT=0
+    BUILD_META_TOOL='ON'
+    BUILD_SEGMENT_TOOL='ON'
+    BUILD_SPARK_DPP=0
+    BUILD_HIVE_UDF=0
+    BUILD_JAVA_UDF=0
     CLEAN=0
 else
     while true; do
@@ -168,7 +171,9 @@ else
             ;;
         --be)
             BUILD_BE=1
-            BUILD_JAVA_UDF=1
+            BUILD_JAVA_UDF=0
+            BUILD_META_TOOL='ON'
+            BUILD_SEGMENT_TOOL='ON'
             shift
             ;;
         --broker)
@@ -181,6 +186,10 @@ else
             ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
+            shift
+            ;;
+        --build-segment-tool)
+            BUILD_SEGMENT_TOOL='ON'
             shift
             ;;
         --spark-dpp)
@@ -237,6 +246,7 @@ else
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
+        BUILD_SEGMENT_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
         BUILD_JAVA_UDF=1
@@ -384,6 +394,7 @@ echo "Get params:
     BUILD_BROKER        -- ${BUILD_BROKER}
     BUILD_AUDIT         -- ${BUILD_AUDIT}
     BUILD_META_TOOL     -- ${BUILD_META_TOOL}
+    BUILD_SEGMENT_TOOL  -- ${BUILD_SEGMENT_TOOL}
     BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
     BUILD_JAVA_UDF      -- ${BUILD_JAVA_UDF}
     BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
@@ -465,6 +476,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
+        -DBUILD_SEGMENT_TOOL="${BUILD_SEGMENT_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
@@ -620,6 +632,10 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
+     if [[ "${BUILD_SEGMENT_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/segment_builder" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
     cp -r -p "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
     cp -r -p "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
@@ -676,8 +692,8 @@ echo "***************************************"
 echo "Successfully build Doris"
 echo "***************************************"
 
-if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
-    eval "${DORIS_POST_BUILD_HOOK}"
-fi
+# if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
+#     eval "${DORIS_POST_BUILD_HOOK}"
+# fi
 
 exit 0

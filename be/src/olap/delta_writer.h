@@ -33,6 +33,7 @@
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
@@ -133,6 +134,9 @@ public:
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     int64_t total_received_rows() const { return _total_received_rows; }
+
+    void set_writer_path(const std::string& path) { _rowset_writer->set_writer_path(path); }
+    RowsetSharedPtr get_cur_rowset() { return _cur_rowset; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,

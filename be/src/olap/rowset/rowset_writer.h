@@ -95,6 +95,9 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
+    // for segment builder
+    virtual void set_writer_path(const std::string &) {}
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
