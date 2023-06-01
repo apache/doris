@@ -636,7 +636,7 @@ public class AnalysisManager {
             return table.createAnalysisTask(analysisTaskInfo);
         } catch (Throwable t) {
             LOG.warn("Failed to find table", t);
-            throw new DdlException("Error when trying to find table", t);
+            throw new DdlException("Failed to create task", t);
         }
     }
 

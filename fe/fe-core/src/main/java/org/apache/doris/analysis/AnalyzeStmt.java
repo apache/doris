@@ -38,11 +38,12 @@ import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisTaskInfo.ScheduleType;
+import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -103,7 +104,7 @@ public class AnalyzeStmt extends DdlStmt {
             .build();
 
     private final TableName tableName;
-    private final List<String> columnNames;
+    private List<String> columnNames;
     private final Map<String, String> properties;
 
     // after analyzed
@@ -141,26 +142,12 @@ public class AnalyzeStmt extends DdlStmt {
             throw new AnalysisException("Analyze view is not allowed");
         }
         checkAnalyzePriv(dbName, tblName);
-
-        if (columnNames != null && !columnNames.isEmpty()) {
-            table.readLock();
-            try {
-                List<String> baseSchema = table.getBaseSchema(false)
-                        .stream().map(Column::getName).collect(Collectors.toList());
-                Optional<String> optional = columnNames.stream()
-                        .filter(entity -> !baseSchema.contains(entity)).findFirst();
-                if (optional.isPresent()) {
-                    String columnName = optional.get();
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                            columnName, FeNameFormat.getColumnNameRegex());
-                }
-            } finally {
-                table.readUnlock();
-            }
+        if (columnNames == null) {
+            columnNames = table.getBaseSchema(false)
+                    .stream().map(Column::getName).collect(Collectors.toList());
         }
-
+        checkColumn();
         checkProperties();
-
         // TODO support external table
         if (properties.containsKey(PROPERTY_SAMPLE_PERCENT)
                 || properties.containsKey(PROPERTY_SAMPLE_ROWS)) {
@@ -186,6 +173,25 @@ public class AnalyzeStmt extends DdlStmt {
                     ConnectContext.get().getRemoteIP(),
                     dbName + ": " + tblName);
         }
+    }
+
+    private void checkColumn() throws AnalysisException {
+        table.readLock();
+        try {
+            for (String colName : columnNames) {
+                Column column = table.getColumn(colName);
+                if (column == null) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                            colName, FeNameFormat.getColumnNameRegex());
+                }
+                if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+                    throw new AnalysisException(String.format("Column type[%s] is not supported to analyze", colName));
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+
     }
 
     private void checkProperties() throws UserException {
@@ -342,8 +348,7 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     public Set<String> getColumnNames() {
-        return columnNames == null ? table.getBaseSchema(false)
-                .stream().map(Column::getName).collect(Collectors.toSet()) : Sets.newHashSet(columnNames);
+        return new HashSet<>(columnNames);
     }
 
     public Map<String, String> getProperties() {
