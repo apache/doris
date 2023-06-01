@@ -121,13 +121,6 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
         return constructorArguments;
     }
 
-    @Override
-    public String toString() {
-        return Arrays.stream(builderMethod.getParameterTypes())
-                .map(type -> type.getSimpleName())
-                .collect(Collectors.joining(", ", "(", ")"));
-    }
-
     /**
      * resolve a Concrete boundFunction's class and convert the constructors to
      * FunctionBuilder

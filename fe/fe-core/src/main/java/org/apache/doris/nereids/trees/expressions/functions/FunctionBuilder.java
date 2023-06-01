@@ -17,20 +17,18 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import avro.shaded.com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * This class used to resolve a concrete BoundFunction's class and build BoundFunction by a list of Expressions.
+ * This class used to build BoundFunction(Builtin or Combinator) by a list of Expressions.
  */
 public abstract class FunctionBuilder {
     /** check whether arguments can apply to the constructor */
-    public boolean canApply(List<? extends Object> arguments) {
-        return true;
-    }
+    public abstract boolean canApply(List<? extends Object> arguments);
 
-    public BoundFunction build(String name, Object argument) {
+    public final BoundFunction build(String name, Object argument) {
         return build(name, ImmutableList.of(argument));
     }
 
@@ -41,6 +39,4 @@ public abstract class FunctionBuilder {
      * @return the concrete bound function instance
      */
     public abstract BoundFunction build(String name, List<? extends Object> arguments);
-
-    public abstract String toString();
 }

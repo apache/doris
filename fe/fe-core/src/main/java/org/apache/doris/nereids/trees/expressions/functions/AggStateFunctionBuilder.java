@@ -19,11 +19,15 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.types.AggStateType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -35,13 +39,17 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
     public static final String MERGE = "merge";
     public static final String UNION = "union";
 
-    private FunctionBuilder nestedBuilder;
+    public static final String STATE_SUFFIX = COMBINATOR_LINKER + STATE;
+    public static final String MERGE_SUFFIX = COMBINATOR_LINKER + MERGE;
+    public static final String UNION_SUFFIX = COMBINATOR_LINKER + UNION;
 
-    private String combinatorSuffix;
+    private final FunctionBuilder nestedBuilder;
+
+    private final String combinatorSuffix;
 
     public AggStateFunctionBuilder(String combinatorSuffix, FunctionBuilder nestedBuilder) {
-        this.combinatorSuffix = combinatorSuffix;
-        this.nestedBuilder = nestedBuilder;
+        this.combinatorSuffix = Objects.requireNonNull(combinatorSuffix, "combinatorSuffix can not be null");
+        this.nestedBuilder = Objects.requireNonNull(nestedBuilder, "nestedBuilder can not be null");
     }
 
     @Override
@@ -59,15 +67,15 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
 
             return nestedBuilder.canApply(((AggStateType) argument.getDataType()).getSubTypes().stream().map(t -> {
                 return new SlotReference("mocked", t);
-            }).collect(Collectors.toList()));
+            }).collect(ImmutableList.toImmutableList()));
         }
     }
 
-    private BoundFunction buildState(String nestedName, List<? extends Object> arguments) {
-        return nestedBuilder.build(nestedName, arguments);
+    private AggregateFunction buildState(String nestedName, List<? extends Object> arguments) {
+        return (AggregateFunction) nestedBuilder.build(nestedName, arguments);
     }
 
-    private BoundFunction buildMergeOrUnion(String nestedName, List<? extends Object> arguments) {
+    private AggregateFunction buildMergeOrUnion(String nestedName, List<? extends Object> arguments) {
         if (arguments.size() != 1 || !(arguments.get(0) instanceof Expression)
                 || !((Expression) arguments.get(0)).getDataType().isAggStateType()) {
             String argString = arguments.stream().map(arg -> {
@@ -90,37 +98,34 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
             return new SlotReference("mocked", t);
         }).collect(Collectors.toList());
 
-        return nestedBuilder.build(nestedName, nestedArgumens);
+        return (AggregateFunction) nestedBuilder.build(nestedName, nestedArgumens);
     }
 
     @Override
     public BoundFunction build(String name, List<? extends Object> arguments) {
         String nestedName = getNestedName(name);
         if (combinatorSuffix.equals(STATE)) {
-            BoundFunction nestedFunction = buildState(nestedName, arguments);
+            AggregateFunction nestedFunction = buildState(nestedName, arguments);
             return new StateCombinator((List<Expression>) arguments, nestedFunction);
         } else {
-            BoundFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
+            AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
             return new MergeCombinator((List<Expression>) arguments, nestedFunction);
         }
     }
 
-    @Override
-    public String toString() {
-        return combinatorSuffix + "(" + nestedBuilder.toString() + ")";
-    }
-
     public static boolean isAggStateCombinator(String name) {
-        return name.toLowerCase().endsWith(COMBINATOR_LINKER + STATE)
-                || name.toLowerCase().endsWith(COMBINATOR_LINKER + MERGE)
-                || name.toLowerCase().endsWith(COMBINATOR_LINKER + UNION);
+        return name.toLowerCase().endsWith(STATE_SUFFIX) || name.toLowerCase().endsWith(MERGE_SUFFIX)
+                || name.toLowerCase().endsWith(UNION_SUFFIX);
     }
 
     public static String getNestedName(String name) {
-        return name.substring(0, name.lastIndexOf(COMBINATOR_LINKER));
+        return name.substring(0, name.length() - getCombinatorSuffix(name).length() - 1);
     }
 
     public static String getCombinatorSuffix(String name) {
-        return name.substring(name.lastIndexOf(AggStateFunctionBuilder.COMBINATOR_LINKER) + 1);
+        if (!name.contains(COMBINATOR_LINKER)) {
+            throw new IllegalStateException(name + " call getCombinatorSuffix must contains " + COMBINATOR_LINKER);
+        }
+        return name.substring(name.lastIndexOf(COMBINATOR_LINKER) + 1);
     }
 }

@@ -20,9 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.combinator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeNullable;
-import org.apache.doris.nereids.trees.expressions.functions.DecimalSamePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -30,38 +28,39 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
-import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
  * AggState combinator merge
  */
 public class MergeCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable, DecimalSamePrecision {
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputeNullable {
 
-    private AggregateFunction nested;
+    private final AggregateFunction nested;
+    private final AggStateType inputType;
 
-    public MergeCombinator(List<Expression> arguments, BoundFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.COMBINATOR_LINKER + AggStateFunctionBuilder.MERGE, arguments);
-        Preconditions.checkState(nested instanceof AggregateFunction);
-        this.nested = (AggregateFunction) nested;
+    public MergeCombinator(List<Expression> arguments, AggregateFunction nested) {
+        super(nested.getName() + AggStateFunctionBuilder.MERGE_SUFFIX, arguments);
+
+        this.nested = Objects.requireNonNull(nested, "nested can not be null");
+        inputType = new AggStateType(nested.getName(), nested.getArgumentsTypes(),
+                nested.getArguments().stream().map(Expression::nullable).collect(Collectors.toList()));
     }
 
     @Override
     public MergeCombinator withChildren(List<Expression> children) {
-        throw new UnsupportedOperationException("Unimplemented method 'withChildren'");
+        return new MergeCombinator(children, nested.withChildren(children));
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        AggStateType type = new AggStateType(nested.getName(), nested.getArgumentsTypes(),
-                nested.getArguments().stream().map(Expression::nullable).collect(Collectors.toList()));
         return nested.getSignatures().stream().map(sig -> {
-            return sig.withArgumentTypes(false, Arrays.asList(type));
-        }).collect(Collectors.toList());
+            return sig.withArgumentTypes(false, ImmutableList.of(inputType));
+        }).collect(ImmutableList.toImmutableList());
     }
 
     @Override

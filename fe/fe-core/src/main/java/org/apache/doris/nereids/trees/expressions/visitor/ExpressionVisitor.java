@@ -75,8 +75,6 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -433,14 +431,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitWindowFrame(WindowFrame windowFrame, C context) {
         return visit(windowFrame, context);
-    }
-
-    public R visitStateCombinator(StateCombinator combinator, C context) {
-        return visit(combinator, context);
-    }
-
-    public R visitMergeCombinator(MergeCombinator combinator, C context) {
-        return visit(combinator, context);
     }
 
     /* ********************************************************************************************

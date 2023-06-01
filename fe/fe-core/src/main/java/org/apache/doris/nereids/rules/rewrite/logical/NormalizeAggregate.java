@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -233,12 +232,6 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
         @Override
         public Void visitAggregateFunction(AggregateFunction aggregateFunction, List<AggregateFunction> context) {
             context.add(aggregateFunction);
-            return null;
-        }
-
-        @Override
-        public Void visitMergeCombinator(MergeCombinator combinator, List<AggregateFunction> context) {
-            context.add(combinator);
             return null;
         }
     }

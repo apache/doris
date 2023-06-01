@@ -21,8 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.DecimalSamePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -31,44 +29,44 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /**
  * AggState combinator state
  */
 public class StateCombinator extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, DecimalSamePrecision {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
-    private AggregateFunction nested;
-    private AggStateType returnType;
+    private final AggregateFunction nested;
+    private final AggStateType returnType;
 
     /**
      * constructor of StateCombinator
      */
-    public StateCombinator(List<Expression> arguments, BoundFunction nested) {
-        super(nested.getName() + AggStateFunctionBuilder.COMBINATOR_LINKER + AggStateFunctionBuilder.STATE, arguments);
-        Preconditions.checkState(nested instanceof AggregateFunction);
-        this.nested = (AggregateFunction) nested;
+    public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
+        super(nested.getName() + AggStateFunctionBuilder.STATE_SUFFIX, arguments);
+
+        this.nested = Objects.requireNonNull(nested, "nested can not be null");
         this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {
             return arg.getDataType();
-        }).collect(Collectors.toList()), arguments.stream().map(arg -> {
+        }).collect(ImmutableList.toImmutableList()), arguments.stream().map(arg -> {
             return arg.nullable();
-        }).collect(Collectors.toList()));
+        }).collect(ImmutableList.toImmutableList()));
     }
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        throw new UnsupportedOperationException("Unimplemented method 'withChildren'");
+        return new StateCombinator(children, nested.withChildren(children));
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return nested.getSignatures().stream().map(sig -> {
             return sig.withReturnType(returnType);
-        }).collect(Collectors.toList());
+        }).collect(ImmutableList.toImmutableList());
     }
 
     @Override

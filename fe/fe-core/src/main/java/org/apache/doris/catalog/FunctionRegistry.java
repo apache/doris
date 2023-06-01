@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -62,8 +63,7 @@ public class FunctionRegistry {
     public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
-        if ((functionBuilders == null || functionBuilders.isEmpty())
-                && AggStateFunctionBuilder.isAggStateCombinator(name)) {
+        if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
             String nestedName = AggStateFunctionBuilder.getNestedName(name);
             String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
 
