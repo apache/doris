@@ -33,6 +33,7 @@ suite("test_segcompaction_dup_keys") {
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
         backend_id = backendId_to_backendIP.keySet()[0]
+
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
         
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)

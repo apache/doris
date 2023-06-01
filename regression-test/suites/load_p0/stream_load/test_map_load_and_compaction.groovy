@@ -69,7 +69,7 @@ suite("test_map_load_and_compaction", "p0") {
     }
 
     def checkCompactionStatus = {compactionStatus, assertRowSetNum->
-        def (code, out, err) = curl("GET", compactionStatus)
+        (code, out, err) = curl("GET", compactionStatus)
         logger.info("Check compaction status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactStatusJson = parseJson(out.trim())
@@ -110,7 +110,7 @@ suite("test_map_load_and_compaction", "p0") {
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
         String tablet_id = tablet[0]
         backend_id = tablet[2]
-        def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
@@ -119,7 +119,7 @@ suite("test_map_load_and_compaction", "p0") {
         // wait compactions done
         do {
             Thread.sleep(1000)
-            def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def cs = parseJson(out.trim())

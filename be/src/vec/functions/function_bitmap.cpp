@@ -127,14 +127,12 @@ struct ToBitmap {
             size_t size = col->size();
 
             for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
-                    continue;
-                } else {
-                    int64_t int_value = col->get_data()[i];
-                    if (LIKELY(int_value >= 0)) {
-                        res_data[i].add(int_value);
+                if constexpr (arg_is_nullable) {
+                    if ((*nullmap)[i]) {
+                        continue;
                     }
                 }
+                res_data[i].add(col->get_data()[i]);
             }
         }
     }
