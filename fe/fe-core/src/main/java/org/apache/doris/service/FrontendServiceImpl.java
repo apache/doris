@@ -163,6 +163,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -1236,6 +1237,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+
+    // check commit request params,only used in loadTxnCommitImpl
+    private void checkCommitRequestParams(TLoadTxnCommitRequest request) throws UserException {
+        if (Strings.isNullOrEmpty(request.getDb())) {
+            throw new UserException("No database selected.");
+        }
+        if (CollectionUtils.isEmpty(request.getCommitInfos())) {
+            throw new UserException("No commit info selected.");
+        }
+    }
+
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
@@ -1265,11 +1277,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     // return true if commit success and publish success, return false if publish timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
+        checkCommitRequestParams(request);
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (request.isSetToken()) {
