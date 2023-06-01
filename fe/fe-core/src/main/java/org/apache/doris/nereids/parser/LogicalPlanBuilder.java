@@ -331,6 +331,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             );
         }
         query = withFilter(query, Optional.of(ctx.whereClause()));
+        if (ctx.explain() != null) {
+            query = withExplain(query, ctx.explain());
+        }
         String tableAlias = ctx.tableAlias() == null ? null : ctx.tableAlias().getText();
         return new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
                 visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query);
