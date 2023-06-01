@@ -136,6 +136,8 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -196,8 +198,8 @@ public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
-    private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
-    private static final String NULL_VALUE_FOR_LOAD = "\\N";
+    public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
+    public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private final Object writeProfileLock = new Object();
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -205,6 +207,9 @@ public class StmtExecutor {
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
+    private QueryQueue queryQueue = null;
+    // by default, false means no query queued, then no need to poll when query finish
+    private QueueOfferToken offerRet = new QueueOfferToken(false);
     private ProfileType profileType = ProfileType.QUERY;
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
@@ -324,6 +329,10 @@ public class StmtExecutor {
 
     public Planner planner() {
         return planner;
+    }
+
+    public void setPlanner(Planner planner) {
+        this.planner = planner;
     }
 
     public boolean isForwardToMaster() {
@@ -549,6 +558,24 @@ public class StmtExecutor {
     }
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
+        // queue query here
+        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue) {
+            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroupQueryQueue(context.sessionVariable.workloadGroup);
+            try {
+                this.offerRet = queryQueue.offer();
+            } catch (InterruptedException e) {
+                // this Exception means try lock/await failed, so no need to handle offer result
+                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
+                throw new RuntimeException("interrupted Exception happens when queue query");
+            }
+            if (!offerRet.isOfferSuccess()) {
+                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
+                throw new UserException(retMsg);
+            }
+        }
+
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
@@ -618,6 +645,9 @@ public class StmtExecutor {
                     throw e;
                 } finally {
                     queryAnalysisSpan.end();
+                    if (offerRet.isOfferSuccess()) {
+                        queryQueue.poll();
+                    }
                 }
                 if (isForwardToMaster()) {
                     if (isProxy) {
@@ -798,7 +828,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    public void analyze(TQueryOptions tQueryOptions) throws UserException {
+    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
                     context.getForwardedStmtId());
@@ -1065,10 +1095,10 @@ public class StmtExecutor {
                     parsedStmt.setIsExplain(explainOptions);
                 }
             }
-            if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
+            if (parsedStmt instanceof QueryStmt && Config.enable_workload_group
                     && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
+                analyzer.setWorkloadGroups(analyzer.getEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(context));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
@@ -1833,8 +1863,11 @@ public class StmtExecutor {
                 throw new DdlException("Unknown load job type");
             }
             LoadManagerAdapter loadManagerAdapter = context.getEnv().getLoadManagerAdapter();
-            loadManagerAdapter.startLoadFromInsertStmt(insertStmt);
-            context.getState().setOk();
+            loadManagerAdapter.submitLoadFromInsertStmt(context, insertStmt);
+            // when complete
+            if (loadManagerAdapter.getMysqlLoadId() != null) {
+                this.mysqlLoadId = loadManagerAdapter.getMysqlLoadId();
+            }
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
@@ -2467,6 +2500,14 @@ public class StmtExecutor {
 
     public SummaryProfile getSummaryProfile() {
         return profile.getSummaryProfile();
+    }
+
+    public Profile getProfile() {
+        return profile;
+    }
+
+    public void setProfileType(ProfileType profileType) {
+        this.profileType = profileType;
     }
 }
 

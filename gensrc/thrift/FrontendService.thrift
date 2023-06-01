@@ -523,6 +523,28 @@ struct TLoadTxnBeginResult {
     4: optional i64 db_id
 }
 
+struct TBeginTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional list<string> tables
+    6: optional string user_ip
+    7: optional string label
+    8: optional i64 auth_code
+    // The real value of timeout should be i32. i64 ensures the compatibility of interface.
+    9: optional i64 timeout
+    10: optional Types.TUniqueId request_id
+    11: optional string token
+}
+
+struct TBeginTxnResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional string job_status // if label already used, set status of existing job
+    4: optional i64 db_id
+}
+
 // StreamLoad request, used to load a streaming to engine
 struct TStreamLoadPutRequest {
     1: optional string cluster
@@ -557,6 +579,7 @@ struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
+    3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
 }
 
 struct TKafkaRLTaskProgress {
@@ -604,6 +627,25 @@ struct TLoadTxnCommitResult {
     1: required Status.TStatus status
 }
 
+struct TCommitTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txn_id
+    7: optional list<Types.TTabletCommitInfo> commit_infos
+    8: optional i64 auth_code
+    9: optional TTxnCommitAttachment txn_commit_attachment
+    10: optional i64 thrift_rpc_timeout_ms
+    11: optional string token
+    12: optional i64 db_id
+}
+
+struct TCommitTxnResult {
+    1: optional Status.TStatus status
+}
+
 struct TLoadTxn2PCRequest {
     1: optional string cluster
     2: required string user
@@ -619,6 +661,24 @@ struct TLoadTxn2PCRequest {
 
 struct TLoadTxn2PCResult {
     1: required Status.TStatus status
+}
+
+struct TRollbackTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txn_id
+    7: optional string reason
+    9: optional i64 auth_code
+    10: optional TTxnCommitAttachment txn_commit_attachment
+    11: optional string token
+    12: optional i64 db_id
+}
+
+struct TRollbackTxnResult {
+    1: optional Status.TStatus status
 }
 
 struct TLoadTxnRollbackRequest {
@@ -840,6 +900,50 @@ struct TQueryStatsResult {
     5: optional map<i64, i64> tablet_stats
 }
 
+struct TGetBinlogRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string user_ip
+    7: optional string token
+    8: optional i64 prev_commit_seq
+}
+
+enum TBinlogType {
+  UPSERT = 0,
+  ADD_PARTITION = 1,
+  CREATE_TABLE = 2,
+}
+
+struct TBinlog {
+    1: optional i64 commit_seq
+    2: optional i64 timestamp
+    3: optional TBinlogType type
+    4: optional i64 db_id
+    5: optional list<i64> table_ids
+    6: optional string data
+}
+
+struct TGetBinlogResult {
+    1: optional Status.TStatus status
+    2: optional i64 next_commit_seq
+    3: optional list<TBinlog> binlogs
+    4: optional string fe_version
+    5: optional i64 fe_meta_version
+}
+
+struct TGetTabletReplicaInfosRequest {
+    1: required list<i64> tablet_ids
+}
+
+struct TGetTabletReplicaInfosResult {
+    1: optional Status.TStatus status
+    2: optional map<i64, list<Types.TReplicaInfo>> tablet_replica_infos
+    3: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -868,6 +972,11 @@ service FrontendService {
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
 
+    TBeginTxnResult beginTxn(1: TBeginTxnRequest request)
+    TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
+    TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
+    TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
+
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
@@ -889,4 +998,6 @@ service FrontendService {
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
+    
+    TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 }

@@ -235,10 +235,12 @@ protected:
             },
             "creation_time": 1553765670
         })";
-        pb1->init_from_json(json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+        pb1->init_from_pb(rowset_meta_pb);
     }
 
     void add_delete_predicate(TabletSharedPtr tablet, DeletePredicatePB& del_pred,
@@ -358,11 +360,11 @@ protected:
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
-                                               input_rs_readers, output_rs_writer.get(), 10000000,
-                                               &stats);
+            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                               tablet_schema, input_rs_readers,
+                                               output_rs_writer.get(), 10000000, &stats);
         } else {
-            s = Merger::vmerge_rowsets(tablet, READER_BASE_COMPACTION, tablet_schema,
+            s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);
         }
         EXPECT_TRUE(s.ok());

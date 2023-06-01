@@ -430,6 +430,7 @@ terminal String
     KW_LARGEINT,
     KW_LAST,
     KW_LATERAL,
+    KW_LDAP,
     KW_LDAP_ADMIN_PASSWORD,
     KW_LEFT,
     KW_LESS,
@@ -625,6 +626,7 @@ terminal String
     KW_WHITELIST,
     KW_WITH,
     KW_WORK,
+    KW_WORKLOAD,
     KW_WRITE,
     KW_YEAR,
     KW_MTMV,
@@ -807,6 +809,7 @@ nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
+nonterminal IndexDef build_index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal ArrayList<IndexDef> index_definition_list;
 nonterminal AggregateType opt_agg_type;
@@ -912,7 +915,7 @@ nonterminal ExplainOptions opt_explain_options;
 nonterminal Boolean opt_tmp;
 
 nonterminal OutFileClause opt_outfile;
-nonterminal RoutineLoadDataSourceProperties opt_datasource_properties;
+nonterminal Map<String, String> opt_datasource_properties;
 
 nonterminal Boolean opt_signed_unsigned;
 
@@ -961,6 +964,7 @@ precedence left KW_OVER;
 precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
+precedence left ARROW;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence right LBRACE;
@@ -1195,6 +1199,14 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
+    | KW_REFRESH KW_LDAP KW_ALL
+    {:
+        RESULT = new RefreshLdapStmt(true, "");
+    :}
+    | KW_REFRESH KW_LDAP opt_user:user
+    {:
+        RESULT = new RefreshLdapStmt(false, user);
+    :}
     ;
 
 clean_stmt ::=
@@ -1296,9 +1308,9 @@ alter_stmt ::=
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
     :}
-    | KW_ALTER KW_RESOURCE KW_GROUP ident_or_text:resourceGroupName opt_properties:properties
+    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
-        RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
+        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
@@ -1345,15 +1357,14 @@ alter_stmt ::=
 opt_datasource_properties ::=
     // empty
     {:
-        RESULT = new RoutineLoadDataSourceProperties();
+        RESULT = new HashMap<String, String>();
     :}
     | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        // the 3rd parameter "true" means this is for AlterRoutineLoad operation.
-        RESULT = new RoutineLoadDataSourceProperties(type, customProperties, true);
+        Map<String, String> properties = new HashMap<String, String>(customProperties);
+        RESULT = properties;
     :}
     ;
-
 quantity ::=
     INTEGER_LITERAL:number
     {:
@@ -1928,10 +1939,10 @@ create_stmt ::=
     {:
         RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
     :}
-    /* resource group*/
-    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    /* workload group*/
+    | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
     {:
-        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
+        RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -1958,6 +1969,10 @@ create_stmt ::=
     | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
+    :}
+    | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
     :}
     ;
 
@@ -2280,7 +2295,7 @@ load_stmt ::=
     opt_properties:properties
     opt_comment:comment
     {:
-        RESULT = new UnifiedLoadStmt(label, dataDescList, broker, properties, comment, LoadType.BROKER_LOAD);
+        RESULT = UnifiedLoadStmt.buildBrokerLoadStmt(label, dataDescList, broker, properties, comment);
     :}
     | KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
@@ -2292,7 +2307,7 @@ load_stmt ::=
     :}
     | KW_LOAD mysql_data_desc:desc opt_properties:properties opt_comment:comment
     {:
-        RESULT = new LoadStmt(desc, properties, comment);
+        RESULT = UnifiedLoadStmt.buildMysqlLoadStmt(desc, properties, comment);
     :}
     ;
 
@@ -2963,9 +2978,9 @@ drop_stmt ::=
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
-    | KW_DROP KW_RESOURCE KW_GROUP opt_if_exists:ifExists ident_or_text:resourceGroupName
+    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
-        RESULT = new DropResourceGroupStmt(ifExists, resourceGroupName);
+        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
     :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
@@ -3457,12 +3472,26 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
         RESULT = columnDef;
     :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
+        columnDef.setGenericAggregationName(aggType);
+        columnDef.setGenericAggregationArguments(list);
+        RESULT = columnDef;
+    :}
     ;
 
 index_definition ::=
     KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment);
+    :}
+    ;
+
+build_index_definition ::=
+    KW_INDEX ident:indexName opt_partition_names:partitionNames
+    {:
+        RESULT = new IndexDef(indexName, partitionNames, true);
     :}
     ;
 
@@ -3857,9 +3886,9 @@ show_param ::=
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
-    | KW_RESOURCE KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS
     {:
-        RESULT = new ShowResourceGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt();
     :}
     | KW_BACKENDS
     {:
@@ -4007,6 +4036,11 @@ show_param ::=
     | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL KW_VERBOSE
     {:
         RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
+    :}
+    /* show build index job */
+    | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
     ;
 
@@ -6386,6 +6420,13 @@ non_pred_expr ::=
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
   :}
+  | expr:e ARROW expr:index
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(index);
+    RESULT = new FunctionCallExpr("json_extract", new FunctionParams(exprs)); 
+  :}
   | cast_expr:c
   {: RESULT = c; :}
   | case_expr:c
@@ -7315,6 +7356,8 @@ keyword ::=
     | KW_PASSWORD_HISTORY:id
     {: RESULT = id; :}
     | KW_PASSWORD_LOCK_TIME:id
+    {: RESULT = id; :}
+    | KW_LDAP:id
     {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}

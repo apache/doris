@@ -44,6 +44,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private String storagePolicy;
 
+    private boolean ccrEnable = false;
+
+    public void setCcrEnable(boolean ccrEnable) {
+        this.ccrEnable = ccrEnable;
+    }
+
+    public boolean isCcrEnable() {
+        return ccrEnable;
+    }
+
     public ModifyTablePropertiesClause(Map<String, String> properties) {
         super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
@@ -119,6 +129,15 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("Can not change UNIQUE KEY to Merge-On-Write mode");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
             // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE)) {
+            this.needTableStable = false;
+            setCcrEnable(
+                    Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, "false")));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+            // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

@@ -589,7 +589,7 @@ struct TPipelineInstanceParams {
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
 }
 
-struct TPipelineResourceGroup {
+struct TPipelineWorkloadGroup {
   1: optional i64 id
   2: optional string name
   3: optional map<string, string> properties
@@ -624,7 +624,8 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
-  26: optional list<TPipelineResourceGroup> resource_groups
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
 }
 
 struct TPipelineFragmentParamsList {

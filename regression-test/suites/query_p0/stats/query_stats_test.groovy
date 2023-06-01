@@ -16,21 +16,45 @@
 // under the License.
 
 suite("query_stats_test") {
-    sql "use test_query_db"
+
+    // nereids not support query stats now, fallback to legacy planner.
+    sql """set enable_nereids_planner=false"""
+
+    def tbName = "stats_table"
+    sql """ DROP TABLE IF EXISTS ${tbName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbName} (
+            `k0` boolean null comment "",
+            `k1` tinyint(4) null comment "",
+            `k2` smallint(6) null comment "",
+            `k3` int(11) null comment "",
+            `k4` bigint(20) null comment "",
+            `k5` decimal(9, 3) null comment "",
+            `k6` char(5) null comment "",
+            `k10` date null comment "",
+            `k11` datetime null comment "",
+            `k7` varchar(20) null comment "",
+            `k8` double max null comment "",
+            `k9` float sum null comment "",
+            `k12` string replace null comment "",
+            `k13` largeint(40) replace null comment ""
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1 properties("replication_num" = "1")
+        """
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
     sql "clean all query stats"
 
     explain {
-        sql("select k1 from baseall where k1 = 1")
+        sql("select k1 from ${tbName} where k1 = 1")
     }
 
-    qt_sql "show query stats from baseall"
+    qt_sql "show query stats from ${tbName}"
 
-    sql "select k1 from baseall where k0 = 1"
-    sql "select k4 from baseall where k2 = 1991"
+    sql "select k1 from ${tbName} where k0 = 1"
+    sql "select k4 from ${tbName} where k2 = 1991"
 
-    qt_sql "show query stats from baseall"
-    qt_sql "show query stats from baseall all"
-    qt_sql "show query stats from baseall all verbose"
+    qt_sql "show query stats from ${tbName}"
+    qt_sql "show query stats from ${tbName} all"
+    qt_sql "show query stats from ${tbName} all verbose"
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
 }

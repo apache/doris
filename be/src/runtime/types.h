@@ -59,7 +59,6 @@ struct TypeDescriptor {
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
     static constexpr int MAX_DECIMAL8_PRECISION = 18;
 
-    // Empty for scalar types
     std::vector<TypeDescriptor> children;
 
     // Only set if type == TYPE_STRUCT. The field name of each child.
@@ -148,6 +147,13 @@ struct TypeDescriptor {
         int idx = 0;
         TypeDescriptor result(t.types, &idx);
         DCHECK_EQ(idx, t.types.size() - 1);
+        if (result.type == TYPE_AGG_STATE) {
+            DCHECK(t.__isset.sub_types);
+            for (auto sub : t.sub_types) {
+                result.children.push_back(from_thrift(sub));
+                result.contains_nulls.push_back(sub.is_nullable);
+            }
+        }
         return result;
     }
 

@@ -64,8 +64,6 @@
 
 namespace doris {
 
-bool k_doris_exit = false;
-
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
@@ -197,8 +195,8 @@ void Daemon::memory_maintenance_thread() {
         doris::MemInfo::refresh_proc_meminfo();
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
 
-        // Update and print memory stat when the memory changes by 100M.
-        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 104857600) {
+        // Update and print memory stat when the memory changes by 256M.
+        if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
 
@@ -213,7 +211,7 @@ void Daemon::memory_maintenance_thread() {
             }
 #endif
             LOG(INFO) << MemTrackerLimiter::
-                            process_mem_log_str(); // print mem log when memory state by 100M
+                            process_mem_log_str(); // print mem log when memory state by 256M
         }
     }
 }

@@ -16,10 +16,10 @@
 // under the License.
 
 suite("test_update_mow", "p0") {
-    def tbName1 = "test_update_unique_1"
-    def tbName2 = "test_update_unique_2"
-    def tbName3 = "test_update_unique_3"
-    def tbName4 = "test_update_unique_4"
+    def tbName1 = "test_update_mow_1"
+    def tbName2 = "test_update_mow_2"
+    def tbName3 = "test_update_mow_3"
+    def tbName4 = "test_update_mow_4"
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1} (

@@ -354,6 +354,9 @@ Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种�
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+> 注意：
+> 1. 建议使用1.2.4及以上版本，该版本修复了一些bug和稳定性问题
+> 2. 在be.conf中添加配置项：disable_storage_page_cache=false。不添加该配置项可能会对数据导入性能产生较大影响
 
 仍然以上面的表为例，建表语句为
 

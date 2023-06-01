@@ -138,6 +138,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
+        super(new LabelName(null, label), null, null);
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
         this.label = new LabelName(null, label);
@@ -151,9 +152,9 @@ public class NativeInsertStmt extends InsertStmt {
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
             QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
+        super(label, null, null);
         this.tblName = name;
         this.targetPartitionNames = targetPartitionNames;
-        this.label = label;
         this.queryStmt = queryStmt;
         this.planHints = planHints;
         this.targetColumnNames = targetColumnNames;

@@ -60,7 +60,7 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            return new LogicalProperties(this::computeOutput, this::computeNonUserVisibleOutput);
+            return new LogicalProperties(this::computeOutput);
         }
     }
 }

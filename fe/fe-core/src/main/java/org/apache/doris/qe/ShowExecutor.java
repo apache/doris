@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
+import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
@@ -75,7 +76,6 @@ import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
-import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -101,6 +101,7 @@ import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
+import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
@@ -151,6 +152,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.BackendsProcDir;
+import org.apache.doris.common.proc.BuildIndexProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -330,8 +332,8 @@ public class ShowExecutor {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
-        } else if (stmt instanceof ShowResourceGroupsStmt) {
-            handleShowResourceGroups();
+        } else if (stmt instanceof ShowWorkloadGroupsStmt) {
+            handleShowWorkloadGroups();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -412,6 +414,8 @@ public class ShowExecutor {
             handleMTMVTasks();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
+        } else if (stmt instanceof ShowBuildIndexStmt) {
+            handleShowBuildIndexStmt();
         } else {
             handleEmtpy();
         }
@@ -1803,11 +1807,11 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowResourceGroups() {
-        ShowResourceGroupsStmt showStmt = (ShowResourceGroupsStmt) stmt;
-        List<List<String>> resourceGroupsInfos = Env.getCurrentEnv().getResourceGroupMgr().getResourcesInfo();
+    private void handleShowWorkloadGroups() {
+        ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
+        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
 
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resourceGroupsInfos);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
     private void handleShowExport() throws AnalysisException {
@@ -2704,6 +2708,16 @@ public class ShowExecutor {
         // Only success
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void  handleShowBuildIndexStmt() throws AnalysisException {
+        ShowBuildIndexStmt showStmt = (ShowBuildIndexStmt) stmt;
+        ProcNodeInterface procNodeI = showStmt.getNode();
+        Preconditions.checkNotNull(procNodeI);
+        // List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
+        List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 }
 
