@@ -104,7 +104,7 @@ public class TableValuedFunctionRef extends TableRef {
         }
 
         // check privilige for backends tvf
-        if (funcName.toLowerCase() == BackendsTableValuedFunction.NAME) {
+        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                                                                             PrivPredicate.OPERATOR)) {
