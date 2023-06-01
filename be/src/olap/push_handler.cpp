@@ -417,14 +417,14 @@ Status PushBrokerReader::next(vectorized::Block* block) {
 
 Status PushBrokerReader::close() {
     _ready = false;
-    for (auto ctx : _dest_vexpr_ctx) {
+    for (auto ctx : _dest_expr_ctxs) {
         if (ctx != nullptr) {
             ctx->close(_runtime_state.get());
         }
     }
 
-    if (_push_down_expr) {
-        _push_down_expr->close(_runtime_state.get());
+    for (auto& expr : _push_down_exprs) {
+        expr->close(_runtime_state.get());
     }
 
     for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
@@ -435,7 +435,7 @@ Status PushBrokerReader::close() {
         }
     }
 
-    for (auto* ctx : _not_single_slot_filter_conjuncts) {
+    for (auto& ctx : _not_single_slot_filter_conjuncts) {
         if (ctx != nullptr) {
             ctx->close(_runtime_state.get());
         }
@@ -515,7 +515,7 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         int dest_index = ctx_idx++;
         vectorized::ColumnPtr column_ptr;
 
-        auto* ctx = _dest_vexpr_ctx[dest_index];
+        auto& ctx = _dest_expr_ctxs[dest_index];
         int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
@@ -587,11 +587,10 @@ Status PushBrokerReader::_init_expr_ctxes() {
 
     if (!_pre_filter_texprs.empty()) {
         DCHECK(_pre_filter_texprs.size() == 1);
-        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
-                _runtime_state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_runtime_state.get(), *_row_desc));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_runtime_state.get()));
+        RETURN_IF_ERROR(
+                vectorized::VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
+        RETURN_IF_ERROR(_pre_filter_ctx_ptr->prepare(_runtime_state.get(), *_row_desc));
+        RETURN_IF_ERROR(_pre_filter_ctx_ptr->open(_runtime_state.get()));
     }
 
     _dest_tuple_desc = _runtime_state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
@@ -610,12 +609,11 @@ Status PushBrokerReader::_init_expr_ctxes() {
                                          slot_desc->col_name());
         }
 
-        vectorized::VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_tree(_runtime_state->obj_pool(), it->second, &ctx));
+        vectorized::VExprContextSPtr ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
         RETURN_IF_ERROR(ctx->prepare(_runtime_state.get(), *_row_desc.get()));
         RETURN_IF_ERROR(ctx->open(_runtime_state.get()));
-        _dest_vexpr_ctx.emplace_back(ctx);
+        _dest_expr_ctxs.emplace_back(ctx);
         if (has_slot_id_map) {
             auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -654,7 +652,7 @@ Status PushBrokerReader::_get_next_reader() {
         RETURN_IF_ERROR(parquet_reader->open());
         std::vector<std::string> place_holder;
         init_status = parquet_reader->init_reader(
-                _all_col_names, place_holder, _colname_to_value_range, _push_down_expr,
+                _all_col_names, place_holder, _colname_to_value_range, _push_down_exprs,
                 _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, false);
         _cur_reader = std::move(parquet_reader);
@@ -664,7 +662,7 @@ Status PushBrokerReader::_get_next_reader() {
         }
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
-        std::unordered_map<std::string, vectorized::VExprContext*> missing_columns;
+        std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
         _cur_reader->set_fill_columns(partition_columns, missing_columns);
         break;

@@ -60,7 +60,8 @@
         "version_col_idx": -1,
         "store_row_column": false,
         "is_dynamic_schema": false,
-        "is_partial_update": false
+        "is_partial_update": false,
+        "enable_single_replica_compaction": false
     },
     "rs_metas": [
         {

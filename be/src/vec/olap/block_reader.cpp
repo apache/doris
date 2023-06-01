@@ -465,7 +465,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      nullptr, _stored_has_null_tag[idx]);
+                                      &_arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {

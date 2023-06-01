@@ -268,7 +268,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
+            RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block,
                                                        _dest_tuple_desc->slots().size()));
             VLOG_ROW << "VSchemaScanNode output rows: " << src_block.rows();
             src_block.clear();

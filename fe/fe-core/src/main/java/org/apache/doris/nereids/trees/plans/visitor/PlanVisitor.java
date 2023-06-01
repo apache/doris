@@ -31,6 +31,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
@@ -62,6 +65,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -113,8 +119,8 @@ public abstract class PlanVisitor<R, C> {
         return visitCommand(explain, context);
     }
 
-    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
-        return visitCommand(explain, context);
+    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
+        return visitCommand(createPolicy, context);
     }
 
     public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
@@ -350,6 +356,19 @@ public abstract class PlanVisitor<R, C> {
         return visit(limit, context);
     }
 
+    public R visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer, C context) {
+        return visit(cteProducer, context);
+    }
+
+    public R visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, C context) {
+        return visit(cteConsumer, context);
+    }
+
+    public R visitPhysicalCTEAnchor(
+            PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
+        return visit(cteAnchor, context);
+    }
+
     public R visitAbstractPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, C context) {
         return visit(join, context);
     }
@@ -405,5 +424,17 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, C context) {
         return visit(assertNumRows, context);
+    }
+
+    public R visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, C context) {
+        return visit(cteProducer, context);
+    }
+
+    public R visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, C context) {
+        return visit(cteConsumer, context);
+    }
+
+    public R visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
+        return visit(cteAnchor, context);
     }
 }

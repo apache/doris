@@ -130,4 +130,8 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public LogicalFilter<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalFilter<>(conjuncts, Optional.empty(), logicalProperties, child());
     }
+
+    public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
+        return new LogicalFilter<>(conjuncts, child);
+    }
 }

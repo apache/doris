@@ -17,12 +17,10 @@
 
 #include "vec/sink/vdata_stream_sender.h"
 
-#include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <opentelemetry/nostd/shared_ptr.h>
@@ -36,13 +34,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/common/sip_hash.h"
@@ -436,8 +431,8 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(t_stream_sink.output_partition.partition_exprs,
+                                                 _partition_expr_ctxs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     } else {

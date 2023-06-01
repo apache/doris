@@ -79,7 +79,8 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) override;
+    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
+                                 const FlushContext* ctx = nullptr) override;
 
     RowsetSharedPtr build() override;
 
@@ -106,7 +107,7 @@ public:
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
     // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
+    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
         return _context.schema_change_recorder.get();
     }
 
@@ -122,13 +123,14 @@ public:
 
 private:
     Status _add_block(const vectorized::Block* block,
-                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                      const FlushContext* flush_ctx = nullptr);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                      bool is_segcompaction, int64_t begin, int64_t end,
-                                     const vectorized::Block* block = nullptr);
+                                     const FlushContext* ctx = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  const vectorized::Block* block = nullptr);
+                                  const FlushContext* ctx = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);

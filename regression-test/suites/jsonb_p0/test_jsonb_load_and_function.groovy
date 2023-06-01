@@ -50,14 +50,7 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-
-            StringBuilder sb = new StringBuilder()
-            sb.append("curl -X GET " + json.ErrorURL)
-            String command = sb.toString()
-            def process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-            def out = process.getText()
+            (code, out, err) = curl("GET", json.ErrorURL)
             log.info("error result: " + out)
 
             assertEquals("fail", json.Status.toLowerCase())
@@ -89,14 +82,7 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-
-            StringBuilder sb = new StringBuilder()
-            sb.append("curl -X GET " + json.ErrorURL)
-            String command = sb.toString()
-            def process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-            def out = process.getText()
+            (code, out, err) = curl("GET", json.ErrorURL)
             log.info("error result: " + out)
 
             assertEquals("success", json.Status.toLowerCase())
@@ -434,4 +420,10 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
+
+    qt_select """SELECT id, j, j->'\$.k1' FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, j->'\$.[1]' FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, j->null FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, j->'\$.a1[0].k2' FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, j->'\$.a1[0]'->'\$.k1' FROM ${testTable} ORDER BY id"""
 }

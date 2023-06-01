@@ -110,6 +110,10 @@ public class Memo {
         return groupExpressions;
     }
 
+    public int getGroupExpressionsSize() {
+        return groupExpressions.size();
+    }
+
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
         if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {

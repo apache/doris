@@ -20,7 +20,7 @@ PhysicalTopN
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_year = 2002)(date_dim.d_moy = 1))
+------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
 --------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -125,7 +126,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.MATERIALIZED_VIEW);
         table.readLock();
         try {
             // build proc path

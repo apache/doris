@@ -64,10 +64,9 @@ VResultSink::~VResultSink() = default;
 
 Status VResultSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(
-            VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     if (_fetch_option.use_two_phase_fetch) {
-        for (VExprContext* expr_ctx : _output_vexpr_ctxs) {
+        for (auto& expr_ctx : _output_vexpr_ctxs) {
             // Must materialize if it a slot, or the slot column id will be -1
             expr_ctx->set_force_materialize_slot();
         }

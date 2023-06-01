@@ -48,13 +48,33 @@ void MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block
     *eos = _eos and pos_to_pull == _multi_cast_blocks.end();
 }
 
-void MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
+void MultiCastDataStreamer::close_sender(int sender_idx) {
+    std::lock_guard l(_mutex);
+    auto& pos_to_pull = _sender_pos_to_read[sender_idx];
+    while (pos_to_pull != _multi_cast_blocks.end()) {
+        if (pos_to_pull->_used_count == 1) {
+            DCHECK(pos_to_pull == _multi_cast_blocks.begin());
+            _cumulative_mem_size -= pos_to_pull->_mem_size;
+            pos_to_pull++;
+            _multi_cast_blocks.pop_front();
+        } else {
+            pos_to_pull->_used_count--;
+            pos_to_pull++;
+        }
+    }
+    _closed_sender_count++;
+}
+
+Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
     auto rows = block->rows();
     COUNTER_UPDATE(_process_rows, rows);
 
     auto block_mem_size = block->allocated_bytes();
     std::lock_guard l(_mutex);
-    int need_process_count = _cast_sender_count - _opened_sender_count;
+    int need_process_count = _cast_sender_count - _closed_sender_count;
+    if (need_process_count == 0) {
+        return Status::EndOfFile("All data streamer is EOF");
+    }
     // TODO: if the [queue back block rows + block->rows()] < batch_size, better
     // do merge block. but need check the need_process_count and used_count whether
     // equal
@@ -70,6 +90,7 @@ void MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* 
         }
     }
     _eos = eos;
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

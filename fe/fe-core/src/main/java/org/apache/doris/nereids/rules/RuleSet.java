@@ -41,6 +41,9 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumeToPhysicalCTEConsume;
+import org.apache.doris.nereids.rules.implementation.LogicalCTEProduceToPhysicalCTEProduce;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -72,10 +75,12 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSetOperation;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
@@ -109,6 +114,7 @@ public class RuleSet {
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
             new PushdownFilterThroughProject(),
+            new PushdownFilterThroughSort(),
             new PushdownJoinOtherCondition(),
             new PushdownFilterThroughJoin(),
             new PushdownExpressionsInHashCondition(),
@@ -122,9 +128,13 @@ public class RuleSet {
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
-            new MergeLimits());
+            new MergeLimits(),
+            new PushdownFilterThroughCTEAnchor());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
+            .add(new LogicalCTEProduceToPhysicalCTEProduce())
+            .add(new LogicalCTEConsumeToPhysicalCTEConsume())
+            .add(new LogicalCTEAnchorToPhysicalCTEAnchor())
             .add(new LogicalRepeatToPhysicalRepeat())
             .add(new LogicalFilterToPhysicalFilter())
             .add(new LogicalJoinToHashJoin())
