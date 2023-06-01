@@ -106,3 +106,6 @@ lru_cache_test
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
+
+# fe pid file.
+bin/fe.pid
