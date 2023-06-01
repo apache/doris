@@ -1596,20 +1596,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
 
-        if (project.child() instanceof PhysicalOlapTableSink) {
-            // other fields are already handled in visitPhysicalOlapTableSink
-            OlapTable olapTable = ((PhysicalOlapTableSink) project.child()).getTargetTable();
-            HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTable.getDefaultDistributionInfo());
-            List<Integer> colIdx = distributionInfo.getDistributionColumns().stream()
-                    .map(column -> olapTable.getFullSchema().indexOf(column))
-                    .collect(Collectors.toList());
-
-            List<Expr> partitionExprs = colIdx.stream().map(execExprList::get).collect(Collectors.toList());
-            inputFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
-            inputFragment.setOutputExprs(execExprList);
-            return inputFragment;
-        }
-
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Slot> slotList = project.getProjects()
                 .stream()
