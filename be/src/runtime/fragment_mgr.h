@@ -89,17 +89,19 @@ public:
     ~FragmentMgr() override;
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, bool strict_mode = false);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, bool strict_mode = false);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb,
+                              bool strict_mode = false);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb,
+                              bool strict_mode = false);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 

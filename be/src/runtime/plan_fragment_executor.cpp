@@ -72,7 +72,8 @@ namespace doris {
 using namespace ErrorCode;
 
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
-                                           const report_status_callback& report_status_cb)
+                                           const report_status_callback& report_status_cb,
+                                           bool strict_mode)
         : _exec_env(exec_env),
           _plan(nullptr),
           _report_status_cb(report_status_cb),
@@ -82,6 +83,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
+          _strict_mode(strict_mode),
           _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
@@ -123,6 +125,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             query_ctx == nullptr ? request.query_globals : query_ctx->query_globals;
     _runtime_state =
             RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
+    _runtime_state->set_strict_mode(_strict_mode);
     _runtime_state->set_query_ctx(query_ctx);
     _runtime_state->set_query_mem_tracker(query_ctx == nullptr ? _exec_env->orphan_mem_tracker()
                                                                : query_ctx->query_mem_tracker);

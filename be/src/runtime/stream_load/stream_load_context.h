@@ -210,6 +210,8 @@ public:
     // csv with header type
     std::string header_type = "";
 
+    bool strict_mode = false;
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 

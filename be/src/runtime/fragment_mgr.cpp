@@ -115,7 +115,7 @@ public:
     // Constructor by using QueryContext
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
                       ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
-                      const report_status_callback_impl& report_status_cb_impl);
+                      const report_status_callback_impl& report_status_cb_impl, bool strict_mode);
 
     Status prepare(const TExecPlanFragmentParams& params);
 
@@ -209,13 +209,16 @@ private:
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                      const TUniqueId& fragment_instance_id, int backend_num,
                                      ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
-                                     const report_status_callback_impl& report_status_cb_impl)
+                                     const report_status_callback_impl& report_status_cb_impl,
+                                     bool strict_mode)
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
-          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
-                                              this, std::placeholders::_1, std::placeholders::_2,
-                                              std::placeholders::_3, std::placeholders::_4)),
+          _executor(exec_env,
+                    std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback), this,
+                                    std::placeholders::_1, std::placeholders::_2,
+                                    std::placeholders::_3, std::placeholders::_4),
+                    strict_mode),
           _set_rsc_info(false),
           _timeout_second(-1),
           _query_ctx(std::move(query_ctx)),
@@ -549,7 +552,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
     cb(exec_state->executor()->runtime_state(), &status);
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, bool strict_mode) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -575,6 +578,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->pipe = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
+        stream_load_ctx->strict_mode = strict_mode;
 
         RETURN_IF_ERROR(
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
@@ -582,11 +586,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, empty_function, strict_mode);
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, bool strict_mode) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -611,6 +615,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->pipe = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
+        stream_load_ctx->strict_mode = strict_mode;
 
         RETURN_IF_ERROR(
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
@@ -618,7 +623,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, empty_function);
+        return exec_plan_fragment(params, empty_function, strict_mode);
     }
 }
 
@@ -755,7 +760,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       const FinishCallback& cb, bool strict_mode) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
@@ -790,7 +795,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             new FragmentExecState(query_ctx->query_id, params.params.fragment_instance_id,
                                   params.backend_num, _exec_env, query_ctx,
                                   std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback),
-                                                  this, std::placeholders::_1)));
+                                                  this, std::placeholders::_1),
+                                  strict_mode));
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
         // set need_wait_execution_trigger means this instance will not actually being executed
         // until the execPlanFragmentStart RPC trigger to start it.
@@ -835,7 +841,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       const FinishCallback& cb) {
+                                       const FinishCallback& cb, bool strict_mode) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
@@ -870,7 +876,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 query_ctx->query_id, fragment_instance_id, local_params.backend_num, _exec_env,
                 query_ctx,
                 std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                std::placeholders::_1)));
+                                std::placeholders::_1),
+                strict_mode));
         if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
             // set need_wait_execution_trigger means this instance will not actually being executed
             // until the execPlanFragmentStart RPC trigger to start it.

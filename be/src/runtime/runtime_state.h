@@ -409,6 +409,14 @@ public:
                        : 0;
     }
 
+    void set_strict_mode(bool strict_mode) { _strict_mode = strict_mode; }
+
+    bool strict_mode() const { return _strict_mode; }
+
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    }
+
 private:
     Status create_error_log_file();
 
@@ -506,6 +514,8 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    bool _strict_mode = false;
 
     OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
