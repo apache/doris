@@ -47,7 +47,12 @@ DECIMALV3有一套很复杂的类型推演规则，针对不同的表达式，�
 
 * 加法 / 减法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(max(a - b, x - y) + max(b, y) + 1, max(b, y))。
 * 乘法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + x, b + y)。
-* 除法：DECIMALV3(a, b) + DECIMALV3(x, y) -> DECIMALV3(a + y, b)。
+* 除法：DECIMALV3(p1, s1) + DECIMALV3(p2, s2) -> DECIMALV3(p1 + s2 + div_precision_increment, s1 + div_precision_increment)。div_precision_increment 默认为4。
+值得注意的是，除法计算的过程是
+DECIMALV3(p1, s1) / DECIMALV3(p2, s2) 先转换成 DECIMALV3(p1 + s2 + div_precision_increment, s1 + s2 ) /  DECIMALV3(p2, s2)  然后再进行计算，所以可能会出现
+DECIMALV3(p1 + s2 + div_precision_increment, s1 + div_precision_increment) 是满足DECIMALV3的范围，但是由于先转换成了DECIMALV3(p1 + s2 + div_precision_increment, s1 + s2 )
+导致超出范围，目前Doris的处理是转成Double进行计算
+
 
 #### 聚合运算
 

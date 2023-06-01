@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
@@ -477,8 +478,8 @@ public class ArithmeticExpr extends Expr {
                     scale = t1Scale + t2Scale;
                     precision = t1Precision + t2Precision;
                 } else if (op == Operator.DIVIDE) {
-                    precision = t1TargetType.getPrecision() + t2Scale;
-                    scale = t1Scale;
+                    precision = t1TargetType.getPrecision() + t2Scale + Config.div_precision_increment;
+                    scale = t1Scale + Config.div_precision_increment;
                 } else if (op == Operator.ADD || op == Operator.SUBTRACT) {
                     // target type: DECIMALV3(max(widthOfIntPart1, widthOfIntPart2) + max(scale1, scale2) + 1,
                     // max(scale1, scale2))
@@ -504,13 +505,17 @@ public class ArithmeticExpr extends Expr {
                     if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1TargetType.isDecimalV3()) {
-                    int targetScale = t1Scale + t2Scale;
-                    if (precision < targetScale) {
+                } else if (op == Operator.DIVIDE && t1TargetType.isDecimalV3()) {
+                    int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
+                    int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
+                    if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        leftPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+                    }
+                    if (leftPrecision < leftScale) {
                         type = castBinaryOp(Type.DOUBLE);
                         break;
                     }
-                    castChild(ScalarType.createDecimalV3Type(precision, targetScale), 0);
+                    castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
                 } else if (op == Operator.MOD) {
                     // TODO use max int part + max scale of two operands as result type
                     // because BE require the result and operands types are the exact the same decimalv3 type
@@ -543,11 +548,6 @@ public class ArithmeticExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
-            for (Expr child : children) {
-                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
-                    ((DecimalLiteral) child).tryToReduceType();
-                }
-            }
             // bitnot is the only unary op, deal with it here
             if (op == Operator.BITNOT) {
                 Type t = getChild(0).getType();
