@@ -127,6 +127,7 @@ import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.EsScanNode;
@@ -2221,6 +2222,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, dataPartition);
         inputFragment.setDestination(mergePlan);
         context.addPlanFragment(fragment);
+        if (inputFragment.getSink() instanceof OlapTableSink) {
+            DataSink sink = inputFragment.getSink();
+            inputFragment.cleanSink();
+            fragment.setSink(sink);
+        }
         return fragment;
     }
 
