@@ -4914,7 +4914,7 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetVar(variable, expr);
     :}
-    | AT ident_or_text:var equal literal:expr
+    | AT ident_or_text:var equal expr:expr
     {:
         RESULT = new SetUserDefinedVar(var, expr);
     :}

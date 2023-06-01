@@ -75,6 +75,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new FloatLiteral((Float) value);
         } else if (value instanceof Double) {
             return new DoubleLiteral((Double) value);
+        } else if (value instanceof BigDecimal) {
+            return new DecimalLiteral((BigDecimal) value);
         } else if (value instanceof Boolean) {
             return BooleanLiteral.of((Boolean) value);
         } else if (value instanceof String) {

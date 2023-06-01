@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Strings;
 
+import java.math.BigDecimal;
 import java.util.Objects;
 
 // Variable expr: including the system variable and user define variable.
@@ -43,6 +44,7 @@ public class VariableExpr extends Expr {
     private boolean boolValue;
     private long intValue;
     private double floatValue;
+    private BigDecimal decimalValue;
     private String strValue;
 
     private LiteralExpr literalExpr;
@@ -118,6 +120,11 @@ public class VariableExpr extends Expr {
     public void setFloatValue(double value) {
         this.floatValue = value;
         this.literalExpr = new FloatLiteral(value);
+    }
+
+    public void setDecimalValue(BigDecimal value) {
+        this.decimalValue = value;
+        this.literalExpr = new DecimalLiteral(value);
     }
 
     public void setStringValue(String value) {
