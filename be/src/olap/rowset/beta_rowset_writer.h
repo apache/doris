@@ -164,11 +164,8 @@ protected:
 
     std::atomic<int32_t> _next_seq;
     std::atomic<int32_t> _num_segment;
-    std::atomic<int32_t> _num_flushed_segment;
-    roaring::Roaring _seq_set;
-    roaring::Roaring _flushed_set;
-    std::mutex _seq_set_mutex;
-    std::mutex _flushed_set_mutex;
+    roaring::Roaring _segment_set;
+    std::mutex _segment_set_mutex;
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted

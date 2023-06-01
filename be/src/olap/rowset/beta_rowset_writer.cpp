@@ -62,7 +62,6 @@ BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
           _next_seq(0),
           _num_segment(0),
-          _num_flushed_segment(0),
           _segment_start_id(0),
           _segcompacted_point(0),
           _num_segcompacted(0),
@@ -358,8 +357,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
-                       config::segcompaction_threshold_segment_num &&
-               _num_segment == _num_flushed_segment) /* no segment in the middle is flushing */ {
+               config::segcompaction_threshold_segment_num) {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
         status = _get_segcompaction_candidates(segments, false);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
@@ -453,6 +451,12 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
+    // segment id [0, rowset->num_segments()) is added by link_files_to,
+    // update _next_seq and _segment_set
+    // TODO: link_files_to is assuming segment_id starts from 0,
+    // so we assume _next_seq and _num_segment is 0 here.
+    _next_seq += rowset->num_segments();
+    _segment_set.addRange(0, rowset->num_segments());
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -694,17 +698,6 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         int32_t seq_id = flush_ctx != nullptr && flush_ctx->seq.has_value() ? flush_ctx->seq.value()
                                                                             : allocate_seq_id();
         segment_id = seq_id + _segment_start_id;
-        {
-            std::lock_guard<std::mutex> lock(_seq_set_mutex);
-            if (UNLIKELY(_seq_set.contains(seq_id))) {
-                LOG(WARNING) << "seq id " << seq_id << " already exists";
-            } else {
-                _seq_set.add(seq_id);
-            }
-            while (_seq_set.contains(_num_segment)) {
-                _num_segment++;
-            }
-        }
         path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     }
     auto fs = _rowset_meta->fs();
@@ -819,10 +812,10 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         *flush_size = segment_size + index_size;
     }
     {
-        std::lock_guard<std::mutex> lock(_flushed_set_mutex);
-        _flushed_set.add(seq_id);
-        while (_flushed_set.contains(_num_flushed_segment)) {
-            _num_flushed_segment++;
+        std::lock_guard<std::mutex> lock(_segment_set_mutex);
+        _segment_set.add(seq_id);
+        while (_segment_set.contains(_num_segment)) {
+            _num_segment++;
         }
     }
     return Status::OK();
