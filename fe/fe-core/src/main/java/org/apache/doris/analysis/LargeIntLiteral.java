@@ -211,8 +211,13 @@ public class LargeIntLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.LARGE_INT_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.LARGE_INT_LITERAL;
+        toThriftBase(msg);
         msg.large_int_literal = new TLargeIntLiteral(value.toString());
     }
 

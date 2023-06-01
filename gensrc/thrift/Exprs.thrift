@@ -241,6 +241,7 @@ struct TExprNode {
 
   32: optional TColumnRef column_ref 
   33: optional TMatchPredicate match_predicate
+  34: optional bool is_result_constant
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -96,6 +96,33 @@ public class FunctionParams implements Writable {
         return isDistinct;
     }
 
+    public boolean isAllConstant() {
+        for (Expr expr : exprs) {
+            if (!expr.isConstant()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean isAllNullable() {
+        for (Expr expr : exprs) {
+            if (!expr.isNullable()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean isAllNotNullable() {
+        for (Expr expr : exprs) {
+            if (expr.isNullable()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public List<Expr> exprs() {
         return exprs;
     }

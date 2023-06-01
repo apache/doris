@@ -621,11 +621,16 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.DATE_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         if (type.isDatetimeV2()) {
             this.roundFloor(((ScalarType) type).getScalarScale());
         }
-        msg.node_type = TExprNodeType.DATE_LITERAL;
+        toThriftBase(msg);
         msg.date_literal = new TDateLiteral(getStringValue());
         try {
             checkValueValid();

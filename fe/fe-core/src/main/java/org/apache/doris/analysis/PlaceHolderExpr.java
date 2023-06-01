@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -70,6 +71,11 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.SLOT_REF;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         lExpr.toThrift(msg);
     }
@@ -78,7 +84,8 @@ public class PlaceHolderExpr extends LiteralExpr {
      * return real value
      */
     public Object getRealValue() {
-        // implemented: TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME/CHAR/VARCHAR/BOOLEAN
+        // implemented:
+        // TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME/CHAR/VARCHAR/BOOLEAN
         Preconditions.checkState(false, "not implement this in derived class. " + this.type.toSql());
         return null;
     }

@@ -235,6 +235,7 @@ protected:
     DataTypePtr _data_type;
     VExprSPtrs _children;
     TFunction _fn;
+    bool _result_constant;
 
     /// Index to pass to ExprContext::fn_context() to retrieve this expr's FunctionContext.
     /// Set in RegisterFunctionContext(). -1 if this expr does not need a FunctionContext and

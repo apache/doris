@@ -139,8 +139,13 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.NULL_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.NULL_LITERAL;
+        toThriftBase(msg);
     }
 
     @Override

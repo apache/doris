@@ -26,6 +26,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -298,6 +300,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     public String toString() {
         return getStringValue();
     }
+
+    protected void toThriftBase(TExprNode msg) {
+        msg.node_type = getTType();
+        msg.setIsResultConstant(true);
+    }
+
+    public abstract TExprNodeType getTType();
 
     // Parse from binary data, the format follows mysql binary protocal
     // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.

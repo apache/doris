@@ -135,8 +135,13 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.STRING_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
+        toThriftBase(msg);
         msg.string_literal = new TStringLiteral(getUnescapedValue());
     }
 

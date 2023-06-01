@@ -1045,6 +1045,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // msg.op as well as the expr-specific field.
     protected abstract void toThrift(TExprNode msg);
 
+    protected void toThriftBase(TExprNode msg) {
+
+    }
+
     public List<String> childrenToSql() {
         List<String> result = Lists.newArrayList();
         for (Expr child : children) {

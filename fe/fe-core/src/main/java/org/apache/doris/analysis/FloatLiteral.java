@@ -168,8 +168,13 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.FLOAT_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.FLOAT_LITERAL;
+        toThriftBase(msg);
         msg.float_literal = new TFloatLiteral(value);
     }
 

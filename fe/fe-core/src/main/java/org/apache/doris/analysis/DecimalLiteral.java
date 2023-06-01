@@ -271,9 +271,14 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.DECIMAL_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         // TODO(hujie01) deal with loss information
-        msg.node_type = TExprNodeType.DECIMAL_LITERAL;
+        toThriftBase(msg);
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 

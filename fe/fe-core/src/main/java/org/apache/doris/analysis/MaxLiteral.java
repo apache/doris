@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -46,6 +47,11 @@ public final class MaxLiteral extends LiteralExpr {
             return 0;
         }
         return 1;
+    }
+
+    @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.LITERAL_PRED;
     }
 
     @Override

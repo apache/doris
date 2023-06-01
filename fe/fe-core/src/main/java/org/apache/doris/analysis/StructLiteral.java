@@ -83,8 +83,13 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.STRUCT_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRUCT_LITERAL;
+        toThriftBase(msg);
     }
 
     @Override

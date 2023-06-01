@@ -122,8 +122,13 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.ARRAY_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.ARRAY_LITERAL;
+        toThriftBase(msg);
         msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
     }
 

@@ -54,6 +54,7 @@ public:
 
     Status execute(VExprContext* context, vectorized::Block* block,
                    int* result_column_id) override {
+        // if children need to be deal first. go default logic. children first, then call function.
         if (children().size() == 1 || !_all_child_is_compound_and_not_const() ||
             _children[0]->is_nullable() || _children[1]->is_nullable()) {
             // TODO:
@@ -65,8 +66,7 @@ public:
         int lhs_id = -1;
         int rhs_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        ColumnPtr lhs_column =
-                block->get_by_position(lhs_id).column->convert_to_full_column_if_const();
+        ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
 
         size_t size = lhs_column->size();
         uint8* __restrict data = _get_raw_data(lhs_column);
@@ -82,8 +82,7 @@ public:
         auto get_rhs_colum = [&]() {
             if (rhs_id == -1) {
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
-                rhs_column =
-                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
+                rhs_column = block->get_by_position(rhs_id).column;
                 data_rhs = _get_raw_data(rhs_column);
                 int filted = simd::count_zero_num((int8_t*)data_rhs, size);
                 full_rhs = filted == 0;

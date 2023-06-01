@@ -732,6 +732,7 @@ public class FunctionCallExpr extends Expr {
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
+        msg.setIsResultConstant(this.isConstantImpl());
     }
 
     private void analyzeBuiltinAggFunction(Analyzer analyzer) throws AnalysisException {
@@ -2047,15 +2048,29 @@ public class FunctionCallExpr extends Expr {
         }
 
         final String fnName = this.fnName.getFunction();
+
+        if (isConstantForSpecialCases(fnName)) {
+            return true;
+        }
         // Non-deterministic functions are never constant.
         if (isNondeterministicBuiltinFnName(fnName)) {
             return false;
         }
-        // Sleep is a special function for testing.
+        // specially decide some functions.
         if (fnName.equalsIgnoreCase("sleep")) {
             return false;
         }
-        return super.isConstantImpl();
+
+        return super.isConstantImpl(); // True as default.
+    }
+
+    private boolean isConstantForSpecialCases(String fnName) {
+        if ((this.fnParams.isAllConstant())
+                && ((fnName.equalsIgnoreCase("is_null_pred") && this.fnParams.isAllNullable())
+                        || (fnName.equalsIgnoreCase("is_not_null_pred") && this.fnParams.isAllNotNullable()))) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean isNondeterministicBuiltinFnName(String fnName) {

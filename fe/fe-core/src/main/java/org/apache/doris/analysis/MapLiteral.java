@@ -159,8 +159,13 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.MAP_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.MAP_LITERAL;
+        toThriftBase(msg);
         TTypeDesc container = new TTypeDesc();
         container.setTypes(new ArrayList<TTypeNode>());
         type.toThrift(container);

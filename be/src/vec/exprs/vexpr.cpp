@@ -82,6 +82,7 @@ VExpr::VExpr(const TExprNode& node)
         CHECK(is_nullable);
     }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
+    _result_constant = node.is_result_constant;
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
@@ -372,13 +373,7 @@ std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
 }
 
 bool VExpr::is_constant() const {
-    for (int i = 0; i < _children.size(); ++i) {
-        if (!_children[i]->is_constant()) {
-            return false;
-        }
-    }
-
-    return true;
+    return _result_constant;
 }
 
 Status VExpr::get_const_col(VExprContext* context,
@@ -420,6 +415,7 @@ Status VExpr::init_function_context(VExprContext* context,
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        // get const col from children by order(if it's constant indeed), as const parameter columns.
         for (auto c : _children) {
             std::shared_ptr<ColumnPtrWrapper> const_col;
             RETURN_IF_ERROR(c->get_const_col(context, &const_col));

@@ -131,8 +131,13 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public TExprNodeType getTType() {
+        return TExprNodeType.BOOL_LITERAL;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.BOOL_LITERAL;
+        toThriftBase(msg);
         msg.bool_literal = new TBoolLiteral(value);
     }
 
