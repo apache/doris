@@ -289,7 +289,7 @@ public class HiveMetaStoreCache {
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
         try {
-            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
             locatedFiles.files().forEach(result::addFile);
         } catch (Exception e) {
             // User may manually remove partition under HDFS, in this case,
