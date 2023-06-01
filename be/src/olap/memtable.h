@@ -146,6 +146,7 @@ public:
         _delta_writer_callback = callback;
     }
 
+    bool empty() const { return _input_mutable_block.rows() == 0; }
     void assign_segment_id();
 
 private:
