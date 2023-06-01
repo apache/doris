@@ -118,7 +118,7 @@ suite("test_compaction_dup_keys_with_delete") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             backend_id = tablet[2]
-            def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
 
@@ -139,7 +139,7 @@ suite("test_compaction_dup_keys_with_delete") {
                 Thread.sleep(1000)
                 String tablet_id = tablet[0]
                 backend_id = tablet[2]
-                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
 
@@ -154,7 +154,7 @@ suite("test_compaction_dup_keys_with_delete") {
             String tablet_id = tablet[0]
             def compactionStatusUrlIndex = 18
            
-            def (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             
