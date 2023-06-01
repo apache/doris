@@ -609,6 +609,7 @@ struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
+    3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
 }
 
 struct TKafkaRLTaskProgress {

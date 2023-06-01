@@ -559,6 +559,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.params.query_id);
         stream_load_ctx->put_result.params = params;
+        stream_load_ctx->put_result.__isset.params = true;
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
@@ -586,8 +587,39 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
-    // TODO
-    return exec_plan_fragment(params, empty_function);
+    if (params.txn_conf.need_txn) {
+        std::shared_ptr<StreamLoadContext> stream_load_ctx =
+                std::make_shared<StreamLoadContext>(_exec_env);
+        stream_load_ctx->db = params.txn_conf.db;
+        stream_load_ctx->db_id = params.txn_conf.db_id;
+        stream_load_ctx->table = params.txn_conf.tbl;
+        stream_load_ctx->txn_id = params.txn_conf.txn_id;
+        stream_load_ctx->id = UniqueId(params.query_id);
+        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->use_streaming = true;
+        stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
+        stream_load_ctx->load_src_type = TLoadSourceType::RAW;
+        stream_load_ctx->label = params.import_label;
+        stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+        stream_load_ctx->timeout_second = 3600;
+        stream_load_ctx->auth.token = params.txn_conf.token;
+        stream_load_ctx->need_commit_self = true;
+        stream_load_ctx->need_rollback = true;
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                -1 /* total_length */, true /* use_proto */);
+        stream_load_ctx->body_sink = pipe;
+        stream_load_ctx->pipe = pipe;
+        stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
+
+        RETURN_IF_ERROR(
+                _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
+
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
+        return Status::OK();
+    } else {
+        return exec_plan_fragment(params, empty_function);
+    }
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {

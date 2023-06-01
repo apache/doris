@@ -127,6 +127,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
@@ -1568,7 +1569,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            result.setParams(streamLoadPutImpl(request));
+            if (Config.enable_pipeline_load) {
+                result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+            } else {
+                result.setParams(streamLoadPutImpl(request));
+            }
         } catch (UserException e) {
             LOG.warn("failed to get stream load plan: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -1608,6 +1613,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            // add table indexes to transaction state
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(db.getId(), request.getTxnId());
+            if (txnState == null) {
+                throw new UserException("txn does not exist: " + request.getTxnId());
+            }
+            txnState.addTableIndexes((OlapTable) table);
+            return plan;
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private TPipelineFragmentParams pipelineStreamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException(
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
+        }
+        try {
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
+            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
