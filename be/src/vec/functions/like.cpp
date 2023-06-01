@@ -52,12 +52,15 @@ static const RE2 STARTS_WITH_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\
 
 // A regex to match any regex pattern which is equivalent to a constant string match.
 static const RE2 EQUALS_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
+// A regex to match .*
+static const RE2 ALLPASS_RE("(\\\\.\\*)+");
 
 // Like patterns
 static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\_)|([^%_\\\\]))+)(?:%+)");
 static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_\\\\]))+)(?:%+)");
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
     cloned.escape_char = escape_char;
@@ -699,8 +702,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         state->search_state.pattern_str = pattern_str;
         std::string search_string;
 
-        if (pattern_str == "%%" || pattern_str == "%") {
-            state->search_state.set_search_string(search_string);
+        if (!pattern_str.empty() && RE2::FullMatch(pattern_str, LIKE_ALLPASS_RE)) {
+            state->search_state.set_search_string("");
             state->function = constant_allpass_fn;
             state->predicate_like_function = constant_allpass_fn_predicate;
             state->scalar_function = constant_allpass_fn_scalar;
@@ -818,8 +821,8 @@ Status FunctionRegexp::open(FunctionContext* context, FunctionContext::FunctionS
 
         std::string pattern_str = pattern.to_string();
         std::string search_string;
-        if (pattern_str == "\\.*" || pattern_str == "\\.*?") {
-            state->search_state.set_search_string(search_string);
+        if (RE2::FullMatch(pattern_str, ALLPASS_RE)) {
+            state->search_state.set_search_string("");
             state->function = constant_allpass_fn;
             state->predicate_like_function = constant_allpass_fn_predicate;
             state->scalar_function = constant_allpass_fn_scalar;
