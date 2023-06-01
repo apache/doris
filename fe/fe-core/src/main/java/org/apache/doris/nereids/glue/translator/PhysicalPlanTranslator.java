@@ -2226,11 +2226,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, dataPartition);
         inputFragment.setDestination(mergePlan);
         context.addPlanFragment(fragment);
-        if (inputFragment.getSink() instanceof OlapTableSink) {
-            DataSink sink = inputFragment.getSink();
-            inputFragment.cleanSink();
-            fragment.setSink(sink);
-        }
         return fragment;
     }
 
