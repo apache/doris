@@ -451,12 +451,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
-    // segment id [0, rowset->num_segments()) is added by link_files_to,
-    // update _next_seq and _segment_set
-    // TODO: link_files_to is assuming segment_id starts from 0,
-    // so we assume _next_seq and _num_segment is 0 here.
-    _next_seq += rowset->num_segments();
-    _segment_set.addRange(0, rowset->num_segments());
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
