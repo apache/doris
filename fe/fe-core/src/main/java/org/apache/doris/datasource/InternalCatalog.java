@@ -1382,9 +1382,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD,
-                        olapTable.skipInvertedIndexOnLoad().toString());
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
+                        olapTable.skipWriteIndexOnLoad().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
@@ -1482,7 +1482,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
                     olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy, idGeneratorBuffer,
                     olapTable.disableAutoCompaction(), olapTable.enableSingleReplicaCompaction(),
-                    olapTable.skipInvertedIndexOnLoad(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
+                    olapTable.skipWriteIndexOnLoad(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
@@ -1715,7 +1715,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
             IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
-            boolean enableSingleReplicaCompaction, boolean skipInvertedIndexOnLoad,
+            boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
             boolean storeRowColumn, boolean isDynamicSchema) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -1778,7 +1778,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             storageMedium, schema, bfColumns, bfFpp, countDownLatch, indexes, isInMemory, tabletType,
                             dataSortInfo, compressionType, enableUniqueKeyMergeOnWrite, storagePolicy,
-                            disableAutoCompaction, enableSingleReplicaCompaction, skipInvertedIndexOnLoad,
+                            disableAutoCompaction, enableSingleReplicaCompaction, skipWriteIndexOnLoad,
                             storeRowColumn, isDynamicSchema);
 
                     task.setStorageFormat(storageFormat);
@@ -2022,9 +2022,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setStoreRowColumn(storeRowColumn);
 
         // set skip inverted index on load
-        boolean skipInvertedIndexOnLoad = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD, false);
-        olapTable.setSkipInvertedIndexOnLoad(skipInvertedIndexOnLoad);
+        boolean skipWriteIndexOnLoad = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, false);
+        olapTable.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
 
         // set dynamic schema
         boolean isDynamicSchema = PropertyAnalyzer.analyzeBooleanProp(properties,
@@ -2233,7 +2233,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.enableSingleReplicaCompaction(), skipInvertedIndexOnLoad,
+                        olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                         storeRowColumn, isDynamicSchema);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
@@ -2299,7 +2299,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                             idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                            olapTable.enableSingleReplicaCompaction(), skipInvertedIndexOnLoad,
+                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                             storeRowColumn, isDynamicSchema);
                     olapTable.addPartition(partition);
                 }
@@ -2685,7 +2685,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.enableSingleReplicaCompaction(), olapTable.skipInvertedIndexOnLoad(),
+                        olapTable.enableSingleReplicaCompaction(), olapTable.skipWriteIndexOnLoad(),
                         olapTable.storeRowColumn(), olapTable.isDynamicSchema());
                 newPartitions.add(newPartition);
             }

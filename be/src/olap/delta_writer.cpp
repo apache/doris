@@ -616,7 +616,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     std::vector<int64_t> indices_ids;
     auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
-    if (!tablet_schema->skip_inverted_index_on_load()) {
+    if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
             const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
             if (index_meta) {

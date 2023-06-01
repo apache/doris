@@ -263,8 +263,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.store_row_column) {
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
-    if (tablet_schema.__isset.skip_inverted_index_on_load) {
-        schema->set_skip_inverted_index_on_load(tablet_schema.skip_inverted_index_on_load);
+    if (tablet_schema.__isset.skip_write_index_on_load) {
+        schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
 
     if (binlog_config.has_value()) {

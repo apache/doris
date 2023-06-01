@@ -3071,9 +3071,9 @@ public class Env {
             }
 
             // skip inverted index on load
-            if (olapTable.skipInvertedIndexOnLoad()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD).append("\" = \"");
-                sb.append(olapTable.skipInvertedIndexOnLoad()).append("\"");
+            if (olapTable.skipWriteIndexOnLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
+                sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
             }
 
             // dynamic schema

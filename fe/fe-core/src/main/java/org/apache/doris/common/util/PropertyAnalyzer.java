@@ -125,7 +125,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
 
-    public static final String PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD = "skip_inverted_index_on_load";
+    public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
     public static final String PROPERTIES_MUTABLE = "mutable";
 
@@ -570,22 +570,22 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static Boolean analyzeSkipInvertedIndexOnLoad(Map<String, String> properties) throws AnalysisException {
+    public static Boolean analyzeSkipWriteIndexOnLoad(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
-        String value = properties.get(PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD);
-        // set skip_inverted_index_on_load false by default
+        String value = properties.get(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        // set skip_write_index_on_load false by default
         if (null == value) {
             return false;
         }
-        properties.remove(PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD);
+        properties.remove(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
         if (value.equalsIgnoreCase("true")) {
             return true;
         } else if (value.equalsIgnoreCase("false")) {
             return false;
         }
-        throw new AnalysisException(PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD
+        throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
     }
 
