@@ -10,7 +10,7 @@
 3295907951.77	Home	\N	1	7
 3294344966.02	Shoes	\N	1	8
 3283901669.26	Jewelry	\N	1	9
-3280370106.4	Men	\N	1	10
+3280370106.40	Men	\N	1	10
 83660290.12		\N	1	11
 42471805.75			0	1
 1998229.87		dresses	0	2
@@ -25,9 +25,9 @@
 1078947.14		history	0	11
 989749.36		country	0	12
 942108.73		mens	0	13
-927681.4		classical	0	14
+927681.40		classical	0	14
 846775.26		sports-apparel	0	15
-765114.7		rock	0	16
+765114.70		rock	0	16
 744611.34		memory	0	17
 738591.15		business	0	18
 733046.69		basketball	0	19
@@ -35,7 +35,7 @@
 705455.35		pendants	0	21
 675903.16		loose stones	0	22
 675230.94		earings	0	23
-669896.2		baseball	0	24
+669896.20		baseball	0	24
 590604.69		archery	0	25
 588892.91		custom	0	26
 586015.11		reference	0	27
@@ -45,23 +45,23 @@
 418661.98		accessories	0	31
 410068.81		tennis	0	32
 391592.02		maternity	0	33
-388662.8		mystery	0	34
+388662.80		mystery	0	34
 385810.93		glassware	0	35
 380837.74		entertainments	0	36
 375212.67		school-uniforms	0	37
-362707.5		curtains/drapes	0	38
+362707.50		curtains/drapes	0	38
 359753.82		televisions	0	39
 348284.03		outdoor	0	40
 346374.88		wallpaper	0	41
 344339.43		decor	0	42
-341987.9		lighting	0	43
+341987.90		lighting	0	43
 337748.05		travel	0	44
 336158.86		estate	0	45
-335848.1		mens watch	0	46
+335848.10		mens watch	0	46
 334154.71		tables	0	47
 333829.46		bracelets	0	48
 333483.33		accent	0	49
-329687.8		camping	0	50
+329687.80		camping	0	50
 326247.53		monitors	0	51
 325947.26		disk drives	0	52
 324196.77		self-help	0	53
@@ -83,8 +83,8 @@
 2287.39		bedding	0	69
 1865.13		mattresses	0	70
 1034.28		pools	0	71
-98.8		furniture	0	72
-219050351.4	Books	history	0	1
+98.80		furniture	0	72
+219050351.40	Books	history	0	1
 214638703.58	Books	entertainments	0	2
 213999906.98	Books	reference	0	3
 213003587.84	Books	fiction	0	4
