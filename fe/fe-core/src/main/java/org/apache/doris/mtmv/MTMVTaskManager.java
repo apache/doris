@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
@@ -51,7 +52,6 @@ import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class MTMVTaskManager {
@@ -66,7 +66,7 @@ public class MTMVTaskManager {
 
     private final MTMVTaskExecutorPool taskExecutorPool = new MTMVTaskExecutorPool();
 
-    private final ReentrantLock reentrantLock = new ReentrantLock(true);
+    private final QueryableReentrantLock reentrantLock = new QueryableReentrantLock(true);
 
     // keep track of all the completed tasks
     private final Deque<MTMVTask> historyTasks = Queues.newLinkedBlockingDeque();
@@ -87,6 +87,7 @@ public class MTMVTaskManager {
         }
         taskScheduler.scheduleAtFixedRate(() -> {
             if (!tryLock()) {
+                LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
                 return;
             }
             try {
@@ -135,6 +136,7 @@ public class MTMVTaskManager {
     public boolean killTask(Long jobId, boolean clearPending) {
         if (clearPending) {
             if (!tryLock()) {
+                LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
                 return false;
             }
             try {
@@ -159,6 +161,7 @@ public class MTMVTaskManager {
 
     public void arrangeToPendingTask(MTMVTaskExecutor task) {
         if (!tryLock()) {
+            LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
             return;
         }
         try {
@@ -414,6 +417,7 @@ public class MTMVTaskManager {
         List<String> clearTasks = Lists.newArrayList();
 
         if (!tryLock()) {
+            LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
             return;
         }
         try {
@@ -435,6 +439,7 @@ public class MTMVTaskManager {
         List<String> historyToDelete = Lists.newArrayList();
 
         if (!tryLock()) {
+            LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
             return;
         }
         try {
@@ -456,6 +461,7 @@ public class MTMVTaskManager {
             return;
         }
         if (!tryLock()) {
+            LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
             return;
         }
         try {
@@ -482,6 +488,7 @@ public class MTMVTaskManager {
 
     public void clearUnfinishedTasks() {
         if (!tryLock()) {
+            LOG.warn("tryLock failed, lock is used by:", reentrantLock.getOwner());
             return;
         }
         try {
