@@ -94,11 +94,11 @@ The formats available are:
 
 % X | Year, where Sunday is the first day of the week, 4 places, and% V use
 
-% X | year, of which Monday is the first day of the week, 4 places, and% V
+% x | year, of which Monday is the first day of the week, 4 places, and% V
 
 % Y | Year, 4
 
-% Y | Year, 2
+% y | Year, 2
 
 %%  | Represent %
 
