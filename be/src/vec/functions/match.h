@@ -34,6 +34,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -63,8 +64,9 @@ public:
                         size_t result, size_t input_rows_count) override;
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) = 0;
 };
 
@@ -76,8 +78,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override;
 };
 
@@ -89,8 +92,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override;
 };
 
@@ -102,8 +106,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override;
 };
 
@@ -115,8 +120,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -130,8 +136,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -145,8 +152,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -160,8 +168,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
@@ -175,8 +184,9 @@ public:
     String get_name() const override { return name; }
 
     virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* datas,
+                                 size_t input_rows_count, const ColumnString* string_col,
                                  InvertedIndexCtx* inverted_index_ctx,
+                                 const ColumnArray::Offsets64* array_offsets,
                                  ColumnUInt8::Container& result) override {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
