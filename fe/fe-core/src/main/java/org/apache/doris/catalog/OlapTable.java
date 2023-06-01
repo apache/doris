@@ -1814,6 +1814,20 @@ public class OlapTable extends Table {
         return false;
     }
 
+    public void setSkipInvertedIndexOnLoad(boolean skipInvertedIndexOnLoad) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD,
+                Boolean.valueOf(skipInvertedIndexOnLoad).toString());
+        tableProperty.buildSkipInvertedIndexOnLoad();
+    }
+
+    public Boolean skipInvertedIndexOnLoad() {
+        if (tableProperty != null) {
+            return tableProperty.skipInvertedIndexOnLoad();
+        }
+        return false;
+    }
+
     public Boolean isDynamicSchema() {
         if (tableProperty != null) {
             return tableProperty.isDynamicSchema();

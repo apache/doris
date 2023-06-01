@@ -3070,6 +3070,12 @@ public class Env {
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
 
+            // skip inverted index on load
+            if (olapTable.skipInvertedIndexOnLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD).append("\" = \"");
+                sb.append(olapTable.skipInvertedIndexOnLoad()).append("\"");
+            }
+
             // dynamic schema
             if (olapTable.isDynamicSchema()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");

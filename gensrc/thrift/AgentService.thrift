@@ -42,7 +42,8 @@ struct TTabletSchema {
     14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
     16: optional bool store_row_column = false
-    17: optional bool enable_single_replica_compaction
+    17: optional bool enable_single_replica_compaction = false
+    18: optional bool skip_inverted_index_on_load = false
 }
 
 // this enum stands for different storage format in src_backends

@@ -276,6 +276,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                     tbl.disableAutoCompaction(),
                                     tbl.enableSingleReplicaCompaction(),
+                                    tbl.skipInvertedIndexOnLoad(),
                                     tbl.storeRowColumn(),
                                     tbl.isDynamicSchema());
 

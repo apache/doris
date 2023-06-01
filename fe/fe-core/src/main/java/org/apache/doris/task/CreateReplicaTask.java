@@ -102,6 +102,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean enableSingleReplicaCompaction;
 
+    private boolean skipInvertedIndexOnLoad;
+
     private boolean storeRowColumn;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
@@ -117,6 +119,7 @@ public class CreateReplicaTask extends AgentTask {
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
                              boolean enableSingleReplicaCompaction,
+                             boolean skipInvertedIndexOnLoad,
                              boolean storeRowColumn,
                              boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
@@ -154,6 +157,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         this.disableAutoCompaction = disableAutoCompaction;
         this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
+        this.skipInvertedIndexOnLoad = skipInvertedIndexOnLoad;
         this.storeRowColumn = storeRowColumn;
     }
 
@@ -260,6 +264,8 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
+        tSchema.setSkipInvertedIndexOnLoad(skipInvertedIndexOnLoad);
+        tSchema.setSkipInvertedIndexOnLoad(skipInvertedIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);

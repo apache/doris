@@ -241,6 +241,8 @@ public:
     bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
     bool store_row_column() const { return _store_row_column; }
+    void set_skip_inverted_index_on_load(bool skip) { _skip_inverted_index_on_load = skip; }
+    bool skip_inverted_index_on_load() const { return _skip_inverted_index_on_load; }
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
@@ -345,6 +347,7 @@ private:
     bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
+    bool _skip_inverted_index_on_load = false;
 
     bool _is_partial_update;
     std::set<std::string> _partial_update_input_columns;

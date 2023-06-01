@@ -84,6 +84,8 @@ public class TableProperty implements Writable {
 
     private boolean storeRowColumn = false;
 
+    private boolean skipInvertedIndexOnLoad = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -193,6 +195,16 @@ public class TableProperty implements Writable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildSkipInvertedIndexOnLoad() {
+        skipInvertedIndexOnLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_INVERTED_INDEX_ON_LOAD, "false"));
+        return this;
+    }
+
+    public boolean skipInvertedIndexOnLoad() {
+        return skipInvertedIndexOnLoad;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -414,6 +426,7 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
+                .buildSkipInvertedIndexOnLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
