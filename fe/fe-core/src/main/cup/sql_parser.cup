@@ -3472,6 +3472,13 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
         RESULT = columnDef;
     :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
+        columnDef.setGenericAggregationName(aggType);
+        columnDef.setGenericAggregationArguments(list);
+        RESULT = columnDef;
+    :}
     ;
 
 index_definition ::=
