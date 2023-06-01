@@ -17,10 +17,21 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.IcebergTableValuedFunction;
+import org.apache.doris.tablefunction.NumbersTableValuedFunction;
+import org.apache.doris.tablefunction.ResourceGroupsTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
@@ -96,6 +107,36 @@ public class TableValuedFunctionRef extends TableRef {
         if (isAnalyzed) {
             return;
         }
+
+        // check privilige for tvf
+        switch (funcName.toLowerCase()) {
+            case NumbersTableValuedFunction.NAME:
+                break;
+            case S3TableValuedFunction.NAME:
+            case HdfsTableValuedFunction.NAME:
+                if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                        PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+                }
+                break;
+            case IcebergTableValuedFunction.NAME:
+            case BackendsTableValuedFunction.NAME:
+                if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                        && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                                                                                PrivPredicate.OPERATOR)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+                }
+                break;
+            case ResourceGroupsTableValuedFunction.NAME:
+                if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                        PrivPredicate.SHOW_RESOURCES)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW_RESOURCES");
+                }
+                break;
+            default:
+                throw new AnalysisException("Could not find table function " + funcName);
+        }
+
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);
