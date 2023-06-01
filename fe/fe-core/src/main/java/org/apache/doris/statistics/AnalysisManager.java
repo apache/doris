@@ -167,7 +167,7 @@ public class AnalysisManager extends Daemon {
                 analyzeStmts.add(analyzeTblStmt);
             }
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                buildAndAssignJob(analyzeTblStmt);
+                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
             sendJobId(analysisInfos);
         } finally {
@@ -472,10 +472,10 @@ public class AnalysisManager extends Daemon {
                 AnalysisInfoBuilder indexTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
                 AnalysisInfo analysisInfo = indexTaskInfoBuilder.setIndexId(indexId)
                         .setTaskId(taskId).build();
-                analysisTasks.put(taskId, createTask(analysisInfo));
                 if (isSync) {
                     return;
                 }
+                analysisTasks.put(taskId, createTask(analysisInfo));
                 logCreateAnalysisJob(analysisInfo);
             }
         } finally {
@@ -636,6 +636,7 @@ public class AnalysisManager extends Daemon {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
         return analysisJobInfoMap.values().stream()
+                .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
                 .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
                 .filter(a -> tblName == null || a.catalogName.equals(tblName.getCtl())
                         && a.dbName.equals(tblName.getDb()) && a.tblName.equals(tblName.getTbl()))
@@ -717,7 +718,7 @@ public class AnalysisManager extends Daemon {
             return table.createAnalysisTask(analysisInfo);
         } catch (Throwable t) {
             LOG.warn("Failed to find table", t);
-            throw new DdlException("Error when trying to find table", t);
+            throw new DdlException("Failed to create task", t);
         }
     }
 

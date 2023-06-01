@@ -67,7 +67,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("schedule_type")
             .build();
 
-    private Long jobId;
+    private long jobId;
     private TableName dbTableName;
     private Expr whereClause;
     private LimitElement limitElement;
@@ -88,10 +88,11 @@ public class ShowAnalyzeStmt extends ShowStmt {
         this.limitElement = limitElement;
     }
 
-    public ShowAnalyzeStmt(Long jobId,
+    public ShowAnalyzeStmt(long jobId,
             Expr whereClause,
             List<OrderByElement> orderByElements,
             LimitElement limitElement) {
+        Preconditions.checkArgument(jobId > 0, "JobId must greater than 0.");
         this.jobId = jobId;
         this.dbTableName = null;
         this.whereClause = whereClause;
@@ -99,7 +100,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
         this.limitElement = limitElement;
     }
 
-    public Long getJobId() {
+    public long getJobId() {
         return jobId;
     }
 
@@ -136,7 +137,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
                     + "in your FE conf file");
         }
         super.analyze(analyzer);
-
         if (dbTableName != null) {
             dbTableName.analyze(analyzer);
             String dbName = dbTableName.getDb();
@@ -261,7 +261,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ANALYZE");
 
-        if (jobId != null) {
+        if (jobId != 0) {
             sb.append(" ");
             sb.append(jobId);
         }

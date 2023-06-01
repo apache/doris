@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
@@ -2125,7 +2126,7 @@ public class StmtExecutor {
     private void handleDdlStmt() {
         try {
             DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            if (!(parsedStmt instanceof AnalyzeTblStmt)) {
+            if (!(parsedStmt instanceof AnalyzeStmt)) {
                 context.getState().setOk();
             }
         } catch (QueryStateException e) {

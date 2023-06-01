@@ -430,7 +430,6 @@ public class ShowExecutor {
         return resultSet;
     }
 
-
     private void handleShowRollup() {
         // TODO: not implemented yet
         ShowRollupStmt showRollupStmt = (ShowRollupStmt) stmt;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
@@ -31,7 +32,6 @@ public class AnalyzeStmt extends DdlStmt {
     public AnalyzeStmt(AnalyzeProperties analyzeProperties) {
         this.analyzeProperties = analyzeProperties;
     }
-
 
     public Map<String, String> getProperties() {
         return analyzeProperties.getProperties();

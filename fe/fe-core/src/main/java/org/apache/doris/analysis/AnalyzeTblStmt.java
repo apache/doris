@@ -34,6 +34,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.ColumnStatistic;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -77,7 +78,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     // The properties passed in by the user through "with" or "properties('K', 'V')"
 
     private final TableName tableName;
-    private final List<String> columnNames;
+    private List<String> columnNames;
 
     // after analyzed
     private long dbId;
@@ -128,24 +129,25 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             throw new AnalysisException("Analyze view is not allowed");
         }
         checkAnalyzePriv(tableName.getDb(), tableName.getTbl());
-
-        if (columnNames != null && !columnNames.isEmpty()) {
-            table.readLock();
-            try {
-                List<String> baseSchema = table.getBaseSchema(false)
-                        .stream().map(Column::getName).collect(Collectors.toList());
-                Optional<String> optional = columnNames.stream()
-                        .filter(entity -> !baseSchema.contains(entity)).findFirst();
-                if (optional.isPresent()) {
-                    String columnName = optional.get();
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                            columnName, FeNameFormat.getColumnNameRegex());
-                }
-            } finally {
-                table.readUnlock();
-            }
+        if (columnNames == null) {
+            columnNames = table.getBaseSchema(false)
+                    .stream().map(Column::getName).collect(Collectors.toList());
         }
-
+        table.readLock();
+        try {
+            List<String> baseSchema = table.getBaseSchema(false)
+                    .stream().map(Column::getName).collect(Collectors.toList());
+            Optional<String> optional = columnNames.stream()
+                    .filter(entity -> !baseSchema.contains(entity)).findFirst();
+            if (optional.isPresent()) {
+                String columnName = optional.get();
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        columnName, FeNameFormat.getColumnNameRegex());
+            }
+        } finally {
+            table.readUnlock();
+        }
+        checkColumn();
         analyzeProperties.check();
 
         // TODO support external table
@@ -155,6 +157,26 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                         + "collection of external tables is not supported");
             }
         }
+    }
+
+    private void checkColumn() throws AnalysisException {
+        table.readLock();
+        try {
+            for (String colName : columnNames) {
+                Column column = table.getColumn(colName);
+                if (column == null) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                            colName, FeNameFormat.getColumnNameRegex());
+                }
+                if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+                    throw new AnalysisException(String.format("Column[%s] with type[%s] is not supported to analyze",
+                            colName, column.getType().toString()));
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+
     }
 
     public String getCatalogName() {

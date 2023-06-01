@@ -34,7 +34,7 @@ public class AnalysisInfoBuilder {
     private String tblName;
     private Map<String, Set<String>> colToPartitions;
     private String colName;
-    private Long indexId = -1L;
+    private long indexId = -1L;
     private JobType jobType;
     private AnalysisMode analysisMode;
     private AnalysisMethod analysisMethod;

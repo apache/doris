@@ -202,6 +202,7 @@ public class StatisticsUtil {
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
+            case STRING:
                 return new StringLiteral(columnValue);
             case HLL:
             case BITMAP:

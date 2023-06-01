@@ -32,7 +32,6 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import mockit.Tested;
 import org.junit.FixMethodOrder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -71,14 +70,12 @@ public class HistogramTaskTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
     }
 
-    @Tested
-
     @Test
     public void test1TaskCreation() throws Exception {
 
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         StmtExecutor executor = getSqlStmtExecutor(
-                "ANALYZE TABLE t1(col1) UPDATE HISTOGRAM");
+                "ANALYZE TABLE t1(col1) WITH HISTOGRAM");
         Assertions.assertNotNull(executor);
 
         ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> taskMap =

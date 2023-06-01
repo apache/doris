@@ -295,13 +295,13 @@ public class OperationType {
     // update binlog config
     public static final short OP_UPDATE_BINLOG_CONFIG = 425;
 
-    public static final short OP_CREATE_ANALYSIS_TASK = 435;
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
 
-    public static final short OP_DELETE_ANALYSIS_TASK = 436;
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
 
-    public static final short OP_CREATE_ANALYSIS_JOB = 437;
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
 
-    public static final short OP_DELETE_ANALYSIS_JOB = 438;
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
 
 
     /**
