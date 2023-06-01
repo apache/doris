@@ -108,7 +108,7 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
-    int32_t allocate_seq_id() override { return _next_seq.fetch_add(1); };
+    int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
     // Maybe modified by local schema change
     vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
@@ -162,7 +162,7 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    std::atomic<int32_t> _next_seq;
+    std::atomic<int32_t> _next_segment_id;
     std::atomic<int32_t> _num_segment;
     roaring::Roaring _segment_set;
     std::mutex _segment_set_mutex;

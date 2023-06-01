@@ -483,14 +483,14 @@ Status MemTable::_do_flush() {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
-    ctx.seq = _seq_id;
+    ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
     return Status::OK();
 }
 
-void MemTable::assign_seq_id() {
-    _seq_id = std::optional<int32_t> {_rowset_writer->allocate_seq_id()};
+void MemTable::assign_segment_id() {
+    _segment_id = std::optional<int32_t> {_rowset_writer->allocate_segment_id()};
 }
 
 Status MemTable::close() {
