@@ -39,7 +39,7 @@ struct FlushContext {
     ENABLE_FACTORY_CREATOR(FlushContext);
     TabletSchemaSPtr flush_schema = nullptr;
     const vectorized::Block* block = nullptr;
-    std::optional<int32_t> seq = std::nullopt;
+    std::optional<int32_t> segment_id = std::nullopt;
 };
 
 class RowsetWriter {
@@ -102,7 +102,7 @@ public:
 
     virtual int32_t get_atomic_num_segment() const = 0;
 
-    virtual int32_t allocate_seq_id() = 0;
+    virtual int32_t allocate_segment_id() = 0;
 
     virtual bool is_doing_segcompaction() const = 0;
 

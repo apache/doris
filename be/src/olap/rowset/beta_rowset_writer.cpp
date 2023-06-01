@@ -60,7 +60,7 @@ using namespace ErrorCode;
 
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
-          _next_seq(0),
+          _next_segment_id(0),
           _num_segment(0),
           _segment_start_id(0),
           _segcompacted_point(0),
@@ -89,8 +89,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        auto max_seq = std::max(_num_segment.load(), _next_seq.load());
-        for (int i = 0; i < max_seq; ++i) {
+        auto max_segment_id = std::max(_num_segment.load(), _next_segment_id.load());
+        for (int i = 0; i < max_segment_id; ++i) {
             std::string seg_path = BetaRowset::segment_file_path(
                     _context.rowset_dir, _context.rowset_id, _segment_start_id + i);
             // Even if an error is encountered, these files that have not been cleaned up
@@ -416,7 +416,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
 
-    if (flush_ctx != nullptr && flush_ctx->seq.has_value()) {
+    if (flush_ctx != nullptr && flush_ctx->segment_id.has_value()) {
         // the entire block (memtable) should be flushed into single segment
         auto s = (*segment_writer)->append_block(block, row_offset, block_row_num);
         if (UNLIKELY(!s.ok())) {
@@ -690,9 +690,10 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
                                                            begin, end);
     } else {
-        int32_t seq_id = flush_ctx != nullptr && flush_ctx->seq.has_value() ? flush_ctx->seq.value()
-                                                                            : allocate_seq_id();
-        segment_id = seq_id + _segment_start_id;
+        int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
+                                       ? flush_ctx->segment_id.value()
+                                       : allocate_segment_id();
+        segment_id = segid_offset + _segment_start_id;
         path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     }
     auto fs = _rowset_meta->fs();
@@ -764,7 +765,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
                                                int64_t* flush_size) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->num_rows_written();
-    uint32_t seq_id = segid - _segment_start_id;
+    uint32_t segid_offset = segid - _segment_start_id;
 
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
@@ -796,8 +797,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
         _segid_statistics_map.emplace(segid, segstat);
-        _segment_num_rows.resize(_next_seq);
-        _segment_num_rows[seq_id] = row_num;
+        _segment_num_rows.resize(_next_segment_id);
+        _segment_num_rows[segid_offset] = row_num;
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
                << " data_size:" << segment_size << " index_size:" << index_size;
@@ -808,7 +809,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     }
     {
         std::lock_guard<std::mutex> lock(_segment_set_mutex);
-        _segment_set.add(seq_id);
+        _segment_set.add(segid_offset);
         while (_segment_set.contains(_num_segment)) {
             _num_segment++;
         }

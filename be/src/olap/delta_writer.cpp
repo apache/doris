@@ -209,7 +209,7 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    // by assigning seq_id to memtable before submiting to flush executor,
+    // by assigning segment_id to memtable before submiting to flush executor,
     // we can make sure same keys sort in the same order in all replicas.
     bool should_serial = false;
     RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
@@ -267,7 +267,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    _mem_table->assign_seq_id();
+    _mem_table->assign_segment_id();
     return _flush_token->submit(std::move(_mem_table));
 }
 
