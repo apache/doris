@@ -41,9 +41,12 @@
 #include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/schema_cache.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
+#include "olap/tablet_schema_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -103,11 +106,12 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_vconjunct_ctx_ptr));
-    if (parent->_common_vexpr_ctxs_pushdown != nullptr) {
-        // Copy common_vexpr_ctxs_pushdown from scan node to this scanner's _common_vexpr_ctxs_pushdown, just necessary.
-        RETURN_IF_ERROR(
-                parent->_common_vexpr_ctxs_pushdown->clone(_state, &_common_vexpr_ctxs_pushdown));
+    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_conjuncts));
+
+    for (auto& ctx : parent->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
     }
 
     // set limit to reduce end of rowset and segment mem use
@@ -120,44 +124,39 @@ Status NewOlapScanner::init() {
     // Get olap table
     TTabletId tablet_id = _scan_range.tablet_id;
     _version = strtoul(_scan_range.version.c_str(), nullptr, 10);
+    TabletSchemaSPtr cached_schema;
+    std::string schema_key;
     {
         auto [tablet, status] =
                 StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
         RETURN_IF_ERROR(status);
         _tablet = std::move(tablet);
-        _tablet_schema->copy_from(*_tablet->tablet_schema());
-
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
         if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
-            // Originally scanner get TabletSchema from tablet object in BE.
-            // To support lightweight schema change for adding / dropping columns,
-            // tabletschema is bounded to rowset and tablet's schema maybe outdated,
-            //  so we have to use schema from a query plan witch FE puts it in query plans.
-            _tablet_schema->clear_columns();
-            for (const auto& column_desc : olap_scan_node.columns_desc) {
-                _tablet_schema->append_column(TabletColumn(column_desc));
+            schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
+                                                     olap_scan_node.schema_version,
+                                                     SchemaCache::Type::TABLET_SCHEMA);
+            cached_schema = SchemaCache::instance()->get_schema<TabletSchemaSPtr>(schema_key);
+        }
+        if (cached_schema) {
+            _tablet_schema = cached_schema;
+        } else {
+            _tablet_schema->copy_from(*_tablet->tablet_schema());
+            if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+                olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+                // Originally scanner get TabletSchema from tablet object in BE.
+                // To support lightweight schema change for adding / dropping columns,
+                // tabletschema is bounded to rowset and tablet's schema maybe outdated,
+                //  so we have to use schema from a query plan witch FE puts it in query plans.
+                _tablet_schema->clear_columns();
+                for (const auto& column_desc : olap_scan_node.columns_desc) {
+                    _tablet_schema->append_column(TabletColumn(column_desc));
+                }
+                _tablet_schema->set_schema_version(olap_scan_node.schema_version);
             }
-        }
-
-        if (olap_scan_node.__isset.indexes_desc) {
-            _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
-        }
-
-        {
-            if (_output_tuple_desc->slots().back()->col_name() == BeConsts::ROWID_COL) {
-                // inject ROWID_COL
-                TabletColumn rowid_column;
-                rowid_column.set_is_nullable(false);
-                rowid_column.set_name(BeConsts::ROWID_COL);
-                // avoid column reader init error
-                rowid_column.set_has_default_value(true);
-                // fake unique id
-                rowid_column.set_unique_id(INT32_MAX);
-                rowid_column.set_aggregation_method(
-                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
-                rowid_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-                _tablet_schema->append_column(rowid_column);
+            if (olap_scan_node.__isset.indexes_desc) {
+                _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
             }
         }
 
@@ -199,6 +198,10 @@ Status NewOlapScanner::init() {
     if (_state->enable_profile()) {
         _profile->add_info_string("ReadColumns",
                                   read_columns_to_string(_tablet_schema, _return_columns));
+    }
+
+    if (!cached_schema && !schema_key.empty()) {
+        SchemaCache::instance()->insert_schema(schema_key, _tablet_schema);
     }
 
     return Status::OK();
@@ -264,34 +267,24 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
-    // TODO: If a new runtime filter arrives after `_vconjunct_ctx` move to `_common_vexpr_ctxs_pushdown`,
-    // `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` will have values at the same time,
-    // and the root() of `_vconjunct_ctx` and `_common_vexpr_ctxs_pushdown` should be merged as `remaining_vconjunct_root`
-    _tablet_reader_params.remaining_vconjunct_root =
-            (_common_vexpr_ctxs_pushdown == nullptr)
-                    ? (_vconjunct_ctx == nullptr ? nullptr : _vconjunct_ctx->root())
-                    : _common_vexpr_ctxs_pushdown->root();
-    _tablet_reader_params.common_vexpr_ctxs_pushdown = _common_vexpr_ctxs_pushdown;
+
+    // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
+    if (_common_expr_ctxs_push_down.empty()) {
+        for (auto& conjunct : _conjuncts) {
+            _tablet_reader_params.remaining_conjunct_roots.emplace_back(conjunct->root());
+        }
+    } else {
+        for (auto& ctx : _common_expr_ctxs_push_down) {
+            _tablet_reader_params.remaining_conjunct_roots.emplace_back(ctx->root());
+        }
+    }
+
+    _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
     for (auto& filter : filters) {
-        if (is_match_condition(filter.condition_op) &&
-            !_tablet_schema->has_inverted_index(
-                    _tablet_schema->column(filter.column_name).unique_id())) {
-            return Status::NotSupported("Match query must with inverted index, column `" +
-                                        filter.column_name + "` is not inverted index column");
-        }
         _tablet_reader_params.conditions.push_back(filter);
-    }
-
-    for (auto& filter : _compound_filters) {
-        if (is_match_condition(filter.condition_op) &&
-            !_tablet_schema->has_inverted_index(
-                    _tablet_schema->column(filter.column_name).unique_id())) {
-            return Status::NotSupported("Match query must with inverted index, column `" +
-                                        filter.column_name + "` is not inverted index column");
-        }
     }
 
     std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
@@ -403,7 +396,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
             _tablet_reader_params.read_orderby_key_limit = _limit;
-            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
+            _tablet_reader_params.filter_block_conjuncts = _conjuncts;
         }
 
         // runtime predicate push down optimization for topn

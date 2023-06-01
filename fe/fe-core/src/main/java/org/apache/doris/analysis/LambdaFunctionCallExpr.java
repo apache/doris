@@ -221,6 +221,15 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         }
         LOG.debug("fn string: " + fn.signatureString() + ". return type: " + fn.getReturnType());
         this.type = fn.getReturnType();
+        if (this.type.isArrayType() && ((ArrayType) this.type).getItemType().isDecimalV3()
+                && getChild(0).getType().isArrayType()
+                && ((ArrayType) getChild(0).getType()).getItemType().isDecimalV3()) {
+            this.type = new ArrayType(((ArrayType) getChild(0).getType()).getItemType());
+        } else if (this.type.isDecimalV3()
+                && getChild(0).getType().isArrayType()
+                && ((ArrayType) getChild(0).getType()).getItemType().isDecimalV3()) {
+            this.type = ((ArrayType) getChild(0).getType()).getItemType();
+        }
     }
 
     @Override

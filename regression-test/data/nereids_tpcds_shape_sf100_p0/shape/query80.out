@@ -26,7 +26,7 @@ PhysicalTopN
 ------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_date <= 1998-09-27)(date_dim.d_date >= 1998-08-28))
+--------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))
 ----------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
@@ -56,7 +56,7 @@ PhysicalTopN
 ------------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_date <= 1998-09-27)(date_dim.d_date >= 1998-08-28))
+--------------------------------------------filter((date_dim.d_date >= 1998-08-28)(date_dim.d_date <= 1998-09-27))
 ----------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject

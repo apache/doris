@@ -803,11 +803,10 @@ order by
         String catalog_name = "test_catalog_hive_parquet"
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """create resource if not exists hms_resource_catalog_parquet properties (
+        sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
         );"""
-        sql """create catalog if not exists ${catalog_name} with resource hms_resource_catalog_parquet;"""
         sql """switch ${catalog_name}"""
         sql """use `tpch1_parquet`"""
 
@@ -835,7 +834,6 @@ order by
         q22()
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """drop resource if exists hms_resource_catalog_parquet"""
     }
 }
 

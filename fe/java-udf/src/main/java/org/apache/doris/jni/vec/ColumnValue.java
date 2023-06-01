@@ -18,6 +18,7 @@
 package org.apache.doris.jni.vec;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -42,6 +43,8 @@ public interface ColumnValue {
     public long getLong();
 
     public double getDouble();
+
+    public BigInteger getBigInteger();
 
     public BigDecimal getDecimal();
 

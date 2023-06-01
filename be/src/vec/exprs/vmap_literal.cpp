@@ -52,10 +52,10 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     // each child is slot with key1, value1, key2, value2...
     for (int idx = 0; idx < _children.size() && idx + 1 < _children.size(); idx += 2) {
         Field kf, vf;
-        auto key_literal = dynamic_cast<const VLiteral*>(_children[idx]);
+        auto key_literal = std::dynamic_pointer_cast<const VLiteral>(_children[idx]);
         key_literal->get_column_ptr()->get(0, kf);
-        auto val_literal =
-                dynamic_cast<const VLiteral*>(VExpr::expr_without_cast(_children[idx + 1]));
+        auto val_literal = std::dynamic_pointer_cast<const VLiteral>(
+                VExpr::expr_without_cast(_children[idx + 1]));
         val_literal->get_column_ptr()->get(0, vf);
 
         keys.get<Array>().push_back(kf);

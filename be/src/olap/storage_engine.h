@@ -19,6 +19,7 @@
 
 #include <butil/macros.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
@@ -43,6 +44,7 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet.h"
+#include "olap/task/index_builder.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -55,6 +57,7 @@ class TaskWorkerPool;
 class BetaRowsetWriter;
 class BaseCompaction;
 class CumulativeCompaction;
+class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class MemTracker;
 class PriorityThreadPool;
@@ -173,10 +176,21 @@ public:
 
     void stop();
 
+    void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
+                                    PGetTabletVersionsResponse* response);
+
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
                                       std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
+
+    void create_single_replica_compaction(
+            TabletSharedPtr best_tablet,
+            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+            CompactionType compaction_type);
+    bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
+
+    bool should_fetch_from_peer(int64_t tablet_id);
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
@@ -198,6 +212,8 @@ public:
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
+
+    Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
 private:
     // Instance should be inited from `static open()`
@@ -260,6 +276,8 @@ private:
 
     void _compaction_tasks_producer_callback();
 
+    void _update_replica_infos_callback();
+
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -275,6 +293,9 @@ private:
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
 
+    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                  CompactionType compaction_type);
+
     void _adjust_compaction_thread_num();
 
     void _cooldown_tasks_producer_callback();
@@ -286,6 +307,7 @@ private:
     Status _handle_seg_compaction(BetaRowsetWriter* writer,
                                   SegCompactionCandidatesSharedPtr segments);
 
+    Status _handle_index_change(IndexBuilderSharedPtr index_builder);
     void _gc_binlogs();
 
 private:
@@ -348,6 +370,7 @@ private:
     scoped_refptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
+    scoped_refptr<Thread> _update_replica_infos_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
@@ -379,6 +402,7 @@ private:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
@@ -393,6 +417,11 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+
+    std::mutex _peer_replica_infos_mutex;
+    // key: tabletId
+    std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
+    std::string _token;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};
 

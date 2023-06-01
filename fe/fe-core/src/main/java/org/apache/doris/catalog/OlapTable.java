@@ -66,6 +66,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -73,7 +74,6 @@ import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -249,6 +249,13 @@ public class OlapTable extends Table {
             return Lists.newArrayList();
         }
         return indexes.getIndexes();
+    }
+
+    public List<Long> getIndexIds() {
+        if (indexes == null) {
+            return Lists.newArrayList();
+        }
+        return indexes.getIndexIds();
     }
 
     public TableIndexes getTableIndexes() {
@@ -1777,6 +1784,22 @@ public class OlapTable extends Table {
         return false;
     }
 
+    public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
+                Boolean.valueOf(enableSingleReplicaCompaction).toString());
+        tableProperty.buildEnableSingleReplicaCompaction();
+    }
+
+    public Boolean enableSingleReplicaCompaction() {
+        if (tableProperty != null) {
+            return tableProperty.enableSingleReplicaCompaction();
+        }
+        return false;
+    }
+
     public void setStoreRowColumn(boolean storeRowColumn) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -1808,6 +1831,11 @@ public class OlapTable extends Table {
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
+    }
+
+    public int getIndexSchemaVersion(long indexId) {
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        return indexMeta.getSchemaVersion();
     }
 
     public void setDataSortInfo(DataSortInfo dataSortInfo) {

@@ -61,6 +61,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
@@ -851,6 +852,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         table.readLock();
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
+            // add table indexes to transaction state
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
+            if (txnState == null) {
+                throw new MetaNotFoundException("txn does not exist: " + txnId);
+            }
+            txnState.addTableIndexes(planner.getDestTable());
+
+            return planParams;
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, long txnId) throws UserException {
+        Preconditions.checkNotNull(planner);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        table.readLock();
+        try {
+            TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {

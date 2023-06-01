@@ -136,12 +136,6 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-/// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     void insert(const Field& x) override {
         const String& s = doris::vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
@@ -154,10 +148,6 @@ public:
         memcpy(chars.data() + old_size, s.c_str(), size_to_append);
         offsets.push_back(new_size);
     }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);

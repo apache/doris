@@ -215,7 +215,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "mysql"
 )
 
@@ -225,7 +225,7 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "oracle"
 )
 ```
@@ -460,22 +460,22 @@ set enable_odbc_transcation = true;
 
 ### Trino/Presto
 
-| Trino Type                                           | Doris Type               | Comment                                                                   |
-|------------------------------------------------------|--------------------------|---------------------------------------------------------------------------|
-| boolean                                              | BOOLEAN                  |                                                                           |
-| tinyint                                              | TINYINT                  |                                                                           |
-| smallint                                             | SMALLINT                 |                                                                           |
-| integer                                              | INT                      |                                                                           |
-| bigint                                               | BIGINT                   |                                                                           |
-| decimal                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型|
-| real                                                 | FLOAT                    |                                                                           |
-| double                                               | DOUBLE                   |                                                                           |
-| date                                                 | DATE/DATEV2              | Jdbc Catlog连接Trino时默认使用DATEV2类型                                      |
-| timestamp                                            | DATETIME/DATETIMEV2      | Jdbc Catlog连接Trino时默认使用DATETIMEV2类型                                  |
-| varchar                                              | TEXT                     |                                                                           |
-| char                                                 | CHAR                     |                                                                           |
-| <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                  |
-| others                                               | UNSUPPORTED              |                                                                           |
+| Trino Type                                           | Doris Type               | Comment                                                                    |
+|------------------------------------------------------|--------------------------|----------------------------------------------------------------------------|
+| boolean                                              | BOOLEAN                  |                                                                            |
+| tinyint                                              | TINYINT                  |                                                                            |
+| smallint                                             | SMALLINT                 |                                                                            |
+| integer                                              | INT                      |                                                                            |
+| bigint                                               | BIGINT                   |                                                                            |
+| decimal                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| real                                                 | FLOAT                    |                                                                            |
+| double                                               | DOUBLE                   |                                                                            |
+| date                                                 | DATE/DATEV2              | Jdbc Catalog连接Trino时默认使用DATEV2类型                                           |
+| timestamp                                            | DATETIME/DATETIMEV2      | Jdbc Catalog连接Trino时默认使用DATETIMEV2类型                                       |
+| varchar                                              | TEXT                     |                                                                            |
+| char                                                 | CHAR                     |                                                                            |
+| <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                                |
+| others                                               | UNSUPPORTED              |                                                                            |
 
 **注意：**
 目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。

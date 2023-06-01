@@ -108,7 +108,7 @@ private:
 
     std::string _bucket;
     std::string _key;
-    bool _closed = true;
+    bool _closed = false;
     bool _aborted = false;
 
     std::unique_ptr<int64_t> _upload_cost_ms;

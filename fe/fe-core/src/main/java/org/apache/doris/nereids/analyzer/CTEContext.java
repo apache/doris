@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -26,7 +27,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
+import java.util.concurrent.Callable;
 import javax.annotation.Nullable;
 
 /**
@@ -38,16 +39,21 @@ public class CTEContext {
     private String name;
     private LogicalSubQueryAlias<Plan> parsedPlan;
     // this cache only use once
-    private LogicalPlan analyzedPlanCacheOnce;
-    private Function<Plan, LogicalPlan> analyzePlanBuilder;
+    private LogicalPlan analyzedPlan;
+    private Callable<LogicalPlan> analyzePlanBuilder;
+
+    private CTEId cteId;
 
     /* build head CTEContext */
     public CTEContext() {
-        this(null, null);
+        this(null, null, CTEId.DEFAULT);
     }
 
-    /** CTEContext */
-    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan, @Nullable CTEContext previousCteContext) {
+    /**
+     * CTEContext
+     */
+    public CTEContext(@Nullable LogicalSubQueryAlias<Plan> parsedPlan,
+            @Nullable CTEContext previousCteContext, CTEId cteId) {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
@@ -59,13 +65,14 @@ public class CTEContext {
                         .putAll(previousCteContext.cteContextMap)
                         .put(name, this)
                         .build();
+        this.cteId = cteId;
     }
 
-    public void setAnalyzedPlanCacheOnce(LogicalPlan analyzedPlan) {
-        this.analyzedPlanCacheOnce = analyzedPlan;
+    public void setAnalyzedPlan(LogicalPlan analyzedPlan) {
+        this.analyzedPlan = analyzedPlan;
     }
 
-    public void setAnalyzePlanBuilder(Function<Plan, LogicalPlan> analyzePlanBuilder) {
+    public void setAnalyzePlanBuilder(Callable<LogicalPlan> analyzePlanBuilder) {
         this.analyzePlanBuilder = analyzePlanBuilder;
     }
 
@@ -80,26 +87,40 @@ public class CTEContext {
         return findCTEContext(cteName).map(cte -> cte.parsedPlan);
     }
 
-    /** getAnalyzedCTE */
-    public Optional<LogicalPlan> getAnalyzedCTE(String cteName) {
+    /**
+     * Get for CTE reuse.
+     */
+    public Optional<LogicalPlan> getReuse(String cteName) {
+        if (!findCTEContext(cteName).isPresent()) {
+            return Optional.empty();
+        }
+        return Optional.of(findCTEContext(cteName).get().analyzedPlan);
+    }
+
+    public Optional<LogicalPlan> getForInline(String cteName) {
         return findCTEContext(cteName).map(CTEContext::doAnalyzeCTE);
     }
 
-    /** findCTEContext */
+    /**
+     * findCTEContext
+     */
     public Optional<CTEContext> findCTEContext(String cteName) {
+        if (cteName.equals(name)) {
+            return Optional.of(this);
+        }
         CTEContext cteContext = cteContextMap.get(cteName);
         return Optional.ofNullable(cteContext);
     }
 
     private LogicalPlan doAnalyzeCTE() {
-        // we always analyze a cte as least once, if the cte only use once, we can return analyzedPlanCacheOnce.
-        // but if the cte use more then once, we should return difference analyzed plan to generate difference
-        // relation id, so the relation will not conflict in the memo.
-        if (analyzedPlanCacheOnce != null) {
-            LogicalPlan analyzedPlan = analyzedPlanCacheOnce;
-            analyzedPlanCacheOnce = null;
-            return analyzedPlan;
+        try {
+            return analyzePlanBuilder.call();
+        } catch (Exception e) {
+            throw new AnalysisException("Failed to analyze CTE", e);
         }
-        return analyzePlanBuilder.apply(parsedPlan);
+    }
+
+    public CTEId getCteId() {
+        return cteId;
     }
 }

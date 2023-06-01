@@ -40,6 +40,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
@@ -278,6 +279,8 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
+
+    SchemaCache::create_global_instance(config::schema_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =

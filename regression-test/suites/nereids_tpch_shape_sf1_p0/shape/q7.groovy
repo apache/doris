@@ -24,7 +24,8 @@ suite("q7") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
 
-    sql 'set exec_mem_limit=21G'
+    sql 'set exec_mem_limit=21G' 
+    sql 'SET enable_pipeline_engine = true'
 
     def result = sql "show backends;"
     if (result.size() != 1) {

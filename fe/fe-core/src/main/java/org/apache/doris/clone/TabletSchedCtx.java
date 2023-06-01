@@ -220,7 +220,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // replicaAlloc is only set for REPAIR task
     private ReplicaAllocation replicaAlloc;
-    // tag is only set for BALANCE task, used to identify which resource group this Balance job is in
+    // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
 
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,

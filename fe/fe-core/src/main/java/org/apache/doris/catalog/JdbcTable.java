@@ -98,6 +98,20 @@ public class JdbcTable extends Table {
         super(id, name, type, schema);
     }
 
+    public String getInsertSql() {
+        StringBuilder sb = new StringBuilder("INSERT INTO ");
+        sb.append(OdbcTable.databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append(" VALUES (");
+        for (int i = 0; i < getFullSchema().size(); ++i) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append("?");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
     public String getCheckSum() {
         return checkSum;
     }
