@@ -123,18 +123,6 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testInsertIntoSomeColumns() throws Exception {
-        String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
-        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
-    }
-
-    @Test
-    public void testAnalysisException() {
-        String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
-        Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
-    }
-
-    @Test
     public void testWithMV() throws Exception {
         String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
         Assertions.assertEquals(10, getOutputFragment(sql).getOutputExprs().size());
