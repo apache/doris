@@ -89,7 +89,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        for (int i = 0; i < _next_seq; ++i) {
+        auto max_seq = std::max(_num_segment.load(), _next_seq.load());
+        for (int i = 0; i < max_seq; ++i) {
             std::string seg_path = BetaRowset::segment_file_path(
                     _context.rowset_dir, _context.rowset_id, _segment_start_id + i);
             // Even if an error is encountered, these files that have not been cleaned up
