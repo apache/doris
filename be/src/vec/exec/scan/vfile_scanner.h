@@ -125,6 +125,7 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _file_counter = nullptr;
 
 private:
     Status _init_expr_ctxes();
