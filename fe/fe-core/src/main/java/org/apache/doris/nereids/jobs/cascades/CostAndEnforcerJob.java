@@ -244,6 +244,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         // update current group statistics and re-compute costs.
         if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
+            // TODO: If it's error, add some warning log at least.
             // if we come here, mean that we have some error in stats calculator and should fix it.
             return false;
         }

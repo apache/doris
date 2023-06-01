@@ -42,6 +42,7 @@ struct TTabletSchema {
     14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
     16: optional bool store_row_column = false
+    17: optional bool enable_single_replica_compaction
 }
 
 // this enum stands for different storage format in src_backends
@@ -308,6 +309,8 @@ struct TSnapshotRequest {
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
     10: optional bool is_copy_tablet_task
+    11: optional Types.TVersion start_version
+    12: optional Types.TVersion end_version
 }
 
 struct TReleaseSnapshotRequest {

@@ -130,6 +130,7 @@ set(OLAP_TEST_FILES
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
     olap/ordered_data_compaction_test.cpp
+    olap/delete_bitmap_calculator_test.cpp
 )
 
 set(RUNTIME_TEST_FILES

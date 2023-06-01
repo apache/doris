@@ -79,7 +79,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
-import org.apache.doris.resource.resourcegroup.ResourceGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -841,7 +841,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log, true);
+                    env.getCatalogMgr().replayCreateCatalog(log);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
@@ -990,20 +990,20 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
-                case OperationType.OP_CREATE_RESOURCE_GROUP: {
-                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
-                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
+                case OperationType.OP_CREATE_WORKLOAD_GROUP: {
+                    final WorkloadGroup workloadGroup = (WorkloadGroup) journal.getData();
+                    env.getWorkloadGroupMgr().replayCreateWorkloadGroup(workloadGroup);
                     break;
                 }
-                case OperationType.OP_DROP_RESOURCE_GROUP: {
-                    final DropResourceGroupOperationLog operationLog =
-                            (DropResourceGroupOperationLog) journal.getData();
-                    env.getResourceGroupMgr().replayDropResourceGroup(operationLog);
+                case OperationType.OP_DROP_WORKLOAD_GROUP: {
+                    final DropWorkloadGroupOperationLog operationLog =
+                            (DropWorkloadGroupOperationLog) journal.getData();
+                    env.getWorkloadGroupMgr().replayDropWorkloadGroup(operationLog);
                     break;
                 }
-                case OperationType.OP_ALTER_RESOURCE_GROUP: {
-                    final ResourceGroup resource = (ResourceGroup) journal.getData();
-                    env.getResourceGroupMgr().replayAlterResourceGroup(resource);
+                case OperationType.OP_ALTER_WORKLOAD_GROUP: {
+                    final WorkloadGroup resource = (WorkloadGroup) journal.getData();
+                    env.getWorkloadGroupMgr().replayAlterWorkloadGroup(resource);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
@@ -1525,16 +1525,16 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
-    public void logAlterResourceGroup(ResourceGroup resourceGroup) {
-        logEdit(OperationType.OP_ALTER_RESOURCE_GROUP, resourceGroup);
+    public void logAlterWorkloadGroup(WorkloadGroup workloadGroup) {
+        logEdit(OperationType.OP_ALTER_WORKLOAD_GROUP, workloadGroup);
     }
 
-    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
-        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    public void logCreateWorkloadGroup(WorkloadGroup workloadGroup) {
+        logEdit(OperationType.OP_CREATE_WORKLOAD_GROUP, workloadGroup);
     }
 
-    public void logDropResourceGroup(DropResourceGroupOperationLog operationLog) {
-        logEdit(OperationType.OP_DROP_RESOURCE_GROUP, operationLog);
+    public void logDropWorkloadGroup(DropWorkloadGroupOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
