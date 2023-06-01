@@ -417,7 +417,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
 
-    if (flush_ctx->seq.has_value()) {
+    if (flush_ctx != nullptr && flush_ctx->seq.has_value()) {
         // the entire block (memtable) should be flushed into single segment
         auto s = (*segment_writer)->append_block(block, row_offset, block_row_num);
         if (UNLIKELY(!s.ok())) {
@@ -691,7 +691,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
                                                            begin, end);
     } else {
-        int32_t seq_id = flush_ctx->seq.has_value() ? flush_ctx->seq.value() : allocate_seq_id();
+        int32_t seq_id = flush_ctx != nullptr && flush_ctx->seq.has_value() ? flush_ctx->seq.value()
+                                                                            : allocate_seq_id();
         segment_id = seq_id + _segment_start_id;
         {
             std::lock_guard<std::mutex> lock(_seq_set_mutex);
