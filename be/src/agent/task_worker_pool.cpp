@@ -1209,7 +1209,7 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         });
         ADOPT_TRACE(trace.get());
         DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
+        TRACE_WITH_ARG("start to create tablet $0", create_tablet_req.tablet_id);
         std::vector<TTabletInfo> finish_tablet_infos;
         VLOG_NOTICE << "create tablet: " << create_tablet_req;
         Status status = _env->storage_engine()->create_tablet(create_tablet_req);

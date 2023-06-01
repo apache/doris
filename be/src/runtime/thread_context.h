@@ -62,8 +62,10 @@
 // And count the memory during thread execution (is actually also the code segment that executes the function)
 // to specify MemTrackerLimiter, and expect to handle when the memory exceeds the limit, for example cancel query.
 // Usage is similar to SCOPED_CONSUME_MEM_TRACKER.
-#define SCOPED_ATTACH_TASK(arg1, ...) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
+#define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
+
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) \
+    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2, arg3)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Usually used after SCOPED_ATTACH_TASK, in order to count the memory of the specified code segment into another

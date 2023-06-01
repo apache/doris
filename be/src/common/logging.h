@@ -70,13 +70,6 @@ bool init_glog(const char* basename);
 // flushed. May only be called once.
 void shutdown_logging();
 
-/// Wrap a glog stream and tag on the log. usage:
-///   LOG_INFO("here is an info for a {} query", query_type).tag("query_id", queryId);
-#define LOG_INFO(...) doris::TaggableLogger(LOG(INFO), ##__VA_ARGS__)
-#define LOG_WARNING(...) doris::TaggableLogger(LOG(WARNING), ##__VA_ARGS__)
-#define LOG_ERROR(...) doris::TaggableLogger(LOG(ERROR), ##__VA_ARGS__)
-#define LOG_FATAL(...) doris::TaggableLogger(LOG(FATAL), ##__VA_ARGS__)
-
 class TaggableLogger {
 public:
     template <typename... Args>
@@ -108,5 +101,25 @@ public:
 private:
     std::ostream& _stream;
 };
+
+template <typename... Args>
+TaggableLogger LOG_INFO(Args&&... args) {
+    return TaggableLogger(LOG(INFO), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+TaggableLogger LOG_WARNING(Args&&... args) {
+    return TaggableLogger(LOG(WARNING), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+TaggableLogger LOG_ERROR(Args&&... args) {
+    return TaggableLogger(LOG(ERROR), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+TaggableLogger LOG_FATAL(Args&&... args) {
+    return TaggableLogger(LOG(FATAL), std::forward<Args>(args)...);
+}
 
 } // namespace doris
