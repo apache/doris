@@ -44,13 +44,17 @@ class FunctionContext;
 
 namespace doris::vectorized {
 
-// array_first_index([0, 1, 0]) -> [2]
+/**
+ * support array_first_index and array_last_index for input lambda expr
+ * eg. array_first_index(x -> x == 0, [0, 1, 0]) -> [1]
+ *     array_last_index(x -> x == 0, [0, 1, 0]) -> [3]
+ */
 template <bool first>
-class FunctionArrayLambdaIndex : public IFunction {
+class FunctionArrayFirstOrLastIndex : public IFunction {
 public:
     static constexpr auto name = first ? "array_first_index" : "array_last_index";
 
-    static FunctionPtr create() { return std::make_shared<FunctionArrayLambdaIndex>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionArrayFirstOrLastIndex>(); }
 
     String get_name() const override { return name; }
 
@@ -88,34 +92,34 @@ public:
             }
 
             // default index is 0 if such index is not found
-            size_t first_index = 0;
+            size_t res_index = 0;
             size_t start_index = src_offset[i - 1];
             size_t end_index = src_offset[i];
             for (size_t off = start_index; off < end_index; ++off) {
                 if constexpr (first) {
                     if (!src_nested_data.is_null_at(off) && src_nested_data.get_bool(off)) {
-                        first_index = off - start_index + 1;
+                        res_index = off - start_index + 1;
                         break;
                     }
                 } else {
                     size_t reverse_off = start_index + (end_index - 1 - off);
                     if (!src_nested_data.is_null_at(reverse_off) &&
                         src_nested_data.get_bool(reverse_off)) {
-                        first_index = reverse_off - start_index + 1;
+                        res_index = reverse_off - start_index + 1;
                         break;
                     }
                 }
             }
-            result_data[i] = first_index;
+            result_data[i] = res_index;
         }
         block.replace_by_position(result, std::move(result_data_col));
         return Status::OK();
     }
 };
 
-void register_function_array_lambda_index(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayLambdaIndex<true>>();
-    factory.register_function<FunctionArrayLambdaIndex<false>>();
+void register_function_array_first_or_last_index(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayFirstOrLastIndex<true>>();
+    factory.register_function<FunctionArrayFirstOrLastIndex<false>>();
 }
 
 } // namespace doris::vectorized
