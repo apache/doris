@@ -308,9 +308,10 @@ public abstract class DataType implements AbstractDataType {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
         } else if (type.isAggStateType()) {
-            List<DataType> types = ((ScalarType) type).getSubTypes().stream().map(t -> fromCatalogType(t))
+            org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
+            List<DataType> types = catalogType.getSubTypes().stream().map(t -> fromCatalogType(t))
                     .collect(Collectors.toList());
-            return new AggStateType(types, ((ScalarType) type).getSubTypeNullables());
+            return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
