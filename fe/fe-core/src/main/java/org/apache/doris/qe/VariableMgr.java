@@ -266,10 +266,8 @@ public class VariableMgr {
         }
     }
 
-    public static void setUserVar(SetVar setVar)
-            throws DdlException {
+    public static void setUserVar(SetVar setVar) {
         userVars.put(setVar.getVariable(), setVar.getResult());
-        // TODO: support `set @@UserDefineVar = expression`
     }
 
     // Entry of handling SetVarStmt
@@ -516,7 +514,7 @@ public class VariableMgr {
                 desc.setStringValue("");
             }
         } else {
-            // If there are such user defined var, just fill the NULL value.
+            // If there are no such user defined var, just fill the NULL value.
             desc.setType(Type.NULL);
             desc.setIsNull();
         }

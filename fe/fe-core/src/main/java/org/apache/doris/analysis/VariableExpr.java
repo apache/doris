@@ -87,7 +87,6 @@ public class VariableExpr extends Expr {
                 }
             }
         }
-
     }
 
     public String getName() {
