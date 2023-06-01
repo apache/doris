@@ -167,10 +167,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
-        // Update required slots in scanRangeLocations.
+        // Update required slots and column_idxs in scanRangeLocations.
+        setColumnPositionMapping();
         for (TScanRangeLocations location : scanRangeLocations) {
-            location.getScanRange().getExtScanRange().getFileScanRange()
-                .getParams().setRequiredSlots(params.getRequiredSlots());
+            TFileScanRangeParams rangeParams = location.getScanRange().getExtScanRange().getFileScanRange().getParams();
+            rangeParams.setRequiredSlots(params.getRequiredSlots());
+            rangeParams.setColumnIdxs(params.getColumnIdxs());
         }
     }
 
