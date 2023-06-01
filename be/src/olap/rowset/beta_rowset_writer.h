@@ -126,6 +126,9 @@ public:
     Status wait_flying_segcompaction() override;
 
 private:
+    Status _do_add_block(const vectorized::Block* block,
+                         std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                         size_t row_offset, size_t input_row_num);
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer,
                       const FlushContext* flush_ctx = nullptr);
