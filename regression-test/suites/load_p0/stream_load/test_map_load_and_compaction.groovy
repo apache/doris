@@ -69,11 +69,7 @@ suite("test_map_load_and_compaction", "p0") {
     }
 
     def checkCompactionStatus = {compactionStatus, assertRowSetNum->
-        String checkStatus = new String("curl -X GET "+compactionStatus)
-        process = checkStatus.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        (code, out, err) = curl("GET", compactionStatus)
         logger.info("Check compaction status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactStatusJson = parseJson(out.trim())
@@ -114,20 +110,7 @@ suite("test_map_load_and_compaction", "p0") {
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
         String tablet_id = tablet[0]
         backend_id = tablet[2]
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X POST http://")
-        sb.append(backendId_to_backendIP.get(backend_id))
-        sb.append(":")
-        sb.append(backendId_to_backendHttpPort.get(backend_id))
-        sb.append("/api/compaction/run?tablet_id=")
-        sb.append(tablet_id)
-        sb.append("&compact_type=cumulative")
-
-        String command = sb.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
@@ -136,20 +119,7 @@ suite("test_map_load_and_compaction", "p0") {
         // wait compactions done
         do {
             Thread.sleep(1000)
-            sb = new StringBuilder();
-            sb.append("curl -X GET http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-
-            String cm = sb.toString()
-            logger.info(cm)
-            process = cm.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
+            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def cs = parseJson(out.trim())
