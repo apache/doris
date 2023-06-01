@@ -151,13 +151,13 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
-    BUILD_BROKER=0
-    BUILD_AUDIT=0
+    BUILD_BROKER=1
+    BUILD_AUDIT=1
     BUILD_META_TOOL='ON'
     BUILD_SEGMENT_TOOL='ON'
-    BUILD_SPARK_DPP=0
-    BUILD_HIVE_UDF=0
-    BUILD_JAVA_UDF=0
+    BUILD_SPARK_DPP=1
+    BUILD_HIVE_UDF=1
+    BUILD_JAVA_UDF=1
     CLEAN=0
 else
     while true; do
@@ -632,7 +632,7 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-     if [[ "${BUILD_SEGMENT_TOOL}" = "ON" ]]; then
+    if [[ "${BUILD_SEGMENT_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/segment_builder" "${DORIS_OUTPUT}/be/lib"/
     fi
 
@@ -692,8 +692,8 @@ echo "***************************************"
 echo "Successfully build Doris"
 echo "***************************************"
 
-# if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
-#     eval "${DORIS_POST_BUILD_HOOK}"
-# fi
+if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
+    eval "${DORIS_POST_BUILD_HOOK}"
+fi
 
 exit 0
