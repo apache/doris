@@ -609,6 +609,7 @@ struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
+    3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
 }
 
 struct TKafkaRLTaskProgress {
@@ -963,6 +964,16 @@ struct TGetBinlogResult {
     5: optional i64 fe_meta_version
 }
 
+struct TGetTabletReplicaInfosRequest {
+    1: required list<i64> tablet_ids
+}
+
+struct TGetTabletReplicaInfosResult {
+    1: optional Status.TStatus status
+    2: optional map<i64, list<Types.TReplicaInfo>> tablet_replica_infos
+    3: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1017,4 +1028,6 @@ service FrontendService {
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
+    
+    TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 }

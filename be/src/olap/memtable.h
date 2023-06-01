@@ -44,6 +44,7 @@ class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
+struct FlushContext;
 
 // row pos in _input_mutable_block
 struct RowInBlock {
@@ -106,8 +107,8 @@ public:
     int64_t delete_bitmap_ns = 0;
     int64_t segment_writer_ns = 0;
     int64_t duration_ns = 0;
-    int32_t sort_times = 0;
-    int32_t agg_times = 0;
+    int64_t sort_times = 0;
+    int64_t agg_times = 0;
 };
 
 class MemTable {
@@ -163,7 +164,8 @@ private:
     // Eg. [A | B | C | (D, E, F)]
     // After unfold block structure changed to -> [A | B | C | D | E | F]
     // The expanded D, E, F is dynamic part of the block
-    void unfold_variant_column(vectorized::Block& block);
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx);
 
 private:
     TabletSharedPtr _tablet;

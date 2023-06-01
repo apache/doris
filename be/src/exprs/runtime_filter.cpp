@@ -421,6 +421,7 @@ public:
             _context.hybrid_set.reset(create_set(_column_return_type));
             _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
+            _context.bloom_filter_func->set_build_bf_exactly(params->build_bf_exactly);
             return Status::OK();
         }
         case RuntimeFilterType::BITMAP_FILTER: {
@@ -445,7 +446,8 @@ public:
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER);
+        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
         return _context.bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -1360,7 +1362,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // 2. Do not have remote target (e.g. do not need to merge)
     // 3. Bloom filter
     params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
-                              _runtime_filter_type == RuntimeFilterType::BLOOM_FILTER;
+                              (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+                               _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }

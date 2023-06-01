@@ -69,6 +69,8 @@ public class UserProperty implements Writable {
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
 
+    private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
@@ -114,6 +116,7 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -151,6 +154,10 @@ public class UserProperty implements Writable {
         return commonProperties.getCpuResourceLimit();
     }
 
+    public String getWorkloadGroup() {
+        return commonProperties.getWorkloadGroup();
+    }
+
     @Deprecated
     public WhiteList getWhiteList() {
         return whiteList;
@@ -174,6 +181,7 @@ public class UserProperty implements Writable {
         long execMemLimit = this.commonProperties.getExecMemLimit();
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
+        String workloadGroup = this.commonProperties.getWorkloadGroup();
 
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -293,6 +301,11 @@ public class UserProperty implements Writable {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_USER_INSERT_TIMEOUT + " is not number");
                 }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_WORKLOAD_GROUP)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_WORKLOAD_GROUP + " format error");
+                }
+                workloadGroup = value;
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -307,6 +320,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setExecMemLimit(execMemLimit);
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
+        this.commonProperties.setWorkloadGroup(workloadGroup);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -436,6 +450,8 @@ public class UserProperty implements Writable {
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
+
+        result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
         // load cluster
         if (defaultLoadCluster != null) {

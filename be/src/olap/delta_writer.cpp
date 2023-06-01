@@ -349,16 +349,16 @@ void DeltaWriter::_reset_mem_table() {
     COUNTER_UPDATE(_segment_num, 1);
     _mem_table->set_callback([this](MemTableStat& stat) {
         _memtable_stat += stat;
-        COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);
-        COUNTER_UPDATE(_agg_timer, _memtable_stat.agg_ns);
-        COUNTER_UPDATE(_memtable_duration_timer, _memtable_stat.duration_ns);
-        COUNTER_UPDATE(_segment_writer_timer, _memtable_stat.segment_writer_ns);
-        COUNTER_UPDATE(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
-        COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
-        COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
-        COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
-        COUNTER_UPDATE(_raw_rows_num, _memtable_stat.raw_rows);
-        COUNTER_UPDATE(_merged_rows_num, _memtable_stat.merged_rows);
+        COUNTER_SET(_sort_timer, _memtable_stat.sort_ns);
+        COUNTER_SET(_agg_timer, _memtable_stat.agg_ns);
+        COUNTER_SET(_memtable_duration_timer, _memtable_stat.duration_ns);
+        COUNTER_SET(_segment_writer_timer, _memtable_stat.segment_writer_ns);
+        COUNTER_SET(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
+        COUNTER_SET(_put_into_output_timer, _memtable_stat.put_into_output_ns);
+        COUNTER_SET(_sort_times, _memtable_stat.sort_times);
+        COUNTER_SET(_agg_times, _memtable_stat.agg_times);
+        COUNTER_SET(_raw_rows_num, _memtable_stat.raw_rows);
+        COUNTER_SET(_merged_rows_num, _memtable_stat.merged_rows);
     });
 }
 
@@ -450,8 +450,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         }
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr,
-                                                        _delete_bitmap, _cur_max_version, true));
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
+                                                                         _delete_bitmap));
         }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),

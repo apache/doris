@@ -15,134 +15,195 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stddef.h>
+#include "vec/functions/match.h"
 
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <memory>
-#include <ostream>
-#include <string>
-#include <utility>
-
-#include "common/config.h"
-#include "common/consts.h"
-#include "common/logging.h"
-#include "common/status.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
-
-namespace doris {
-class FunctionContext;
-} // namespace doris
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
 
-class FunctionMatchBase : public IFunction {
-public:
-    size_t get_number_of_arguments() const override { return 2; }
+Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
+                                       const ColumnNumbers& arguments, size_t result,
+                                       size_t input_rows_count) {
+    auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
+    std::string column_name = block.get_by_position(arguments[0]).name;
+    auto match_pred_column_name =
+            BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
+    if (!block.has(match_pred_column_name)) {
+        VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
+                   << ", match_query_str=" << match_query_str;
+        InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
 
-    String get_name() const override { return "match"; }
-
-    /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        auto match_query_str = block.get_by_position(arguments[1]).to_string(0);
-        std::string column_name = block.get_by_position(arguments[0]).name;
-        auto match_pred_column_name =
-                BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_match_" + match_query_str;
-        if (!block.has(match_pred_column_name)) {
-            if (!config::enable_index_apply_preds_except_leafnode_of_andnode) {
-                return Status::Cancelled(
-                        "please check whether turn on the configuration "
-                        "'enable_index_apply_preds_except_leafnode_of_andnode'");
-            }
-            LOG(WARNING) << "execute match query meet error, block no column: "
-                         << match_pred_column_name;
-            return Status::InternalError(
-                    "match query meet error, no match predicate evaluate result column in block.");
+        const auto values_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* values = check_and_get_column<ColumnString>(values_col.get());
+        if (!values) {
+            return Status::InternalError("Not supported input arguments types");
         }
+        // result column
+        auto res = ColumnUInt8::create();
+        ColumnUInt8::Container& vec_res = res->get_data();
+        // set default value to 0, and match functions only need to set 1/true
+        vec_res.resize_fill(input_rows_count);
+        RETURN_IF_ERROR(execute_match(column_name, match_query_str, input_rows_count, values,
+                                      inverted_index_ctx, vec_res));
+        block.replace_by_position(result, std::move(res));
+    } else {
         auto match_pred_column =
                 block.get_by_name(match_pred_column_name).column->convert_to_full_column_if_const();
-
         block.replace_by_position(result, std::move(match_pred_column));
-        return Status::OK();
     }
-};
 
-class FunctionMatchAny : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_any";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchAny>(); }
+    return Status::OK();
+}
 
-    String get_name() const override { return name; }
-};
+Status FunctionMatchAny::execute_match(const std::string& column_name,
+                                       const std::string& match_query_str, size_t input_rows_count,
+                                       const ColumnString* datas,
+                                       InvertedIndexCtx* inverted_index_ctx,
+                                       ColumnUInt8::Container& result) {
+    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
+    if (inverted_index_ctx) {
+        parser_type = inverted_index_ctx->parser_type;
+    }
+    VLOG_DEBUG << "begin to run FunctionMatchAny::execute_match, parser_type: "
+               << inverted_index_parser_type_to_string(parser_type);
+    std::vector<std::wstring> query_tokens =
+            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                    column_name, match_query_str,
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
+    for (int i = 0; i < input_rows_count; i++) {
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                        column_name, str_ref.to_string(),
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
+                        inverted_index_ctx);
+        // TODO: more efficient impl
+        for (auto& token : query_tokens) {
+            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+            if (it != data_tokens.end()) {
+                result[i] = true;
+                break;
+            }
+        }
+    }
 
-class FunctionMatchAll : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_all";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchAll>(); }
+    return Status::OK();
+}
 
-    String get_name() const override { return name; }
-};
+Status FunctionMatchAll::execute_match(const std::string& column_name,
+                                       const std::string& match_query_str, size_t input_rows_count,
+                                       const ColumnString* datas,
+                                       InvertedIndexCtx* inverted_index_ctx,
+                                       ColumnUInt8::Container& result) {
+    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
+    if (inverted_index_ctx) {
+        parser_type = inverted_index_ctx->parser_type;
+    }
+    VLOG_DEBUG << "begin to run FunctionMatchAll::execute_match, parser_type: "
+               << inverted_index_parser_type_to_string(parser_type);
+    std::vector<std::wstring> query_tokens =
+            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                    column_name, match_query_str,
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
+    for (int i = 0; i < input_rows_count; i++) {
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                        column_name, str_ref.to_string(),
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY,
+                        inverted_index_ctx);
+        // TODO: more efficient impl
+        auto find_count = 0;
+        for (auto& token : query_tokens) {
+            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+            if (it != data_tokens.end()) {
+                ++find_count;
+            } else {
+                break;
+            }
+        }
 
-class FunctionMatchPhrase : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_phrase";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+        if (find_count == query_tokens.size()) {
+            result[i] = true;
+        }
+    }
 
-    String get_name() const override { return name; }
-};
+    return Status::OK();
+}
 
-class FunctionMatchElementEQ : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_eq";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
+Status FunctionMatchPhrase::execute_match(const std::string& column_name,
+                                          const std::string& match_query_str,
+                                          size_t input_rows_count, const ColumnString* datas,
+                                          InvertedIndexCtx* inverted_index_ctx,
+                                          ColumnUInt8::Container& result) {
+    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
+    if (inverted_index_ctx) {
+        parser_type = inverted_index_ctx->parser_type;
+    }
+    VLOG_DEBUG << "begin to run FunctionMatchPhrase::execute_match, parser_type: "
+               << inverted_index_parser_type_to_string(parser_type);
+    std::vector<std::wstring> query_tokens =
+            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                    column_name, match_query_str,
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                    inverted_index_ctx);
+    if (query_tokens.empty()) {
+        LOG(WARNING) << "invalid input query_str: " << match_query_str
+                     << ", please check your query sql";
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+    }
+    for (int i = 0; i < input_rows_count; i++) {
+        const auto& str_ref = datas->get_data_at(i);
+        std::vector<std::wstring> data_tokens =
+                doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                        column_name, str_ref.to_string(),
+                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                        inverted_index_ctx);
+        // TODO: more efficient impl
+        bool matched = false;
+        auto it = data_tokens.begin();
+        while (it != data_tokens.end()) {
+            // find position of first token
+            it = std::find(it, data_tokens.end(), query_tokens[0]);
+            if (it != data_tokens.end()) {
+                matched = true;
+                it++;
+                auto it_more = it;
+                // compare query_tokens after the first to data_tokens one by one
+                for (size_t idx = 1; idx < query_tokens.size(); idx++) {
+                    if (it_more == data_tokens.end() || *it_more != query_tokens[idx]) {
+                        matched = false;
+                    }
+                    it_more++;
+                }
+                if (matched) {
+                    break;
+                }
+            }
+        }
 
-    String get_name() const override { return name; }
-};
+        // check matched
+        if (matched) {
+            result[i] = true;
+        }
+    }
 
-class FunctionMatchElementLT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_lt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
-
-class FunctionMatchElementGT : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_gt";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
-
-class FunctionMatchElementLE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_le";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
-
-class FunctionMatchElementGE : public FunctionMatchBase {
-public:
-    static constexpr auto name = "match_element_ge";
-    static FunctionPtr create() { return std::make_shared<FunctionMatchPhrase>(); }
-
-    String get_name() const override { return name; }
-};
+    return Status::OK();
+}
 
 void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();

@@ -205,7 +205,6 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 
 9. OceanBase
 
-<<<<<<< HEAD
 <version since="dev"></version>
 
 ```sql
@@ -215,7 +214,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "mysql"
 )
 
@@ -225,7 +224,7 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "oracle"
 )
 ```
@@ -472,8 +471,8 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
 | real                                                 | FLOAT                    |                                                                                                                    |
 | double                                               | DOUBLE                   |                                                                                                                    |
-| date                                                 | DATE/DATEV2              | JDBC CATLOG uses Datev2 type default when connecting Trino                                                         |
-| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATLOG uses DATETIMEV2 type default when connecting Trino                                                     |
+| date                                                 | DATE/DATEV2              | JDBC CATALOG uses Datev2 type default when connecting Trino                                                        |
+| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATALOG uses DATETIMEV2 type default when connecting Trino                                                    |
 | varchar                                              | TEXT                     |                                                                                                                    |
 | char                                                 | CHAR                     |                                                                                                                    |
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |

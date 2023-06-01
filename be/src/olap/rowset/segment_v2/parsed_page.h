@@ -55,11 +55,13 @@ struct ParsedPage {
         }
 
         Slice data_slice(body.data, body.size - null_size);
-        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
+        PageDecoder* decoder;
+        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &decoder));
+        page->data_decoder.reset(decoder);
         RETURN_IF_ERROR(page->data_decoder->init());
 
         if (encoding->encoding() == DICT_ENCODING) {
-            auto dict_decoder = static_cast<BinaryDictPageDecoder*>(page->data_decoder);
+            auto dict_decoder = static_cast<BinaryDictPageDecoder*>(page->data_decoder.get());
             page->is_dict_encoding = dict_decoder->is_dict_encoding();
         }
 
@@ -74,17 +76,14 @@ struct ParsedPage {
         return Status::OK();
     }
 
-    ~ParsedPage() {
-        delete data_decoder;
-        data_decoder = nullptr;
-    }
+    ~ParsedPage() { data_decoder = nullptr; }
 
     PageHandle page_handle;
 
     bool has_null;
     Slice null_bitmap;
     RleDecoder<bool> null_decoder;
-    PageDecoder* data_decoder = nullptr;
+    std::unique_ptr<PageDecoder> data_decoder = nullptr;
 
     // ordinal of the first value in this page
     ordinal_t first_ordinal = 0;

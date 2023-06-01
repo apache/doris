@@ -44,6 +44,7 @@ public class JdbcTableSink extends DataSink {
     private final String checkSum;
     private final TOdbcTableType jdbcType;
     private final boolean useTransaction;
+    private String insertSql;
 
     public JdbcTableSink(JdbcTable jdbcTable) {
         resourceName = jdbcTable.getResourceName();
@@ -57,6 +58,7 @@ public class JdbcTableSink extends DataSink {
         driverUrl = jdbcTable.getDriverUrl();
         checkSum = jdbcTable.getCheckSum();
         dorisTableName = jdbcTable.getName();
+        insertSql = jdbcTable.getInsertSql();
     }
 
     @Override
@@ -84,6 +86,7 @@ public class JdbcTableSink extends DataSink {
         jdbcTableSink.jdbc_table.setJdbcDriverClass(driverClass);
         jdbcTableSink.jdbc_table.setJdbcDriverChecksum(checkSum);
         jdbcTableSink.jdbc_table.setJdbcResourceName(resourceName);
+        jdbcTableSink.setInsertSql(insertSql);
         jdbcTableSink.setUseTransaction(useTransaction);
         jdbcTableSink.setTableType(jdbcType);
 
