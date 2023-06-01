@@ -939,7 +939,8 @@ public class DatabaseTransactionMgr {
                                         ++healthReplicaNum;
                                     } else {
                                         LOG.info("publish version failed for transaction {} on tablet {},"
-                                                 + " on replica {} due to not catchup", transactionState, tablet, replica);
+                                                 + " on replica {} due to not catchup",
+                                                 transactionState, tablet, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
