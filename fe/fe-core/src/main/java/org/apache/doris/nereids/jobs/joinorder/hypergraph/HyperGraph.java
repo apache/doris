@@ -99,8 +99,7 @@ public class HyperGraph {
         slotToNodeMap.put(aliasSlot, bitmap);
         if (!complexProject.containsKey(bitmap)) {
             complexProject.put(bitmap, new ArrayList<>());
-        }
-        if (!(alias.child() instanceof SlotReference)) {
+        } else if (!(alias.child() instanceof SlotReference)) {
             alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
         }
         complexProject.get(bitmap).add(alias);
