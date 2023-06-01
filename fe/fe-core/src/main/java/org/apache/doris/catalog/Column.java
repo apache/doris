@@ -898,4 +898,9 @@ public class Column implements Writable, GsonPostProcessable {
             ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
         }
     }
+
+    public boolean isMaterializedViewColumn() {
+        return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
 }

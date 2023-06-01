@@ -27,7 +27,6 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
-import org.apache.doris.nereids.rules.analysis.CheckTypeToInsertTargetColumn;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
@@ -83,7 +82,6 @@ public class NereidsAnalyzer extends BatchRewriteJob {
             ),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
-            bottomUp(new CheckTypeToInsertTargetColumn()),
             bottomUp(new CheckAnalysis())
     );
 

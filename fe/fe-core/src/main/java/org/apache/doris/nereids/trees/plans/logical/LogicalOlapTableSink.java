@@ -19,12 +19,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -33,14 +30,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * logical olap table sink for insert command
@@ -139,36 +132,5 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
-    }
-
-    @Override
-    public List<Slot> getOutput() {
-        return computeOutput();
-    }
-
-    @Override
-    public Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
-
-    /**
-     * get output physical properties
-     */
-    public PhysicalProperties getOutputPhysicalProperties() {
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-        List<Column> distributedColumns = distributionInfo.getDistributionColumns();
-        List<Integer> columnIndexes = Lists.newArrayList();
-        int idx = 0;
-        for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-            if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                columnIndexes.add(i);
-                idx++;
-                if (idx == distributedColumns.size()) {
-                    break;
-                }
-            }
-        }
-        return PhysicalProperties.createHash(columnIndexes.stream()
-                .map(colIdx -> getOutput().get(colIdx).getExprId()).collect(Collectors.toList()), ShuffleType.NATURAL);
     }
 }
