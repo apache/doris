@@ -264,22 +264,25 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 if (_schema->skip_inverted_index_on_load()) {
                     local_fs->exists(inverted_index_src_file_path, &need_to_link);
                     if (!need_to_link) {
-                        LOG(INFO) << "skip create hard link to not existed file=" << inverted_index_src_file_path;
+                        LOG(INFO) << "skip create hard link to not existed file="
+                                  << inverted_index_src_file_path;
                     }
                 }
 
                 if (need_to_link) {
-                    if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
-                                .ok()) {
-                        LOG(WARNING) << "fail to create hard link. from="
-                                    << inverted_index_src_file_path << ", "
-                                    << "to=" << inverted_index_dst_file_path
-                                    << ", errno=" << Errno::no();
+                    if (!local_fs->link_file(inverted_index_src_file_path,
+                                             inverted_index_dst_file_path)
+                                 .ok()) {
+                        LOG(WARNING)
+                                << "fail to create hard link. from=" << inverted_index_src_file_path
+                                << ", "
+                                << "to=" << inverted_index_dst_file_path
+                                << ", errno=" << Errno::no();
                         return Status::Error<OS_ERROR>();
                     }
-                    LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
-                            << ", "
-                            << "to=" << inverted_index_dst_file_path;
+                    LOG(INFO) << "success to create hard link. from="
+                              << inverted_index_src_file_path << ", "
+                              << "to=" << inverted_index_dst_file_path;
                 }
             }
         }
