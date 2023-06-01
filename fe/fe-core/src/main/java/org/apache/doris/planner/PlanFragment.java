@@ -386,6 +386,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         planRoot.setFragment(this);
     }
 
+    public void cleanSink() {
+        this.sink = null;
+    }
+
     public DataSink getSink() {
         return sink;
     }
