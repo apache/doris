@@ -30,8 +30,11 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_fixed_length_object.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_fixedlengthobject_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -94,6 +97,41 @@ public:
         return AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
                                                               _result_is_nullable);
     }
+
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override {
+        //agg ->get_serialized_type()->get_uncompressed_serialized_bytes(column, be_exec_version);
+        //
+        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
+        return fixed_type->get_uncompressed_serialized_bytes(column, be_exec_version);
+    }
+
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override {
+        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
+        return fixed_type->serialize(column, buf, be_exec_version);
+    }
+
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
+        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
+        return fixed_type->deserialize(buf, column, be_exec_version);
+    }
+
+    MutableColumnPtr create_column() const override {
+        // return agg->create_serialize_column();
+        // if (use_string) {
+        // return ColumnString::create();
+        // }
+
+        //need pass the agg sizeof data, now test case avg 16 sum 8
+        return ColumnFixedLengthObject::create(8);
+    }
+
+    DataTypeSerDeSPtr get_serde() const override {
+        // if (use_string) {
+        // return std::make_shared<DataTypeStringSerDe>();
+        // }
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    };
 
 private:
     DataTypes _sub_types;
