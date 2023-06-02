@@ -127,7 +127,7 @@ public final class MetricRepo {
             "metric-timer-pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
-    // init() should only be called after catalog is constructed.
+    // init() should only be called after catalog is contructed.
     public static synchronized void init() {
         if (isInit) {
             return;
