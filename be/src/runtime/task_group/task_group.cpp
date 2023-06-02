@@ -46,10 +46,12 @@ pipeline::PipelineTask* TaskGroupEntity::take() {
     }
     auto task = _queue.front();
     _queue.pop();
+    VLOG_DEBUG << debug_string() << " take task " << task->debug_string();
     return task;
 }
 
 void TaskGroupEntity::incr_runtime_ns(uint64_t runtime_ns) {
+    VLOG_DEBUG << "incr " << debug_string() << " runtime_ns by " << runtime_ns;
     auto v_time = runtime_ns / _tg->cpu_share();
     _vruntime_ns += v_time;
 }
@@ -60,6 +62,7 @@ void TaskGroupEntity::adjust_vruntime_ns(uint64_t vruntime_ns) {
 }
 
 void TaskGroupEntity::push_back(pipeline::PipelineTask* task) {
+    VLOG_DEBUG << "push task " << task->debug_string();
     _queue.emplace(task);
 }
 

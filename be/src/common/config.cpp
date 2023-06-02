@@ -194,7 +194,7 @@ DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
 DEFINE_Int32(sys_log_roll_num, "10");
 // verbose log
-DEFINE_Strings(sys_log_verbose_modules, "");
+DEFINE_Strings(sys_log_verbose_modules, "task_queue,task_group");
 // verbose log level
 DEFINE_Int32(sys_log_verbose_level, "10");
 // log buffer level

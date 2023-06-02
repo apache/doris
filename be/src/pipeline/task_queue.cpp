@@ -242,6 +242,7 @@ template <bool from_executor>
 Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
     auto* entity = task->get_task_group()->task_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
+    VLOG_DEBUG << "push_back task " << task->debug_string();
     entity->push_back(task);
     if (_group_entities.find(entity) == _group_entities.end()) {
         _enqueue_task_group<from_executor>(entity);
@@ -271,7 +272,12 @@ PipelineTask* TaskGroupTaskQueue::take(size_t core_id) {
     if (entity->task_size() == 1) {
         _dequeue_task_group(entity);
     }
-    return entity->take();
+    VLOG_DEBUG << "get entity " << entity->debug_string();
+    auto task = entity->take();
+    if (task) {
+        VLOG_DEBUG << "get task " << task->debug_string();
+    }
+    return task;
 }
 
 template <bool from_worker>
