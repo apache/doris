@@ -163,7 +163,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
-    _file_meta_cache = new FileMetaCache(128 * 1024 * 1024);
+    _file_meta_cache = new FileMetaCache(config::external_file_meta_cache_num);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");

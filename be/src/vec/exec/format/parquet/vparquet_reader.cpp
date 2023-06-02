@@ -141,6 +141,7 @@ void ParquetReader::_init_profile() {
 
         _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
         _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
+        _parquet_profile.file_meta_read_calls = ADD_COUNTER(_profile, "FileMetaReadCalls", TUnit::UNIT);
         _parquet_profile.file_read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
         _parquet_profile.decompress_time =
                 ADD_CHILD_TIMER(_profile, "DecompressTime", parquet_profile);
@@ -183,6 +184,7 @@ void ParquetReader::close() {
 
             COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
             COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
+            COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
             COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
             COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
@@ -227,7 +229,7 @@ Status ParquetReader::_open_file() {
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
-            _column_statistics.read_calls += 1;
+            _column_statistics.meta_read_calls += 1;
         } else {
             _is_file_metadata_owned = false;
             FileMetaCache::CacheHandle cache_handle;
@@ -240,7 +242,7 @@ Status ParquetReader::_open_file() {
                 _meta_cache->insert({_file_reader->path(), 0L}, meta, &_cached_file_meta);
                 _column_statistics.read_bytes += meta_size;
                 // parse magic number & parse meta data
-                _column_statistics.read_calls += 1;
+                _column_statistics.meta_read_calls += 1;
             }
             _file_metadata = (FileMetaData*) _cached_file_meta.data();
         }
@@ -723,17 +725,17 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
     // read twice: parse column index & parse offset index
-    _column_statistics.read_calls += 2;
+    _column_statistics.meta_read_calls += 2;
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {
             continue;
         }
         auto& chunk = row_group.columns[read_col._parquet_col_id];
-        tparquet::ColumnIndex column_index;
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
+        tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {

@@ -1028,6 +1028,10 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
+// limit the number of file meta cache entry for external file
+// such as parquet and orc
+DECLARE_int64(external_file_meta_cache_num);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

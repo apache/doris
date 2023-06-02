@@ -168,6 +168,7 @@ private:
 
         RuntimeProfile::Counter* file_read_time;
         RuntimeProfile::Counter* file_read_calls;
+        RuntimeProfile::Counter* file_meta_read_calls;
         RuntimeProfile::Counter* file_read_bytes;
         RuntimeProfile::Counter* decompress_time;
         RuntimeProfile::Counter* decompress_cnt;
