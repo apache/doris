@@ -54,7 +54,8 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             if (is_column_nullable(array_col->get_data())) {
                 const auto& array_nested_null_column =
                         reinterpret_cast<const ColumnNullable&>(array_col->get_data());
-                values = check_and_get_column<ColumnString>(*(array_nested_null_column.get_nested_column_ptr()));
+                values = check_and_get_column<ColumnString>(
+                        *(array_nested_null_column.get_nested_column_ptr()));
             } else {
                 values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
             }
@@ -71,10 +72,9 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         ColumnUInt8::Container& vec_res = res->get_data();
         // set default value to 0, and match functions only need to set 1/true
         vec_res.resize_fill(input_rows_count);
-        RETURN_IF_ERROR(execute_match(column_name, match_query_str, input_rows_count,
-                                      values, inverted_index_ctx,
-                                      (array_col ? &(array_col->get_offsets()) : nullptr),
-                                      vec_res));
+        RETURN_IF_ERROR(execute_match(
+                column_name, match_query_str, input_rows_count, values, inverted_index_ctx,
+                (array_col ? &(array_col->get_offsets()) : nullptr), vec_res));
         block.replace_by_position(result, std::move(res));
     } else {
         auto match_pred_column =
@@ -112,7 +112,7 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
         std::vector<std::wstring> data_tokens;
         if (array_offsets) {
             for (auto next_src_array_offset = (*array_offsets)[i];
-                    current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
                 const auto& str_ref = string_col->get_data_at(current_src_array_offset);
                 std::vector<std::wstring> element_tokens =
                         doris::segment_v2::InvertedIndexReader::get_analyse_result(
@@ -124,9 +124,8 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
         } else {
             const auto& str_ref = string_col->get_data_at(i);
             data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        column_name, str_ref.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
-                        inverted_index_ctx);
+                    column_name, str_ref.to_string(),
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
         }
 
         // TODO: more efficient impl
@@ -169,7 +168,7 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
         std::vector<std::wstring> data_tokens;
         if (array_offsets) {
             for (auto next_src_array_offset = (*array_offsets)[i];
-                    current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
                 const auto& str_ref = string_col->get_data_at(current_src_array_offset);
                 std::vector<std::wstring> element_tokens =
                         doris::segment_v2::InvertedIndexReader::get_analyse_result(
@@ -181,9 +180,8 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
         } else {
             const auto& str_ref = string_col->get_data_at(i);
             data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        column_name, str_ref.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY,
-                        inverted_index_ctx);
+                    column_name, str_ref.to_string(),
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
         }
 
         // TODO: more efficient impl
@@ -206,8 +204,8 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
 }
 
 Status FunctionMatchPhrase::execute_match(const std::string& column_name,
-                                          const std::string& match_query_str, size_t input_rows_count,
-                                          const ColumnString* string_col,
+                                          const std::string& match_query_str,
+                                          size_t input_rows_count, const ColumnString* string_col,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
                                           ColumnUInt8::Container& result) {
@@ -233,7 +231,7 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
         std::vector<std::wstring> data_tokens;
         if (array_offsets) {
             for (auto next_src_array_offset = (*array_offsets)[i];
-                    current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
                 const auto& str_ref = string_col->get_data_at(current_src_array_offset);
                 std::vector<std::wstring> element_tokens =
                         doris::segment_v2::InvertedIndexReader::get_analyse_result(
@@ -245,9 +243,9 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
         } else {
             const auto& str_ref = string_col->get_data_at(i);
             data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                        column_name, str_ref.to_string(),
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                        inverted_index_ctx);
+                    column_name, str_ref.to_string(),
+                    doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                    inverted_index_ctx);
         }
 
         // TODO: more efficient impl
