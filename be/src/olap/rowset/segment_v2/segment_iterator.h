@@ -188,6 +188,7 @@ private:
     [[nodiscard]] Status _apply_inverted_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
     bool _column_has_fulltext_index(int32_t unique_id);
+    bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     [[nodiscard]] Status _execute_predicates_except_leafnode_of_andnode(
