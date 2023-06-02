@@ -78,7 +78,9 @@ mysql> desc function backends();
 25 rows in set (0.04 sec)
 ```
 
-`backends()` tvf展示出来的信息基本与 `show backends` 语句展示出的信息一致,但是`backends()` tvf的各个字段类型更加明确，且可以利用tvf生成的表去做过滤、join等操作。
+`backends()` tvf展示出来的信息基本与 `show backends` 语句展示出的信息一致,但是 `backends()` tvf的各个字段类型更加明确，且可以利用tvf生成的表去做过滤、join等操作。
+
+对 `backends()` tvf信息展示进行了鉴权，与 `show backends` 行为保持一致，要求用户具有 ADMIN/OPERATOR 权限。
 
 ### example
 ```
