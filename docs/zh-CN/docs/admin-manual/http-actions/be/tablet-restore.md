@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "恢复tablet",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,31 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# 恢复tablet
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`POST /api/restore_tablet?tablet_id={int}&schema_hash={int}"`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+该功能用于恢复trash目录中被误删的tablet数据。
 
 ## Query parameters
 
 * `tablet_id`
-    ID of the tablet
+    需要恢复的table的id
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
+* `schema_hash`
+    schema hash       
 
 
 ## Request body
 
-None
+无
 
 ## Response
 
@@ -62,7 +59,7 @@ None
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl -X POST "http://127.0.0.1:8040/api/restore_tablet?tablet_id=123456&schema_hash=1111111"
 
     ```
 

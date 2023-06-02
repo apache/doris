@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "做快照",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,39 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# 做快照
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/snapshot?tablet_id={int}&schema_hash={int}"`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+该功能用于tablet做快照。
 
 ## Query parameters
 
 * `tablet_id`
-    ID of the tablet
+    需要做快照的table的id
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
+* `schema_hash`
+    schema hash         
 
 
 ## Request body
 
-None
+无
 
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    /path/to/snapshot
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl "http://127.0.0.1:8040/api/snapshot?tablet_id=123456&schema_hash=1111111"
 
     ```
 

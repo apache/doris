@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Check Alive",
     "language": "en"
 }
 ---
@@ -24,27 +24,19 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Check Alive
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/health`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Provided for the monitoring service to Check whether the BE is alive，Be will respond if alive.
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
-
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+None   
 
 ## Request body
 
@@ -53,16 +45,13 @@ None
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    {"status": "OK","msg": "To Be Added"}
     ```
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/health
     ```
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Reload Tablet",
     "language": "en"
 }
 ---
@@ -24,26 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Reload Tablet
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/reload_tablet?tablet_id={int}&schema_hash={int}&path={string}"`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Reload tablet
 
 ## Query parameters
 
 * `tablet_id`
     ID of the tablet
 
-* `start_version`
-    Start version
+* `schema_hash`
+    Schema hash      
 
-* `end_version`
-    End version       
+* `path`
+    Path of file    
 
 
 ## Request body
@@ -53,16 +53,13 @@ None
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    load header succeed
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl "http://127.0.0.1:8040/api/reload_tablet?tablet_id=123456&schema_hash=1111111&path=/abc"
 
     ```
 

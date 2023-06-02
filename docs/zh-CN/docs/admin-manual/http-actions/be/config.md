@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "BE的配置信息",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,57 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# BE的配置信息
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/show_config`
+`POST /api/update_config?{key}={val}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+查询/更新 BE的配置信息
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
+* `persist`
+    是否持久化，选填，默认`false`。
 
-* `start_version`
-    Start version
+* `key`
+    配置项名。
 
-* `end_version`
-    End version       
-
+* `val`
+    配置项值。        
 
 ## Request body
 
-None
+无
 
 ## Response
 
+### 查询
+
+    ```
+    [["agent_task_trace_threshold_sec","int32_t","2","true"], ...]
+    ```
+
+### 更新
     ```
     {
-        msg: "OK",
-        code: 0
+        "status": "OK",
+        "msg": ""
     }
     ```
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/show_config"
+    ```
+    
+    ```
+    curl -X POST "http://127.0.0.1:8040/api/update_config?agent_task_trace_threshold_sec=2&persist=true"
+    
     ```
 
