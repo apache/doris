@@ -1001,6 +1001,7 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
+            // how to handle cooldown replica?
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
             if (tabletIds != null && sampleTabletIds.size() != 0) {
