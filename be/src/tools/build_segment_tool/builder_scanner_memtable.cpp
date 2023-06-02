@@ -356,7 +356,8 @@ void BuilderScannerMemtable::doSegmentBuild(const std::vector<std::filesystem::d
                               &param};
 
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, load_id);
+    DeltaWriter::open(&write_req, &delta_writer,
+                      _runtime_state.runtime_profile(), load_id);
     status = delta_writer->init(); // here we are
     if (!status.ok()) { 
         LOG(FATAL) << "delta_writer init fail:" << status.to_string();
