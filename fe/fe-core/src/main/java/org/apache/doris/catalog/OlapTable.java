@@ -1019,6 +1019,15 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public Column getRowStoreCol() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isRowStoreColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }

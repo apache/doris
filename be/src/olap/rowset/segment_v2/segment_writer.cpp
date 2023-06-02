@@ -279,7 +279,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
     if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
-        _opts.is_direct_write) {
+        _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
     }
@@ -502,14 +502,18 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    if (_tablet_schema->is_partial_update() && _opts.is_direct_write) {
+    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }
     CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size();
-    if (_tablet_schema->store_row_column() && _opts.is_direct_write) {
+    // Row column should be filled here when it's a directly write from memtable
+    // or it's schema change write(since column data type maybe changed, so we should reubild)
+    if (_tablet_schema->store_row_column() &&
+        (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 

@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "io/fs/file_system.h"
+#include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -84,7 +85,7 @@ struct RowsetWriterContext {
     std::set<int32_t> skip_inverted_index;
     // If it is directly write from load procedure, else
     // it could be compaction or schema change etc..
-    bool is_direct_write = false;
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     std::shared_ptr<Tablet> tablet = nullptr;
     // for tracing local schema change record
     std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
