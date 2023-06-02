@@ -1342,7 +1342,7 @@ void ORCFileInputStream::beforeReadStripe(
         offset += length;
     }
     // The underlying page reader will prefetch data in column.
-    _file_reader.reset(new io::MergeRangeFileReader(_profile, _file_reader, prefetch_ranges));
+    _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
 }
 
 } // namespace doris::vectorized
