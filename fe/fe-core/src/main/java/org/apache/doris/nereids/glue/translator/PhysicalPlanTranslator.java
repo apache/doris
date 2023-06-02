@@ -1788,7 +1788,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        ExchangeNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+        ExchangeNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange);
         updateLegacyPlanIdToPhysicalPlan(childFragment.getPlanRoot(), distribute);
@@ -1951,8 +1951,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalCTEProducer cteProducer = context.getCteProduceMap().get(cteId);
         Preconditions.checkState(cteProducer != null, "invalid cteProducer");
 
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(),
-                multCastFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), multCastFragment.getPlanRoot());
 
         DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
         streamSink.setPartition(DataPartition.RANDOM);
@@ -2171,8 +2170,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition,
             PlanTranslatorContext context) {
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(),
-                childFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
@@ -2186,7 +2184,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanNode exchange = parent.getChild(childIdx);
         if (!(exchange instanceof ExchangeNode)) {
-            exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+            exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
             exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         }
         childFragment.setPlanRoot(exchange.getChild(0));
@@ -2198,8 +2196,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void connectChildFragmentNotCheckExchangeNode(PlanNode parent, int childIdx,
             PlanFragment parentFragment, PlanFragment childFragment,
             PlanTranslatorContext context) {
-        PlanNode exchange = new ExchangeNode(
-                context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+        PlanNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange.getChild(0));
         exchange.setFragment(parentFragment);
@@ -2218,8 +2215,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // exchange node clones the behavior of its input, aside from the conjuncts
-        ExchangeNode mergePlan = new ExchangeNode(context.nextPlanNodeId(),
-                inputFragment.getPlanRoot(), false);
+        ExchangeNode mergePlan = new ExchangeNode(context.nextPlanNodeId(), inputFragment.getPlanRoot());
         DataPartition dataPartition = DataPartition.UNPARTITIONED;
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, dataPartition);
@@ -2369,14 +2365,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private boolean isFragmentPartitioned(PlanFragment fragment) {
         return fragment.isPartitioned() && fragment.getPlanRoot().getNumInstances() > 1;
-    }
-
-    private boolean projectOnAgg(PhysicalProject project) {
-        PhysicalPlan child = (PhysicalPlan) project.child(0);
-        while (child instanceof PhysicalFilter || child instanceof PhysicalDistribute) {
-            child = (PhysicalPlan) child.child(0);
-        }
-        return child instanceof PhysicalHashAggregate;
     }
 
     private boolean hasExprCalc(PhysicalProject<? extends Plan> project) {
