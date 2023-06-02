@@ -25,13 +25,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -47,7 +45,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
 
     public StatisticsAutoAnalyzer() {
-        super("Automatic Analyzer", TimeUnit.SECONDS.toMillis(Config.auto_check_statistics_in_sec));
+        super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
     }
 
     @Override
@@ -69,31 +67,23 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     private void analyzePeriodically() {
-        List<ResultRow> resultRows = StatisticsRepository.fetchPeriodicAnalysisJobs();
-        if (resultRows.isEmpty()) {
-            return;
-        }
         try {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisTaskInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
-            for (AnalysisTaskInfo jobInfo : jobInfos) {
+            List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
+            for (AnalysisInfo jobInfo : jobInfos) {
                 analysisManager.createAnalysisJob(jobInfo);
             }
-        } catch (TException | DdlException e) {
+        } catch (DdlException e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
         }
     }
 
     private void analyzeAutomatically() {
-        List<ResultRow> resultRows = StatisticsRepository.fetchAutomaticAnalysisJobs();
-        if (resultRows.isEmpty()) {
-            return;
-        }
         try {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisTaskInfo> jobInfos = StatisticsUtil.deserializeToAnalysisJob(resultRows);
-            for (AnalysisTaskInfo jobInfo : jobInfos) {
-                AnalysisTaskInfo checkedJobInfo = checkAutomaticJobInfo(jobInfo);
+            List<AnalysisInfo> jobInfos = analysisManager.findAutomaticAnalysisJobs();
+            for (AnalysisInfo jobInfo : jobInfos) {
+                AnalysisInfo checkedJobInfo = checkAutomaticJobInfo(jobInfo);
                 if (checkedJobInfo != null) {
                     analysisManager.createAnalysisJob(checkedJobInfo);
                 }
@@ -123,7 +113,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
      * @return new job info after check
      * @throws Throwable failed to check
      */
-    private AnalysisTaskInfo checkAutomaticJobInfo(AnalysisTaskInfo jobInfo) throws Throwable {
+    private AnalysisInfo checkAutomaticJobInfo(AnalysisInfo jobInfo) throws Throwable {
         long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
@@ -206,7 +196,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         );
     }
 
-    private AnalysisTaskInfo getAnalysisJobInfo(AnalysisTaskInfo jobInfo, TableIf table,
+    private AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
             Set<String> needRunPartitions) {
         Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
         Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
@@ -216,7 +206,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 newColToPartitions.put(colName, needRunPartitions);
             }
         });
-        return new AnalysisTaskInfoBuilder(jobInfo)
+        return new AnalysisInfoBuilder(jobInfo)
                 .setColToPartitions(newColToPartitions).build();
     }
 }
