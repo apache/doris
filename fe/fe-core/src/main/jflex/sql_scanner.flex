@@ -487,6 +487,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("whitelist", new Integer(SqlParserSymbols.KW_WHITELIST));
         keywordMap.put("with", new Integer(SqlParserSymbols.KW_WITH));
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
+        keywordMap.put("workload", new Integer(SqlParserSymbols.KW_WORKLOAD));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
