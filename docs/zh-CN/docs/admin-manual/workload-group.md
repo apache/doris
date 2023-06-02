@@ -68,3 +68,25 @@ set workload_group = g1;
 ```
 
 5. 执行查询，查询将关联到 g1 资源组。
+
+### 查询排队功能
+```
+create workload group if not exists test_group
+properties (
+    "cpu_share"="10",
+    "memory_limit"="30%",
+    "max_concurrency" = "10",
+    "max_queue_size" = "20",
+    "queue_timeout" = "3000"
+);
+```
+目前的workload group支持查询排队的功能，可以在新建group时进行指定，需要以下三个参数:
+* max_concurrency，当前group允许的最大查询数;超过最大并发的查询到来时会进入排队逻辑
+* max_queue_size，查询排队的长度;当队列满了之后，新来的查询会被拒绝
+* queue_timeout，查询在队列中等待的时间，如果查询等待时间超过这个值，那么查询会被拒绝，时间单位为毫秒
+
+需要注意的是，目前的排队设计是不感知FE的个数的，排队的参数只在单FE粒度生效，例如：
+
+一个Doris集群配置了一个work load group，设置max_concurrency = 1
+如果集群中有1FE，那么这个workload group在Doris集群视角看同时只会运行一个SQL
+如果有3台FE，那么在Doris集群视角看最大可运行的SQL个数为3
