@@ -17,6 +17,12 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.system.SystemInfoService;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
@@ -73,5 +79,14 @@ public class StatisticConstants {
     public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
 
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
+
+    public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
+
+    static {
+        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+                + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
+        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+                + ClusterNamespace.CLUSTER_DELIMITER + "information_schema");
+    }
 
 }

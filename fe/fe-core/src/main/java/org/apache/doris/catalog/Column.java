@@ -45,6 +45,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -71,6 +72,18 @@ public class Column implements Writable, GsonPostProcessable {
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown",
             Type.UNSUPPORTED, true, null, true, null, "invalid", true, null, -1, null, null, null, null);
+
+    public static final Set<String> INTERNAL_COLUMN_NAMES = new HashSet<>();
+
+    static {
+        INTERNAL_COLUMN_NAMES.add(DELETE_SIGN);
+        INTERNAL_COLUMN_NAMES.add(WHERE_SIGN);
+        INTERNAL_COLUMN_NAMES.add(SEQUENCE_COL);
+        INTERNAL_COLUMN_NAMES.add(ROWID_COL);
+        INTERNAL_COLUMN_NAMES.add(ROW_STORE_COL);
+        INTERNAL_COLUMN_NAMES.add(DYNAMIC_COLUMN_NAME);
+        INTERNAL_COLUMN_NAMES.add(VERSION_COL);
+    }
 
     @SerializedName(value = "name")
     private String name;
@@ -902,5 +915,9 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isMaterializedViewColumn() {
         return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                 || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isInternalColumn(String name) {
+        return INTERNAL_COLUMN_NAMES.contains(name);
     }
 }
