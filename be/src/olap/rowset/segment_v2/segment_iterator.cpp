@@ -721,11 +721,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
                                              PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
-            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
-                res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
-                 need_remaining_after_evaluate)) {
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
                 continue;
@@ -752,6 +748,30 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
+    if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+        res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+        res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
+        //    usually occurs when creating a new index, queries can be downgraded
+        //    without index.
+        // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+        //    has reached the optimal limit, downgrade without index query can
+        //    improve query performance.
+        // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
+        //    suitable for executing this predicate, skipped it and filter data
+        //    by function later.
+        // 4. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
+        //    but the column condition value no terms in specified parser,
+        //    such as: where A = '' and B = ','
+        //    the predicate of A and B need downgrade without index query.
+        // above case can downgrade without index query
+        return true;
+    }
+    return false;
 }
 
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predicate) {
@@ -808,22 +828,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
-            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
-                res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
-                 need_remaining_after_evaluate)) {
-                // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
-                //    usually occurs when creating a new index, queries can be downgraded
-                //    without index.
-                // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
-                //    has reached the optimal limit, downgrade without index query can
-                //    improve query performance.
-                // 3. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
-                //    but the column condition value no terms in specified parser,
-                //    such as: where A = '' and B = ','
-                //    the predicate of A and B need downgrade without index query.
-                // above case can downgrade without index query
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
