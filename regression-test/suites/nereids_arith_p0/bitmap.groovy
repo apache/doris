@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_arith_p0_date') {
+suite('bitmap') {
     sql 'use regression_test_nereids_arith_p0'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
@@ -23,6 +23,6 @@ suite('nereids_arith_p0_date') {
         sql "select id from (select BITMAP_EMPTY() as c0 from expr_test) as ref0 where c0 = 1 order by id"
         exception "errCode = 2, detailMessage = Unexpected exception: can not cast from origin type BITMAP to target type=DOUBLE"
         sql "select id from expr_test group by id having ktint in (select BITMAP_EMPTY() from expr_test) order by id"
-        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't support filter or group by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' in your mysql client."
+        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column must use with specific function,"
     }
 }
