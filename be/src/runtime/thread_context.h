@@ -74,6 +74,7 @@
     auto VARNAME_LINENUM(switch_mem_tracker) = SwitchThreadMemTrackerLimiter(mem_tracker_limiter)
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
 #endif
 
