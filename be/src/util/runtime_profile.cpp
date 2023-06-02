@@ -425,26 +425,6 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     child_counters->insert(name);
     return counter;
 }
-//std::map<std::string, Counter*> _counter_map[name] = counter;
-//std::map<std::string, std::set<std::string>>; _child_counter_map[name] = std::set<std::string>();
-
-void RuntimeProfile::remove_counter(const std::string& name,
-                                    const std::string& parent_counter_name) {
-    std::lock_guard<std::mutex> l(_counter_map_lock);
-    //don't have the counter;
-    if (_counter_map.find(name) == _counter_map.end()) {
-        return;
-    }
-
-    _counter_map.erase(name);
-    if (parent_counter_name == "") {
-        _child_counter_map[""].erase(name);
-    } else {
-        if (_child_counter_map.find(parent_counter_name) != _child_counter_map.end()) {
-            _child_counter_map[parent_counter_name].erase(name);
-        }
-    }
-}
 
 RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
         const std::string& name, TUnit::type type, const DerivedCounterFunction& counter_fn,
@@ -776,9 +756,6 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
     if (itr != child_counter_map.end()) {
         const std::set<std::string>& child_counters = itr->second;
         for (const std::string& child_counter : child_counters) {
-            if (child_counter == "BuildConvertToPartitionedTime") {
-                LOG(INFO)<<"BuildConvertToPartitionedTime: BuildConvertToPartitionedTime";
-            }
             CounterMap::const_iterator iter = counter_map.find(child_counter);
             DCHECK(iter != counter_map.end());
             stream << prefix << "   - " << iter->first << ": "
