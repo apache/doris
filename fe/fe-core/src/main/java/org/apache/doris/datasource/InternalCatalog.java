@@ -2626,8 +2626,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (column.getDefaultValue() != null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE);
                 }
-                if (!column.getType().isIntegerType()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INTEGER_TYPE);
+                if (!column.getType().isBigIntType()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE);
                 }
             }
         }

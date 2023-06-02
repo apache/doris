@@ -1201,8 +1201,8 @@ public enum ErrorCode {
     ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE(5094, new byte[]{'4', '2', '0', '0', '0'},
             "the auto increment column can't have default value."),
 
-    ERR_AUTO_INCREMENT_COLUMN_NOT_INTEGER_TYPE(5095, new byte[]{'4', '2', '0', '0', '0'},
-            "the auto increment should be integer type."),
+    ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE(5095, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment must be BIGINT type."),
 
     ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
             "the auto increment is only supported in duplicate table.");
