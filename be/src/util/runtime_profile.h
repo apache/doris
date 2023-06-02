@@ -280,6 +280,10 @@ public:
         return add_counter(name, type, "");
     }
 
+    void remove_counter(const std::string& name, const std::string& parent_counter_name);
+
+    void remove_counter(const std::string& name) { remove_counter(name, ""); }
+
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
