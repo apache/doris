@@ -64,6 +64,15 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    void static check_chars_length(size_t total_length, size_t element_number) {
+        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            throw doris::Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}",
+                    total_length, element_number);
+        }
+    }
+
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
@@ -83,15 +92,6 @@ private:
 
     /// Size of i-th element, including terminating zero.
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
-
-    void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
-        }
-    }
 
     template <bool positive>
     struct less;
