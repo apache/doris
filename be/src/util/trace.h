@@ -59,14 +59,6 @@ class Trace;
         }                                                             \
     }
 
-#define TRACE_WITH_ARG(format, arg)                                        \
-    {                                                                      \
-        doris::Trace* _trace = doris::Trace::CurrentTrace();               \
-        if (_trace) {                                                      \
-            _trace->SubstituteAndTrace(__FILE__, __LINE__, (format), arg); \
-        }                                                                  \
-    }
-
 // Increment a counter associated with the current trace.
 //
 // Each trace contains a map of counters which can be used to keep

@@ -1660,7 +1660,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         });
         ADOPT_TRACE(trace.get());
 
-        TRACE("create cumulative compaction");
         StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         Status res = _cumulative_compaction->prepare_compact();
@@ -1689,7 +1688,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         });
         ADOPT_TRACE(trace.get());
 
-        TRACE("create base compaction");
         StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = _base_compaction->prepare_compact();
@@ -1718,7 +1716,6 @@ Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
                                                  CompactionType compaction_type) {
     scoped_refptr<Trace> trace(new Trace);
     ADOPT_TRACE(trace.get());
-    TRACE("create single replica compaction");
 
     StorageEngine::instance()->create_single_replica_compaction(tablet, _single_replica_compaction,
                                                                 compaction_type);
@@ -1734,7 +1731,6 @@ Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
 void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
     scoped_refptr<Trace> trace(new Trace);
     ADOPT_TRACE(trace.get());
-    TRACE("execute single replica compaction");
     Status res = _single_replica_compaction->execute_compact();
     if (!res.ok()) {
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -1783,7 +1779,6 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         });
         ADOPT_TRACE(trace.get());
 
-        TRACE("execute cumulative compaction");
         Status res = _cumulative_compaction->execute_compact();
         if (!res.ok()) {
             set_last_cumu_compaction_failure_time(UnixMillis());
@@ -1806,7 +1801,6 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         });
         ADOPT_TRACE(trace.get());
 
-        TRACE("create base compaction");
         Status res = _base_compaction->execute_compact();
         if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());

@@ -78,17 +78,17 @@ public:
             : _msg(file, line, severity) {}
 
     template <typename... Args>
-    TaggableLogger& operator()(const std::string_view& fmt, const Args&... args) {
+    TaggableLogger& operator()(const std::string_view& fmt, Args&&... args) {
         if constexpr (sizeof...(args) == 0) {
             _msg.stream() << fmt;
         } else {
-            _msg.stream() << fmt::format(fmt, std::forward<const Args&>(args)...);
+            _msg.stream() << fmt::format(fmt, std::forward<Args&&>(args)...);
         }
         return *this;
     }
 
     template <typename V>
-    TaggableLogger& tag(const std::string_view& key, const V& value) {
+    TaggableLogger& tag(std::string_view key, V&& value) {
         _msg.stream() << '|' << key << '=';
         if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
             _msg.stream() << print_id(value);
@@ -99,7 +99,7 @@ public:
     }
 
     template <typename E>
-    TaggableLogger& error(const E& error) {
+    TaggableLogger& error(E&& error) {
         _msg.stream() << "|error=" << error;
         return *this;
     }
