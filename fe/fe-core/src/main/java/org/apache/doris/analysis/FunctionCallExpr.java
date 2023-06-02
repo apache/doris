@@ -159,6 +159,17 @@ public class FunctionCallExpr extends Expr {
             }
         });
 
+        PRECISION_INFER_RULE.put("nvl", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() == 2);
+            if (children.get(0).getType().isDecimalV3() && children.get(1).getType().isDecimalV3()) {
+                return Expr.getAssignmentCompatibleType(children);
+            } else if (children.get(0).getType().isDatetimeV2() && children.get(1).getType().isDatetimeV2()) {
+                return Expr.getAssignmentCompatibleType(children);
+            } else {
+                return returnType;
+            }
+        });
+
         PRECISION_INFER_RULE.put("coalesce", (children, returnType) -> {
             boolean isDecimalV3 = true;
             boolean isDateTimeV2 = true;
@@ -1262,7 +1273,7 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(assignmentCompatibleType);
             }
 
-        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("ifnull") || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType.isDecimalV3()) {
