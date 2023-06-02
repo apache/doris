@@ -53,14 +53,13 @@ template <typename QueueType>
 TaskGroupEntity<QueueType>::~TaskGroupEntity() {
     delete _task_queue;
 }
-
 template <typename QueueType>
 QueueType* TaskGroupEntity<QueueType>::task_queue() {
     return _task_queue;
 }
-
 template <typename QueueType>
 void TaskGroupEntity<QueueType>::incr_runtime_ns(uint64_t runtime_ns) {
+    VLOG_DEBUG << "incr " << debug_string() << " runtime_ns by " << runtime_ns;
     auto v_time = runtime_ns / _cpu_share;
     _vruntime_ns += v_time;
 }
