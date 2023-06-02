@@ -56,10 +56,10 @@ import java.util.concurrent.locks.StampedLock;
 import java.util.stream.Collectors;
 
 /*
- * this class stores an inverted index
+ * this class stores a inverted index
  * key is tablet id. value is the related ids of this tablet
- * Checkpoint thread is no need to modify this inverted index, because this inverted index will not be written
- * into images, all metadata are in catalog, and the inverted index will be rebuilded when FE restart.
+ * Checkpoint thread is no need to modify this inverted index, because this inverted index will not be wrote
+ * into images, all meta data are in catalog, and the inverted index will be rebuild when FE restart.
  */
 public class TabletInvertedIndex {
     private static final Logger LOG = LogManager.getLogger(TabletInvertedIndex.class);
@@ -79,11 +79,11 @@ public class TabletInvertedIndex {
 
     /*
      *  we use this to save memory.
-     *  we do not need to create TabletMeta instance for each tablet,
-     *  because tablets in one (Partition-MaterializedIndex) has same parent info
+     *  we do not need create TabletMeta instance for each tablet,
+     *  cause tablets in one (Partition-MaterializedIndex) has same parent info
      *      (dbId, tableId, partitionId, indexId, schemaHash)
      *  we use 'tabletMetaTable' to do the update things
-     *      (e.g. update schema hash in TabletMeta)
+     *      (eg. update schema hash in TabletMeta)
      *  partition id -> (index id -> tablet meta)
      */
     private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
@@ -471,7 +471,7 @@ public class TabletInvertedIndex {
     }
 
     /**
-     * BE will set `used' to false for bad replicas and `version_miss' to true for replicas with hole
+     * Be will set `used' to false for bad replicas and `version_miss' to true for replicas with hole
      * in their version chain. In either case, those replicas need to be fixed by TabletScheduler.
      */
     private boolean needRecover(Replica replicaInFe, int schemaHashInFe, TTabletInfo backendTabletInfo) {
@@ -706,7 +706,7 @@ public class TabletInvertedIndex {
         return replicaToTabletMap;
     }
 
-    // Only build from available BEs, exclude colocate tables
+    // Only build from available bes, exclude colocate tables
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
             List<Long> availableBeIds) {
         long stamp = readLock();
