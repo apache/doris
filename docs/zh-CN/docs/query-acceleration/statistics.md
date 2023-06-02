@@ -79,19 +79,9 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 列统计信息收集语法：
 
 ```SQL
-ANALYZE [ SYNC ] TABLE table_name
+ANALYZE TABLE | DATABASE table_name | db_name
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
-```
-
-列直方图收集语法：
-
-```SQL
-ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]
-    UPDATE HISTOGRAM
-    [ [ WITH SYNC] [ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] [ WITH PERIOD ] ]
+    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -456,9 +446,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 ```SQL
 SHOW ANALYZE [ table_name | job_id ]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ]
-    [ ORDER BY ... ]
-    [ LIMIT OFFSET ];
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
 其中：
@@ -486,24 +474,32 @@ SHOW ANALYZE [ table_name | job_id ]
 
 示例：
 
-- 查看 ID 为 `68603` 的统计任务信息，使用以下语法：
+- 查看 ID 为 `20038` 的统计任务信息，使用以下语法：
 
 ```SQL
-mysql> SHOW ANALYZE 68603;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | INDEX         |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:24  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
+mysql> SHOW ANALYZE 20038 
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| job_id | catalog_name | db_name              | tbl_name | col_name              | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| 20038  | internal     | default_cluster:test | t3       | [col4,col2,col3,col1] | MANUAL   | FUNDAMENTALS  |         | 2023-06-01 17:22:15  | FINISHED | ONCE          |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+
+```
+
+可通过`SHOW ANALYZE TASK STATUS [job_id]`，查看具体每个列统计信息的收集完成情况。
+
+```
+mysql> show analyze task status  20038 ;
++---------+----------+---------+----------------------+----------+
+| task_id | col_name | message | last_exec_time_in_ms | state    |
++---------+----------+---------+----------------------+----------+
+| 20039   | col4     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20040   | col2     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20041   | col3     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20042   | col1     |         | 2023-06-01 17:22:15  | FINISHED |
++---------+----------+---------+----------------------+----------+
+
+
 ```
 
 - 查看 `example_tbl` 表的的统计任务信息，使用以下语法：

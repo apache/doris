@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -25,14 +27,20 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.lang.reflect.Type;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.StringJoiner;
 
-public class AnalysisTaskInfo {
+public class AnalysisInfo implements Writable {
 
-    private static final Logger LOG = LogManager.getLogger(AnalysisTaskInfo.class);
+    private static final Logger LOG = LogManager.getLogger(AnalysisInfo.class);
 
     public enum AnalysisMode {
         INCREMENTAL,
@@ -45,7 +53,7 @@ public class AnalysisTaskInfo {
     }
 
     public enum AnalysisType {
-        COLUMN,
+        FUNDAMENTALS,
         INDEX,
         HISTOGRAM
     }
@@ -77,7 +85,7 @@ public class AnalysisTaskInfo {
 
     public final String colName;
 
-    public final Long indexId;
+    public final long indexId;
 
     public final JobType jobType;
 
@@ -108,7 +116,7 @@ public class AnalysisTaskInfo {
     // This kind of task is mainly to collect the number of rows of a table.
     public boolean externalTableLevelTask;
 
-    public AnalysisTaskInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
+    public AnalysisInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, String colName, Long indexId, JobType jobType,
             AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
@@ -179,51 +187,51 @@ public class AnalysisTaskInfo {
     }
 
     // TODO: use thrift
-    public static AnalysisTaskInfo fromResultRow(ResultRow resultRow) {
+    public static AnalysisInfo fromResultRow(ResultRow resultRow) {
         try {
-            AnalysisTaskInfoBuilder analysisTaskInfoBuilder = new AnalysisTaskInfoBuilder();
+            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
             long jobId = Long.parseLong(resultRow.getColumnValue("job_id"));
-            analysisTaskInfoBuilder.setJobId(jobId);
+            analysisInfoBuilder.setJobId(jobId);
             long taskId = Long.parseLong(resultRow.getColumnValue("task_id"));
-            analysisTaskInfoBuilder.setTaskId(taskId);
+            analysisInfoBuilder.setTaskId(taskId);
             String catalogName = resultRow.getColumnValue("catalog_name");
-            analysisTaskInfoBuilder.setCatalogName(catalogName);
+            analysisInfoBuilder.setCatalogName(catalogName);
             String dbName = resultRow.getColumnValue("db_name");
-            analysisTaskInfoBuilder.setDbName(dbName);
+            analysisInfoBuilder.setDbName(dbName);
             String tblName = resultRow.getColumnValue("tbl_name");
-            analysisTaskInfoBuilder.setTblName(tblName);
+            analysisInfoBuilder.setTblName(tblName);
             String colName = resultRow.getColumnValue("col_name");
-            analysisTaskInfoBuilder.setColName(colName);
+            analysisInfoBuilder.setColName(colName);
             long indexId = Long.parseLong(resultRow.getColumnValue("index_id"));
-            analysisTaskInfoBuilder.setIndexId(indexId);
+            analysisInfoBuilder.setIndexId(indexId);
             String partitionNames = resultRow.getColumnValue("col_partitions");
             Map<String, Set<String>> colToPartitions = getColToPartition(partitionNames);
-            analysisTaskInfoBuilder.setColToPartitions(colToPartitions);
+            analysisInfoBuilder.setColToPartitions(colToPartitions);
             String jobType = resultRow.getColumnValue("job_type");
-            analysisTaskInfoBuilder.setJobType(JobType.valueOf(jobType));
+            analysisInfoBuilder.setJobType(JobType.valueOf(jobType));
             String analysisType = resultRow.getColumnValue("analysis_type");
-            analysisTaskInfoBuilder.setAnalysisType(AnalysisType.valueOf(analysisType));
+            analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(analysisType));
             String analysisMode = resultRow.getColumnValue("analysis_mode");
-            analysisTaskInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(analysisMode));
+            analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(analysisMode));
             String analysisMethod = resultRow.getColumnValue("analysis_method");
-            analysisTaskInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(analysisMethod));
+            analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(analysisMethod));
             String scheduleType = resultRow.getColumnValue("schedule_type");
-            analysisTaskInfoBuilder.setScheduleType(ScheduleType.valueOf(scheduleType));
+            analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(scheduleType));
             String state = resultRow.getColumnValue("state");
-            analysisTaskInfoBuilder.setState(AnalysisState.valueOf(state));
+            analysisInfoBuilder.setState(AnalysisState.valueOf(state));
             String samplePercent = resultRow.getColumnValue("sample_percent");
-            analysisTaskInfoBuilder.setSamplePercent(StatisticsUtil.convertStrToInt(samplePercent));
+            analysisInfoBuilder.setSamplePercent(StatisticsUtil.convertStrToInt(samplePercent));
             String sampleRows = resultRow.getColumnValue("sample_rows");
-            analysisTaskInfoBuilder.setSampleRows(StatisticsUtil.convertStrToInt(sampleRows));
+            analysisInfoBuilder.setSampleRows(StatisticsUtil.convertStrToInt(sampleRows));
             String maxBucketNum = resultRow.getColumnValue("max_bucket_num");
-            analysisTaskInfoBuilder.setMaxBucketNum(StatisticsUtil.convertStrToInt(maxBucketNum));
+            analysisInfoBuilder.setMaxBucketNum(StatisticsUtil.convertStrToInt(maxBucketNum));
             String periodTimeInMs = resultRow.getColumnValue("period_time_in_ms");
-            analysisTaskInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
+            analysisInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
             String lastExecTimeInMs = resultRow.getColumnValue("last_exec_time_in_ms");
-            analysisTaskInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
+            analysisInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
             String message = resultRow.getColumnValue("message");
-            analysisTaskInfoBuilder.setMessage(message);
-            return analysisTaskInfoBuilder.build();
+            analysisInfoBuilder.setMessage(message);
+            return analysisInfoBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize analysis task info.", e);
             return null;
@@ -245,5 +253,75 @@ public class AnalysisTaskInfo {
         Gson gson = new Gson();
         Type type = new TypeToken<Map<String, Set<String>>>() {}.getType();
         return gson.fromJson(colToPartitionStr, type);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeLong(jobId);
+        out.writeLong(taskId);
+        Text.writeString(out, catalogName);
+        Text.writeString(out, dbName);
+        Text.writeString(out, tblName);
+        out.writeInt(colToPartitions.size());
+        for (Entry<String, Set<String>> entry : colToPartitions.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            out.writeInt(entry.getValue().size());
+            for (String part : entry.getValue()) {
+                Text.writeString(out, part);
+            }
+        }
+        Text.writeString(out, colName);
+        out.writeLong(indexId);
+        Text.writeString(out, jobType.toString());
+        Text.writeString(out, analysisMode.toString());
+        Text.writeString(out, analysisMethod.toString());
+        Text.writeString(out, analysisType.toString());
+        out.writeInt(samplePercent);
+        out.writeInt(sampleRows);
+        out.writeInt(maxBucketNum);
+        out.writeLong(periodTimeInMs);
+        out.writeLong(lastExecTimeInMs);
+        Text.writeString(out, state.toString());
+        Text.writeString(out, scheduleType.toString());
+        Text.writeString(out, message);
+        out.writeBoolean(externalTableLevelTask);
+    }
+
+    public static AnalysisInfo read(DataInput dataInput) throws IOException {
+        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
+        analysisInfoBuilder.setJobId(dataInput.readLong());
+        long taskId = dataInput.readLong();
+        analysisInfoBuilder.setTaskId(taskId);
+        analysisInfoBuilder.setCatalogName(Text.readString(dataInput));
+        analysisInfoBuilder.setDbName(Text.readString(dataInput));
+        analysisInfoBuilder.setTblName(Text.readString(dataInput));
+        int size = dataInput.readInt();
+        Map<String, Set<String>> colToPartitions = new HashMap<>();
+        for (int i = 0; i < size; i++) {
+            String k = Text.readString(dataInput);
+            int partSize = dataInput.readInt();
+            Set<String> parts = new HashSet<>();
+            for (int j = 0; j < partSize; j++) {
+                parts.add(Text.readString(dataInput));
+            }
+            colToPartitions.put(k, parts);
+        }
+        analysisInfoBuilder.setColToPartitions(colToPartitions);
+        analysisInfoBuilder.setColName(Text.readString(dataInput));
+        analysisInfoBuilder.setIndexId(dataInput.readLong());
+        analysisInfoBuilder.setJobType(JobType.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setSamplePercent(dataInput.readInt());
+        analysisInfoBuilder.setSampleRows(dataInput.readInt());
+        analysisInfoBuilder.setMaxBucketNum(dataInput.readInt());
+        analysisInfoBuilder.setPeriodTimeInMs(dataInput.readLong());
+        analysisInfoBuilder.setLastExecTimeInMs(dataInput.readLong());
+        analysisInfoBuilder.setState(AnalysisState.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(Text.readString(dataInput)));
+        analysisInfoBuilder.setMessage(Text.readString(dataInput));
+        analysisInfoBuilder.setExternalTableLevelTask(dataInput.readBoolean());
+        return analysisInfoBuilder.build();
     }
 }

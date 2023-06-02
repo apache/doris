@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
@@ -124,7 +124,7 @@ public interface TableIf {
 
     TTableDescriptor toThrift();
 
-    BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info);
+    BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
     long estimatedRowCount();
 
