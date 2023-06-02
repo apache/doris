@@ -17,7 +17,6 @@
 
 #include "vec/functions/match.h"
 
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 
@@ -85,6 +84,41 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
+inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_type_from_fn_name() {
+    std::string fn_name = get_name();
+    if (fn_name == MATCH_ANY_FUNCTION) {
+        return doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY;
+    } else if (fn_name == MATCH_ALL_FUNCTION) {
+        return doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY;
+    } else if (fn_name == MATCH_PHRASE_FUNCTION) {
+        return doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    }
+    return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
+}
+
+inline std::vector<std::wstring> FunctionMatchBase::analyse_data_token(
+        const std::string& column_name, InvertedIndexCtx* inverted_index_ctx,
+        const ColumnString* string_col, int32_t current_block_row_idx,
+        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) {
+    std::vector<std::wstring> data_tokens;
+    auto query_type = get_query_type_from_fn_name();
+    if (array_offsets) {
+        for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
+             current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
+            const auto& str_ref = string_col->get_data_at(current_src_array_offset);
+            std::vector<std::wstring> element_tokens =
+                    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                            column_name, str_ref.to_string(), query_type, inverted_index_ctx);
+            data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
+        }
+    } else {
+        const auto& str_ref = string_col->get_data_at(current_block_row_idx);
+        data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                column_name, str_ref.to_string(), query_type, inverted_index_ctx);
+    }
+    return data_tokens;
+}
+
 Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
@@ -109,24 +143,9 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::wstring> data_tokens;
-        if (array_offsets) {
-            for (auto next_src_array_offset = (*array_offsets)[i];
-                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
-                const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-                std::vector<std::wstring> element_tokens =
-                        doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                                column_name, str_ref.to_string(),
-                                doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
-                                inverted_index_ctx);
-                data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
-            }
-        } else {
-            const auto& str_ref = string_col->get_data_at(i);
-            data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    column_name, str_ref.to_string(),
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
-        }
+        std::vector<std::wstring> data_tokens =
+                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset);
 
         // TODO: more efficient impl
         for (auto& token : query_tokens) {
@@ -165,24 +184,9 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::wstring> data_tokens;
-        if (array_offsets) {
-            for (auto next_src_array_offset = (*array_offsets)[i];
-                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
-                const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-                std::vector<std::wstring> element_tokens =
-                        doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                                column_name, str_ref.to_string(),
-                                doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY,
-                                inverted_index_ctx);
-                data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
-            }
-        } else {
-            const auto& str_ref = string_col->get_data_at(i);
-            data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    column_name, str_ref.to_string(),
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
-        }
+        std::vector<std::wstring> data_tokens =
+                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset);
 
         // TODO: more efficient impl
         auto find_count = 0;
@@ -228,25 +232,9 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::wstring> data_tokens;
-        if (array_offsets) {
-            for (auto next_src_array_offset = (*array_offsets)[i];
-                 current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
-                const auto& str_ref = string_col->get_data_at(current_src_array_offset);
-                std::vector<std::wstring> element_tokens =
-                        doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                                column_name, str_ref.to_string(),
-                                doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                inverted_index_ctx);
-                data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
-            }
-        } else {
-            const auto& str_ref = string_col->get_data_at(i);
-            data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    column_name, str_ref.to_string(),
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                    inverted_index_ctx);
-        }
+        std::vector<std::wstring> data_tokens =
+                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
+                                   current_src_array_offset);
 
         // TODO: more efficient impl
         bool matched = false;
