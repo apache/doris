@@ -53,7 +53,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super();
     }
 
-    public OlapAnalysisTask(AnalysisTaskInfo info) {
+    public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 

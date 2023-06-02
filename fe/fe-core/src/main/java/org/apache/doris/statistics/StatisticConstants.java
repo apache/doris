@@ -72,4 +72,6 @@ public class StatisticConstants {
      */
     public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
 
+    public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
+
 }

@@ -1445,7 +1445,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_sec = 300;
+    public static int auto_check_statistics_in_minutes = 5;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
