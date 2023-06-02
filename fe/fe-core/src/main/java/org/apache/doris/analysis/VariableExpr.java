@@ -192,8 +192,6 @@ public class VariableExpr extends Expr {
             sb.append("@@");
             if (setType == SetType.GLOBAL) {
                 sb.append("GLOBAL.");
-            } else {
-                sb.append("SESSION.");
             }
         }
         sb.append(name);
