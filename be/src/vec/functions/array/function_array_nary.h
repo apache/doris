@@ -69,7 +69,8 @@ public:
             col_const[i] = is_const;
             extract_column_array_info(*col, datas[i]);
         }
-        if (Status st = Impl::execute_vector(res_ptr, datas, col_const); st != Status::OK()) {
+        if (Status st = Impl::execute(res_ptr, datas, col_const, 0, input_rows_count);
+            st != Status::OK()) {
             return Status::RuntimeError(
                     fmt::format("function {} execute failed {} ", get_name(), st.to_string()));
         }

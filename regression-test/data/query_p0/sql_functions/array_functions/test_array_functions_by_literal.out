@@ -414,7 +414,7 @@ true
 [1]
 
 -- !sql --
-[2, 3]
+[3, 2]
 
 -- !sql --
 [1, 2, 3, 4, NULL]
@@ -423,7 +423,7 @@ true
 [1]
 
 -- !sql --
-[2, 3]
+[3, 2]
 
 -- !sql --
 [1, 0]
@@ -537,10 +537,10 @@ true
 []
 
 -- !sql_intersect_2 --
-[1, NULL]
+[NULL, 1]
 
 -- !sql_intersect_3 --
-[1, NULL]
+[NULL, 1]
 
 -- !sql_intersect_4 --
 []
