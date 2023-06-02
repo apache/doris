@@ -22,9 +22,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 
 /**
  * generate fragment id for nereids physical plan
