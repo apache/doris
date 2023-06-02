@@ -21,6 +21,7 @@ suite("nereids_insert_aggregate_type_cast") {
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_dml=true'
     sql 'set parallel_fragment_exec_instance_num=13'
 
     sql '''insert into agg_t_type_cast
