@@ -316,6 +316,11 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
+        boolean enableDuplicateWithoutKeysByDefault = false;
+        if (properties != null) {
+            enableDuplicateWithoutKeysByDefault =
+                                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+        }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
@@ -354,7 +359,7 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
-                    if (!Config.experimental_enable_duplicate_without_keys_by_default) {
+                    if (!enableDuplicateWithoutKeysByDefault) {
                         for (ColumnDef columnDef : columnDefs) {
                             keyLength += columnDef.getType().getIndexSize();
                             if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
@@ -392,6 +397,11 @@ public class CreateTableStmt extends DdlStmt {
                         }
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
+                }
+            } else {
+                if (enableDuplicateWithoutKeysByDefault) {
+                    throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
+                                    + " set 'true' when create olap table by default.");
                 }
             }
 
