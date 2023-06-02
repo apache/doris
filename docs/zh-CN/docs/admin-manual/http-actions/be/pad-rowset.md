@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "填充坏副本",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# 填充坏副本
 
 ## Request
 
@@ -32,23 +32,23 @@ under the License.
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+该功能用于使用一个空的rowset填充损坏的副本。
 
 ## Query parameters
 
 * `tablet_id`
-    ID of the tablet
+    table的id
 
 * `start_version`
-    Start version
+    起始版本
 
 * `end_version`
-    End version       
+    终止版本       
 
 
 ## Request body
 
-None
+无
 
 ## Response
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MIGRATE SINGLE TABLET TO A PARTICULAR DISK",
+    "title": "Migration Tablet",
     "language": "en"
 }
 ---
@@ -24,17 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MIGRATE SINGLE TABLET TO A PARTICULAR DISK
-   
-Migrate single tablet to a particular disk.
+# Migration Tablet
 
-Submit the migration task:
+## Request
 
-```
-curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=run&tablet_id=xxx&schema_hash=xxx&disk=xxx
-```
+`GET /api/tablet_migration?goal={enum}&tablet_id={int}&schema_hash={int}&disk={string}`
 
-The return is the submission result of the migration task:
+## Description
+
+Migrate a tablet to the specified disk.
+
+## Query parameters
+
+* `goal`
+    - `run`：submit the migration task
+    - `status`：show the status of migration task
+
+* `tablet_id`
+    ID of the tablet
+
+* `schema_hash`
+    Schema hash
+
+* `disk`
+    The specified disk.
+
+## Request body
+
+None
+
+## Response
+
+### Submit Task
 
 ```
     {
@@ -42,9 +63,7 @@ The return is the submission result of the migration task:
         msg: "migration task is successfully submitted."
     }
 ```
-
-or
-
+Or
 ```
     {
         status: "Fail",
@@ -52,33 +71,27 @@ or
     }
 ```
 
-Show the status of migration task:
-
-```
-curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=status&tablet_id=xxx&schema_hash=xxx
-```
-
-The return is the execution result of the migration task:
+### Show Status
 
 ```
     {
         status: "Success",
-        msg: "migration task is running.",
+        msg: "migration task is running",
         dest_disk: "xxxxxx"
     }
 ```
 
-or
+Or
 
 ```
     {
         status: "Success",
-        msg: "migration task has finished successfully.",
+        msg: "migration task has finished successfully",
         dest_disk: "xxxxxx"
     }
 ```
 
-or
+Or
 
 ```
     {
@@ -87,3 +100,12 @@ or
         dest_disk: "xxxxxx"
     }
 ```
+
+## Examples
+
+
+    ```
+    curl "http://127.0.0.1:8040/api/tablet_migration?goal=run&tablet_id=123&schema_hash=333&disk=/disk1"
+
+    ```
+

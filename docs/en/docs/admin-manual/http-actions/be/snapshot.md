@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Make Snapshot",
     "language": "en"
 }
 ---
@@ -24,26 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Make Snapshot
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/snapshot?tablet_id={int}&schema_hash={int}"`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Make snapshot of a tablet
 
 ## Query parameters
 
 * `tablet_id`
     ID of the tablet
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
+* `schema_hash`
+    Schema hash         
 
 
 ## Request body
@@ -53,16 +50,13 @@ None
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    /path/to/snapshot
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl "http://127.0.0.1:8040/api/snapshot?tablet_id=123456&schema_hash=1111111"
 
     ```
 

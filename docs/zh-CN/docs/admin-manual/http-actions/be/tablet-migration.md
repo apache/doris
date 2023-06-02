@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MIGRATE SINGLE TABLET TO A PARTICULAR DISK",
+    "title": "迁移tablet",
     "language": "zh-CN"
 }
 ---
@@ -24,17 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MIGRATE SINGLE TABLET TO A PARTICULAR DISK
-   
+# 迁移tablet
+
+## Request
+
+`GET /api/tablet_migration?goal={enum}&tablet_id={int}&schema_hash={int}&disk={string}`
+
+## Description
+
 在BE节点上迁移单个tablet到指定磁盘
 
-提交迁移任务：
+## Query parameters
 
-```
-curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=run&tablet_id=xxx&schema_hash=xxx&disk=xxx
-```
+* `goal`
+    - `run`：提交迁移任务
+    - `status`：查询任务的执行状态
 
-返回值就是tablet迁移任务的提交结果：
+* `tablet_id`
+    需要迁移的tablet的id
+
+* `schema_hash`
+    schema hash
+
+* `disk`
+    目标磁盘。    
+
+## Request body
+
+无
+
+## Response
+
+### 提交结果
 
 ```
     {
@@ -50,13 +71,7 @@ curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=run&tablet_i
     }
 ```
 
-查询迁移任务状态：
-
-```
-curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=status&tablet_id=xxx&schema_hash=xxx
-```
-
-返回值就是tablet迁移任务执行状态：
+### 执行状态
 
 ```
     {
@@ -85,3 +100,12 @@ curl -X GET http://be_host:webserver_port/api/tablet_migration?goal=status&table
         dest_disk: "xxxxxx"
     }
 ```
+
+## Examples
+
+
+    ```
+    curl "http://127.0.0.1:8040/api/tablet_migration?goal=run&tablet_id=123&schema_hash=333&disk=/disk1"
+
+    ```
+

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "BE探活",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# BE探活
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/health`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+给监控服务提供的探活接口，请求能响应代表BE状态正常。
 
 ## Query parameters
-
-* `tablet_id`
-    ID of the tablet
-
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+无    
 
 ## Request body
-
-None
+无
 
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    {"status": "OK","msg": "To Be Added"}
     ```
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/health
     ```
 

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "RESTORE TABLET",
-    "language": "zh-CN"
+    "title": "Restore Tablet",
+    "language": "en"
 }
 ---
 
@@ -24,20 +24,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# RESTORE TABLET
-## description
-   
-    该功能用于恢复trash目录中被误删的tablet数据。
+# Restore Tablet
 
-    说明：这个功能暂时只在be服务中提供一个http接口。如果要使用，
-    需要向要进行数据恢复的那台be机器的http端口发送restore tablet api请求。api格式如下：
-    METHOD: POST
-    URI: http://be_host:be_http_port/api/restore_tablet?tablet_id=xxx&schema_hash=xxx
+## Request
 
-## example
+`POST /api/restore_tablet?tablet_id={int}&schema_hash={int}"`
 
-    curl -X POST "http://hostname:8088/api/restore_tablet?tablet_id=123456\&schema_hash=1111111"
+## Description
 
-## keyword
+To restore the tablet data from trash dir on BE
 
-    RESTORE,TABLET,RESTORE,TABLET
+## Query parameters
+
+* `tablet_id`
+    ID of the tablet
+
+* `schema_hash`
+    Schema hash       
+
+
+## Request body
+
+None
+
+## Response
+
+    ```
+    {
+        msg: "OK",
+        code: 0
+    }
+    ```
+## Examples
+
+
+    ```
+    curl -X POST "http://127.0.0.1:8040/api/restore_tablet?tablet_id=123456&schema_hash=1111111"
+
+    ```
+
