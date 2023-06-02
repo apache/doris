@@ -80,6 +80,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1010,6 +1011,22 @@ public class EditLog {
                     // Do nothing.
                     break;
                 }
+                case OperationType.OP_CREATE_ANALYSIS_JOB: {
+                    env.getAnalysisManager().replayCreateAnalysisJob((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_CREATE_ANALYSIS_TASK: {
+                    env.getAnalysisManager().replayCreateAnalysisTask((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_ANALYSIS_JOB: {
+                    env.getAnalysisManager().replayDeleteAnalysisJob((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_ANALYSIS_TASK: {
+                    env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1759,5 +1776,21 @@ public class EditLog {
 
     public void logCleanQueryStats(CleanQueryStatsInfo log) {
         logEdit(OperationType.OP_CLEAN_QUERY_STATS, log);
+    }
+
+    public void logCreateAnalysisTasks(AnalysisInfo log) {
+        logEdit(OperationType.OP_CREATE_ANALYSIS_TASK, log);
+    }
+
+    public void logCreateAnalysisJob(AnalysisInfo log) {
+        logEdit(OperationType.OP_CREATE_ANALYSIS_JOB, log);
+    }
+
+    public void logDeleteAnalysisJob(AnalyzeDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
+    }
+
+    public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
     }
 }

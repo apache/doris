@@ -45,7 +45,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
     private long dataSize = 0;
     private long numNulls = 0;
 
-    public IcebergAnalysisTask(AnalysisTaskInfo info) {
+    public IcebergAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 

@@ -84,7 +84,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     private final boolean isTableLevelTask;
 
-    public HiveAnalysisTask(AnalysisTaskInfo info) {
+    public HiveAnalysisTask(AnalysisInfo info) {
         super(info);
         isTableLevelTask = info.externalTableLevelTask;
     }
