@@ -44,17 +44,17 @@ Status VExplodeSplitTableFunction::open() {
 }
 
 Status VExplodeSplitTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 2)
+    CHECK(_expr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
     int delimiter_column_idx = -1;
 
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
-                                                                   &delimiter_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[1]->execute(_expr_context.get(), block,
+                                                                  &delimiter_column_idx));
 
     // dispose test column
     _text_column =

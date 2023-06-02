@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
@@ -51,6 +52,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "service/brpc.h"
 #include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -90,6 +92,40 @@ namespace doris {
 class TExpr;
 
 namespace stream_load {
+
+class OpenPartitionClosure : public google::protobuf::Closure {
+public:
+    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
+                         int64_t partition_id)
+            : vnode_channel(vnode_channel),
+              index_channel(index_channel),
+              partition_id(partition_id) {};
+
+    ~OpenPartitionClosure() = default;
+
+    void Run() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        if (cntl.Failed()) {
+            std::stringstream ss;
+            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
+               << ", error_text=" << this->cntl.ErrorText();
+            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
+            vnode_channel->cancel("Open partition error");
+            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
+                                          fmt::format("{}, open failed, err: {}",
+                                                      vnode_channel->channel_info(), ss.str()),
+                                          -1);
+        }
+    }
+
+    void join() { brpc::Join(cntl.call_id()); }
+
+    brpc::Controller cntl;
+    OpenPartitionResult result;
+    VNodeChannel* vnode_channel;
+    IndexChannel* index_channel;
+    int64_t partition_id;
+};
 
 IndexChannel::~IndexChannel() {
     if (_where_clause != nullptr) {
@@ -323,6 +359,7 @@ void VNodeChannel::open() {
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(true);
     request.set_backend_id(_node_id);
+    request.set_enable_profile(_state->enable_profile());
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -353,9 +390,14 @@ Status VNodeChannel::open_wait() {
            << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str() << " " << channel_info();
+        auto error_code = _open_closure->cntl.ErrorCode();
+        auto error_text = _open_closure->cntl.ErrorText();
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
-                                     berror(_open_closure->cntl.ErrorCode()),
-                                     _open_closure->cntl.ErrorText());
+                                     berror(error_code), error_text);
     }
     Status status(_open_closure->result.status());
     if (_open_closure->unref()) {
@@ -473,6 +515,37 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
+void VNodeChannel::open_partition(int64_t partition_id) {
+    _timeout_watch.reset();
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    OpenPartitionRequest request;
+    auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
+    request.set_allocated_id(load_id.get());
+    request.set_index_id(_index_channel->_index_id);
+    for (auto& tablet : _all_tablets) {
+        if (partition_id == tablet.partition_id) {
+            auto ptablet = request.add_tablets();
+            ptablet->set_partition_id(tablet.partition_id);
+            ptablet->set_tablet_id(tablet.tablet_id);
+        }
+    }
+
+    auto open_partition_closure =
+            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
+
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        remain_ms = config::min_load_rpc_timeout_ms;
+    }
+    open_partition_closure->cntl.set_timeout_ms(remain_ms);
+    _stub->open_partition(&open_partition_closure.get()->cntl, &request,
+                          &open_partition_closure.get()->result, open_partition_closure.get());
+
+    _open_partition_closures.insert(std::move(open_partition_closure));
+
+    request.release_id();
+}
+
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (payload->second.empty()) {
@@ -496,7 +569,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
     while (!_cancelled && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
-        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -506,6 +579,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
     std::unique_ptr<Payload> temp_payload = nullptr;
     if (_index_channel != nullptr && _index_channel->get_where_clause() != nullptr) {
+        SCOPED_RAW_TIMER(&_stat.where_clause_ns);
         temp_payload.reset(new Payload(
                 std::unique_ptr<vectorized::IColumn::Selector>(new vectorized::IColumn::Selector()),
                 std::vector<int64_t>()));
@@ -549,6 +623,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         }
     }
 
+    SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     if (is_append) {
         // Do not split the data of the block by tablets but append it to a single delta writer.
         // This is a faster way to send block than append_block_by_selector
@@ -809,6 +884,9 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -888,12 +966,9 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool),
-          _input_row_desc(row_desc),
-          _filter_bitmap(1024),
-          _stop_background_threads_latch(1) {
+        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
-    *status = vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
+    *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSink";
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
@@ -982,6 +1057,10 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _filtered_rows_counter = ADD_COUNTER(_profile, "RowsFiltered", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
+    _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
+    _filter_timer = ADD_CHILD_TIMER(_profile, "FilterTime", "SendDataTime");
+    _where_clause_timer = ADD_CHILD_TIMER(_profile, "WhereClauseTime", "SendDataTime");
+    _append_node_channel_timer = ADD_CHILD_TIMER(_profile, "AppendNodeChannelTime", "SendDataTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -992,6 +1071,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
     _total_add_batch_exec_timer = ADD_TIMER(_profile, "TotalAddBatchExecTime");
     _max_add_batch_exec_timer = ADD_TIMER(_profile, "MaxAddBatchExecTime");
+    _total_wait_exec_timer = ADD_TIMER(_profile, "TotalWaitExecTime");
+    _max_wait_exec_timer = ADD_TIMER(_profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
@@ -1022,18 +1103,26 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
+static void* periodic_send_batch(void* sink) {
+    VOlapTableSink* vsink = (VOlapTableSink*)sink;
+    vsink->_send_batch_process();
+    return nullptr;
+}
+
 Status VOlapTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
+    fmt::memory_buffer buf;
     for (auto index_channel : _channels) {
+        fmt::format_to(buf, "index id:{}", index_channel->_index_id);
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
     }
+    LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
 
     for (auto index_channel : _channels) {
         index_channel->for_each_node_channel([&index_channel](
@@ -1056,24 +1145,43 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process",
-            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
+    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+    }
 
     return Status::OK();
 }
 
-void VOlapTableSink::_send_batch_process(RuntimeState* state) {
+void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
+    const auto& id = partition->id;
+    auto it = _opened_partitions.find(id);
+    if (it == _opened_partitions.end()) {
+        _opened_partitions.insert(id);
+        fmt::memory_buffer buf;
+        for (int j = 0; j < partition->indexes.size(); ++j) {
+            fmt::format_to(buf, "index id:{}", partition->indexes[j].index_id);
+            for (const auto& tid : partition->indexes[j].tablets) {
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                for (const auto& channel : it->second) {
+                    channel->open_partition(partition->id);
+                }
+            }
+        }
+        LOG(INFO) << "list of lazy open index id = " << fmt::to_string(buf);
+    }
+}
+
+void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
-    SCOPED_ATTACH_TASK(state);
+    SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    do {
+    while (true) {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this,
-                                                  state](const std::shared_ptr<VNodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num,
+                                                  this](const std::shared_ptr<VNodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
         }
 
@@ -1083,8 +1191,8 @@ void VOlapTableSink::_send_batch_process(RuntimeState* state) {
                       << print_id(_load_id);
             return;
         }
-    } while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::olap_table_sink_send_interval_ms)));
+        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
+    }
 }
 
 size_t VOlapTableSink::get_pending_bytes() const {
@@ -1164,7 +1272,6 @@ void VOlapTableSink::_generate_row_distribution_payload(
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1215,6 +1322,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         // Recaculate is needed
         _partition_to_tablet_map.clear();
     }
+    _row_distribution_watch.start();
     for (int i = 0; i < num_rows; ++i) {
         if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
             continue;
@@ -1229,12 +1337,19 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         }
         // each row
         _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+        // open partition
+        if (config::enable_lazy_open_partition) {
+            // aysnc open operation,don't block send operation
+            _open_partition(partition);
+        }
     }
+    _row_distribution_watch.stop();
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =
             !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
+        SCOPED_RAW_TIMER(&_filter_ns);
         // clear and release the references of columns
         input_block->clear();
         // Filter block
@@ -1277,7 +1392,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return _close_status;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOlapTableSink::close");
+    SCOPED_TIMER(_close_timer);
     vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
@@ -1286,11 +1401,12 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         SCOPED_TIMER(_profile->total_time_counter());
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
-        int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
-                actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
-                max_add_batch_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
+        int64_t serialize_batch_ns = 0, queue_push_lock_ns = 0, actual_consume_ns = 0,
+                total_add_batch_exec_time_ns = 0, max_add_batch_exec_time_ns = 0,
+                total_wait_exec_time_ns = 0, max_wait_exec_time_ns = 0, total_add_batch_num = 0,
+                num_node_channels = 0;
+        VNodeChannelStat channel_stat;
         {
-            SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
                         [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });
@@ -1299,10 +1415,12 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
             for (auto index_channel : _channels) {
                 int64_t add_batch_exec_time = 0;
+                int64_t wait_exec_time = 0;
                 index_channel->for_each_node_channel(
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
-                         &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
+                         &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
                          &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                         &total_wait_exec_time_ns, &wait_exec_time,
                          &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
@@ -1315,13 +1433,17 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                              << ", close channel failed, err: " << err_msg;
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                            &mem_exceeded_block_ns, &queue_push_lock_ns,
-                                            &actual_consume_ns, &total_add_batch_exec_time_ns,
-                                            &add_batch_exec_time, &total_add_batch_num);
+                                            &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
+                                            &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                                            &total_wait_exec_time_ns, &wait_exec_time,
+                                            &total_add_batch_num);
                         });
 
                 if (add_batch_exec_time > max_add_batch_exec_time_ns) {
                     max_add_batch_exec_time_ns = add_batch_exec_time;
+                }
+                if (wait_exec_time > max_wait_exec_time_ns) {
+                    max_wait_exec_time_ns = wait_exec_time;
                 }
 
                 // check if index has intolerable failure
@@ -1335,7 +1457,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             } // end for index channels
         }
         // TODO need to be improved
-        LOG(INFO) << "total mem_exceeded_block_ns=" << mem_exceeded_block_ns
+        LOG(INFO) << "total mem_exceeded_block_ns=" << channel_stat.mem_exceeded_block_ns
                   << ", total queue_push_lock_ns=" << queue_push_lock_ns
                   << ", total actual_consume_ns=" << actual_consume_ns
                   << ", load id=" << print_id(_load_id);
@@ -1344,12 +1466,18 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_output_rows_counter, _number_output_rows);
         COUNTER_SET(_filtered_rows_counter, _number_filtered_rows);
         COUNTER_SET(_send_data_timer, _send_data_ns);
-        COUNTER_SET(_wait_mem_limit_timer, mem_exceeded_block_ns);
+        COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
+        COUNTER_SET(_filter_timer, _filter_ns);
+        COUNTER_SET(_append_node_channel_timer, channel_stat.append_node_channel_ns);
+        COUNTER_SET(_where_clause_timer, channel_stat.where_clause_ns);
+        COUNTER_SET(_wait_mem_limit_timer, channel_stat.mem_exceeded_block_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
         COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
         COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
         COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
         COUNTER_SET(_max_add_batch_exec_timer, max_add_batch_exec_time_ns);
+        COUNTER_SET(_total_wait_exec_timer, total_wait_exec_time_ns);
+        COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
         COUNTER_SET(_add_batch_number, total_add_batch_num);
         COUNTER_SET(_num_node_channels, num_node_channels);
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
@@ -1383,9 +1511,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    _stop_background_threads_latch.count_down();
     if (_sender_thread) {
-        _sender_thread->join();
+        bthread_join(_sender_thread, nullptr);
         // We have to wait all task in _send_batch_thread_pool_token finished,
         // because it is difficult to handle concurrent problem if we just
         // shutdown it.

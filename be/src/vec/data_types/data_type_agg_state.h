@@ -52,9 +52,9 @@ public:
         return TPrimitiveType::AGG_STATE;
     }
 
-    const DataTypes& get_sub_types() { return sub_types; }
+    const DataTypes& get_sub_types() const { return sub_types; }
 
-    void add_sub_type(DataTypePtr type) { sub_types.push_back(type); }
+    void add_sub_type(DataTypePtr type) const { sub_types.push_back(type); }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override {
         IDataType::to_pb_column_meta(col_meta);
@@ -64,7 +64,7 @@ public:
     }
 
 private:
-    DataTypes sub_types;
+    mutable DataTypes sub_types;
 };
 
 } // namespace doris::vectorized

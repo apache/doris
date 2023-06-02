@@ -76,10 +76,6 @@ Multi-Catalog works as an additional and enhanced external table connection meth
     
     The deletion only means to remove the mapping in Doris to the corresponding catalog. It doesn't change the external catalog itself by all means.
     
-5. Resource
-
-	Resource is a set of configurations. Users can create a Resource using the [CREATE RESOURCE](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE/) command, and then apply this Resource for a newly created Catalog. One Resource can be reused for multiple Catalogs. 
-
 ## Examples
 
 ### Connect to Hive
@@ -351,7 +347,7 @@ The automatic update feature involves the following parameters in fe.conf:
 2. `hms_events_polling_interval_ms`: This specifies the interval between two readings, which is set to 10000 by default. (Unit: millisecond) 
 3. `hms_events_batch_size_per_rpc`: This specifies the maximum number of events that are read at a time, which is set to 500 by default.
 
-To enable automatic update, you need to modify the hive-site.xml of HMS and then restart HMS:
+To enable automatic update, you need to modify the hive-site.xml of HMS and then restart HMS and HiveServer2:
 
 ```
 <property>

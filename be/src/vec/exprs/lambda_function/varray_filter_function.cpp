@@ -61,7 +61,7 @@ public:
 
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                           int* result_column_id, const DataTypePtr& result_type,
-                          const std::vector<VExpr*>& children) override {
+                          const VExprSPtrs& children) override {
         ///* array_filter(array, array<boolean>) *///
 
         //1. child[0:end]->execute(src_block)

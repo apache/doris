@@ -98,7 +98,7 @@ struct AggregateFunctionGroupConcatImplStr {
     static const std::string separator;
     static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
                     size_t row_num) {
-        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
+        place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
                   StringRef(separator.data(), separator.length()));
     }
 };
@@ -106,8 +106,8 @@ struct AggregateFunctionGroupConcatImplStr {
 struct AggregateFunctionGroupConcatImplStrStr {
     static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
                     size_t row_num) {
-        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
-                  static_cast<const ColumnString&>(*columns[1]).get_data_at(row_num));
+        place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
+                  assert_cast<const ColumnString&>(*columns[1]).get_data_at(row_num));
     }
 };
 
@@ -147,7 +147,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = this->data(place).get();
-        static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
 };
 

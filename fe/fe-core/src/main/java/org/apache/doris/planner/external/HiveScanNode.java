@@ -209,7 +209,7 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public List<String> getPathPartitionKeys() {
         return hmsTable.getRemoteTable().getPartitionKeys()
-                .stream().map(FieldSchema::getName).collect(Collectors.toList());
+                .stream().map(FieldSchema::getName).map(String::toLowerCase).collect(Collectors.toList());
     }
 
     @Override

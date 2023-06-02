@@ -98,6 +98,9 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.use_page_cache = _use_page_cache;
     opts.kept_in_memory = _kept_in_memory;
     opts.type = type;
+    if (_is_pk_index) {
+        opts.type = PRIMARY_KEY_INDEX_PAGE;
+    }
     opts.encoding_info = _encoding_info;
     opts.pre_decode = pre_decode;
 

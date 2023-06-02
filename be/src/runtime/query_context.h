@@ -65,13 +65,16 @@ public:
         // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
         // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
         // on query mem tracker, released on other trackers.
-        if (query_mem_tracker->consumption() != 0) {
+        if (query_mem_tracker->peak_consumption() != 0) {
             LOG(INFO) << fmt::format(
                     "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
                     print_id(query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
                     MemTracker::print_bytes(query_mem_tracker->consumption()),
                     MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+        }
+        if (_task_group) {
+            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         }
     }
 
@@ -105,6 +108,9 @@ public:
             std::lock_guard<std::mutex> l(_start_lock);
             _is_cancelled = is_cancelled;
             _ready_to_execute = true;
+        }
+        if (query_mem_tracker && is_cancelled) {
+            query_mem_tracker->set_is_query_cancelled(is_cancelled);
         }
         _start_cond.notify_all();
     }

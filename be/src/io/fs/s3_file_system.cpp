@@ -244,8 +244,10 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         delete_request.SetDelete(std::move(del));
         auto delete_outcome = client->DeleteObjects(delete_request);
         if (UNLIKELY(!delete_outcome.IsSuccess())) {
-            return Status::IOError("failed to delete objects: {}",
-                                   error_msg(objects.front().GetKey(), delete_outcome));
+            return Status::IOError(
+                    "failed to delete objects: {}",
+                    error_msg(delete_request.GetDelete().GetObjects().front().GetKey(),
+                              delete_outcome));
         }
         if (UNLIKELY(!delete_outcome.GetResult().GetErrors().empty())) {
             const auto& e = delete_outcome.GetResult().GetErrors().front();
@@ -406,8 +408,9 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         handle->WaitUntilFinished();
         if (handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
             // TODO(cyx): Maybe we can cancel remaining handles.
-            return Status::IOError("failed to upload: {}",
-                                   error_msg("", handle->GetLastError().GetMessage()));
+            return Status::IOError(
+                    "failed to upload: {}",
+                    error_msg(handle->GetKey(), handle->GetLastError().GetMessage()));
         }
     }
     return Status::OK();

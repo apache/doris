@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
  */
 public class BeSelectionPolicy {
     private static final Logger LOG = LogManager.getLogger(BeSelectionPolicy.class);
-    public String cluster = SystemInfoService.DEFAULT_CLUSTER;
     public boolean needScheduleAvailable = false;
     public boolean needQueryAvailable = false;
     public boolean needLoadAvailable = false;
@@ -63,11 +62,6 @@ public class BeSelectionPolicy {
 
         public Builder() {
             policy = new BeSelectionPolicy();
-        }
-
-        public Builder setCluster(String cluster) {
-            policy.cluster = cluster;
-            return this;
         }
 
         public Builder needScheduleAvailable() {
@@ -129,7 +123,7 @@ public class BeSelectionPolicy {
         // Compute node is only used when preferComputeNode is set.
         if (!preferComputeNode && backend.isComputeNode()) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Backend [{}] is not match by ComputeNode rule, policy: [{}]", backend.getIp(), this);
+                LOG.debug("Backend [{}] is not match by ComputeNode rule, policy: [{}]", backend.getHost(), this);
             }
             return false;
         }
@@ -139,7 +133,7 @@ public class BeSelectionPolicy {
                 backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
                 storageMedium)) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getIp(), this);
+                LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
             return false;
         }
@@ -147,14 +141,15 @@ public class BeSelectionPolicy {
         if (checkDiskUsage) {
             if (storageMedium == null && backend.diskExceedLimit()) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Backend [{}] is not match by diskExceedLimit rule, policy: [{}]", backend.getIp(), this);
+                    LOG.debug("Backend [{}] is not match by diskExceedLimit rule, policy: [{}]", backend.getHost(),
+                            this);
                 }
                 return false;
             }
             if (storageMedium != null && backend.diskExceedLimitByStorageMedium(storageMedium)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Backend [{}] is not match by diskExceedLimitByStorageMedium rule, policy: [{}]",
-                            backend.getIp(), this);
+                            backend.getHost(), this);
                 }
                 return false;
             }
@@ -202,8 +197,8 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("computeNode=%s | cluster=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
-                preferComputeNode, cluster, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
+        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
+                preferComputeNode, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
                 resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")), storageMedium);
     }
 }

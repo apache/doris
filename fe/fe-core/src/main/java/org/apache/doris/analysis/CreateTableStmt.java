@@ -316,6 +316,11 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
+        boolean enableDuplicateWithoutKeysByDefault = false;
+        if (properties != null) {
+            enableDuplicateWithoutKeysByDefault =
+                                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+        }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
@@ -331,7 +336,6 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
-        boolean enableStoreRowColumn = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -355,7 +359,7 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 } else {
-                    if (!Config.experimental_enable_duplicate_without_keys_by_default) {
+                    if (!enableDuplicateWithoutKeysByDefault) {
                         for (ColumnDef columnDef : columnDefs) {
                             keyLength += columnDef.getType().getIndexSize();
                             if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
@@ -394,6 +398,11 @@ public class CreateTableStmt extends DdlStmt {
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
+            } else {
+                if (enableDuplicateWithoutKeysByDefault) {
+                    throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
+                                    + " set 'true' when create olap table by default.");
+                }
             }
 
             if (properties != null && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)
@@ -401,7 +410,6 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException(
                         PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
             }
-
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                 enableUniqueKeyMergeOnWrite = true;
                 if (properties != null) {
@@ -409,7 +417,6 @@ public class CreateTableStmt extends DdlStmt {
                     // so we just clone a properties map here.
                     enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
                             new HashMap<>(properties));
-                    enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
                 }
             }
 
@@ -455,7 +462,8 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
-        if (enableStoreRowColumn) {
+        // add a hidden column as row store
+        if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
             columnDefs.add(ColumnDef.newRowStoreColumnDef());
         }
         if (Config.enable_hidden_version_column_by_default && keysDesc != null

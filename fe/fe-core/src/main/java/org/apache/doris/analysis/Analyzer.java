@@ -41,8 +41,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.external.hudi.HudiTable;
-import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -71,7 +69,7 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
-import org.apache.doris.thrift.TPipelineResourceGroup;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -410,7 +408,7 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
-        public List<TPipelineResourceGroup> tResourceGroups;
+        public List<TPipelineWorkloadGroup> tWorkloadGroups;
 
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
@@ -599,12 +597,12 @@ public class Analyzer {
         return explicitViewAlias;
     }
 
-    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
-        globalState.tResourceGroups = tResourceGroups;
+    public void setWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        globalState.tWorkloadGroups = tWorkloadGroups;
     }
 
-    public List<TPipelineResourceGroup> getResourceGroups() {
-        return globalState.tResourceGroups;
+    public List<TPipelineWorkloadGroup> getWorkloadGroups() {
+        return globalState.tWorkloadGroups;
     }
 
     /**
@@ -811,11 +809,6 @@ public class Analyzer {
                 // if doing restore with table, throw exception here
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
             }
-        }
-
-        if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
-            // resolve hudi table's schema when table schema is empty from doris meta
-            table = HudiUtils.resolveHudiTable((HudiTable) table);
         }
 
         // Now hms table only support a bit of table kinds in the whole hive system.
@@ -1421,10 +1414,10 @@ public class Analyzer {
             }
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
-                    && !globalState.assignedConjuncts.contains(e.getId())
+                    && (!globalState.assignedConjuncts.contains(e.getId()) || e.isConstant())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
-                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
+                            || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -2451,7 +2444,14 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        return getUnassignedConjuncts(node.getTblRefIds());
+        // constant conjuncts should be push down to all leaf node.
+        // so we need remove constant conjuncts when expr is not a leaf node.
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()) {
+            unassigned = unassigned.stream()
+                    .filter(e -> !e.isConstant()).collect(Collectors.toList());
+        }
+        return unassigned;
     }
 
     /**

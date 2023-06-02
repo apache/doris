@@ -1969,6 +1969,16 @@ BE副本数的平衡阈值。
 2. 因为一旦关闭平衡，不稳定的 colocate 表可能无法恢复
 3. 最终查询时无法使用 colocate 计划。
 
+#### `balance_slot_num_per_path`
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+balance 时每个路径的默认 slot 数量
+
 #### `disable_tablet_scheduler`
 
 默认值：false
@@ -2706,8 +2716,27 @@ show data （其他用法：HELP SHOW DATA）
 
 #### `max_instance_num`
 
-<version since="1.2.4"></version>
+<version since="dev"></version>
 
 默认值：128
 
 用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+控制是否启用查询命中率统计。默认为 false。
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+默认值：4
+
+此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。

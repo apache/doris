@@ -634,7 +634,7 @@ suite("test_date_function") {
 
     explain {
         sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-        contains "`birth` < '2022-01-01 00:00:00'"
+        contains "`birth` < '2022-01-01'"
     }
 
     explain {

@@ -322,6 +322,10 @@ public class JdbcResource extends Resource {
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
+            if (dbType.equals(OCEANBASE)) {
+                // set useCursorFetch to true
+                newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            }
         }
         if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");

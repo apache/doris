@@ -41,7 +41,6 @@ bool StreamingAggSourceOperator::can_read() {
 
 Status StreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                              SourceState& source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     bool eos = false;
     if (!_data_queue->data_exhausted()) {
         std::unique_ptr<vectorized::Block> agg_block;

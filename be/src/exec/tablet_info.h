@@ -35,6 +35,7 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class MemTracker;
@@ -44,17 +45,13 @@ class TabletColumn;
 class TabletIndex;
 class TupleDescriptor;
 
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-
 struct OlapTableIndexSchema {
     int64_t index_id;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
     std::vector<TabletIndex*> indexes;
-    vectorized::VExprContext* where_clause = nullptr;
+    vectorized::VExprContextSPtr where_clause;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -263,7 +260,14 @@ struct NodeInfo {
 
 class DorisNodesInfo {
 public:
+    DorisNodesInfo() = default;
     DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
+        for (auto& node : t_nodes.nodes) {
+            _nodes.emplace(node.id, node);
+        }
+    }
+    void setNodes(const TPaloNodesInfo& t_nodes) {
+        _nodes.clear();
         for (auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -61,15 +62,17 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
 
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
-        int retPercision = t1.getPrecision() + t2.getScale();
-        int retScale = t1.getScale();
+        int retPercision = t1.getPrecision() + t2.getScale() + Config.div_precision_increment;
+        int retScale = t1.getScale() + t2.getScale()
+                + Config.div_precision_increment;
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
             retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
         }
+        int targetPercision = retPercision;
         int targetScale = t1.getScale() + t2.getScale();
-        Preconditions.checkState(retPercision >= targetScale,
+        Preconditions.checkState(targetPercision >= targetScale,
                 "target scale " + targetScale + " larger than precision " + retPercision
-                + " in Divide return type");
+                        + " in Divide return type");
         Preconditions.checkState(retPercision >= retScale,
                 "scale " + retScale + " larger than precision " + retPercision
                         + " in Divide return type");

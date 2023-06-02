@@ -26,9 +26,6 @@ suite("test_es_query_no_http_url", "p0") {
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""
-        sql """drop resource if exists es6_resource;"""
-        sql """drop resource if exists es7_resource;"""
-        sql """drop resource if exists es8_resource;"""
         sql """drop table if exists test_v1;"""
         sql """drop table if exists test_v2;"""
 
@@ -44,7 +41,7 @@ suite("test_es_query_no_http_url", "p0") {
         """
 
         // test new create catalog syntax
-        sql """create resource if not exists es7_resource properties(
+        sql """create catalog if not exists es7 properties(
             "type"="es",
             "hosts"="127.0.0.1:$es_7_port",
             "nodes_discovery"="false",
@@ -52,7 +49,7 @@ suite("test_es_query_no_http_url", "p0") {
         );
         """
 
-        sql """create resource if not exists es8_resource properties(
+        sql """create catalog if not exists es8 properties(
             "type"="es",
             "hosts"="127.0.0.1:$es_8_port",
             "nodes_discovery"="false",
@@ -137,9 +134,6 @@ suite("test_es_query_no_http_url", "p0") {
         """
         order_qt_sql52 """select * from test_v2 where test2='text#1'"""
 
-        sql """create catalog if not exists es6 with resource es6_resource;"""
-        sql """create catalog if not exists es7 with resource es7_resource;"""
-        sql """create catalog if not exists es8 with resource es8_resource;"""
         // es6
         sql """switch es6"""
         order_qt_sql61 """select * from test1 where test2='text#1'"""
@@ -153,8 +147,5 @@ suite("test_es_query_no_http_url", "p0") {
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""
-        sql """drop resource if exists es6_resource;"""
-        sql """drop resource if exists es7_resource;"""
-        sql """drop resource if exists es8_resource;"""
     }
 }

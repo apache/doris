@@ -67,6 +67,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -131,9 +132,13 @@ public class NativeInsertStmt extends InsertStmt {
 
     private boolean isValuesOrConstantSelect;
 
+    private boolean isPartialUpdate = false;
+
+    private HashSet<String> partialUpdateCols = new HashSet<String>();
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
             List<String> hints) {
+        super(new LabelName(null, label), null, null);
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
         this.label = new LabelName(null, label);
@@ -144,13 +149,24 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
-    // Ctor for CreateTableAsSelectStmt
-    public NativeInsertStmt(TableName name, QueryStmt queryStmt) {
+    // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
+    public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
+            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
+        super(label, null, null);
         this.tblName = name;
-        this.targetPartitionNames = null;
-        this.targetColumnNames = null;
+        this.targetPartitionNames = targetPartitionNames;
         this.queryStmt = queryStmt;
-        this.planHints = null;
+        this.planHints = planHints;
+        this.targetColumnNames = targetColumnNames;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
+    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
+             List<String> hints, boolean isPartialUpdate) {
+        this(target, label, cols, source, hints);
+        this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateCols.addAll(cols);
     }
 
     public boolean isValuesOrConstantSelect() {
@@ -340,6 +356,9 @@ public class NativeInsertStmt extends InsertStmt {
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
             for (Column col : olapTable.getFullSchema()) {
+                if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
+                    continue;
+                }
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
@@ -373,6 +392,9 @@ public class NativeInsertStmt extends InsertStmt {
 
         // check columns of target table
         for (Column col : baseColumns) {
+            if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
+                continue;
+            }
             if (mentionedCols.contains(col.getName())) {
                 continue;
             }
@@ -640,6 +662,9 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 expr = new StringLiteral(targetColumns.get(i).getDefaultValue());
             }
+            if (expr instanceof Subquery) {
+                throw new AnalysisException("Insert values can not be query");
+            }
 
             expr.analyze(analyzer);
 
@@ -687,6 +712,9 @@ public class NativeInsertStmt extends InsertStmt {
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
         // reorder resultExprs in table column order
         for (Column col : targetTable.getFullSchema()) {
+            if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
+                continue;
+            }
             if (exprByName.containsKey(col.getName())) {
                 resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
             } else {
@@ -725,6 +753,8 @@ public class NativeInsertStmt extends InsertStmt {
         if (targetTable instanceof OlapTable) {
             dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                     analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+            OlapTableSink sink = (OlapTableSink) dataSink;
+            sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;

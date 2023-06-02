@@ -928,9 +928,19 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
+                                if (replica.getLastFailedVersion() >= 0) {
+                                    LOG.info("publish version failed for transaction {} on tablet {},"
+                                             + " on replica {} due to lastFailedVersion >= 0",
+                                             transactionState, tablet, replica);
+                                    continue;
+                                }
+                                if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
+                                    } else {
+                                        LOG.info("publish version failed for transaction {} on tablet {},"
+                                                 + " on replica {} due to not catchup",
+                                                 transactionState, tablet, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
@@ -938,6 +948,9 @@ public class DatabaseTransactionMgr {
                                     // TODO(cmy): actually I have no idea why we need this check
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
+                                } else {
+                                    LOG.info("publish version failed for transaction {} on tablet {},"
+                                             + " on replica {} due to version hole", transactionState, tablet, replica);
                                 }
                             }
 
@@ -1303,7 +1316,7 @@ public class DatabaseTransactionMgr {
         Preconditions.checkState(transactionState.getTransactionStatus() == TransactionStatus.ABORTED);
         // for aborted transaction, we don't know which backends are involved, so we have to send clear task
         // to all backends.
-        List<Long> allBeIds = Env.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
         AgentBatchTask batchTask = null;
         synchronized (clearTransactionTasks) {
             for (Long beId : allBeIds) {

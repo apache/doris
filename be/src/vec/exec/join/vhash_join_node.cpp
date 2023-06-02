@@ -96,7 +96,8 @@ Overload(Callables&&... callables) -> Overload<Callables...>;
 template <class HashTableContext>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          HashJoinNode* join_node, int batch_size, uint8_t offset)
+                          HashJoinNode* join_node, int batch_size, uint8_t offset,
+                          RuntimeState* state)
             : _rows(rows),
               _skip_rows(0),
               _acquired_block(acquired_block),
@@ -104,6 +105,7 @@ struct ProcessHashTableBuild {
               _join_node(join_node),
               _batch_size(batch_size),
               _offset(offset),
+              _state(state),
               _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool short_circuit_for_null>
@@ -170,6 +172,9 @@ struct ProcessHashTableBuild {
             }
 
             for (size_t k = 0; k < _rows; ++k) {
+                if (k % 65536 == 0) {
+                    RETURN_IF_CANCELLED(_state);
+                }
                 if constexpr (ignore_null) {
                     if ((*null_map)[k]) {
                         continue;
@@ -198,6 +203,9 @@ struct ProcessHashTableBuild {
         bool build_unique = _join_node->_build_unique;
 #define EMPLACE_IMPL(stmt)                                                                  \
     for (size_t k = 0; k < _rows; ++k) {                                                    \
+        if (k % 65536 == 0) {                                                               \
+            RETURN_IF_CANCELLED(_state);                                                    \
+        }                                                                                   \
         if constexpr (ignore_null) {                                                        \
             if ((*null_map)[k]) {                                                           \
                 continue;                                                                   \
@@ -262,6 +270,7 @@ private:
     HashJoinNode* _join_node;
     int _batch_size;
     uint8_t _offset;
+    RuntimeState* _state;
 
     ProfileCounter* _build_side_compute_hash_timer;
     std::vector<size_t> _build_side_hash_values;
@@ -337,10 +346,10 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.left, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.right, &ctx));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
         _build_expr_ctxs.push_back(ctx);
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
@@ -362,10 +371,17 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
-    if (tnode.hash_join_node.__isset.vother_join_conjunct) {
-        _vother_join_conjunct_ptr.reset(new VExprContext*);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.hash_join_node.vother_join_conjunct,
-                                                _vother_join_conjunct_ptr.get()));
+    if (tnode.hash_join_node.__isset.other_join_conjuncts &&
+        !tnode.hash_join_node.other_join_conjuncts.empty()) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.other_join_conjuncts,
+                                                 _other_join_conjuncts));
+
+        DCHECK(!_build_unique);
+        DCHECK(_have_other_join_conjunct);
+    } else if (tnode.hash_join_node.__isset.vother_join_conjunct) {
+        _other_join_conjuncts.resize(1);
+        RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.hash_join_node.vother_join_conjunct,
+                                                _other_join_conjuncts[0]));
 
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
         // build table should not be deduplicated.
@@ -465,9 +481,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
-    // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
+    // _other_join_conjuncts are evaluated in the context of the rows produced by this node
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
@@ -596,8 +612,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     DCHECK(output_rows <= state->batch_size());
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
     _reset_tuple_is_null_column();
@@ -641,7 +656,6 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 }
 
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (_short_circuit_for_null_in_probe_side) {
@@ -669,14 +683,12 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     while (need_more_input_data()) {
         prepare_for_next();
         SCOPED_TIMER(_probe_next_timer);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_probe_block, &_probe_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _probe_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_probe_block, &_probe_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         RETURN_IF_ERROR(push(state, &_probe_block, _probe_eos));
     }
@@ -731,7 +743,6 @@ void HashJoinNode::_prepare_probe_block() {
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
@@ -748,19 +759,18 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     }
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     return Status::OK();
 }
 
 void HashJoinNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::release_resources");
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
-    if (_vother_join_conjunct_ptr) {
-        (*_vother_join_conjunct_ptr)->close(state);
+    for (auto& conjunct : _other_join_conjuncts) {
+        conjunct->close(state);
     }
     _release_mem();
     VJoinNodeBase::release_resource(state);
@@ -778,15 +788,12 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
 
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(1)->get_next_after_projects(
-                            state, &block, &eos,
-                            std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*,
-                                                           bool*)) &
-                                              ExecNode::get_next,
-                                      _children[1], std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3)),
-                    child(1)->get_next_span(), eos);
+            RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                    state, &block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[1], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
@@ -841,7 +848,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     }
 
     if (_should_build_hash_table && eos) {
-        // For pipeline engine, children should be closed once this pipeline task is finished.
         if (!_build_side_mutable_block.empty()) {
             if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(
@@ -884,7 +890,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else if (!_should_build_hash_table && (eos || !state->enable_pipeline_exec())) {
+    } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
@@ -927,7 +933,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         }
     }
 
-    if (eos || (!_should_build_hash_table && !state->enable_pipeline_exec())) {
+    if (eos) {
         _process_hashtable_ctx_variants_init(state);
     }
 
@@ -985,7 +991,7 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
     return Status::OK();
 }
 
-Status HashJoinNode::_do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
+Status HashJoinNode::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                   RuntimeProfile::Counter& expr_call_timer,
                                   std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < exprs.size(); ++i) {
@@ -1072,7 +1078,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                         auto short_circuit_for_null_in_build_side) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                rows, block, raw_ptrs, this, state->batch_size(), offset);
+                                rows, block, raw_ptrs, this, state->batch_size(), offset, state);
                         return hash_table_build_process
                                 .template run<has_null_value, short_circuit_for_null_in_build_side>(
                                         arg,

@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -66,42 +67,6 @@ class ExchangeSinkOperator;
 
 namespace vectorized {
 class Channel;
-
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
-
-// We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
-// will be shared between different channel, so we have to use a ref count to mark if this
-// PBlock is available for next serialization.
-class BroadcastPBlockHolder {
-public:
-    BroadcastPBlockHolder() : _ref_count(0) {}
-    ~BroadcastPBlockHolder() noexcept = default;
-
-    void unref() noexcept {
-        DCHECK_GT(_ref_count._value, 0);
-        _ref_count._value.fetch_sub(1);
-    }
-    void ref() noexcept { _ref_count._value.fetch_add(1); }
-
-    bool available() { return _ref_count._value == 0; }
-
-    PBlock* get_block() { return &pblock; }
-
-private:
-    AtomicWrapper<uint32_t> _ref_count;
-    PBlock pblock;
-};
 
 class VDataStreamSender : public DataSink {
 public:
@@ -157,8 +122,11 @@ protected:
     }
 
     template <typename Channels>
-    Status channel_add_rows(Channels& channels, int num_channels, const uint64_t* channel_ids,
-                            int rows, Block* block);
+    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
+                            const uint64_t* channel_ids, int rows, Block* block);
+
+    template <typename ChannelPtrType>
+    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
     struct hash_128 {
         uint64_t high;
@@ -185,14 +153,14 @@ protected:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _cur_pb_block;
+    PBlock* _cur_pb_block = nullptr;
 
     // used by pipeline engine
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
     int _broadcast_pb_block_idx;
 
     // compute per-row partition values
-    std::vector<VExprContext*> _partition_expr_ctxs;
+    VExprContextSPtrs _partition_expr_ctxs;
 
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
@@ -249,6 +217,7 @@ public:
               _num_data_bytes_sent(0),
               _packet_seq(0),
               _need_close(false),
+              _closed(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
               _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
@@ -324,8 +293,18 @@ public:
                _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
+    bool is_receiver_eof() const { return receiver_status_.is<ErrorCode::END_OF_FILE>(); }
+
+    void set_receiver_eof(Status st) { receiver_status_ = st; }
+
 protected:
-    bool _recvr_is_valid() { return _local_recvr && !_local_recvr->is_closed(); }
+    bool _recvr_is_valid() {
+        if (_local_recvr && !_local_recvr->is_closed()) {
+            return true;
+        }
+        receiver_status_ = Status::EndOfFile("local data stream receiver closed");
+        return false;
+    }
 
     Status _wait_last_brpc() {
         SCOPED_TIMER(_parent->_brpc_wait_timer);
@@ -335,6 +314,7 @@ protected:
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
+        receiver_status_ = _closure->result.status();
         if (cntl->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
@@ -344,7 +324,7 @@ protected:
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
-        return Status::OK();
+        return receiver_status_;
     }
 
     // Serialize _batch into _thrift_batch and send via send_batch().
@@ -366,6 +346,7 @@ protected:
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _need_close;
+    bool _closed;
     int _be_number;
 
     TNetworkAddress _brpc_dest_addr;
@@ -376,6 +357,7 @@ protected:
     PTransmitDataParams _brpc_request;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+    Status receiver_status_;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
@@ -393,19 +375,30 @@ protected:
     PBlock _ch_pb_block2;
 };
 
+#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
+    do {                                                 \
+        if (status.is<ErrorCode::END_OF_FILE>()) {       \
+            _handle_eof_channel(state, channel, status); \
+        } else {                                         \
+            RETURN_IF_ERROR(status);                     \
+        }                                                \
+    } while (0)
+
 template <typename Channels>
-Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           const uint64_t* __restrict channel_ids, int rows,
-                                           Block* block) {
+Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
+                                           int num_channels, const uint64_t* __restrict channel_ids,
+                                           int rows, Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
     }
 
+    Status status;
     for (int i = 0; i < num_channels; ++i) {
-        if (!channel2rows[i].empty()) {
-            RETURN_IF_ERROR(channels[i]->add_rows(block, channel2rows[i]));
+        if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
+            status = channels[i]->add_rows(block, channel2rows[i]);
+            HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
     }
 
@@ -496,11 +489,23 @@ public:
         _buffer->register_sink(_fragment_instance_id);
     }
 
+    pipeline::SelfDeleteClosure<PTransmitDataResult>* get_closure(
+            InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
+        if (!_closure) {
+            _closure.reset(new pipeline::SelfDeleteClosure<PTransmitDataResult>());
+        } else {
+            _closure->cntl.Reset();
+        }
+        _closure->init(id, eos, data);
+        return _closure.get();
+    }
+
 private:
     friend class VDataStreamSender;
 
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
+    std::unique_ptr<pipeline::SelfDeleteClosure<PTransmitDataResult>> _closure = nullptr;
 };
 
 } // namespace vectorized

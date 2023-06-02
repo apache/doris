@@ -28,6 +28,8 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class RuntimeState;
@@ -41,7 +43,6 @@ namespace pipeline {
 class ResultSinkOperator;
 }
 namespace vectorized {
-class VExprContext;
 class Block;
 class VResultWriter;
 
@@ -141,6 +142,7 @@ public:
 
 private:
     Status prepare_exprs(RuntimeState* state);
+    Status second_phase_fetch_data(RuntimeState* state, Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts;
@@ -150,12 +152,15 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<VResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size;            // Allocated from _pool
+
+    // for fetch data by rowids
+    TFetchOption _fetch_option;
 };
 } // namespace vectorized
 

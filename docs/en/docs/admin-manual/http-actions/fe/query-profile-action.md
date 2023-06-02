@@ -276,7 +276,7 @@ Admin and Root user can view all queries. Ordinary users can only view the Query
 
 ### Description
 
-Get the fragment name, instance id and execution time for the specified query id.
+Get the fragment name, instance id, host ip/port and execution time for the specified query id.
     
 ### Path parameters
 
@@ -301,7 +301,10 @@ Get the fragment name, instance id and execution time for the specified query id
             "fragment_id": "",
             "time": "",
             "instance_id": {
-                "": ""
+                "": {
+                  "host": "",
+                  "active_time": ""
+                }
             }
         }
     ],
@@ -326,39 +329,52 @@ Admin and Root user can view all queries. Ordinary users can only view the Query
     
 ### Examples
 
-    ```
-    GET /rest/v2/manager/query/profile/fragments/d7c93d9275334c35-9e6ac5f295a7134b
-    
-    Response:
-    {
-        "msg": "success",
-        "code": 0,
-        "data": [
-            {
-                "fragment_id": "0",
-                "time": "36.169ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134e": "36.169ms"
-                }
-            },
-            {
-                "fragment_id": "1",
-                "time": "20.710ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134c": "20.710ms"
-                }
-            },
-            {
-                "fragment_id": "2",
-                "time": "7.83ms",
-                "instance_id": {
-                    "d7c93d9275334c35-9e6ac5f295a7134d": "7.83ms"
+```
+GET /rest/v2/manager/query/profile/fragments/d7c93d9275334c35-9e6ac5f295a7134b
+
+Response:
+{
+    "msg": "success",
+    "code": 0,
+    "data": [
+        {
+            "fragment_id": "0",
+            "time": "36.169ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134e": {
+                    "host": "172.19.0.4:9060",
+                    "active_time": "36.169ms"
                 }
             }
-        ],
-        "count": 0
-    }
-    ```
+        },
+        {
+            "fragment_id": "1",
+            "time": "20.710ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134c": {
+                    "host": "172.19.0.5:9060",
+                    "active_time": "20.710ms"
+                }
+            }
+        },
+        {
+            "fragment_id": "2",
+            "time": "7.83ms",
+            "instance_id": {
+                "d7c93d9275334c35-9e6ac5f295a7134d": {
+                    "host": "172.19.0.6:9060",
+                    "active_time": "7.83ms"
+                },
+                "d7c93d9275334c35-9e6ac5f295a7134f": {
+                    "host": "172.19.0.7:9060",
+                    "active_time": "10.873ms"
+                }
+            }
+        }
+    ],
+    "count": 0
+}
+```
 
 ## Get the specified query id tree profile information
 

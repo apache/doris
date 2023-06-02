@@ -71,6 +71,7 @@ set(VEC_FILES
   common/sort/sorter.cpp
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
+  common/sort/partition_sorter.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
   common/allocator.cpp
@@ -98,6 +99,8 @@ set(VEC_FILES
   data_types/serde/data_type_bitmap_serde.cpp
   data_types/serde/data_type_quantilestate_serde.cpp
   data_types/serde/data_type_nullable_serde.cpp
+  data_types/serde/data_type_time_serde.cpp
+  data_types/serde/data_type_jsonb_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp
@@ -124,7 +127,6 @@ set(VEC_FILES
   data_types/data_type_time.cpp
   data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
-  exec/varrow_scanner.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
@@ -137,7 +139,7 @@ set(VEC_FILES
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
   exec/vjdbc_connector.cpp
-  exec/vparquet_scanner.cpp
+  exec/vpartition_sort_node.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
@@ -160,6 +162,7 @@ set(VEC_FILES
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
   exprs/vmap_literal.cpp
+  exprs/vmatch_predicate.cpp
   exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
@@ -210,6 +213,7 @@ set(VEC_FILES
   functions/array/function_array_pushfront.cpp
   functions/array/function_array_first_index.cpp
   functions/array/function_array_cum_sum.cpp
+  functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp

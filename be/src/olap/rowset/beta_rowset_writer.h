@@ -79,7 +79,8 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) override;
+    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
+                                 const FlushContext* ctx = nullptr) override;
 
     RowsetSharedPtr build() override;
 
@@ -106,11 +107,9 @@ public:
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
     // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
+    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
         return _context.schema_change_recorder.get();
     }
-
-    uint64_t get_num_mow_keys() { return _num_mow_keys; }
 
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
@@ -124,13 +123,14 @@ public:
 
 private:
     Status _add_block(const vectorized::Block* block,
-                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                      const FlushContext* flush_ctx = nullptr);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                      bool is_segcompaction, int64_t begin, int64_t end,
-                                     const vectorized::Block* block = nullptr);
+                                     const FlushContext* ctx = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  const vectorized::Block* block = nullptr);
+                                  const FlushContext* ctx = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
@@ -191,13 +191,9 @@ protected:
         int64_t data_size;
         int64_t index_size;
         KeyBoundsPB key_bounds;
-        std::shared_ptr<std::unordered_set<std::string>> key_set;
     };
-    std::mutex _segid_statistics_map_mutex;
     std::map<uint32_t, Statistics> _segid_statistics_map;
-
-    // used for check correctness of unique key mow keys.
-    std::atomic<uint64_t> _num_mow_keys;
+    std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
     bool _already_built = false;

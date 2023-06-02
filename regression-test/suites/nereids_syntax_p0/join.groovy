@@ -211,4 +211,64 @@ suite("join") {
             logger.info(exception.message)
         }
     }
+
+    sql """drop table if exists test_memo_1"""
+    sql """drop table if exists test_memo_2"""
+    sql """drop table if exists test_memo_3"""
+
+    sql """ CREATE TABLE `test_memo_1` (
+    `c_bigint` bigint(20) NULL,
+    `c_long_decimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`c_bigint`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`c_bigint`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """ CREATE TABLE `test_memo_2` (
+    `sk` bigint(20) NULL,
+    `id` int(11) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`sk`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`sk`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """ CREATE TABLE `test_memo_3` (
+    `id` bigint(20) NOT NULL,
+    `c1` varchar(150) NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false"
+    );
+    """
+
+    sql """
+        select 
+         ref_1.`c_long_decimal` as c0,
+         ref_3.`c1` as c1
+        from
+          test_memo_1 as ref_1
+          inner join test_memo_2 as ref_2 on (case when true then 5 else 5 end is not NULL)
+          inner join test_memo_3 as ref_3 on (version() is not NULL)
+        where
+          ref_2.`id` is not NULL
+    """
 }

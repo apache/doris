@@ -645,6 +645,7 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        checkAndSetPointQuery();
         if (checkEnableTwoPhaseRead(analyzer)) {
             // If optimize enabled, we try our best to read less columns from ScanNode,
             // here we analyze conjunct exprs and ordering exprs before resultExprs,
@@ -658,7 +659,10 @@ public class SelectStmt extends QueryStmt {
             Set<SlotRef> orderingSlots = Sets.newHashSet();
             Set<SlotRef> conjuntSlots = Sets.newHashSet();
             TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
-            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (sortInfo != null) {
+                TreeNode.collect(sortInfo.getOrderingExprs(),
+                        Predicates.instanceOf(SlotRef.class), orderingSlots);
+            }
             if (whereClause != null) {
                 whereClause.collect(SlotRef.class, conjuntSlots);
             }
@@ -674,7 +678,6 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
-        checkAndSetPointQuery();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -714,20 +717,23 @@ public class SelectStmt extends QueryStmt {
                 || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
             return false;
         }
-        if (!evaluateOrderBy) {
-            // Need evaluate orderby, if sort node was eliminated then this optmization
-            // could be useless
-            return false;
-        }
-        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... [ORDER BY ...] [LIMIT ...]` query
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
                 || getAnalyticInfo() != null) {
             return false;
         }
+        // ignore short circuit query
+        if (isPointQueryShortCircuit()) {
+            return false;
+        }
+        // ignore insert into select
+        if (fromInsert) {
+            return false;
+        }
+        // ensure no sub query
         if (!analyzer.isRootAnalyzer()) {
-            // ensure no sub query
             return false;
         }
         // If select stmt has inline view or this is an inline view query stmt analyze call
@@ -747,27 +753,39 @@ public class SelectStmt extends QueryStmt {
         // Need enable light schema change, since opt rely on
         // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
-        if (!olapTable.getEnableLightSchemaChange()) {
+        if (!olapTable.isDupKeysOrMergeOnWrite()) {
+            LOG.debug("only support duplicate key or MOW model");
             return false;
         }
-        // Only TOPN query at present
-        if (getOrderByElements() == null
-                    || !hasLimit()
-                    || getLimit() <= 0
-                    || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
-            return false;
-        }
-        // Check order by exprs are all slot refs
-        // Rethink? implement more generic to support all exprs
-        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
-        LOG.debug("getOrderByElements {}", getOrderByElements());
-        for (Expr sortExpr : sortInfo.getOrderingExprs()) {
-            if (!(sortExpr instanceof SlotRef)) {
+        if (getOrderByElements() != null) {
+            if (!evaluateOrderBy) {
+                // Need evaluate orderby, if sort node was eliminated then this optmization
+                // could be useless
                 return false;
             }
+            // case1: general topn query, like: select * from tbl where xxx order by yyy limit n
+            if (!hasLimit()
+                        || getLimit() <= 0
+                        || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+                return false;
+            }
+            // Check order by exprs are all slot refs
+            // Rethink? implement more generic to support all exprs
+            LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+            LOG.debug("getOrderByElements {}", getOrderByElements());
+            for (Expr sortExpr : sortInfo.getOrderingExprs()) {
+                if (!(sortExpr instanceof SlotRef)) {
+                    return false;
+                }
+            }
+            isTwoPhaseOptEnabled = true;
+            return true;
+        } else {
+            // case2: optimize scan utilize row store column, query like select * from tbl where xxx [limit xxx]
+            // TODO: we only optimize query with select * at present
+            return olapTable.storeRowColumn() && selectList.getItems().stream().anyMatch(e -> e.isStar());
         }
-        isTwoPhaseOptEnabled = true;
-        return true;
+        // return false;
     }
 
     public List<TupleId> getTableRefIds() {
@@ -1348,6 +1366,10 @@ public class SelectStmt extends QueryStmt {
             havingClauseAfterAnaylzed =
                     havingClauseAfterAnaylzed.substitute(countAllMap, analyzer, false);
         }
+        if (sortInfo != null) {
+            // the ordering exprs must substitute in the same way as resultExprs
+            sortInfo.substituteOrderingExprs(countAllMap, analyzer);
+        }
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
 
@@ -1364,6 +1386,8 @@ public class SelectStmt extends QueryStmt {
                 aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
             }
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            // the groupingExprs must substitute in the same way as resultExprs
+            groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 /*

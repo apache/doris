@@ -61,6 +61,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
@@ -101,6 +102,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -109,6 +111,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace google {
@@ -234,6 +237,29 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
             LOG(WARNING) << "load channel open failed, message=" << st << ", id=" << request->id()
                          << ", index_id=" << request->index_id()
                          << ", txn_id=" << request->txn_id();
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
+                                          const OpenPartitionRequest* request,
+                                          OpenPartitionResult* response,
+                                          google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        VLOG_RPC << "partition open"
+                 << ", index_id=" << request->index_id();
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->load_channel_mgr()->open_partition(*request);
+        if (!st.ok()) {
+            LOG(WARNING) << "load channel open failed, message=" << st
+                         << ", index_ids=" << request->index_id();
         }
         st.to_protobuf(response->mutable_status());
     });
@@ -455,7 +481,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << request->cancel_reason();
+                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
@@ -1154,6 +1180,47 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
     }
 }
 
+constexpr char HttpProtocol[] = "http://";
+constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
+constexpr char FileParam[] = "&file=";
+constexpr auto Permissions = S_IRUSR | S_IWUSR;
+
+std::string construct_url(const std::string& host_port, const std::string& token,
+                          const std::string& path) {
+    return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam,
+                       path);
+}
+
+std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
+                                int64_t segment) {
+    return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, segment);
+}
+
+static Status download_file_action(std::string& remote_file_url, std::string& local_file_path,
+                                   uint64_t estimate_timeout, uint64_t file_size) {
+    auto download_cb = [remote_file_url, estimate_timeout, local_file_path,
+                        file_size](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(remote_file_url));
+        client->set_timeout_ms(estimate_timeout * 1000);
+        RETURN_IF_ERROR(client->download(local_file_path));
+
+        if (file_size > 0) {
+            // Check file length
+            uint64_t local_file_size = std::filesystem::file_size(local_file_path);
+            if (local_file_size != file_size) {
+                LOG(WARNING) << "failed to pull rowset for slave replica. download file "
+                                "length error"
+                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", local_file_size=" << local_file_size;
+                return Status::InternalError("downloaded file size is not equal");
+            }
+        }
+        chmod(local_file_path.c_str(), Permissions);
+        return Status::OK();
+    };
+    return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
+}
+
 void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveRequest* request,
         PTabletWriteSlaveResult* response, google::protobuf::Closure* done) {
@@ -1161,13 +1228,15 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     RowsetMetaPB rowset_meta_pb = request->rowset_meta();
     std::string rowset_path = request->rowset_path();
     google::protobuf::Map<int64, int64> segments_size = request->segments_size();
+    google::protobuf::Map<int64, PTabletWriteSlaveRequest_IndexSizeMap> indices_size =
+            request->inverted_indices_size();
     std::string host = request->host();
     int64_t http_port = request->http_port();
     int64_t brpc_port = request->brpc_port();
     std::string token = request->token();
     int64_t node_id = request->node_id();
     bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
-                                           http_port, token, rowset_path, this]() {
+                                           indices_size, http_port, token, rowset_path, this]() {
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (tablet == nullptr) {
@@ -1220,36 +1289,16 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 estimate_timeout = config::download_low_speed_time;
             }
 
-            std::stringstream ss;
-            ss << "http://" << get_host_port(host, http_port)
-               << "/api/_single_replica/_download?token=" << token << "&file=" << rowset_path << "/"
-               << remote_rowset_id << "_" << segment.first << ".dat";
-            std::string remote_file_url = ss.str();
-            ss.str("");
-            ss << tablet->tablet_path() << "/" << rowset_meta->rowset_id() << "_" << segment.first
-               << ".dat";
-            std::string local_file_path = ss.str();
+            std::string remote_file_path =
+                    construct_file_path(rowset_path, remote_rowset_id.to_string(), segment.first);
+            std::string remote_file_url =
+                    construct_url(get_host_port(host, http_port), token, remote_file_path);
 
-            auto download_cb = [remote_file_url, estimate_timeout, local_file_path,
-                                file_size](HttpClient* client) {
-                RETURN_IF_ERROR(client->init(remote_file_url));
-                client->set_timeout_ms(estimate_timeout * 1000);
-                RETURN_IF_ERROR(client->download(local_file_path));
+            std::string local_file_path = construct_file_path(
+                    tablet->tablet_path(), rowset_meta->rowset_id().to_string(), segment.first);
 
-                // Check file length
-                uint64_t local_file_size = std::filesystem::file_size(local_file_path);
-                if (local_file_size != file_size) {
-                    LOG(WARNING) << "failed to pull rowset for slave replica. download file "
-                                    "length error"
-                                 << ", remote_path=" << remote_file_url
-                                 << ", file_size=" << file_size
-                                 << ", local_file_size=" << local_file_size;
-                    return Status::InternalError("downloaded file size is not equal");
-                }
-                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                return Status::OK();
-            };
-            auto st = HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
+            auto st = download_file_action(remote_file_url, local_file_path, estimate_timeout,
+                                           file_size);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to pull rowset for slave replica. failed to download "
                                 "file. url="
@@ -1262,6 +1311,41 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
                           << ", local_path=" << local_file_path
                           << ", txn_id=" << rowset_meta->txn_id();
+            if (indices_size.find(segment.first) != indices_size.end()) {
+                PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
+                        indices_size.at(segment.first);
+
+                for (auto index_size : segment_indices_size.index_sizes()) {
+                    auto index_id = index_size.indexid();
+                    auto size = index_size.size();
+                    std::string remote_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
+                                                                         index_id);
+                    std::string remote_inverted_index_file_url = construct_url(
+                            get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                    std::string local_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                    st = download_file_action(remote_inverted_index_file_url,
+                                              local_inverted_index_file, estimate_timeout, size);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to pull rowset for slave replica. failed to "
+                                        "download "
+                                        "file. url="
+                                     << remote_inverted_index_file_url
+                                     << ", local_path=" << local_inverted_index_file
+                                     << ", txn_id=" << rowset_meta->txn_id();
+                        _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                                    rowset_meta->tablet_id(), node_id, false);
+                        return;
+                    }
+                    VLOG_CRITICAL
+                            << "succeed to download inverted index file for slave replica. url="
+                            << remote_inverted_index_file_url
+                            << ", local_path=" << local_inverted_index_file
+                            << ", txn_id=" << rowset_meta->txn_id();
+                }
+            }
         }
 
         RowsetSharedPtr rowset;
@@ -1391,19 +1475,35 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
-static Status read_by_rowids(
-        std::pair<size_t, size_t> row_range_idx, const TupleDescriptor& desc,
-        const google::protobuf::RepeatedPtrField<PMultiGetRequest_RowId>& rowids,
-        vectorized::Block* sub_block) {
-    //read from row_range.first to row_range.second
-    for (size_t i = row_range_idx.first; i < row_range_idx.second; ++i) {
+Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
+                                        PMultiGetResponse* response) {
+    OlapReaderStatistics stats;
+    vectorized::Block result_block;
+
+    // init desc
+    TupleDescriptor desc(request.desc());
+    std::vector<SlotDescriptor> slots;
+    slots.reserve(request.slots().size());
+    for (const auto& pslot : request.slots()) {
+        slots.push_back(SlotDescriptor(pslot));
+        desc.add_slot(&slots.back());
+    }
+
+    // init read schema
+    TabletSchema full_read_schema;
+    for (const ColumnPB& column_pb : request.column_desc()) {
+        full_read_schema.append_column(TabletColumn(column_pb));
+    }
+
+    // read row by row
+    for (size_t i = 0; i < request.row_locs_size(); ++i) {
+        const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
         watch.start();
-        auto row_id = rowids[i];
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                row_id.tablet_id(), true /*include deleted*/);
+                row_loc.tablet_id(), true /*include deleted*/);
         RowsetId rowset_id;
-        rowset_id.init(row_id.rowset_id());
+        rowset_id.init(row_loc.rowset_id());
         if (!tablet) {
             continue;
         }
@@ -1413,93 +1513,82 @@ static Status read_by_rowids(
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;
         }
-        const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-        VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
-                   << ", version:" << tablet_schema->schema_version()
-                   << ", cost(us):" << watch.elapsed_time() / 1000;
+        size_t row_size = 0;
+        Defer _defer([&]() {
+            LOG_EVERY_N(INFO, 100)
+                    << "multiget_data single_row, cost(us):" << watch.elapsed_time() / 1000
+                    << ", row_size:" << row_size;
+            *response->add_row_locs() = row_loc;
+        });
         SegmentCacheHandle segment_cache;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
         // find segment
         auto it = std::find_if(segment_cache.get_segments().begin(),
                                segment_cache.get_segments().end(),
-                               [&row_id](const segment_v2::SegmentSharedPtr& seg) {
-                                   return seg->id() == row_id.segment_id();
+                               [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
+                                   return seg->id() == row_loc.segment_id();
                                });
         if (it == segment_cache.get_segments().end()) {
             continue;
         }
         segment_v2::SegmentSharedPtr segment = *it;
-        for (int x = 0; x < desc.slots().size() - 1; ++x) {
-            int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
-            segment_v2::ColumnIterator* column_iterator = nullptr;
-            vectorized::MutableColumnPtr column =
-                    sub_block->get_by_position(x).column->assume_mutable();
-            if (index < 0) {
-                column->insert_default();
-                continue;
+        GlobalRowLoacation row_location(row_loc.tablet_id(), rowset->rowset_id(),
+                                        row_loc.segment_id(), row_loc.ordinal_id());
+        // fetch by row store, more effcient way
+        if (request.fetch_row_store()) {
+            CHECK(tablet->tablet_schema()->store_row_column());
+            RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
+            string* value = response->add_binary_row_data();
+            RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value));
+            row_size = value->size();
+            continue;
+        }
+
+        // fetch by column store
+        if (result_block.is_empty_column()) {
+            result_block = vectorized::Block(desc.slots(), request.row_locs().size());
+        }
+        for (int x = 0; x < desc.slots().size(); ++x) {
+            int index = -1;
+            if (desc.slots()[x]->col_unique_id() >= 0) {
+                // light sc enabled
+                index = full_read_schema.field_index(desc.slots()[x]->col_unique_id());
             } else {
-                RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(index),
-                                                             &column_iterator));
+                index = full_read_schema.field_index(desc.slots()[x]->col_name());
             }
-            std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
+            if (index < 0) {
+                std::stringstream ss;
+                ss << "field name is invalid. field=" << desc.slots()[x]->col_name()
+                   << ", field_name_to_index=" << full_read_schema.get_all_field_names();
+                return Status::InternalError(ss.str());
+            }
+            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+            vectorized::MutableColumnPtr column =
+                    result_block.get_by_position(x).column->assume_mutable();
+            RETURN_IF_ERROR(
+                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
             segment_v2::ColumnIteratorOptions opt;
             OlapReaderStatistics stats;
             opt.file_reader = segment->file_reader().get();
             opt.stats = &stats;
             opt.use_page_cache = !config::disable_storage_page_cache;
             column_iterator->init(opt);
-            std::vector<segment_v2::rowid_t> rowids {
-                    static_cast<segment_v2::rowid_t>(row_id.ordinal_id())};
-            RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
+            std::vector<segment_v2::rowid_t> single_row_loc {
+                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
+            RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
         }
-        LOG_EVERY_N(INFO, 100) << "multiget_data single_row, cost(us):"
-                               << watch.elapsed_time() / 1000;
-        GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
-                                        row_id.segment_id(), row_id.ordinal_id());
-        sub_block->get_columns().back()->assume_mutable()->insert_data(
-                reinterpret_cast<const char*>(&row_location), sizeof(GlobalRowLoacation));
     }
-    return Status::OK();
-}
-
-Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
-                                        PMultiGetResponse* response) {
-    TupleDescriptor desc(request->desc());
-    std::vector<SlotDescriptor> slots;
-    slots.reserve(request->slots().size());
-    for (const auto& pslot : request->slots()) {
-        slots.push_back(SlotDescriptor(pslot));
-        desc.add_slot(&slots.back());
+    // serialize block if not empty
+    if (!result_block.is_empty_column()) {
+        VLOG_DEBUG << "dump block:" << result_block.dump_data(0, 10)
+                   << ", be_exec_version:" << request.be_exec_version();
+        [[maybe_unused]] size_t compressed_size = 0;
+        [[maybe_unused]] size_t uncompressed_size = 0;
+        int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+        RETURN_IF_ERROR(result_block.serialize(be_exec_version, response->mutable_block(),
+                                               &uncompressed_size, &compressed_size,
+                                               segment_v2::CompressionTypePB::LZ4));
     }
-    assert(desc.slots().back()->col_name() == BeConsts::ROWID_COL);
-    vectorized::Block block(desc.slots(), request->rowids().size());
-    RETURN_IF_ERROR(
-            read_by_rowids(std::pair {0, request->rowids_size()}, desc, request->rowids(), &block));
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < desc.slots().size(); i++) {
-        auto column_desc = desc.slots()[i];
-        auto type_desc = column_desc->type();
-        do {
-            if (type_desc.type == TYPE_CHAR) {
-                char_type_idx.emplace_back(i);
-                break;
-            } else if (type_desc.type != TYPE_ARRAY) {
-                break;
-            }
-            // for Array<Char> or Array<Array<Char>>
-            type_desc = type_desc.children[0];
-        } while (true);
-    }
-    // shrink char_type suffix zero data
-    block.shrink_char_type_column_suffix_zero(char_type_idx);
-    VLOG_DEBUG << "dump block:" << block.dump_data(0, 10)
-               << ", be_exec_version:" << request->be_exec_version();
-
-    [[maybe_unused]] size_t compressed_size = 0;
-    [[maybe_unused]] size_t uncompressed_size = 0;
-    int be_exec_version = request->has_be_exec_version() ? request->be_exec_version() : 0;
-    RETURN_IF_ERROR(block.serialize(be_exec_version, response->mutable_block(), &uncompressed_size,
-                                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
     return Status::OK();
 }
 
@@ -1513,7 +1602,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         watch.start();
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
-        Status st = _multi_get(request, response);
+        Status st = _multi_get(*request, response);
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });
@@ -1523,6 +1612,16 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
+                                                      const PGetTabletVersionsRequest* request,
+                                                      PGetTabletVersionsResponse* response,
+                                                      google::protobuf::Closure* done) {
+    //SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
 }
 
 } // namespace doris
