@@ -36,7 +36,8 @@ class Block;
 namespace doris::vectorized {
 
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
-                                 RuntimeState* state, RuntimeProfile* profile, const TFileRangeDesc& range)
+                                 RuntimeState* state, RuntimeProfile* profile,
+                                 const TFileRangeDesc& range)
         : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
     std::vector<std::string> column_names;
     for (auto& desc : _file_slot_descs) {
@@ -52,7 +53,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     params["db_name"] = range.table_format_params.paimon_params.db_name;
     params["table_name"] = range.table_format_params.paimon_params.table_name;
     params["length_byte"] = range.table_format_params.paimon_params.length_byte;
-    params["split_byte"] = std::to_string((int64_t)range.table_format_params.paimon_params.paimon_split.data());
+    params["split_byte"] =
+            std::to_string((int64_t)range.table_format_params.paimon_params.paimon_split.data());
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/PaimonJniScanner", params,
                                                     column_names);
 }

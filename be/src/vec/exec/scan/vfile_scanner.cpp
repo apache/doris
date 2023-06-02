@@ -606,7 +606,7 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
             init_status =
                     ((PaimonJniReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
-                }
+            }
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
