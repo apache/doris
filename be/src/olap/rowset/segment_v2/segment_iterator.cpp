@@ -717,10 +717,15 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
+        int32_t unique_id = _schema->unique_id(pred->column_id());
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+                                             PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+                res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
+                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
+                 need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
                 continue;
