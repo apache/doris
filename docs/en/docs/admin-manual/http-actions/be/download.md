@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Download Log about Load Error",
     "language": "en"
 }
 ---
@@ -24,27 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Download Log about Load Error
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/_load_error_log?token={string}&file={string}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Download log file about load error
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
+* `file`
+    Path of log
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+* `token`
+    token         
 
 ## Request body
 
@@ -52,17 +48,12 @@ None
 
 ## Response
 
-    ```
-    {
-        msg: "OK",
-        code: 0
-    }
-    ```
+    File of log
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/_load_error_log?file=a&token=1"
     ```
 

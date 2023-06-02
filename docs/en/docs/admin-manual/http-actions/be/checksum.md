@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Checksum",
     "language": "en"
 }
 ---
@@ -24,27 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Checksum
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/checksum?tablet_id={int}&version={int}&schema_hash={int}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Checksum
 
 ## Query parameters
 
 * `tablet_id`
-    ID of the tablet
+    ID of the tablet to be checked
 
-* `start_version`
-    Start version
+* `version`
+    Version of the tablet to be verified 
 
-* `end_version`
-    End version       
-
+* `schema_hash`
+    Schema hash
 
 ## Request body
 
@@ -53,16 +52,13 @@ None
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    1843743562
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/checksum?tablet_id=1&version=1&schema_hash=-1"
+    
     ```
 

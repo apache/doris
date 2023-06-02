@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Metrics",
     "language": "en"
 }
 ---
@@ -24,27 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# Metrics
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /metrics?type={enum}&with_tablet={bool}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Provided for prometheus
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
+* `type`
+    Output style, Optional with default `all` and the following values:
+    - `core`: Only core items
+    - `json`: Json format
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+* `with_tablet`
+    Whether to output tablet-related items，Optional with default `false`.
 
 ## Request body
 
@@ -53,16 +51,17 @@ None
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    doris_be__max_network_receive_bytes_rate LONG 60757
+    doris_be__max_network_send_bytes_rate LONG 16232
+    doris_be_process_thread_num LONG 1120
+    doris_be_process_fd_num_used LONG 336
+    ，，，
+
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+        curl "http://127.0.0.1:8040/metrics?type=json&with_tablet=true"
     ```
 

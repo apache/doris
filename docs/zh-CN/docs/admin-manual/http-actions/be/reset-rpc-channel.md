@@ -1,7 +1,7 @@
 ---
 {
-    "title": "RESTORE TABLET",
-    "language": "en"
+    "title": "重置连接缓存",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,18 +24,45 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# RESTORE TABLET
-## description
-   
-    To restore the tablet data from trash dir on BE
+# 重置连接缓存
 
-    METHOD: POST
-    URI: http://be_host:be_http_port/api/restore_tablet?tablet_id=xxx&schema_hash=xxx
+## Request
 
-## example
+`GET /api/reset_rpc_channel/{endpoints}`
 
-    curl -X POST "http://hostname:8088/api/restore_tablet?tablet_id=123456\&schema_hash=1111111"
+## Description
 
-## keyword
+该功能用于重置brpc的连接缓存。
 
-    RESTORE,TABLET,RESTORE,TABLET
+## Path parameters
+
+* `endpoints`
+    支持如下形式:
+    - `all`
+    - `host1:port1,host2:port2`
+
+## Request body
+
+无
+
+## Response
+
+    ```
+    {
+        "msg":"success",
+        "code":0,
+        "data": "no cached channel.",
+        "count":0
+    }
+    ```
+## Examples
+
+
+    ```
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/all
+    ```
+    
+    ```
+    curl http://127.0.0.1:8040/api/reset_rpc_channel/1.1.1.1:8080,2.2.2.2:8080
+    ```
+

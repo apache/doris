@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "重加载tablet",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# 重加载tablet
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/reload_tablet?tablet_id={int}&schema_hash={int}&path={string}"`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+该功能用于重加载tablet数据。
 
 ## Query parameters
 
 * `tablet_id`
-    ID of the tablet
+    需要重加载的table的id
 
-* `start_version`
-    Start version
+* `schema_hash`
+    schema hash      
 
-* `end_version`
-    End version       
+* `path`
+    文件路径     
 
 
 ## Request body
 
-None
+无
 
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    load header succeed
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+    curl "http://127.0.0.1:8040/api/reload_tablet?tablet_id=123456&schema_hash=1111111&path=/abc"
 
     ```
 

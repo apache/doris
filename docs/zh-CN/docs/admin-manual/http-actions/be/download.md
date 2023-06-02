@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "下载oad日志",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# 下载load日志
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/_load_error_log?token={string}&file={string}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+下载load错误日志文件。
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
+* `file`
+    文件路径
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+* `token`
+    token         
 
 ## Request body
 
-None
+无
 
 ## Response
 
-    ```
-    {
-        msg: "OK",
-        code: 0
-    }
-    ```
+    文件
+
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl "http://127.0.0.1:8040/api/_load_error_log?file=a&token=1"
     ```
 
