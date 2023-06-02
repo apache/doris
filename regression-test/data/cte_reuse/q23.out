@@ -22,7 +22,7 @@ CteAnchor[cteId= ( CTEId#1=] )
 --CteAnchor[cteId= ( CTEId#4=] )
 ----CteProducer[cteId= ( CTEId#4=] )
 ------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((cast((cast(50 as DECIMAL(27, 9)) / cast(cast('100.0' as DECIMAL(5, 2)) as DECIMAL(27, 9))) as DECIMALV3(27, 9)) * tpcds_cmax) as DOUBLE))
+--------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast(((cast(50 as DECIMALV3(9, 6)) / cast('100.0' as DECIMALV3(5, 2))) * tpcds_cmax) as DOUBLE))
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
