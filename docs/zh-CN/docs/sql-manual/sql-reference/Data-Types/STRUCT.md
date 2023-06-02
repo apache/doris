@@ -56,9 +56,7 @@ DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 在将来的版本我们还将完善：
 
 ```
-TODO:
-	1、支持 COMMENT
-	2、支持嵌套 STRUCT 或其他的复杂类型
+TODO:支持嵌套 STRUCT 或其他的复杂类型
 ```
 
 ### example

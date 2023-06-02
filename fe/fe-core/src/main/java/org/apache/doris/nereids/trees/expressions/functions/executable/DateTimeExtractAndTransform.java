@@ -448,18 +448,10 @@ public class DateTimeExtractAndTransform {
                 .plusSeconds(second.getValue())
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
-                .atZoneSameInstant(ZoneId.systemDefault());
+                .atZoneSameInstant(DateUtils.getTimeZone());
         return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
                         dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
-    }
-
-    /**
-     * date transformation function: unix_timestamp
-     */
-    @ExecFunction(name = "unix_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression unixTimestamp() {
-        return new IntegerLiteral(getTimestamp(LocalDateTime.now()));
     }
 
     /**
@@ -509,18 +501,9 @@ public class DateTimeExtractAndTransform {
         }
         return ((int) Duration.between(
                 specialLowerBound,
-                dateTime
-                .atZone(ZoneId.systemDefault())
-                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                .toLocalDateTime()).getSeconds());
-    }
-
-    /**
-     * date transformation function: utc_timestamp
-     */
-    @ExecFunction(name = "utc_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression utcTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+                dateTime.atZone(DateUtils.getTimeZone())
+                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                        .toLocalDateTime()).getSeconds());
     }
 
     /**

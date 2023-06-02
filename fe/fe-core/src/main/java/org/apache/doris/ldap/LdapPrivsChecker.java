@@ -128,7 +128,7 @@ public class LdapPrivsChecker {
     }
 
     private static Role getUserLdapPrivs(String fullName) {
-        return Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(fullName).getPaloRole();
+        return Env.getCurrentEnv().getAuth().getLdapManager().getUserRole(fullName);
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.

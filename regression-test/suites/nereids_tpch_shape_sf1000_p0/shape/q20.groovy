@@ -26,6 +26,7 @@ suite("q20") {
     sql "set runtime_filter_mode='GLOBAL'"
 
     sql 'set exec_mem_limit=21G'
+    sql 'SET enable_pipeline_engine = true'
 
 
 

@@ -28,6 +28,7 @@ import java.util.Objects;
 public class LdapUserInfo {
     public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role) {
         this.userName = userName;
+        this.isExists = true;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
         this.role = role;
@@ -36,13 +37,25 @@ public class LdapUserInfo {
 
     private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role, long lastTimeStamp) {
         this.userName = userName;
+        this.isExists = true;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
         this.role = role;
         this.lastTimeStamp = lastTimeStamp;
     }
 
+    public LdapUserInfo(String notExistsUserName) {
+        this.userName = notExistsUserName;
+        this.isExists = false;
+        this.isSetPasswd = false;
+        this.passwd = null;
+        this.role = null;
+        this.lastTimeStamp = System.currentTimeMillis();
+    }
+
     private final String userName;
+
+    private final boolean isExists;
 
     private final boolean isSetPasswd;
 
@@ -67,6 +80,10 @@ public class LdapUserInfo {
 
     public Role getPaloRole() {
         return role;
+    }
+
+    public boolean isExists() {
+        return isExists;
     }
 
     public LdapUserInfo cloneWithPasswd(String passwd) {

@@ -310,6 +310,7 @@
                                 "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
+                                "sql-manual/sql-functions/array-functions/array_last_index",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_count",
@@ -705,7 +706,7 @@
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
-                                "sql-manual/sql-functions/table-functions/resource-group"
+                                "sql-manual/sql-functions/table-functions/workload-group"
                             ]
                         },
                         {
@@ -786,7 +787,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE-GROUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
@@ -822,7 +823,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE-GROUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
@@ -838,7 +839,7 @@
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE-GROUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
@@ -981,7 +982,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-RESOURCE-GROUPS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
@@ -1138,7 +1139,7 @@
                         "admin-manual/system-table/rowsets"
                     ]
                 },
-                "admin-manual/resource-group",
+                "admin-manual/workload-group",
                 "admin-manual/multi-tenant",
                 {
                     "type": "category",
@@ -1204,15 +1205,25 @@
                             "type": "category",
                             "label": "BE",
                             "items": [
-                                "admin-manual/http-actions/be/be-version-info-action",
-                                "admin-manual/http-actions/be/restore-tablet",
+                                "admin-manual/http-actions/be/check-rpc-channel",
+                                "admin-manual/http-actions/be/reset-rpc-channel",
+                                "admin-manual/http-actions/be/compaction-status",
+                                "admin-manual/http-actions/be/compaction-run",
+                                "admin-manual/http-actions/be/meta",
+                                "admin-manual/http-actions/be/snapshot",
+                                "admin-manual/http-actions/be/check-tablet-segment",
+                                "admin-manual/http-actions/be/config",
+                                "admin-manual/http-actions/be/metrics",
+                                "admin-manual/http-actions/be/tablet-distribution",
+                                "admin-manual/http-actions/be/tablet-migration",
+                                "admin-manual/http-actions/be/tablet-info",
+                                "admin-manual/http-actions/be/checksum",
+                                "admin-manual/http-actions/be/download",
                                 "admin-manual/http-actions/be/pad-rowset",
-                                "admin-manual/http-actions/be/tablet-migration-action",
-                                "admin-manual/http-actions/be/tablets_distribution",
-                                "admin-manual/http-actions/be/compaction-action",
-                                "admin-manual/http-actions/be/get-tablets",
-                                "admin-manual/http-actions/be/check-reset-rpc-cache",
-                                "admin-manual/http-actions/be/check-tablet-segment-action"
+                                "admin-manual/http-actions/be/version-info",
+                                "admin-manual/http-actions/be/health",
+                                "admin-manual/http-actions/be/tablet-reload",
+                                "admin-manual/http-actions/be/tablet-restore"
                             ]
                         }
                     ]

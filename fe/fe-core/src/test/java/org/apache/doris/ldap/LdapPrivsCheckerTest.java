@@ -130,6 +130,10 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = true;
 
+                ldapManager.getUserRole(USER);
+                minTimes = 0;
+                result = ldapRole;
+
                 context.getCurrentUserIdentity();
                 minTimes = 0;
                 result = userIdentity;
@@ -177,8 +181,8 @@ public class LdapPrivsCheckerTest {
 
     @Test
     public void testGetResourcePrivFromLdap() {
-        Assert.assertEquals(PrivBitSet.of(Privilege.USAGE_PRIV).toString(),
-                LdapPrivsChecker.getResourcePrivFromLdap(userIdent, RESOURCE1).toString());
+        Assert.assertTrue(
+                LdapPrivsChecker.getResourcePrivFromLdap(userIdent, RESOURCE1).satisfy(PrivPredicate.USAGE));
     }
 
     @Test

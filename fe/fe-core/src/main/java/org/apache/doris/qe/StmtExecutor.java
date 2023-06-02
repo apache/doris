@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -135,8 +136,8 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
-import org.apache.doris.resource.resourcegroup.QueryQueue;
-import org.apache.doris.resource.resourcegroup.QueueOfferToken;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -558,9 +559,9 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        if (!parsedStmt.isExplain() && Config.enable_resource_group && Config.enable_query_queue) {
-            this.queryQueue = analyzer.getEnv().getResourceGroupMgr()
-                    .getResourceGroupQueryQueue(context.sessionVariable.resourceGroup);
+        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue) {
+            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroupQueryQueue(context.sessionVariable.workloadGroup);
             try {
                 this.offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
@@ -1094,10 +1095,10 @@ public class StmtExecutor {
                     parsedStmt.setIsExplain(explainOptions);
                 }
             }
-            if (parsedStmt instanceof QueryStmt && Config.enable_resource_group
+            if (parsedStmt instanceof QueryStmt && Config.enable_workload_group
                     && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setResourceGroups(analyzer.getEnv().getResourceGroupMgr()
-                        .getResourceGroup(context.sessionVariable.resourceGroup));
+                analyzer.setWorkloadGroups(analyzer.getEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(context));
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
@@ -1135,7 +1136,7 @@ public class StmtExecutor {
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
-        if (parsedStmt instanceof AnalyzeStmt) {
+        if (parsedStmt instanceof AnalyzeTblStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
     }
