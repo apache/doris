@@ -769,6 +769,9 @@ public class OlapScanNode extends ScanNode {
                 replicas.add(replica);
             }
             final long coolDownReplicaId = tablet.getCooldownReplicaId();
+            // we prefer to query using cooldown replica to make sure the cache is fully utilized
+            // if the cooldown replica is down, it means this time the query will fail but next time
+            // FE would have selected one new cooldown replica so the next time could go on
             if (-1L != coolDownReplicaId) {
                 final Optional<Replica> replicaOptional = replicas.stream()
                                 .filter(r -> r.getId() == coolDownReplicaId).findAny();
@@ -1011,7 +1014,6 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            // how to handle cooldown replica?
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
             if (tabletIds != null && sampleTabletIds.size() != 0) {
