@@ -35,7 +35,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,12 +45,12 @@ import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final String mvName;
-    private final MVRefreshInfo.BuildMode buildMode;
+    private final BuildMode buildMode;
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
     private final Map<String, TableIf> tables = Maps.newHashMap();
 
-    public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMode,
+    public CreateMultiTableMaterializedViewStmt(String mvName, BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, QueryStmt queryStmt) {
         this.mvName = mvName;
@@ -117,11 +119,37 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             tables.put(table.getName(), table);
             tables.put(tableRef.getAlias(), table);
         }
-        columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
+        for (SelectListItem item : selectStmt.getSelectList().getItems()) {
+            Expr itemExpr = item.getExpr();
+            String alias = item.getAlias();
+            if (itemExpr instanceof SlotRef) {
+                continue;
+            } else if (itemExpr instanceof FunctionCallExpr && ((FunctionCallExpr) itemExpr).isAggregateFunction()) {
+                FunctionCallExpr functionCallExpr = (FunctionCallExpr) itemExpr;
+                String functionName = functionCallExpr.getFnName().getFunction();
+                MVColumnPattern mvColumnPattern = CreateMaterializedViewStmt.FN_NAME_TO_PATTERN
+                        .get(functionName.toLowerCase());
+                if (mvColumnPattern == null) {
+                    throw new AnalysisException(
+                            "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
+                }
+                if (!mvColumnPattern.match(functionCallExpr)) {
+                    throw new AnalysisException(
+                            "The function " + functionName + " must match pattern:" + mvColumnPattern);
+                }
+                if (StringUtils.isEmpty(alias)) {
+                    throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
+                }
+            } else {
+                throw new AnalysisException(
+                        "Materialized view does not support this expr:" + itemExpr.toSqlImpl());
+            }
+        }
+        columnDefs = generateColumnDefinitions(selectStmt);
     }
 
-    private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException {
-        List<Column> schema = generateSchema(selectList);
+    private List<ColumnDef> generateColumnDefinitions(SelectStmt selectStmt) throws AnalysisException {
+        List<Column> schema = generateSchema(selectStmt);
         return schema.stream()
                 .map(column -> new ColumnDef(
                         column.getName(),
@@ -134,10 +162,12 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                 ).collect(Collectors.toList());
     }
 
-    private List<Column> generateSchema(SelectList selectList) throws AnalysisException {
+    private List<Column> generateSchema(SelectStmt selectStmt) throws AnalysisException {
+        ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
+        ArrayList<String> colLabels = selectStmt.getColLabels();
         Map<String, Column> uniqueMVColumnItems = Maps.newLinkedHashMap();
-        for (SelectListItem item : selectList.getItems()) {
-            Column column = generateMTMVColumn(item);
+        for (int i = 0; i < resultExprs.size(); i++) {
+            Column column = generateMTMVColumn(resultExprs.get(i), colLabels.get(i));
             if (uniqueMVColumnItems.put(column.getName(), column) != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, column.getName());
             }
@@ -146,35 +176,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return Lists.newArrayList(uniqueMVColumnItems.values());
     }
 
-    private Column generateMTMVColumn(SelectListItem item) throws AnalysisException {
-        Expr itemExpr = item.getExpr();
-        String alias = item.getAlias();
-        Column mtmvColumn = null;
-        if (itemExpr instanceof SlotRef) {
-            SlotRef slotRef = (SlotRef) itemExpr;
-            String name = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
-            mtmvColumn = new Column(name, slotRef.getType(), true);
-        } else if (itemExpr instanceof FunctionCallExpr && ((FunctionCallExpr) itemExpr).isAggregateFunction()) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) itemExpr;
-            String functionName = functionCallExpr.getFnName().getFunction();
-            MVColumnPattern mvColumnPattern = CreateMaterializedViewStmt.FN_NAME_TO_PATTERN
-                    .get(functionName.toLowerCase());
-            if (mvColumnPattern == null) {
-                throw new AnalysisException(
-                        "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-            }
-            if (!mvColumnPattern.match(functionCallExpr)) {
-                throw new AnalysisException("The function " + functionName + " must match pattern:" + mvColumnPattern);
-            }
-            String name;
-            if (alias != null) {
-                name = alias.toLowerCase();
-                mtmvColumn = new Column(name, functionCallExpr.getType(), true);
-            } else {
-                throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
-            }
-        }
-        return mtmvColumn;
+    private Column generateMTMVColumn(Expr expr, String colLabel) {
+        return new Column(colLabel.toLowerCase(), expr.getType(), true);
     }
 
     @Override
