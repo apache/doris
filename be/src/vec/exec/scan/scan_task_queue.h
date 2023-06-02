@@ -51,7 +51,7 @@ public:
     ScanTaskQueue();
     Status try_push_back(ScanTask);
     bool try_get(ScanTask* scan_task, uint32_t timeout_ms);
-    int task_size() { return _queue.get_size(); }
+    int size() { return _queue.get_size(); }
 
 private:
     BlockingPriorityQueue<ScanTask> _queue;

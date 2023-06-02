@@ -76,7 +76,7 @@ void TaskGroupEntity<QueueType, ParentQueueType>::adjust_vruntime_ns(uint64_t vr
 
 template <typename QueueType, typename ParentQueueType>
 size_t TaskGroupEntity<QueueType, ParentQueueType>::task_size() const {
-    return _task_queue->task_size();
+    return _task_queue->size();
 }
 
 template <typename QueueType, typename ParentQueueType>
@@ -110,7 +110,7 @@ void TaskGroupEntity<QueueType, ParentQueueType>::update_cpu_share(const TaskGro
     _queue_contains_me->update_tg_cpu_share(tg_info, this);
 }
 
-template class TaskGroupEntity<pipeline::PriorityTaskQueue, pipeline::TaskQueue>;
+template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>, pipeline::TaskQueue>;
 template class TaskGroupEntity<ScanTaskQueue, ScanTaskTaskGroupQueue>;
 
 TaskGroup::TaskGroup(const TaskGroupInfo& tg_info, pipeline::TaskQueue* task_queue,

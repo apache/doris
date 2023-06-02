@@ -248,7 +248,7 @@ Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
     task->put_in_runnable_queue();
     auto* entity = task->get_task_group()->task_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    entity->task_queue()->push(task);
+    entity->task_queue()->emplace(task);
     if (_group_entities.find(entity) == _group_entities.end()) {
         _enqueue_task_group<from_executor>(entity);
     }
@@ -277,8 +277,9 @@ PipelineTask* TaskGroupTaskQueue::take(size_t core_id) {
     if (entity->task_size() == 1) {
         _dequeue_task_group(entity);
     }
-    auto task = entity->task_queue()->take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
+    auto task = entity->task_queue()->front();
     if (task) {
+        entity->task_queue()->pop();
         task->pop_out_runnable_queue();
     }
     return task;

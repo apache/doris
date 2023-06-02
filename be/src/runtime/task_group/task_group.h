@@ -34,6 +34,7 @@ class TPipelineWorkloadGroup;
 class MemTrackerLimiter;
 
 namespace pipeline {
+class PipelineTask;
 class TaskQueue;
 class PriorityTaskQueue;
 } // namespace pipeline
@@ -91,9 +92,9 @@ private:
     ParentQueueType* _queue_contains_me;
 };
 
-// TODO llj tg PriorityTaskQueue can be a lock free object
+// TODO llj tg use PriorityTaskQueue to replace std::queue
 using TaskGroupPipelineTaskEntity =
-        TaskGroupEntity<pipeline::PriorityTaskQueue, pipeline::TaskQueue>;
+        TaskGroupEntity<std::queue<pipeline::PipelineTask*>, pipeline::TaskQueue>;
 using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
 
 using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue, ScanTaskTaskGroupQueue>;

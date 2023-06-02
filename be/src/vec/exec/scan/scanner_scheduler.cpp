@@ -234,7 +234,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 (*iter)->start_wait_worker_timer();
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
-                if (ctx->get_task_group()) {
+                if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                     auto work_func = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
                     };
