@@ -566,10 +566,10 @@ public class DatabaseTransactionMgr {
                         if (successReplicaNum < quorumReplicaNum) {
                             LOG.warn("Failed to commit txn [{}]. "
                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {} error replica info {}",
+                                            + "while error backends {} error replica info {} commitBackends {}",
                                     transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
                                     quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorReplicaInfo);
+                                    errorReplicaInfo, commitBackends);
                             throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);
