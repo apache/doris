@@ -688,6 +688,8 @@ visible_functions = [
     [['array_exists'], 'ARRAY_BOOLEAN', ['ARRAY_STRING'], ''],
 
     [['array_first_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['array_last_index'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+
     [['array_count'], 'BIGINT', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
 
     [['array_shuffle', 'shuffle'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
