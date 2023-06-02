@@ -119,7 +119,12 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             tables.put(table.getName(), table);
             tables.put(tableRef.getAlias(), table);
         }
-        for (SelectListItem item : selectStmt.getSelectList().getItems()) {
+        checkSelectListItems(selectStmt.getSelectList().getItems());
+        columnDefs = generateColumnDefinitions(selectStmt);
+    }
+
+    private void checkSelectListItems(List<SelectListItem> items) throws AnalysisException {
+        for (SelectListItem item : items) {
             if (item.isStar()) {
                 continue;
             }
@@ -148,7 +153,6 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                         "Materialized view does not support this expr:" + itemExpr.toSqlImpl());
             }
         }
-        columnDefs = generateColumnDefinitions(selectStmt);
     }
 
     private List<ColumnDef> generateColumnDefinitions(SelectStmt selectStmt) throws AnalysisException {
