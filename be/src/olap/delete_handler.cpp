@@ -110,7 +110,7 @@ std::string DeleteHandler::construct_sub_predicates(const TCondition& condition)
         } else if (op == "!*=") {
             op = "!=";
         }
-        condition_str = condition.column_name + op + condition.condition_values[0];
+        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
     }
     return condition_str;
 }
@@ -218,7 +218,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
         //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\s\S]+)?))";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -238,7 +238,11 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     }
     condition->column_name = what[1].str();
     condition->condition_op = what[2].str();
-    condition->condition_values.push_back(what[3].str());
+    if (what[4].matched) { // match string with single quotes, eg. a = 'b'
+        condition->condition_values.push_back(what[4].str());
+    } else { // match string without quote, compat with old conditions, eg. a = b
+        condition->condition_values.push_back(what[3].str());
+    }
 
     return true;
 }
