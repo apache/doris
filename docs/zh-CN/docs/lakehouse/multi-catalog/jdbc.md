@@ -215,18 +215,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "mysql"
-)
-
-CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
-    "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "oracle"
+    "driver_class" = "com.oceanbase.jdbc.Driver"
 )
 ```
 
@@ -241,7 +230,6 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 | `driver_class`            | 是    |         | JDBC Driver Class 名称                                              |
 | `only_specified_database` | 否    | "false" | 指定是否只同步指定的 database                                               |
 | `lower_case_table_names`  | 否    | "false" | 是否以小写的形式同步jdbc外部数据源的表名                                            |
-| `oceanbase_mode`          | 否    | ""      | 当连接的外部数据源为OceanBase时，必须为其指定模式为mysql或oracle                        |
 | `include_database_list`   | 否    | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
 | `exclude_database_list`   | 否    | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。|
 

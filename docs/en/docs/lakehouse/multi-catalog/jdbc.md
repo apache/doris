@@ -214,18 +214,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "mysql"
-)
-
-CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
-    "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driver",
-    "oceanbase_mode" = "oracle"
+    "driver_class" = "com.oceanbase.jdbc.Driver"
 )
 ```
 
@@ -240,9 +229,9 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 | `driver_class `           | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
-| `oceanbase_mode`          | No              | ""            | When the connected external data source is OceanBase, the mode must be specified as mysql or oracle                        |
 | `include_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive. |
 | `exclude_database_list` | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
+
 > `driver_url` can be specified in three ways:
 >
 > 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
