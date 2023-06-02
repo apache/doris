@@ -74,45 +74,43 @@ void shutdown_logging();
 
 class TaggableLogger {
 public:
-    TaggableLogger(std::unique_ptr<google::LogMessage> msg) : _msg(msg.release()) {}
+    TaggableLogger(const char* file, int line, google::LogSeverity severity)
+            : _msg(file, line, severity) {}
 
     template <typename... Args>
     TaggableLogger& operator()(const std::string_view& fmt, const Args&... args) {
         if constexpr (sizeof...(args) == 0) {
-            _msg->stream() << fmt;
+            _msg.stream() << fmt;
         } else {
-            _msg->stream() << fmt::format(fmt, std::forward<const Args&>(args)...);
+            _msg.stream() << fmt::format(fmt, std::forward<const Args&>(args)...);
         }
         return *this;
     }
 
     template <typename V>
     TaggableLogger& tag(const std::string_view& key, const V& value) {
-        _msg->stream() << '|' << key << '=';
+        _msg.stream() << '|' << key << '=';
         if constexpr (std::is_same_v<V, TUniqueId> || std::is_same_v<V, PUniqueId>) {
-            _msg->stream() << print_id(value);
+            _msg.stream() << print_id(value);
         } else {
-            _msg->stream() << value;
+            _msg.stream() << value;
         }
         return *this;
     }
 
     template <typename E>
     TaggableLogger& error(const E& error) {
-        _msg->stream() << "|error=" << error;
+        _msg.stream() << "|error=" << error;
         return *this;
     }
 
 private:
-    std::unique_ptr<google::LogMessage> _msg;
+    google::LogMessage _msg;
 };
 
-#define LOG_INFO TaggableLogger(std::make_unique<google::LogMessage>(__FILE__, __LINE__))
-#define LOG_WARNING \
-    TaggableLogger(std::make_unique<google::LogMessage>(__FILE__, __LINE__, google::GLOG_WARNING))
-#define LOG_ERROR \
-    TaggableLogger(std::make_unique<google::LogMessage>(__FILE__, __LINE__, google::GLOG_ERROR))
-#define LOG_FATAL \
-    TaggableLogger(std::make_unique<google::LogMessage>(__FILE__, __LINE__, google::GLOG_FATAL))
+#define LOG_INFO TaggableLogger(__FILE__, __LINE__, google::GLOG_INFO)
+#define LOG_WARNING TaggableLogger(__FILE__, __LINE__, google::GLOG_WARNING)
+#define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
+#define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
 
 } // namespace doris
