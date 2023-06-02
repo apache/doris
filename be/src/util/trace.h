@@ -47,18 +47,6 @@ class Trace;
 // 't' should be a Trace* pointer.
 #define ADOPT_TRACE(t) doris::ScopedAdoptTrace _adopt_trace(t);
 
-// Issue a trace message, if tracing is enabled in the current thread.
-// See Trace::SubstituteAndTrace for arguments.
-// Example:
-//  TRACE("Acquired timestamp $0", timestamp);
-#define TRACE(format)                                                 \
-    {                                                                 \
-        doris::Trace* _trace = doris::Trace::CurrentTrace();          \
-        if (_trace) {                                                 \
-            _trace->SubstituteAndTrace(__FILE__, __LINE__, (format)); \
-        }                                                             \
-    }
-
 // Increment a counter associated with the current trace.
 //
 // Each trace contains a map of counters which can be used to keep
