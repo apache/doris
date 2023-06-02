@@ -512,7 +512,7 @@ public class DatabaseTransactionMgr {
                 if (table.getState() == OlapTable.OlapTableState.ROLLUP
                         || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                     /*
-                     * This is just an optimization that do our best to not let publish version tasks
+                     * This is just a optimization that do our best to not let publish version tasks
                      * timeout if table is under rollup or schema change. Because with a short
                      * timeout, a replica's publish version task is more likely to fail. And if
                      * quorum replicas of a tablet fail to publish, the alter job will fail.
