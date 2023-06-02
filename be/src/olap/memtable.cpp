@@ -418,12 +418,12 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
-    auto rowset = _rowset_writer->build_tmp();
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-    std::vector<segment_v2::SegmentSharedPtr> segments;
     if (atomic_num_segments_before_flush >= atomic_num_segments_after_flush) {
         return Status::OK();
     }
+    auto rowset = _rowset_writer->build_tmp();
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(atomic_num_segments_before_flush,
                                                atomic_num_segments_after_flush, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
@@ -483,9 +483,14 @@ Status MemTable::_do_flush() {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
+    ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
     return Status::OK();
+}
+
+void MemTable::assign_segment_id() {
+    _segment_id = std::optional<int32_t> {_rowset_writer->allocate_segment_id()};
 }
 
 Status MemTable::close() {
