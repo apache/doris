@@ -628,7 +628,7 @@ public final class SparkDpp implements java.io.Serializable {
         }
 
         if (fileGroup.fileFormat.equalsIgnoreCase("parquet")) {
-            // parquet had its own schema, just use it; perhaps we could add some validation in future.
+            // parquet had its own schema, just use it; perhaps we could add some validation in the future.
             Dataset<Row> dataFrame = spark.read().parquet(fileUrl);
             if (!CollectionUtils.isEmpty(columnValueFromPath)) {
                 for (int k = 0; k < columnValueFromPath.size(); k++) {

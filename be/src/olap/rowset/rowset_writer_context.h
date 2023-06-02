@@ -77,7 +77,7 @@ struct RowsetWriterContext {
     // not owned, point to the data dir of this rowset
     // for checking disk capacity when write data to disk.
     // ATTN: not support for RowsetConvertor.
-    // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
+    // (because it hard to refactor, and RowsetConvertor will be deprecated in the future)
     DataDir* data_dir = nullptr;
 
     int64_t newest_write_timestamp;

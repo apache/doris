@@ -726,7 +726,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
         if (tablet == nullptr) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
-            // leave it as INFO log for observation. Maybe change it in future.
+            // leave it as INFO log for observation. Maybe change it in the future.
             LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id()
                       << " for rowset: " << rowset_meta->rowset_id() << ", tablet may be dropped";
             invalid_rowset_metas.push_back(rowset_meta);

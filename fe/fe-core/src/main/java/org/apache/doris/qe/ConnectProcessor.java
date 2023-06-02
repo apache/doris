@@ -690,7 +690,7 @@ public class ConnectProcessor {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
         } else {
             // For compatibility, all following variables are moved to SessionVariables.
-            // Should move in future.
+            // Should remove in the future.
             if (request.isSetTimeZone()) {
                 ctx.getSessionVariable().setTimeZone(request.getTimeZone());
             }
@@ -713,7 +713,7 @@ public class ConnectProcessor {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
         } else {
             // For compatibility, all following variables are moved to TQueryOptions.
-            // Should move in future.
+            // Should remove in the future.
             if (request.isSetExecMemLimit()) {
                 ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
             }

@@ -267,7 +267,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanContext context) {
-        // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
+        // TODO: find a better way to handle both tablet num == 1 and colocate table together in the future
         if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1
                 && (!ConnectContext.get().getSessionVariable().enablePipelineEngine()
                         || ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() == 1)) {

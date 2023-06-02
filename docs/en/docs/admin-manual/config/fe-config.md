@@ -1245,7 +1245,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Load using hadoop cluster will be deprecated in future. Set to true to disable this kind of load.
+Load using hadoop cluster will be deprecated in the future. Set to true to disable this kind of load.
 
 #### `enable_spark_load`
 
@@ -2563,7 +2563,7 @@ IsMutable：true
 
 MasterOnly：true
 
-This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.  In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost  several seconds after some modification of metadata(drop partition, etc..). And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable. we will optimize the processing speed of tablet report in future, but now, just discard the report if queue size exceeding limit.
+This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.  In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost  several seconds after some modification of metadata(drop partition, etc..). And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable. we will optimize the processing speed of tablet report in the future, but now, just discard the report if queue size exceeding limit.
    Some online time cost:
       1. disk report: 0-1 msta
       2. sk report: 0-1 ms

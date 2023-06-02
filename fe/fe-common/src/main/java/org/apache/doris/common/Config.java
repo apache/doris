@@ -872,7 +872,7 @@ public class Config extends ConfigBase {
     public static int db_used_data_quota_update_interval_secs = 300;
 
     /**
-     * Load using hadoop cluster will be deprecated in future.
+     * Load using hadoop cluster will be deprecated in the future.
      * Set to true to disable this kind of load.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -961,7 +961,7 @@ public class Config extends ConfigBase {
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
     // several seconds after some modification of metadata(drop partition, etc..).
     // And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable.
-    // TODO(cmy): we will optimize the processing speed of tablet report in future, but now, just discard
+    // TODO(cmy): we will optimize the processing speed of tablet report in the future, but now, just discard
     // the report if queue size exceeding limit.
     // Some online time cost:
     // 1. disk report: 0-1 ms

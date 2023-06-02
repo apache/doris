@@ -314,7 +314,7 @@ public abstract class JoinNodeBase extends PlanNode {
             }
         }
 
-        // be may be possible to output correct row number without any column data in future
+        // be may be possible to output correct row number without any column data in the future
         // but for now, in order to have correct output row number, should keep at least one slot.
         // use first materialized slot if outputSlotIds is empty.
         if (outputSlotIds.isEmpty() && firstMaterializedSlotId != null) {

@@ -149,7 +149,7 @@ For the detailed usage of BACKUP, please refer to [here](../../sql-manual/sql-re
 
 ### Backup
 
-Currently, we support full backup with the smallest partition (Partition) granularity (incremental backup may be supported in future versions). If you need to back up data regularly, you first need to plan the partitioning and bucketing of the table reasonably when building the table, such as partitioning by time. Then, in the subsequent running process, regular data backups are performed according to the partition granularity.
+Currently, we support full backup with the smallest partition (Partition) granularity (incremental backup may be supported in the future versions). If you need to back up data regularly, you first need to plan the partitioning and bucketing of the table reasonably when building the table, such as partitioning by time. Then, in the subsequent running process, regular data backups are performed according to the partition granularity.
 
 ### Data Migration
 

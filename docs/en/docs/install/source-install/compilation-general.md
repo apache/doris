@@ -257,7 +257,7 @@ You can compile Doris directly in your own Linux environment.
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it will not appear in the Apache release by default.
 
-Remove library [1] will result in the inability to access MySQL external tables. The feature of accessing MySQL external tables will be implemented through `UnixODBC` in future release version.
+Remove library [1] will result in the inability to access MySQL external tables. The feature of accessing MySQL external tables will be implemented through `UnixODBC` in the future release version.
 
 Remove library [2] will cause some data written in earlier versions (before version 0.8) to be unable to read. Because the data in the earlier version was compressed using the LZO algorithm, in later versions, it has been changed to the LZ4 compression algorithm. We will provide tools to detect and convert this part of the data in the future.
 

@@ -169,7 +169,7 @@ public class ReportHandler extends Daemon {
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
         } else if (request.isSetTabletList()) {
-            // the 'tablets' member will be deprecated in future.
+            // the 'tablets' member will be deprecated in the future.
             tablets = buildTabletMap(request.getTabletList());
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
@@ -612,11 +612,11 @@ public class ReportHandler extends Daemon {
 
                     // yiguolei: it is very important here, if the replica is under schema change or rollup
                     // should ignore the report.
-                    // eg.
+                    // e.g.
                     // original replica import successfully, but the dest schema change replica failed
                     // the fe will sync the replica with the original replica, but ignore the schema change replica.
                     // if the last failed version is changed, then fe will think schema change successfully.
-                    // this is an fatal error.
+                    // this is a fatal error.
                     if (replica.getState() == ReplicaState.NORMAL) {
                         long metaVersion = replica.getVersion();
                         long backendVersion = -1L;

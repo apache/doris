@@ -156,7 +156,7 @@ struct TTypeNode {
 // Note: We cannot rename this to TType because it conflicts with Thrift's internal TType
 // and the generated Python thrift files will not work.
 // Note: TTypeDesc in impala is TColumnType, but we already use TColumnType, so we name this
-// to TTypeDesc. In future, we merge these two to one
+// to TTypeDesc. In the future, we merge these two to one
 struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable

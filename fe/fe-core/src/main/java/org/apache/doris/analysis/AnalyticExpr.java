@@ -754,7 +754,7 @@ public class AnalyticExpr extends Expr {
                                               getFnCall().getParams());
             } else {
                 //TODO: Now we don't want to first_value to rewrite in vectorized mode;
-                //if have to rewrite in future, could exec this rule;
+                //if have to rewrite in the future, could exec this rule;
                 if (!VectorizedUtil.isVectorized()) {
                     List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
 

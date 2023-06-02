@@ -32,7 +32,7 @@ struct UserFunctionCacheEntry;
 // Used to cache a user function. Theses functions include
 // UDF(User Defined Function) and UDAF(User Defined Aggregate
 // Function), and maybe include UDTF(User Defined Table
-// Function) in future. A user defined function may be splitted
+// Function) in the future. A user defined function may be splitted
 // into several functions, for example, UDAF is splitted into
 // InitFn, MergeFn, FinalizeFn...
 // In Doris, we call UDF/UDAF/UDTF UserFunction, and we call
