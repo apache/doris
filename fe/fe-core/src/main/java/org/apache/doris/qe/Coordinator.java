@@ -3141,6 +3141,9 @@ public class Coordinator {
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {
@@ -3244,6 +3247,9 @@ public class Coordinator {
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {

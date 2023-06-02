@@ -69,3 +69,25 @@ set workload_group = g1.
 ```
 
 5. Execute the query, which will be associated with the g1 workload group.
+
+### Query queue Function
+```
+create workload group if not exists test_group
+properties (
+    "cpu_share"="10",
+    "memory_limit"="30%",
+    "max_concurrency" = "10",
+    "max_queue_size" = "20",
+    "queue_timeout" = "3000"
+);
+```
+The current workload group supports the function of querying queues, which can be specified when creating a new group. The following three parameters are required:
+* max_concurrency，the maximum number of queries allowed by the current group; Queries exceeding the maximum concurrency will enter the queue logic
+* max_queue_size，the length of the query waiting queue; When the queue is full, new queries will be rejected
+* queue_timeout，the time the query waits in the queue. If the query wait time exceeds this value, the query will be rejected, and the time unit is milliseconds
+
+It should be noted that the current queuing design is not aware of the number of FEs, and the queuing parameters only works in a single FE, for example:
+
+A Doris cluster is configured with a work load group and set max_concurrency=1,
+If there is only 1 FE in the cluster, then this workload group will only run one SQL at the same time from the Doris cluster perspective,
+If there are 3 FEs, the maximum number of query that can be run in Doris cluster is 3.
