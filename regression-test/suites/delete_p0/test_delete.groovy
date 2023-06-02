@@ -118,4 +118,63 @@ suite("test_delete") {
     qt_sql9 """select * from tb_test1;"""
     sql """ delete from tb_test1 where DT = '20221001'; """
     qt_sql10 """select * from tb_test1;"""
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb """
+    sql """
+        CREATE TABLE `delete_test_tb` (
+          `k1` varchar(30)  NULL,
+          `v1` varchar(30) NULL
+        )
+        UNIQUE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb values
+            (' ', '1'), ('  ', '2'), ('   ', '3'), ('    ', '4'),
+            ('abc', '5'), ("'d", '6'), ("'e'", '7'), ("f'", '8');
+    """
+
+    qt_check_data """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = '  ';
+    """
+    qt_check_data2 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+     sql """
+        delete from delete_test_tb where k1 = '    ';
+    """
+    qt_check_data3 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'d";
+    """
+    qt_check_data4 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'e'";
+    """
+    qt_check_data5 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "f'";
+    """
+    qt_check_data6 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
 }
