@@ -17,9 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -31,9 +28,9 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public abstract class PaimonExternalCatalog extends ExternalCatalog {
 
@@ -72,18 +69,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     protected List<String> listDatabaseNames() {
-        return catalog.listDatabases().stream()
-            .map(e -> {
-                String dbName = e.toString();
-                try {
-                    FeNameFormat.checkDbName(dbName);
-                } catch (AnalysisException ex) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("Not a supported  name format: %s", dbName), ex);
-                }
-                return dbName;
-            })
-            .collect(Collectors.toList());
+        return new ArrayList<>(catalog.listDatabases());
     }
 
     @Override

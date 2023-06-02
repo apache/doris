@@ -33,6 +33,8 @@ import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.ConfigOptions;
 import org.apache.paimon.options.Options;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
@@ -42,6 +44,7 @@ import java.util.Map;
 
 public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
 
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonHMSExternalCatalog.class);
     public static final String METASTORE = "metastore";
     public static final String METASTORE_HIVE = "hive";
     public static final String URI = "uri";
@@ -58,11 +61,11 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
         super(catalogId, name);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
+        paimonCatalogType = PAIMON_HMS;
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        paimonCatalogType = PAIMON_HMS;
         String metastoreUris = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         String warehouse = catalogProperty.getOrDefault(PaimonProperties.WAREHOUSE, "");
         Options options = new Options();
@@ -74,11 +77,12 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
         try {
             catalog = create(context);
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("failed to create paimon external catalog ", e);
+            throw new RuntimeException(e);
         }
     }
 
-    public Catalog create(CatalogContext context) throws IOException {
+    private Catalog create(CatalogContext context) throws IOException {
         Path warehousePath = new Path(context.options().get(CatalogOptions.WAREHOUSE));
         FileIO fileIO;
         fileIO = FileIO.get(warehousePath, context);

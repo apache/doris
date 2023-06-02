@@ -46,7 +46,6 @@ import org.apache.paimon.table.source.TableRead;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Map;
 
 
@@ -95,13 +94,11 @@ public class PaimonJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         getCatalog();
-        // 拿 []byte 反序列化成 split
+        // deserialize it into split
         byte[] splitByte = new byte[lengthByte];
         OffHeap.copyMemory(null, splitAddress, splitByte, OffHeap.BYTE_ARRAY_OFFSET, lengthByte);
-        LOG.info("splitBytes:" + Arrays.toString(splitByte));
         ByteArrayInputStream bais = new ByteArrayInputStream(splitByte);
         DataInputStream input = new DataInputStream(bais);
-        LOG.info("input:" + input);
         try {
             paimonInputSplit.readFields(input);
         } catch (IOException e) {
@@ -140,7 +137,7 @@ public class PaimonJniScanner extends JniScanner {
         return rows;
     }
 
-    public Catalog create(CatalogContext context) throws IOException {
+    private Catalog create(CatalogContext context) throws IOException {
         Path warehousePath = new Path(context.options().get(CatalogOptions.WAREHOUSE));
         FileIO fileIO;
         fileIO = FileIO.get(warehousePath, context);
@@ -160,7 +157,7 @@ public class PaimonJniScanner extends JniScanner {
         return new HiveCatalog(fileIO, hiveConf, clientClassName, context.options().toMap());
     }
 
-    public void getCatalog() {
+    private void getCatalog() {
         paimonInputSplit = new PaimonInputSplit();
         Options options = new Options();
         options.set("warehouse", warehouse);
@@ -172,7 +169,8 @@ public class PaimonJniScanner extends JniScanner {
             Catalog catalog = create(context);
             table = catalog.getTable(Identifier.create(dbName, tblName));
         } catch (IOException | Catalog.TableNotExistException e) {
-            e.printStackTrace();
+            LOG.warn("failed to create paimon external catalog ", e);
+            throw new RuntimeException(e);
         }
     }
 

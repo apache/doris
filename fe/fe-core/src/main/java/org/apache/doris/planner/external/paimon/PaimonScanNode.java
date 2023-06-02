@@ -81,6 +81,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
         fileDesc.setPaimonSplit(paimonSplit.getSerializableSplit());
         fileDesc.setLengthByte(Integer.toString(paimonSplit.getSerializableSplit().length));
+        //Paimon columnNames,columnTypes,columnIds that need to be transported into JNI
         StringBuilder columnNamesBuilder = new StringBuilder();
         StringBuilder columnTypesBuilder = new StringBuilder();
         StringBuilder columnIdsBuilder = new StringBuilder();
