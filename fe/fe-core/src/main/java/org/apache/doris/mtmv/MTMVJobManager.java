@@ -31,6 +31,7 @@ import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
+import org.apache.doris.mtmv.MTMVUtils.TaskSubmitStatus;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
@@ -271,7 +272,10 @@ public class MTMVJobManager {
                 if (!isReplay) {
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
-                    submitJobTask(job.getName(), executeOption);
+                    MTMVUtils.TaskSubmitStatus status = submitJobTask(job.getName(), executeOption);
+                    if (status != TaskSubmitStatus.SUBMITTED) {
+                        throw new DdlException("submit job task with: " + status.toString());
+                    }
                 }
             } else if (job.getTriggerMode() == TriggerMode.MANUAL) {
                 // only change once job state from unknown to active. if job is completed, only put it in map
