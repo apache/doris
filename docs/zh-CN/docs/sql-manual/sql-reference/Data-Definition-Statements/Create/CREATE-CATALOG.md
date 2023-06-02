@@ -167,8 +167,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
        "password"="",
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-       "driver_class" = "com.oceanbase.jdbc.Driver",
-   	   "oceanbase_mode" = "mysql" or "oracle"
+       "driver_class" = "com.oceanbase.jdbc.Driver"
 	);
     ```
 
