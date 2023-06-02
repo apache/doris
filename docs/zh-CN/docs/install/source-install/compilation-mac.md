@@ -26,7 +26,7 @@ under the License.
 
 # 在macOS平台上编译
 
-本文介绍如何在macOS平台上编译源码。
+本文介绍如何在 macOS 平台上编译源码。
 
 ## 环境要求
 
@@ -38,7 +38,7 @@ under the License.
 1. 使用[Homebrew](https://brew.sh/)安装依赖
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@15 openjdk@11 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
     ```
 
 2. 编译源码
@@ -105,8 +105,10 @@ under the License.
 
 ## 常见问题
 
-### 启动BE失败，日志显示错误`fail to open StorageEngine, res=file descriptors limit is too small`
-参考前面提到的设置`file descriptors`。
+1. 启动BE失败，日志显示错误`fail to open StorageEngine, res=file descriptors limit is too small`
 
-### Java版本
-推荐使用Java 11。
+   参考前面提到的设置`file descriptors`。
+
+2. Java版本
+
+   推荐使用Java 8。

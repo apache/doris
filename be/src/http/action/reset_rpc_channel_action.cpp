@@ -32,7 +32,9 @@
 #include "util/string_util.h"
 
 namespace doris {
-ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 void ResetRPCChannelAction::handle(HttpRequest* req) {
     std::string endpoints = req->param("endpoints");
     if (iequal(endpoints, "all")) {

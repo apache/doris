@@ -18,22 +18,24 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class FileSystemFactory {
 
-    public static FileSystem get(StorageBackend.StorageType type, Map<String, String> properties) {
-        // use for test
-        return get(type.name(), type, properties);
-    }
-
-    public static FileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
+    public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
         // TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
             return new S3FileSystem(properties);
@@ -48,5 +50,30 @@ public class FileSystemFactory {
         } else {
             throw new UnsupportedOperationException(type.toString() + "backend is not implemented");
         }
+    }
+
+    public static RemoteFileSystem getByLocation(String location, Configuration conf) {
+        // TODO: need optimize the method. the conf is converted many times.
+        Map<String, String> properties = new HashMap<>();
+        conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
+        if (location.startsWith(FeConstants.FS_PREFIX_S3)) {
+            return new S3FileSystem(properties);
+        } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
+            return new DFSFileSystem(properties);
+        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+            return new OFSFileSystem(properties);
+        } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
+            return new JFSFileSystem(properties);
+        }
+        throw new UnsupportedOperationException("Can not create file system for: " + location);
+    }
+
+    public static RemoteFileSystem getS3FileSystem(Map<String, String> properties) {
+        // use for test
+        return get(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, properties);
+    }
+
+    public static org.apache.hadoop.fs.FileSystem getNativeByPath(Path path, Configuration conf) throws IOException {
+        return path.getFileSystem(conf);
     }
 }

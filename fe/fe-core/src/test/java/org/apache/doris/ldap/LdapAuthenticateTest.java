@@ -157,7 +157,7 @@ public class LdapAuthenticateTest {
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
-        Assert.assertFalse(context.getIsTempUser());
+        Assert.assertTrue(context.getIsTempUser());
     }
 
     @Test
@@ -190,7 +190,7 @@ public class LdapAuthenticateTest {
         setGetCurrentUserIdentity(true);
         String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
-        Assert.assertFalse(context.getIsTempUser());
+        Assert.assertTrue(context.getIsTempUser());
     }
 
     @Test

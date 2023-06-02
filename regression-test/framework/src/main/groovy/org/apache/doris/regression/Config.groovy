@@ -487,6 +487,7 @@ class Config {
             urlWithDb += ("/" + dbName)
         }
         urlWithDb = addSslUrl(urlWithDb);
+        urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
     }
@@ -510,6 +511,26 @@ class Config {
             // e.g: jdbc:mysql://locahost:8080/dbname
         } else {
             return url + '?' + sslUrl
+        }
+    }
+
+    private String addTimeoutUrl(String url) {
+        if (url.contains("connectTimeout=") || url.contains("socketTimeout="))
+        {
+            return url
+        }
+
+        Integer connectTimeout = 5000
+        Integer socketTimeout = 1000 * 60 * 30
+        String s = String.format("connectTimeout=%d&socketTimeout=%d", connectTimeout, socketTimeout)
+        if (url.charAt(url.length() - 1) == '?') {
+            return url + s
+            // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+        } else if (url.contains('?')) {
+            return url + '&' + s
+            // e.g: jdbc:mysql://locahost:8080/dbname
+        } else {
+            return url + '?' + s
         }
     }
 }

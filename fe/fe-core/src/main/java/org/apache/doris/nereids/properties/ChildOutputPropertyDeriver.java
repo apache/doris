@@ -31,6 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -42,6 +45,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
@@ -86,6 +91,28 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
+    public PhysicalProperties visitPhysicalCTEProducer(
+            PhysicalCTEProducer<? extends Plan> cteProducer, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        return childrenOutputProperties.get(0);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalCTEConsumer(
+            PhysicalCTEConsumer cteConsumer, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 0);
+        return PhysicalProperties.ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalCTEAnchor(
+            PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 2);
+        // return properties inherited from consumer side which may further be used at upper layer
+        return childrenOutputProperties.get(1);
+    }
+
+    @Override
     public PhysicalProperties visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
@@ -124,7 +151,19 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        if (limit.getPhase().isLocal()) {
+            return new PhysicalProperties(childOutputProperty.getDistributionSpec(),
+                    childOutputProperty.getOrderSpec());
+        }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, childOutputProperty.getOrderSpec());
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
+                                                         PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
     }
 
     @Override
@@ -276,6 +315,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         return childrenOutputProperties.get(0);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
+            PlanContext context) {
+        return PhysicalProperties.GATHER;
     }
 
     private boolean isSameHashValue(DataType originType, DataType castType) {

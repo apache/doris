@@ -261,15 +261,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
-    auto tracker_config = [&] {
-        SCOPED_ATTACH_TASK(scanner->runtime_state());
-        Thread::set_self_name("_scanner_scan");
-    };
+    SCOPED_ATTACH_TASK(scanner->runtime_state());
 #if !defined(USE_BTHREAD_SCANNER)
-    tracker_config();
+    Thread::set_self_name("_scanner_scan");
 #else
     if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
-        tracker_config();
+        Thread::set_self_name("_scanner_scan");
     }
 #endif
     scanner->update_wait_worker_timer();
@@ -341,8 +338,9 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             break;
         }
         if (status.is<ErrorCode::NOT_FOUND>()) {
-            // The only case in this if branch is external table file delete and fe cache has not been updated yet.
+            // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
+            LOG(INFO) << "scan range not found: " << scanner->get_current_scan_range_name();
             status = Status::OK();
             eos = true;
         }
@@ -353,7 +351,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
-                vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                if (!status.ok()) {
+                    break;
+                }
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));

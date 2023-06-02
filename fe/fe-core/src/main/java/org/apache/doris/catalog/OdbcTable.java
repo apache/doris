@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -72,70 +71,71 @@ public class OdbcTable extends Table {
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
-    // For different databases, special characters need to be escaped
-    private static String mysqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to `db`.`table`.
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "`" + s + "`").collect(Collectors.joining("."));
+    /**
+     * Formats the provided name (for example, a database, table, or schema name) according to the specified parameters.
+     *
+     * @param name The name to be formatted.
+     * @param wrapStart The character(s) to be added at the start of each name component.
+     * @param wrapEnd The character(s) to be added at the end of each name component.
+     * @param toUpperCase If true, convert the name to upper case.
+     * @param toLowerCase If true, convert the name to lower case.
+     * <p>
+     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     * <p>
+     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     * the function will treat the entire string as one name component.
+     * If there is a '.', the function will treat the string before the first '.' as the schema name
+     * and the string after the '.' as the table name.
+     *
+     * @return The formatted name.
+     */
+    public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
+            boolean toLowerCase) {
+        int index = name.indexOf(".");
+        if (index == -1) { // No dot in the name
+            String newName = toUpperCase ? name.toUpperCase() : name;
+            newName = toLowerCase ? newName.toLowerCase() : newName;
+            return wrapStart + newName + wrapEnd;
+        } else {
+            String schemaName = toUpperCase ? name.substring(0, index).toUpperCase() : name.substring(0, index);
+            schemaName = toLowerCase ? schemaName.toLowerCase() : schemaName;
+            String tableName = toUpperCase ? name.substring(index + 1).toUpperCase() : name.substring(index + 1);
+            tableName = toLowerCase ? tableName.toLowerCase() : tableName;
+            return wrapStart + schemaName + wrapEnd + "." + wrapStart + tableName + wrapEnd;
+        }
     }
 
-    private static String mssqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to [db].[table].
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "[" + s + "]").collect(Collectors.joining("."));
-    }
-
-    private static String psqlProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String clickhouseProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String saphanaProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String trinoProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oceanbaseOracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
+    /**
+     * Formats a database name according to the database type.
+     *
+     * Rules:
+     * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
+     * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
+     * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
+     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
+     * For other types, the name is returned as is.
+     *
+     * @param tableType The database type.
+     * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
+     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     * @return The formatted name.
+     */
     public static String databaseProperName(TOdbcTableType tableType, String name) {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
-                return mysqlProperName(name);
+                return formatName(name, "`", "`", false, false);
             case SQLSERVER:
-                return mssqlProperName(name);
+                return formatName(name, "[", "]", false, false);
             case POSTGRESQL:
-                return psqlProperName(name);
-            case ORACLE:
-                return oracleProperName(name);
             case CLICKHOUSE:
-                return clickhouseProperName(name);
-            case SAP_HANA:
-                return saphanaProperName(name);
             case TRINO:
-                return trinoProperName(name);
             case OCEANBASE_ORACLE:
-                return oceanbaseOracleProperName(name);
+            case SAP_HANA:
+                return formatName(name, "\"", "\"", false, false);
+            case ORACLE:
+                return formatName(name, "\"", "\"", true, false);
             default:
                 return name;
         }

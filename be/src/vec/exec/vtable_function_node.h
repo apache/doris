@@ -55,7 +55,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
         RETURN_IF_ERROR(alloc_resource(state));
         return _children[0]->open(state);
     }
@@ -146,7 +145,7 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<VExprContext*> _vfn_ctxs;
+    VExprContextSPtrs _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;
     int _fn_num = 0;

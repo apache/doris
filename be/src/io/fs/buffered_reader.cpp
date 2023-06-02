@@ -26,6 +26,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
@@ -74,8 +75,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             return Status::OK();
         }
     } else if (!cached_data.empty()) {
-        // the data in range may be skipped
-        DCHECK_GE(offset, cached_data.end_offset);
+        // the data in range may be skipped or ignored
         for (int16 box_index : cached_data.ref_box) {
             _dec_box_ref(box_index);
         }
@@ -410,6 +410,14 @@ void PrefetchBuffer::prefetch_buffer() {
         SCOPED_RAW_TIMER(&_statis.read_time);
         s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
     }
+    if (UNLIKELY(buf_size != _len)) {
+        // This indicates that the data size returned by S3 object storage is smaller than what we requested,
+        // which seems to be a violation of the S3 protocol since our request range was valid.
+        // We currently consider this situation a bug and will treat this task as a failure.
+        s = Status::InternalError("Data size returned by S3 is smaller than requested");
+        LOG(WARNING) << "Data size returned by S3 is smaller than requested" << _reader->path()
+                     << " request bytes " << buf_size << " returned size " << _len;
+    }
     g_bytes_downloaded << _len;
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
@@ -718,17 +726,30 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           const FileDescription& file_description,
                                           std::shared_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          io::FileCachePolicy cache_policy, const IOContext* io_ctx,
-                                          const PrefetchRange file_range) {
+                                          io::FileReaderOptions reader_options,
+                                          const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
-                                                    file_system, &reader, cache_policy));
+                                                    file_system, &reader, reader_options));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {
-        io::FileReaderSPtr safeReader = std::make_shared<ThreadSafeReader>(reader);
-        *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, safeReader, file_range,
-                                                                    io_ctx);
+        bool is_thread_safe = false;
+        if (typeid_cast<io::S3FileReader*>(reader.get())) {
+            is_thread_safe = true;
+        } else if (io::CachedRemoteFileReader* cached_reader =
+                           typeid_cast<io::CachedRemoteFileReader*>(reader.get())) {
+            if (typeid_cast<io::S3FileReader*>(cached_reader->get_remote_reader())) {
+                is_thread_safe = true;
+            }
+        }
+        if (is_thread_safe) {
+            // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
+            *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
+                                                                        io_ctx);
+        } else {
+            *file_reader = std::move(reader);
+        }
     } else {
         *file_reader = std::move(reader);
     }

@@ -25,8 +25,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -153,6 +155,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return skipPruneThisAndFirstLevelChildren(intersect);
     }
 
+    @Override
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink olapTableSink, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(olapTableSink);
+    }
+
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
     // only prune the agg functions here
     @Override
@@ -262,6 +269,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots) {
+        if (child instanceof LogicalCTEProducer) {
+            return child;
+        }
         boolean isProject = plan instanceof LogicalProject;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
 
@@ -270,6 +280,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             prunedChild = new LogicalProject<>(ImmutableList.copyOf(childRequiredSlots), prunedChild);
         }
         return prunedChild;
+    }
+
+    @Override
+    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(cteProducer);
     }
 
     /** PruneContext */

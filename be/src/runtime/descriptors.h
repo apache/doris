@@ -494,7 +494,7 @@ public:
 
     std::string debug_string() const;
 
-    int get_column_id(int slot_id) const;
+    int get_column_id(int slot_id, bool force_materialize_slot = false) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.

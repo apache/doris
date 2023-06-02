@@ -55,7 +55,7 @@ public:
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr);
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -67,7 +67,7 @@ private:
                                            TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
-    Status _build_resource_groups_metadata_request(const TMetaScanRange& meta_scan_range,
+    Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
 
     bool _meta_eos;

@@ -41,13 +41,13 @@ VExplodeBitmapTableFunction::VExplodeBitmapTableFunction() {
 }
 
 Status VExplodeBitmapTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 1)
+    CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeNumbersTableFunction must be have 1 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int value_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &value_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
 
     return Status::OK();
@@ -76,14 +76,14 @@ void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
         column->insert_default();
     } else {
         if (_is_nullable) {
-            static_cast<ColumnInt64*>(
-                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+            assert_cast<ColumnInt64*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_value(**_cur_iter);
-            static_cast<ColumnUInt8*>(
-                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_default();
         } else {
-            static_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
+            assert_cast<ColumnInt64*>(column.get())->insert_value(**_cur_iter);
         }
     }
 }

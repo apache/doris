@@ -34,10 +34,11 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -48,6 +49,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -95,6 +97,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
     protected static final String CSV_SCHEMA = "csv_schema";
+    protected static final String COMPRESS_TYPE = "compress_type";
     // decimal(p,s)
     private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
     // datetime(p)
@@ -124,6 +127,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Map<String, String> locationProperties;
 
     private TFileFormatType fileFormatType;
+    private TFileCompressType compressionType;
     private String headerType = "";
 
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
@@ -145,6 +149,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public TFileFormatType getTFileFormatType() {
         return fileFormatType;
+    }
+
+    public TFileCompressType getTFileCompressType() {
+        return compressionType;
     }
 
     public Map<String, String> getLocationProperties() {
@@ -212,7 +220,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
-
+        try {
+            compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Compress type : " + validParams.get(COMPRESS_TYPE) + " is not supported.");
+        }
         if (formatString.equals("csv") || formatString.equals("csv_with_names")
                 || formatString.equals("csv_with_names_and_types")) {
             parseCsvSchema(csvSchema, validParams);
@@ -317,7 +329,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new FileQueryScanNode(id, desc, false);
+        return new TVFScanNode(id, desc, false);
     }
 
     @Override
@@ -336,7 +348,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
-                address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
             }
         }
@@ -451,12 +463,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Can not get first file, please check uri.");
         }
 
+        fileScanRangeParams.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
         fileRangeDesc.setFileSize(firstFile.getSize());
+        fileRangeDesc.setModificationTime(firstFile.getModificationTime());
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);

@@ -30,6 +30,8 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionMathUnaryToNullType : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = Impl::name;
     static FunctionPtr create() { return std::make_shared<FunctionMathUnaryToNullType>(); }
 
@@ -97,8 +99,6 @@ private:
                                   ColumnNullable::create(std::move(dst), std::move(null_column)));
         return true;
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

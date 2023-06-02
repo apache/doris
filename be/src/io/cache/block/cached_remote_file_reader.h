@@ -39,7 +39,11 @@ struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
-    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path);
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
+                           const long modification_time);
+
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_base_path,
+                           const std::string& cache_path, const long modification_time);
 
     ~CachedRemoteFileReader() override;
 

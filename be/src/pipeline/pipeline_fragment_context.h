@@ -123,7 +123,7 @@ public:
     taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
 
 private:
-    Status _create_sink(const TDataSink& t_data_sink);
+    Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
@@ -139,7 +139,7 @@ private:
 
     int _backend_num;
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     bool _prepared = false;
     bool _submitted = false;
@@ -151,10 +151,11 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic_int _closed_tasks = 0;
+    std::mutex _task_mutex;
+    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    std::atomic_int _total_tasks = 0;
+    int _total_tasks = 0;
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
@@ -167,7 +168,10 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
+    // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
+    // of it in pipeline task not the fragment_context
     std::unique_ptr<DataSink> _sink;
+    std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
 

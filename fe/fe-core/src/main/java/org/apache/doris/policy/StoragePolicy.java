@@ -37,8 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,12 +161,12 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
         if (hasCooldownDatetime) {
-            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.cooldownTimestampMs = df.parse(props.get(COOLDOWN_DATETIME)).getTime();
-            } catch (ParseException e) {
+                this.cooldownTimestampMs = LocalDateTime.parse(props.get(COOLDOWN_DATETIME), TimeUtils.DATETIME_FORMAT)
+                        .atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+            } catch (DateTimeParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
-                                            props.get(COOLDOWN_DATETIME)), e);
+                        props.get(COOLDOWN_DATETIME)), e);
             }
             // ttl would be set as -1 when using datetime
             this.cooldownTtl = -1;
@@ -325,10 +325,10 @@ public class StoragePolicy extends Policy {
             if (properties.get(COOLDOWN_DATETIME).isEmpty()) {
                 cooldownTimestampMs = -1;
             } else {
-                SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 try {
-                    cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
-                } catch (ParseException e) {
+                    cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
+                            TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }
             }

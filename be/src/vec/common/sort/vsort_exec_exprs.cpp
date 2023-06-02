@@ -27,9 +27,6 @@ namespace doris {
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -50,19 +47,19 @@ Status VSortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
 
 Status VSortExecExprs::init(const std::vector<TExpr>& ordering_exprs,
                             const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool) {
-    RETURN_IF_ERROR(VExpr::create_expr_trees(pool, ordering_exprs, &_lhs_ordering_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(ordering_exprs, _lhs_ordering_expr_ctxs));
     if (sort_tuple_slot_exprs != NULL) {
         _materialize_tuple = true;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(pool, *sort_tuple_slot_exprs,
-                                                 &_sort_tuple_slot_expr_ctxs));
+        RETURN_IF_ERROR(
+                VExpr::create_expr_trees(*sort_tuple_slot_exprs, _sort_tuple_slot_expr_ctxs));
     } else {
         _materialize_tuple = false;
     }
     return Status::OK();
 }
 
-Status VSortExecExprs::init(const std::vector<VExprContext*>& lhs_ordering_expr_ctxs,
-                            const std::vector<VExprContext*>& rhs_ordering_expr_ctxs) {
+Status VSortExecExprs::init(const VExprContextSPtrs& lhs_ordering_expr_ctxs,
+                            const VExprContextSPtrs& rhs_ordering_expr_ctxs) {
     _lhs_ordering_expr_ctxs = lhs_ordering_expr_ctxs;
     _rhs_ordering_expr_ctxs = rhs_ordering_expr_ctxs;
     return Status::OK();
@@ -83,7 +80,7 @@ Status VSortExecExprs::open(RuntimeState* state) {
     }
     RETURN_IF_ERROR(VExpr::open(_lhs_ordering_expr_ctxs, state));
     RETURN_IF_ERROR(
-            VExpr::clone_if_not_exists(_lhs_ordering_expr_ctxs, state, &_rhs_ordering_expr_ctxs));
+            VExpr::clone_if_not_exists(_lhs_ordering_expr_ctxs, state, _rhs_ordering_expr_ctxs));
     return Status::OK();
 }
 

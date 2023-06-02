@@ -57,7 +57,7 @@ JDK1.8+, IntelliJ IDEA
 
         将其中的：
 
-        `#rl "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
+        `url "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
 
         修改为：
 
@@ -189,7 +189,6 @@ mysql_service_nio_enabled = true
 # audit_log_roll_num = 10
 # meta_delay_toleration_second = 10
 # qe_max_connection = 1024
-# max_conn_per_user = 100
 # qe_query_timeout_second = 300
 # qe_slow_log_ms = 5000
 

@@ -117,7 +117,6 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
                 << ", current pool size: " << _pool.size();
-    return;
 }
 
 void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
@@ -130,9 +129,6 @@ Status DataConsumerPool::start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "ResultBufferMgr", "clean_idle_consumer",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
                 do {
                     _clean_idle_consumer_bg();
                 } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));

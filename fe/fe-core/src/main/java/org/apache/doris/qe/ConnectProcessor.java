@@ -54,6 +54,7 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -320,7 +321,8 @@ public class ConnectProcessor {
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            if (parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
+            if (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager()
+                    && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
                 int length = Math.min(1024, origStmt.length());
                 ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
@@ -455,6 +457,9 @@ public class ConnectProcessor {
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     private void handleQueryException(Throwable throwable, String origStmt,
                                       StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+        if (ctx.getMinidump() != null) {
+            MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
+        }
         if (throwable instanceof IOException) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", throwable);
@@ -569,7 +574,7 @@ public class ConnectProcessor {
             case COM_QUERY:
             case COM_STMT_PREPARE:
                 ctx.initTracer("trace");
-                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
+                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
                     handleQuery();
                 } catch (Exception e) {
@@ -651,7 +656,7 @@ public class ConnectProcessor {
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
                 || executor.getParsedStmt() instanceof InsertStmt)) {
-            executor.writeProfile(true);
+            executor.updateProfile(true);
             StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
             if (statsErrorEstimator != null) {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());

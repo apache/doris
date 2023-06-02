@@ -13,6 +13,7 @@ NOTICE
 gutil/*
 glibc-compatibility/*
 apache-orc/*
+clucene/*
 manifest
 patches/*
 data/*

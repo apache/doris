@@ -54,78 +54,16 @@ Github: https://github.com/apache/doris-flink-connector
 
 Ready to work
 
-1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+1. Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
 
-2.Specify the thrift installation directory
+2. Execute following command in source dir:
+`sh build.sh`
+Enter the flink version you need to compile according to the prompt.
 
-```bash
-##source file content
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
-
-##amend as below,MacOS as an example
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
-Windows:
-  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Modify thrift-0.13.0.exe to thrift 
- 
-MacOS:
-  1. Download: `brew install thrift@0.13.0`
-  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-
-Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
-Linux:
-   ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # Download source package
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # Install dependencies
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # Check the version after installation is complete
-   ```
-   Note: If you have compiled Doris, you do not need to install thrift, you can directly use `$DORIS_HOME/thirdparty/installed/bin/thrift`
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.3.0-SNAPSHOT.jar`.
+Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 
-Execute following command in source dir:
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-Then, for example, execute the command to compile according to the version you need:
-`sh build.sh --flink 1.16.0`
-
-
-After successful compilation, the file `flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` will be generated in the `target/` directory. Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
-
-**Remarks:** 
-
-1. Doris FE should be configured to enable http v2 in the configuration
-
-   conf/fe.conf
-
-```
-enable_http_server_v2 = true
-```
 ## Using Maven
 
 Add flink-doris-connector Maven dependencies
@@ -373,7 +311,7 @@ refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/
 | doris.read.field            | --            | N           | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | N           | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 | sink.label-prefix | -- | Y | The label prefix used by stream load imports. In the 2pc scenario, global uniqueness is required to ensure the EOS semantics of Flink. |
-| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true' |
+| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.read_json_by_line' ='true' |
 | sink.enable-delete     | true               | N              | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 | sink.enable-2pc                  | true              | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
 | sink.max-retries                 | 1                  | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |

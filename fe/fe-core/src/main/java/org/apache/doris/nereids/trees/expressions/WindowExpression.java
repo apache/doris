@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.UnaryNode;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -55,9 +54,6 @@ public class WindowExpression extends Expression {
                 .addAll(orderKeys)
                 .build().toArray(new Expression[0]));
         this.function = function;
-        if (function instanceof AggregateFunction) {
-            ((AggregateFunction) function).setWindowFunction(true);
-        }
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.orderKeys = ImmutableList.copyOf(orderKeys);
         this.windowFrame = Optional.empty();
@@ -73,9 +69,6 @@ public class WindowExpression extends Expression {
                 .add(windowFrame)
                 .build().toArray(new Expression[0]));
         this.function = function;
-        if (function instanceof AggregateFunction) {
-            ((AggregateFunction) function).setWindowFunction(true);
-        }
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.orderKeys = ImmutableList.copyOf(orderKeys);
         this.windowFrame = Optional.of(Objects.requireNonNull(windowFrame));

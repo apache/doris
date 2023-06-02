@@ -52,7 +52,6 @@ Status VOdbcTableSink::init(const TDataSink& t_sink) {
 }
 
 Status VOdbcTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcTableSink::open");
     RETURN_IF_ERROR(VTableSink::open(state));
 
     // create writer
@@ -66,21 +65,20 @@ Status VOdbcTableSink::open(RuntimeState* state) {
 }
 
 Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_vexpr_ctxs, *block, status);
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _output_vexpr_ctxs, *block, &output_block));
     materialize_block_inplace(output_block);
 
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
         RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
-                                        start_send_row, &num_row_sent));
+                                        start_send_row, &num_row_sent, true));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
@@ -89,7 +87,6 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VOdbcTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());

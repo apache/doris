@@ -159,50 +159,60 @@ public class VariableMgr {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
         }
-        try {
-            switch (field.getType().getSimpleName()) {
-                case "boolean":
-                    if (value.equalsIgnoreCase("ON")
-                            || value.equalsIgnoreCase("TRUE")
-                            || value.equalsIgnoreCase("1")) {
-                        field.setBoolean(obj, true);
-                    } else if (value.equalsIgnoreCase("OFF")
-                            || value.equalsIgnoreCase("FALSE")
-                            || value.equalsIgnoreCase("0")) {
-                        field.setBoolean(obj, false);
-                    } else {
-                        throw new IllegalAccessException();
-                    }
-                    break;
-                case "byte":
-                    field.setByte(obj, Byte.valueOf(value));
-                    break;
-                case "short":
-                    field.setShort(obj, Short.valueOf(value));
-                    break;
-                case "int":
-                    field.setInt(obj, Integer.valueOf(value));
-                    break;
-                case "long":
-                    field.setLong(obj, Long.valueOf(value));
-                    break;
-                case "float":
-                    field.setFloat(obj, Float.valueOf(value));
-                    break;
-                case "double":
-                    field.setDouble(obj, Double.valueOf(value));
-                    break;
-                case "String":
-                    field.set(obj, value);
-                    break;
-                default:
-                    // Unsupported type variable.
-                    ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+        // If the session variable has specified the setter, then not use reflect
+        if (!attr.setter().equals("")) {
+            Preconditions.checkArgument(obj instanceof SessionVariable);
+            try {
+                SessionVariable.class.getDeclaredMethod(attr.setter(), String.class).invoke(obj, value);
+            } catch (Exception e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
-        } catch (NumberFormatException e) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
-        } catch (IllegalAccessException e) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
+        } else  {
+            try {
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        if (value.equalsIgnoreCase("ON")
+                                || value.equalsIgnoreCase("TRUE")
+                                || value.equalsIgnoreCase("1")) {
+                            field.setBoolean(obj, true);
+                        } else if (value.equalsIgnoreCase("OFF")
+                                || value.equalsIgnoreCase("FALSE")
+                                || value.equalsIgnoreCase("0")) {
+                            field.setBoolean(obj, false);
+                        } else {
+                            throw new IllegalAccessException();
+                        }
+                        break;
+                    case "byte":
+                        field.setByte(obj, Byte.valueOf(value));
+                        break;
+                    case "short":
+                        field.setShort(obj, Short.valueOf(value));
+                        break;
+                    case "int":
+                        field.setInt(obj, Integer.valueOf(value));
+                        break;
+                    case "long":
+                        field.setLong(obj, Long.valueOf(value));
+                        break;
+                    case "float":
+                        field.setFloat(obj, Float.valueOf(value));
+                        break;
+                    case "double":
+                        field.setDouble(obj, Double.valueOf(value));
+                        break;
+                    case "String":
+                        field.set(obj, value);
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+                }
+            } catch (NumberFormatException e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_TYPE_FOR_VAR, attr.name());
+            } catch (IllegalAccessException e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, attr.name(), value);
+            }
         }
 
         if (VariableVarCallbacks.hasCallback(attr.name())) {
@@ -233,15 +243,18 @@ public class VariableMgr {
     }
 
     // Check if this setVar can be set correctly
+    // Do not use ErrorReport.reportDdlException to throw exeception, it will set the query state in connection context.
+    // But in some case, we do not want to set the query state and need to ignore that error.
+    // Set setVarForNonMasterFE() is an example.
     private static void checkUpdate(SetVar setVar, int flag) throws DdlException {
         if ((flag & READ_ONLY) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_VARIABLE_IS_READONLY, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_VARIABLE_IS_READONLY.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() == SetType.GLOBAL && (flag & SESSION_ONLY) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_LOCAL_VARIABLE, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() != SetType.GLOBAL && (flag & GLOBAL) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_GLOBAL_VARIABLE, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
     }
 
@@ -636,7 +649,7 @@ public class VariableMgr {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface VarAttr {
+    public @interface VarAttr {
         // Name in show variables and set statement;
         String name();
 
@@ -652,6 +665,9 @@ public class VariableMgr {
         // the checker function should be: public void checker(String value), value is the input string.
         String checker() default "";
 
+        // could specify the setter method for a variable, not depend on reflect mechanism
+        String setter() default "";
+
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
 
@@ -659,6 +675,15 @@ public class VariableMgr {
         boolean fuzzy() default false;
 
         ExperimentalType expType() default ExperimentalType.NONE;
+
+        // description for this config item.
+        // There should be 2 elements in the array.
+        // The first element is the description in Chinese.
+        // The second element is the description in English.
+        String[] description() default {"待补充", "TODO"};
+
+        // Enum options for this config item, if it has.
+        String[] options() default {};
     }
 
     private static class VarContext {

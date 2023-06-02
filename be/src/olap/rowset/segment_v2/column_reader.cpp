@@ -21,6 +21,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <set>
 
@@ -31,6 +32,7 @@
 #include "olap/column_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -228,7 +230,7 @@ Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
                                                  InvertedIndexIterator** iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index->new_iterator(index_meta, stats, iterator));
+        RETURN_IF_ERROR(_inverted_index->new_iterator(stats, iterator));
     }
     return Status::OK();
 }
@@ -258,7 +260,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
 
 Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
-        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+        const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
@@ -272,7 +274,8 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
-    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+    _parse_zone_map_skip_null(_zone_map_index_meta->segment_zone_map(), min_value.get(),
+                              max_value.get());
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -337,6 +340,21 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
     }
 }
 
+void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                             WrapperField* min_value_container,
+                                             WrapperField* max_value_container) const {
+    // min value and max value are valid if has_not_null is true
+    if (zone_map.has_not_null()) {
+        min_value_container->from_string(zone_map.min());
+        max_value_container->from_string(zone_map.max());
+    }
+
+    if (!zone_map.has_not_null()) {
+        min_value_container->set_null();
+        max_value_container->set_null();
+    }
+}
+
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
                                              WrapperField* min_value_container,
                                              WrapperField* max_value_container,
@@ -352,9 +370,10 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
     return col_predicates->evaluate_and({min_value_container, max_value_container});
 }
 
-Status ColumnReader::_get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                                         std::vector<const ColumnPredicate*>* delete_predicates,
-                                         std::vector<uint32_t>* page_indexes) {
+Status ColumnReader::_get_filtered_pages(
+        const AndBlockColumnPredicate* col_predicates,
+        const std::vector<const ColumnPredicate*>* delete_predicates,
+        std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
@@ -476,15 +495,15 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
             _inverted_index.reset(new FullTextIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta->index_id()));
+                    _file_reader->fs(), _file_reader->path().native(), index_meta));
             return Status::OK();
         } else {
             _inverted_index.reset(new StringTypeInvertedIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta->index_id()));
+                    _file_reader->fs(), _file_reader->path().native(), index_meta));
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index.reset(new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(),
-                                                 index_meta->index_id()));
+        _inverted_index.reset(
+                new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(), index_meta));
     } else {
         _inverted_index.reset();
     }
@@ -763,7 +782,7 @@ Status OffsetFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 
 Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     if (_offset_iterator->get_current_page()->has_remaining()) {
-        PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder;
+        PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder.get();
         vectorized::MutableColumnPtr offset_col = vectorized::ColumnUInt64::create();
         size_t n = 1;
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
@@ -1130,7 +1149,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     // note that concurrent iterators for the same column won't repeatedly read dictionary page
     // because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder);
+        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
         if (dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 // read dictionary page
@@ -1160,7 +1179,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
 
 Status FileColumnIterator::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
-        std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+        const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(
                 _reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges));
@@ -1287,7 +1306,8 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_CHAR:
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
         dst->insert_many_data(data_ptr, data_len, n);

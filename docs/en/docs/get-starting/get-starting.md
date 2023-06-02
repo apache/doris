@@ -27,11 +27,11 @@ under the License.
 
 # Quick Start
 
-Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. version, install and run it on a single node, including creating databases, data tables, importing data and queries, etc.
+Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. This brief guide will show you how to download the latest stable version of Doris, install and run it on a single node, including creating databases, data tables, importing data and queries, etc.
 
 ## Download Doris
 
-Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the minimum JDK version required is 8). To check the version of Java you have installed, run the following command.
+Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the JDK version required is 8). To check the version of Java you have installed, run the following command.
 
 ```
 java -version

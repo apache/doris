@@ -31,6 +31,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -60,7 +61,8 @@ public class Histogram extends AggregateFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(FloatType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV2Type.CATALOG_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DateV2Type.INSTANCE),

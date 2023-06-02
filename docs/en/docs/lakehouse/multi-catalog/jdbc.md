@@ -177,7 +177,7 @@ CREATE CATALOG hana_catalog PROPERTIES (
 | Database | Schema   |
 | Table    | Table    |
 
-8. Trino
+8. Trino/Presto
 
 <version since="1.2.4"></version>
 
@@ -192,6 +192,9 @@ CREATE CATALOG trino_catalog PROPERTIES (
 );
 ```
 
+**Note:**
+<version since="dev" type="inline"> Connections using the Presto JDBC Driver are also supported </version>
+
 When Trino is mapped, Doris's Database corresponds to a Schema in Trino that specifies Catalog (such as "hive" in the 'jdbc_url' parameter in the example). The Table in Doris's Database corresponds to the Tables in Trino's Schema. That is, the mapping relationship is as follows:
 
 | Doris    | Trino   |
@@ -202,7 +205,6 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 
 9. OceanBase
 
-<<<<<<< HEAD
 <version since="dev"></version>
 
 ```sql
@@ -212,7 +214,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "mysql"
 )
 
@@ -222,7 +224,7 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
+    "driver_class" = "com.oceanbase.jdbc.Driver",
     "oceanbase_mode" = "oracle"
 )
 ```
@@ -253,10 +255,10 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
 >
 > `include_database_list`:
-> When `only_specified_database=true`, only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > `exclude_database_list`:
-> When `only_specified_database=true`, specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 >
@@ -376,7 +378,9 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | int                                    | INT         |                                                              |
 | bigint                                 | BIGINT      |                                                              |
 | real                                   | FLOAT       |                                                              |
-| float/money/smallmoney                 | DOUBLE      |                                                              |
+| float                 | DOUBLE      |                                                              |
+| money | DECIMAL(19,4) | |
+| smallmoney | DECIMAL(10,4) | |
 | decimal/numeric                        | DECIMAL     |                                                              |
 | date                                   | DATE        |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2  |                                                              |
@@ -455,7 +459,7 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | NCHAR         | CHAR                     |                                                                                                                    |
 | Other         | UNSUPPORTED              |                                                                                                                    |
 
-### Trino
+### Trino/presto
 
 | Trino Type                                           | Doris Type               | Comment                                                                                                            |
 |------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
@@ -467,8 +471,8 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
 | real                                                 | FLOAT                    |                                                                                                                    |
 | double                                               | DOUBLE                   |                                                                                                                    |
-| date                                                 | DATE/DATEV2              | JDBC CATLOG uses Datev2 type default when connecting Trino                                                         |
-| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATLOG uses DATETIMEV2 type default when connecting Trino                                                     |
+| date                                                 | DATE/DATEV2              | JDBC CATALOG uses Datev2 type default when connecting Trino                                                        |
+| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATALOG uses DATETIMEV2 type default when connecting Trino                                                    |
 | varchar                                              | TEXT                     |                                                                                                                    |
 | char                                                 | CHAR                     |                                                                                                                    |
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |
@@ -531,7 +535,7 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
    ```
 
-   Such errors occur because the `driver_class` has been wrongly put when creating the Resource. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
+   Such errors occur because the `driver_class` has been wrongly put when creating the catalog. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
 
 5. How to fix communication link failures?
 

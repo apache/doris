@@ -25,6 +25,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -45,12 +46,14 @@ public:
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_SMALLINT,
-                             true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
     // c2: int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, true);
     // c3: big int
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, FieldType::OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                             FieldType::OLAP_FIELD_TYPE_BIGINT, true);
 
     Schema schema(col_schemas, 2);
     return schema;

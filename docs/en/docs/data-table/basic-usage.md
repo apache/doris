@@ -277,7 +277,7 @@ MySQL> DESC table2;
 > 3. You can import data into the specified Partition. See `HELP LOAD;`.
 > 4. You can dynamically change the table schema. See `HELP ALTER TABLE;`.
 > 5. You can add Rollups to Tables to improve query performance. See the Rollup-related section in "Advanced Usage".
-> 6. The default value in the Null column is true, which may affect query performance.
+> 6. The value of the column is nullable by default, which may affect query performance.
 
 ### Load data
 

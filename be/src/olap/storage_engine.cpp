@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <list>
@@ -49,14 +50,18 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
+#include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
+#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/task/engine_task.h"
@@ -92,6 +97,13 @@ using std::vector;
 using strings::Substitute;
 
 namespace doris {
+namespace {
+inline int64_t now_ms() {
+    auto duration = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
+}
+} // namespace
 using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
@@ -140,13 +152,15 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    _clear();
 
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {
@@ -155,6 +169,7 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _clear();
     _s_instance = nullptr;
 }
 
@@ -388,12 +403,8 @@ void StorageEngine::_start_disk_stat_monitor() {
     }
 
     _update_storage_medium_type_count();
-    bool some_tablets_were_dropped = _delete_tablets_on_unused_root_path();
-    // If some tablets were dropped, we should notify disk_state_worker_thread and
-    // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
-    if (some_tablets_were_dropped) {
-        notify_listeners();
-    }
+
+    _exit_if_too_many_disks_are_failed();
 }
 
 // TODO(lingbin): Should be in EnvPosix?
@@ -499,8 +510,7 @@ static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
             (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
 }
 
-bool StorageEngine::_delete_tablets_on_unused_root_path() {
-    std::vector<TabletInfo> tablet_info_vec;
+void StorageEngine::_exit_if_too_many_disks_are_failed() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
@@ -508,7 +518,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
         // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
         std::lock_guard<std::mutex> l(_store_lock);
         if (_store_map.empty()) {
-            return false;
+            return;
         }
 
         for (auto& it : _store_map) {
@@ -516,7 +526,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
             if (it.second->is_used()) {
                 continue;
             }
-            it.second->clear_tablets(&tablet_info_vec);
             ++unused_root_path_num;
         }
     }
@@ -528,10 +537,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
                    << ", total_disk_count=" << total_root_path_num;
         exit(0);
     }
-
-    _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
-    // If tablet_info_vec is not empty, means we have dropped some tablets.
-    return !tablet_info_vec.empty();
 }
 
 void StorageEngine::stop() {
@@ -552,6 +557,7 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -617,6 +623,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
+    SchemaCache::instance()->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -638,8 +645,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const double guard_space =
             ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
-    RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
-                      "failed to get root path stat info when sweep trash.")
+    RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
+                                   "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间
@@ -678,6 +685,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
             res = curr_res;
         }
     }
+
+    // _gc_binlogs();
 
     if (usage != nullptr) {
         *usage = tmp_usage; // update usage
@@ -764,6 +773,139 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
+    }
+}
+
+void StorageEngine::_gc_binlogs() {
+    LOG(INFO) << "start to gc binlogs";
+
+    auto data_dirs = get_stores();
+    struct tablet_info {
+        std::string tablet_path;
+        int64_t binlog_ttl_ms;
+    };
+    std::unordered_map<int64_t, tablet_info> tablets_info;
+
+    auto get_tablet_info = [&tablets_info, this](int64_t tablet_id) -> const tablet_info& {
+        if (auto iter = tablets_info.find(tablet_id); iter != tablets_info.end()) {
+            return iter->second;
+        }
+
+        auto tablet = tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << "failed to find tablet " << tablet_id;
+            static tablet_info empty_tablet_info;
+            return empty_tablet_info;
+        }
+
+        auto tablet_path = tablet->tablet_path();
+        auto binlog_ttl_ms = tablet->binlog_ttl_ms();
+        tablets_info.emplace(tablet_id, tablet_info {tablet_path, binlog_ttl_ms});
+        return tablets_info[tablet_id];
+    };
+
+    for (auto data_dir : data_dirs) {
+        std::string prefix_key {kBinlogMetaPrefix};
+        OlapMeta* meta = data_dir->get_meta();
+        DCHECK(meta != nullptr);
+
+        auto now = now_ms();
+        int64_t last_tablet_id = 0;
+        std::vector<std::string> wait_for_deleted_binlog_keys;
+        std::vector<std::string> wait_for_deleted_binlog_files;
+        auto add_to_wait_for_deleted_binlog_keys =
+                [&wait_for_deleted_binlog_keys](std::string_view key) {
+                    wait_for_deleted_binlog_keys.emplace_back(key);
+                    wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
+                };
+
+        auto add_to_wait_for_deleted = [&add_to_wait_for_deleted_binlog_keys,
+                                        &wait_for_deleted_binlog_files](
+                                               std::string_view key, std::string_view tablet_path,
+                                               int64_t rowset_id, int64_t num_segments) {
+            add_to_wait_for_deleted_binlog_keys(key);
+            for (int64_t i = 0; i < num_segments; ++i) {
+                auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+                wait_for_deleted_binlog_files.emplace_back(
+                        fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+            }
+        };
+
+        auto check_binlog_ttl = [now, &get_tablet_info, &last_tablet_id,
+                                 &add_to_wait_for_deleted_binlog_keys, &add_to_wait_for_deleted](
+                                        const std::string& key,
+                                        const std::string& value) mutable -> bool {
+            LOG(INFO) << fmt::format("check binlog ttl, key:{}, value:{}", key, value);
+            if (!starts_with_binlog_meta(key)) {
+                last_tablet_id = -1;
+                return false;
+            }
+
+            BinlogMetaEntryPB binlog_meta_entry_pb;
+            if (!binlog_meta_entry_pb.ParseFromString(value)) {
+                LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
+                return true;
+            }
+
+            auto tablet_id = binlog_meta_entry_pb.tablet_id();
+            last_tablet_id = tablet_id;
+            const auto& tablet_info = get_tablet_info(tablet_id);
+            std::string_view tablet_path = tablet_info.tablet_path;
+            // tablet has been removed, removed all these binlog meta
+            if (tablet_path.empty()) {
+                add_to_wait_for_deleted_binlog_keys(key);
+                return true;
+            }
+
+            // check by ttl
+            auto rowset_id = binlog_meta_entry_pb.rowset_id();
+            auto binlog_ttl_ms = tablet_info.binlog_ttl_ms;
+            auto num_segments = binlog_meta_entry_pb.num_segments();
+            // binlog has been disabled, remove all
+            if (binlog_ttl_ms <= 0) {
+                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
+                return true;
+            }
+            auto binlog_creation_time_ms = binlog_meta_entry_pb.creation_time();
+            if (now - binlog_creation_time_ms > binlog_ttl_ms) {
+                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
+                return true;
+            }
+
+            // binlog not stale, skip
+            return false;
+        };
+
+        while (last_tablet_id >= 0) {
+            // every loop iterate one tablet
+            // get binlog meta by prefix
+            auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, check_binlog_ttl);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
+                break;
+            }
+
+            prefix_key = make_binlog_meta_key_prefix(last_tablet_id);
+        }
+
+        // first remove binlog files, if failed, just break, then retry next time
+        // this keep binlog meta in meta store, so that binlog can be removed next time
+        bool remove_binlog_files_failed = false;
+        for (auto& file : wait_for_deleted_binlog_files) {
+            if (unlink(file.c_str()) != 0) {
+                // file not exist, continue
+                if (errno == ENOENT) {
+                    continue;
+                }
+
+                remove_binlog_files_failed = true;
+                LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
+                break;
+            }
+        }
+        if (remove_binlog_files_failed) {
+            meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
+        }
     }
 }
 
@@ -979,11 +1121,6 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
 
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
-    res = TabletMeta::reset_tablet_uid(header_path);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
-        return res;
-    }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
     if (!res.ok()) {
@@ -1033,6 +1170,35 @@ void StorageEngine::create_cumulative_compaction(
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
     base_compaction.reset(new BaseCompaction(best_tablet));
+}
+
+void StorageEngine::create_single_replica_compaction(
+        TabletSharedPtr best_tablet,
+        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+        CompactionType compaction_type) {
+    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
+}
+
+bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
+                                          std::string* token) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id) &&
+        _peer_replica_infos[tablet_id].replica_id !=
+                _tablet_manager->get_tablet(tablet_id)->replica_id()) {
+        *replica = _peer_replica_infos[tablet_id];
+        *token = _token;
+        return true;
+    }
+    return false;
+}
+
+bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id)) {
+        return _peer_replica_infos[tablet_id].replica_id !=
+               _tablet_manager->get_tablet(tablet_id)->replica_id();
+    }
+    return false;
 }
 
 // Return json:

@@ -39,6 +39,31 @@ suite("test_dynamic_partition") {
     // XXX: buckets at pos(8), next maybe impl by sql meta
     assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
     sql "drop table dy_par"
+
+    sql "drop table if exists dy_par"
+    sql """
+        CREATE TABLE IF NOT EXISTS dy_par ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+        AGGREGATE KEY(k1,k2)
+        PARTITION BY RANGE(k1) ( )
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+            "dynamic_partition.enable"="true",
+            "dynamic_partition.end"="3",
+            "dynamic_partition.buckets"="10",
+            "dynamic_partition.start"="-3",
+            "dynamic_partition.prefix"="p",
+            "dynamic_partition.time_unit"="YEAR",
+            "dynamic_partition.create_history_partition"="true",
+            "dynamic_partition.replication_allocation" = "tag.location.default: 1")
+        """
+    result  = sql "show tables like 'dy_par'"
+    logger.info("${result}")
+    assertEquals(result.size(), 1)
+    result = sql "show partitions from dy_par"
+    // XXX: buckets at pos(8), next maybe impl by sql meta
+    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
+    sql "drop table dy_par"
+
     sql "drop table if exists dy_par_bucket_set_by_distribution"
     sql """
         CREATE TABLE IF NOT EXISTS dy_par_bucket_set_by_distribution

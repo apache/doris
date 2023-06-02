@@ -60,7 +60,11 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
-
+struct PredicateFilterInfo {
+    int type = 0;
+    uint64_t input_row = 0;
+    uint64_t filtered_row = 0;
+};
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
@@ -141,14 +145,15 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
-    OLAP_FIELD_TYPE_VARIANT = 35
+    OLAP_FIELD_TYPE_VARIANT = 35,
+    OLAP_FIELD_TYPE_AGG_STATE = 36
 };
 
 // Define all aggregation methods supported by Field
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
 // The implementation of the Field class does not perform such checks, and should be constrained when creating the table
-enum FieldAggregationMethod {
+enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
     OLAP_FIELD_AGGREGATION_MIN = 2,
@@ -159,10 +164,11 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
-    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9,
+    OLAP_FIELD_AGGREGATION_GENERIC = 10
 };
 
-enum PushType {
+enum class PushType {
     PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
     PUSH_FOR_LOAD_DELETE = 3, // not used any more
@@ -261,8 +267,6 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
-static const int GENERAL_DEBUG_COUNT = 0;
-
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -315,6 +319,8 @@ struct OlapReaderStatistics {
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
 
+    std::map<int, PredicateFilterInfo> filter_info;
+
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
@@ -352,17 +358,6 @@ struct OlapReaderStatistics {
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
-    // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
-    // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
-    // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automatically,
-    // the timer result can be checked through QueryProfile web page easily.
-    // when search general_debug_ns, you can find that general_debug_ns has not been used,
-    // this is because such codes added for debug purpose should not commit, it's just for debuging.
-    // so, please do not delete general_debug_ns defined here
-    // usage example:
-    //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
-    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 
     io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;

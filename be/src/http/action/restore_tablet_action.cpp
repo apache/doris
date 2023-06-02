@@ -51,7 +51,9 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                         TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void RestoreTabletAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
@@ -81,7 +83,7 @@ Status RestoreTabletAction::_handle(HttpRequest* req) {
     }
 
     // valid str format
-    int64_t tablet_id = std::atol(tablet_id_str.c_str());
+    int64_t tablet_id = std::atoll(tablet_id_str.c_str());
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 

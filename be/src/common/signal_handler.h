@@ -33,13 +33,14 @@
 
 #pragma once
 
-#include <gen_cpp/version.h>
 #include <glog/logging.h>
 #include <gutil/macros.h>
 
 #include <boost/stacktrace.hpp>
 #include <csignal>
 #include <ctime>
+
+#include "common/version_internal.h"
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
@@ -249,7 +250,7 @@ void DumpTimeInfo() {
     formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
     formatter.AppendString("\" if you are using GNU date ***\n");
     formatter.AppendString("*** Current BE git commitID: ");
-    formatter.AppendString(DORIS_BUILD_SHORT_HASH);
+    formatter.AppendString(version::doris_build_short_hash());
     formatter.AppendString(" ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
 }

@@ -76,12 +76,6 @@ under the License.
     
     该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
     
-5. Resource
-
-	Resource 是一组配置的集合。用户可以通过 [CREATE RESOURCE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md) 命令创建一个 Resource。之后可以在创建 Catalog 时使用这个 Resource。
-	
-	一个 Resource 可以被多个 Catalog 使用，以复用其中的配置。
-
 ## 连接示例
 
 ### 连接 Hive
@@ -353,7 +347,7 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
 3. `hms_events_batch_size_per_rpc`: 每次读取 event 的最大数量，默认值为 500。
 
-如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS：
+如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS和HiveServer2：
 
 ```
 <property>

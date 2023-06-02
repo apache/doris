@@ -43,54 +43,6 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
-template <typename T>
-class SelfDeleteClosure : public google::protobuf::Closure {
-public:
-    SelfDeleteClosure(InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data = nullptr)
-            : _id(id), _eos(eos), _data(data) {}
-    ~SelfDeleteClosure() override = default;
-    SelfDeleteClosure(const SelfDeleteClosure& other) = delete;
-    SelfDeleteClosure& operator=(const SelfDeleteClosure& other) = delete;
-    void addFailedHandler(std::function<void(const InstanceLoId&, const std::string&)> fail_fn) {
-        _fail_fn = std::move(fail_fn);
-    }
-    void addSuccessHandler(std::function<void(const InstanceLoId&, const bool&, const T&)> suc_fn) {
-        _suc_fn = suc_fn;
-    }
-
-    void Run() noexcept override {
-        std::unique_ptr<SelfDeleteClosure> self_guard(this);
-        try {
-            if (cntl.Failed()) {
-                std::string err = fmt::format(
-                        "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
-                        "latency = {}",
-                        berror(cntl.ErrorCode()), cntl.ErrorText(), BackendOptions::get_localhost(),
-                        cntl.latency_us());
-                _fail_fn(_id, err);
-            } else {
-                _suc_fn(_id, _eos, result);
-            }
-            if (_data) {
-                _data->unref();
-            }
-        } catch (const std::exception& exp) {
-            LOG(FATAL) << "brpc callback error: " << exp.what();
-        } catch (...) {
-            LOG(FATAL) << "brpc callback error.";
-        }
-    }
-
-    brpc::Controller cntl;
-    T result;
-
-private:
-    std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const T&)> _suc_fn;
-    InstanceLoId _id;
-    bool _eos;
-    vectorized::BroadcastPBlockHolder* _data;
-};
 
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
                                        int be_number, PipelineFragmentContext* context)
@@ -152,6 +104,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_lo(fragment_instance_id.lo);
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
+    _instance_to_receiver_eof[low_id] = false;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -181,6 +134,9 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     request.block_holder->ref();
     {
@@ -223,14 +179,16 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
-        auto* _closure = new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, nullptr);
-        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
-        _closure->addFailedHandler(
+        auto* closure = request.channel->get_closure(id, request.eos, nullptr);
+        closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
-        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                        const PTransmitDataResult& result) {
+        closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                       const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -242,11 +200,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
-                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+                transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
             }
         }
         if (request.block) {
@@ -265,15 +223,16 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
-        auto* _closure =
-                new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, request.block_holder);
-        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
-        _closure->addFailedHandler(
+        auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
+        closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
-        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                        const PTransmitDataResult& result) {
+        closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                       const PTransmitDataResult& result) {
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -285,11 +244,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
-                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+                transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
             }
         }
         if (request.block_holder->get_block()) {
@@ -323,6 +282,17 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, err);
     _ended(id);
-};
+}
+
+void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _instance_to_receiver_eof[id] = true;
+    _instance_to_sending_by_pipeline[id] = true;
+}
+
+bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    return _instance_to_receiver_eof[id];
+}
 
 } // namespace doris::pipeline

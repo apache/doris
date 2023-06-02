@@ -66,6 +66,8 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
@@ -74,11 +76,16 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
+import org.apache.doris.thrift.TBeginTxnRequest;
+import org.apache.doris.thrift.TBeginTxnResult;
+import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TCommitTxnRequest;
+import org.apache.doris.thrift.TCommitTxnResult;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TDescribeTableParams;
@@ -94,10 +101,15 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TGetBinlogRequest;
+import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
+import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -115,13 +127,18 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TQueryStatsResult;
+import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
+import org.apache.doris.thrift.TRollbackTxnRequest;
+import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
@@ -129,6 +146,8 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TTableIndexQueryStats;
+import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -329,7 +348,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
         return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, defaultVal,
-                    comment, true);
+                comment, true);
     }
 
     @Override
@@ -420,6 +439,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             colUniqueIdSupplier = new IntSupplier() {
                                 public int pendingMaxColUniqueId = olapTable
                                         .getIndexMetaByIndexId(entry.getKey()).getMaxColUniqueId();
+
                                 @Override
                                 public int getAsInt() {
                                     pendingMaxColUniqueId++;
@@ -439,7 +459,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
-                                db, olapTable, indexSchemaMap, newIndexes, jobId, false);
+                                db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
                     } else {
                         throw new MetaNotFoundException("table_id "
                                 + request.getTableId() + " cannot light schema change through rpc.");
@@ -464,7 +484,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
             status.addToErrorMsgs(e.getMessage());
-        } catch (Exception e)  {
+        } catch (Exception e) {
             LOG.warn("got exception add columns: ", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getMessage());
@@ -851,20 +871,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
-        TNetworkAddress clientAddr = getClientAddr();
-        if (clientAddr != null) {
-            Frontend fe = Env.getCurrentEnv().getFeByIp(clientAddr.getHostname());
-            if (fe == null) {
-                LOG.warn("reject request from invalid host. client: {}", clientAddr);
-                throw new TException("request from invalid host was rejected.");
-            }
+        Frontend fe = Env.getCurrentEnv().checkFeExist(params.getClientNodeHost(), params.getClientNodePort());
+        if (fe == null) {
+            LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
+            throw new TException("request from invalid host was rejected.");
         }
 
         // add this log so that we can track this stmt
-        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
+        LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
-        context.setCurrentConnectedFEIp(clientAddr.getHostname());
+        context.setCurrentConnectedFEIp(params.getClientNodeHost());
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
@@ -877,7 +894,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-            String clientIp, PrivPredicate predicate) throws AuthenticationException {
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+        checkPasswordAndPrivs(cluster, user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
+    }
+
+    private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -885,9 +907,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
-            throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+        for (String tbl : tables) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
+                throw new AuthenticationException(
+                        "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+            }
         }
     }
 
@@ -965,6 +989,112 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
+        result.setTxnId(txnId).setDbId(db.getId());
+        return result;
+    }
+
+    @Override
+    public TBeginTxnResult beginTxn(TBeginTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn begin request: {}, client: {}", request, clientAddr);
+
+        TBeginTxnResult result = new TBeginTxnResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            TBeginTxnResult tmpRes = beginTxnImpl(request, clientAddr);
+            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+        } catch (DuplicatedRequestException e) {
+            // this is a duplicate request, just return previous txn id
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
+                    e.getTxnId());
+            result.setTxnId(e.getTxnId());
+        } catch (LabelAlreadyUsedException e) {
+            status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
+            status.addToErrorMsgs(e.getMessage());
+            result.setJobStatus(e.getJobStatus());
+        } catch (UserException e) {
+            LOG.warn("failed to begin: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private TBeginTxnResult beginTxnImpl(TBeginTxnRequest request, String clientIp) throws UserException {
+        /// Check required arg: user, passwd, db, tables, label
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetTables()) {
+            throw new UserException("tables is not set");
+        }
+        if (!request.isSetLabel()) {
+            throw new UserException("label is not set");
+        }
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // step 1: check auth
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTables(),
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // step 2: check label
+        if (Strings.isNullOrEmpty(request.getLabel())) {
+            throw new UserException("empty label in begin request");
+        }
+
+        // step 3: check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // step 4: fetch all tableIds
+        // lookup tables && convert into tableIdList
+        List<Long> tableIdList = Lists.newArrayList();
+        for (String tblName : request.getTables()) {
+            Table table = db.getTableOrMetaException(tblName, TableType.OLAP);
+            if (table == null) {
+                throw new UserException("unknown table, table=" + tblName);
+            }
+            tableIdList.add(table.getId());
+        }
+
+        // step 5: get timeout
+        long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+
+        // step 6: begin transaction
+        long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                db.getId(), tableIdList, request.getLabel(), request.getRequestId(),
+                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+
+        // step 7: return result
+        TBeginTxnResult result = new TBeginTxnResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
     }
@@ -1175,6 +1305,112 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TCommitTxnResult commitTxn(TCommitTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn commit request: {}, client: {}", request, clientAddr);
+
+        TCommitTxnResult result = new TCommitTxnResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            if (!commitTxnImpl(request)) {
+                // committed success but not visible
+                status.setStatusCode(TStatusCode.PUBLISH_TIMEOUT);
+                status.addToErrorMsgs("transaction commit successfully, BUT data will be visible later");
+            }
+        } catch (UserException e) {
+            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    // return true if commit success and publish success, return false if publish timeout
+    private boolean commitTxnImpl(TCommitTxnRequest request) throws UserException {
+        /// Check required arg: user, passwd, db, txn_id, commit_infos
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetTxnId()) {
+            throw new UserException("txn_id is not set");
+        }
+        if (!request.isSetCommitInfos()) {
+            throw new UserException("commit_infos is not set");
+        }
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // Step 1: get && check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db;
+        if (request.isSetDbId() && request.getDbId() > 0) {
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
+        } else {
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
+        }
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // Step 2: get tables
+        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
+                .getDatabaseTransactionMgr(db.getId());
+        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        if (transactionState == null) {
+            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        List<Long> tableIdList = transactionState.getTableIdList();
+        List<Table> tableList = new ArrayList<>();
+        List<String> tables = new ArrayList<>();
+        // if table was dropped, transaction must be aborted
+        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        for (Table table : tableList) {
+            tables.add(table.getName());
+        }
+
+        // Step 3: check auth
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tables,
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // Step 4: get timeout
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+
+
+        // Step 5: commit and publish
+        return Env.getCurrentGlobalTransactionMgr()
+                .commitAndPublishTransaction(db, tableList,
+                        request.getTxnId(),
+                        TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
+                        TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+    }
+
+    @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
@@ -1234,6 +1470,97 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TRollbackTxnResult rollbackTxn(TRollbackTxnRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
+        TRollbackTxnResult result = new TRollbackTxnResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            rollbackTxnImpl(request);
+        } catch (UserException e) {
+            LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private void rollbackTxnImpl(TRollbackTxnRequest request) throws UserException {
+        /// Check required arg: user, passwd, db, txn_id
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetTxnId()) {
+            throw new UserException("txn_id is not set");
+        }
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // Step 1: get && check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db;
+        if (request.isSetDbId() && request.getDbId() > 0) {
+            db = env.getInternalCatalog().getDbNullable(request.getDbId());
+        } else {
+            db = env.getInternalCatalog().getDbNullable(fullDbName);
+        }
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // Step 2: get tables
+        DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr()
+                .getDatabaseTransactionMgr(db.getId());
+        TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        if (transactionState == null) {
+            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        }
+        List<Long> tableIdList = transactionState.getTableIdList();
+        List<Table> tableList = new ArrayList<>();
+        List<String> tables = new ArrayList<>();
+        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        for (Table table : tableList) {
+            tables.add(table.getName());
+        }
+
+        // Step 3: check auth
+        if (request.isSetAuthCode()) {
+            // TODO(cmy): find a way to check
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tables,
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // Step 4: abort txn
+        Env.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), request.getTxnId(),
+                request.isSetReason() ? request.getReason() : "system cancel",
+                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
+    }
+
+    @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
@@ -1242,7 +1569,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            result.setParams(streamLoadPutImpl(request));
+            if (Config.enable_pipeline_load) {
+                result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+            } else {
+                result.setParams(streamLoadPutImpl(request));
+            }
         } catch (UserException e) {
             LOG.warn("failed to get stream load plan: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -1282,6 +1613,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
+            // add table indexes to transaction state
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(db.getId(), request.getTxnId());
+            if (txnState == null) {
+                throw new UserException("txn does not exist: " + request.getTxnId());
+            }
+            txnState.addTableIndexes((OlapTable) table);
+            return plan;
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private TPipelineFragmentParams pipelineStreamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException(
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
+        }
+        try {
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
+            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
@@ -1522,6 +1892,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        if (privType == null) {
+            return null;
+        }
         switch (privType) {
             case SHOW:
                 return PrivPredicate.SHOW;
@@ -1549,5 +1922,263 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return null;
         }
     }
-}
 
+    @Override
+    public TQueryStatsResult getQueryStats(TGetQueryStatsRequest request) throws TException {
+        TQueryStatsResult result = new TQueryStatsResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (!request.isSetType()) {
+            TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("type is not set");
+            result.setStatus(status);
+            return result;
+        }
+        try {
+            switch (request.getType()) {
+                case CATALOG: {
+                    if (!request.isSetCatalog()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog is not set");
+                        result.setStatus(status);
+                    } else {
+                        result.setSimpleResult(Env.getCurrentEnv().getQueryStats().getCatalogStats(request.catalog));
+                    }
+                    break;
+                }
+                case DATABASE: {
+                    if (!request.isSetCatalog() || !request.isSetDb()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db is not set");
+                        result.setStatus(status);
+                        return result;
+                    } else {
+                        result.setSimpleResult(
+                                Env.getCurrentEnv().getQueryStats().getDbStats(request.catalog, request.db));
+                    }
+                    break;
+                }
+                case TABLE: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                        return result;
+                    } else {
+                        Env.getCurrentEnv().getQueryStats().getTblStats(request.catalog, request.db, request.tbl)
+                                .forEach((col, stat) -> {
+                                    TTableQueryStats colunmStat = new TTableQueryStats();
+                                    colunmStat.setField(col);
+                                    colunmStat.setQueryStats(stat.first);
+                                    colunmStat.setFilterStats(stat.second);
+                                    result.addToTableStats(colunmStat);
+                                });
+                    }
+                    break;
+                }
+                case TABLE_ALL: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                    } else {
+                        result.setSimpleResult(Env.getCurrentEnv().getQueryStats()
+                                .getTblAllStats(request.catalog, request.db, request.tbl));
+                    }
+                    break;
+                }
+                case TABLE_ALL_VERBOSE: {
+                    if (!request.isSetCatalog() || !request.isSetDb() || !request.isSetTbl()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("catalog or db or table is not set");
+                        result.setStatus(status);
+                    } else {
+                        Env.getCurrentEnv().getQueryStats()
+                                .getTblAllVerboseStats(request.catalog, request.db, request.tbl)
+                                .forEach((indexName, indexStats) -> {
+                                    TTableIndexQueryStats indexStat = new TTableIndexQueryStats();
+                                    indexStat.setIndexName(indexName);
+                                    indexStats.forEach((col, stat) -> {
+                                        TTableQueryStats colunmStat = new TTableQueryStats();
+                                        colunmStat.setField(col);
+                                        colunmStat.setQueryStats(stat.first);
+                                        colunmStat.setFilterStats(stat.second);
+                                        indexStat.addToTableStats(colunmStat);
+                                    });
+                                    result.addToTableVerbosStats(indexStat);
+                                });
+                    }
+                    break;
+                }
+                case TABLET: {
+                    if (!request.isSetReplicaId()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("Replica Id is not set");
+                        result.setStatus(status);
+                    } else {
+                        Map<Long, Long> tabletStats = new HashMap<>();
+                        tabletStats.put(request.getReplicaId(),
+                                Env.getCurrentEnv().getQueryStats().getStats(request.getReplicaId()));
+                        result.setTabletStats(tabletStats);
+                    }
+                    break;
+                }
+                case TABLETS: {
+                    if (!request.isSetReplicaIds()) {
+                        TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                        status.addToErrorMsgs("Replica Ids is not set");
+                        result.setStatus(status);
+                    } else {
+                        Map<Long, Long> tabletStats = new HashMap<>();
+                        QueryStats qs = Env.getCurrentEnv().getQueryStats();
+                        for (long replicaId : request.getReplicaIds()) {
+                            tabletStats.put(replicaId, qs.getStats(replicaId));
+                        }
+                        result.setTabletStats(tabletStats);
+                    }
+                    break;
+                }
+                default: {
+                    TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+                    status.addToErrorMsgs("unknown type: " + request.getType());
+                    result.setStatus(status);
+                    break;
+                }
+            }
+        } catch (UserException e) {
+            TStatus status = new TStatus(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+            result.setStatus(status);
+        }
+        return result;
+    }
+
+    public TGetTabletReplicaInfosResult getTabletReplicaInfos(TGetTabletReplicaInfosRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get replicas request: {}, backend: {}", request, clientAddr);
+        TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
+        List<Long> tabletIds = request.getTabletIds();
+        Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
+        for (Long tabletId : tabletIds) {
+            List<TReplicaInfo> replicaInfos = Lists.newArrayList();
+            List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
+                    .getReplicasByTabletId(tabletId);
+            for (Replica replica : replicas) {
+                if (!replica.isNormal()) {
+                    LOG.warn("replica {} not normal", replica.getId());
+                    continue;
+                }
+                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                if (backend != null) {
+                    TReplicaInfo replicaInfo = new TReplicaInfo();
+                    replicaInfo.setHost(backend.getHost());
+                    replicaInfo.setBePort(backend.getBePort());
+                    replicaInfo.setHttpPort(backend.getHttpPort());
+                    replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setReplicaId(replica.getId());
+                    replicaInfos.add(replicaInfo);
+                }
+            }
+            tabletReplicaInfos.put(tabletId, replicaInfos);
+        }
+        result.setTabletReplicaInfos(tabletReplicaInfos);
+        result.setToken(Env.getCurrentEnv().getToken());
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get binlog request: {}", request);
+
+        TGetBinlogResult result = new TGetBinlogResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = getBinlogImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get binlog: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private TGetBinlogResult getBinlogImpl(TGetBinlogRequest request, String clientIp) throws UserException {
+        /// Check all required arg: user, passwd, db, prev_commit_seq
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetPrevCommitSeq()) {
+            throw new UserException("prev_commit_seq is not set");
+        }
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // step 1: check auth
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // step 3: check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        long dbId = db.getId();
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // step 4: fetch all tableIds
+        // lookup tables && convert into tableIdList
+        long tableId = -1;
+        String tableName = request.getTable();
+        if (!Strings.isNullOrEmpty(tableName)) {
+            Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
+            if (table == null) {
+                throw new UserException("unknown table, table=" + tableName);
+            }
+            tableId = table.getId();
+        }
+
+        // step 6: get binlog
+        TGetBinlogResult result = new TGetBinlogResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        long prevCommitSeq = request.getPrevCommitSeq();
+        Pair<TStatus, TBinlog> statusBinlogPair = env.getBinlogManager().getBinlog(dbId, tableId, prevCommitSeq);
+        TStatus status = statusBinlogPair.first;
+        if (status != null && status.getStatusCode() != TStatusCode.OK) {
+            result.setStatus(status);
+            // TOO_OLD return first exist binlog
+            if (status.getStatusCode() != TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ) {
+                return result;
+            }
+        }
+        TBinlog binlog = statusBinlogPair.second;
+        if (binlog != null) {
+            List<TBinlog> binlogs = Lists.newArrayList();
+            binlogs.add(binlog);
+            result.setBinlogs(binlogs);
+        }
+        return result;
+    }
+}

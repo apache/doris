@@ -17,6 +17,8 @@
 
 #include "runtime/stream_load/stream_load_executor.h"
 
+#include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -57,83 +59,164 @@ TLoadTxnRollbackResult k_stream_load_rollback_result;
 Status k_stream_load_plan_status;
 #endif
 
+bvar::LatencyRecorder g_stream_load_begin_txn_latency("stream_load", "begin_txn");
+bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precommit_txn");
+bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
+
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
-    auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
-                ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-                ctx->commit_infos = std::move(state->tablet_commit_infos());
-                if (status->ok()) {
-                    ctx->number_total_rows = state->num_rows_load_total();
-                    ctx->number_loaded_rows = state->num_rows_load_success();
-                    ctx->number_filtered_rows = state->num_rows_load_filtered();
-                    ctx->number_unselected_rows = state->num_rows_load_unselected();
-
-                    int64_t num_selected_rows =
-                            ctx->number_total_rows - ctx->number_unselected_rows;
-                    if (num_selected_rows > 0 &&
-                        (double)ctx->number_filtered_rows / num_selected_rows >
-                                ctx->max_filter_ratio) {
-                        // NOTE: Do not modify the error message here, for historical reasons,
-                        // some users may rely on this error message.
-                        *status = Status::InternalError("too many filtered rows");
-                    }
-                    if (ctx->number_filtered_rows > 0 &&
-                        !state->get_error_log_file_path().empty()) {
-                        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                    }
-
+    Status st;
+    if (ctx->put_result.__isset.params) {
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(
+                ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
+                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+                    ctx->commit_infos = std::move(state->tablet_commit_infos());
                     if (status->ok()) {
-                        DorisMetrics::instance()->stream_receive_bytes_total->increment(
-                                ctx->receive_bytes);
-                        DorisMetrics::instance()->stream_load_rows_total->increment(
-                                ctx->number_loaded_rows);
+                        ctx->number_total_rows = state->num_rows_load_total();
+                        ctx->number_loaded_rows = state->num_rows_load_success();
+                        ctx->number_filtered_rows = state->num_rows_load_filtered();
+                        ctx->number_unselected_rows = state->num_rows_load_unselected();
+
+                        int64_t num_selected_rows =
+                                ctx->number_total_rows - ctx->number_unselected_rows;
+                        if (num_selected_rows > 0 &&
+                            (double)ctx->number_filtered_rows / num_selected_rows >
+                                    ctx->max_filter_ratio) {
+                            // NOTE: Do not modify the error message here, for historical reasons,
+                            // some users may rely on this error message.
+                            *status = Status::InternalError("too many filtered rows");
+                        }
+                        if (ctx->number_filtered_rows > 0 &&
+                            !state->get_error_log_file_path().empty()) {
+                            ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
+
+                        if (status->ok()) {
+                            DorisMetrics::instance()->stream_receive_bytes_total->increment(
+                                    ctx->receive_bytes);
+                            DorisMetrics::instance()->stream_load_rows_total->increment(
+                                    ctx->number_loaded_rows);
+                        }
+                    } else {
+                        LOG(WARNING)
+                                << "fragment execute failed"
+                                << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
+                                << ", err_msg=" << status->to_string() << ", " << ctx->brief();
+                        // cancel body_sink, make sender known it
+                        if (ctx->body_sink != nullptr) {
+                            ctx->body_sink->cancel(status->to_string());
+                        }
+
+                        switch (ctx->load_src_type) {
+                        // reset the stream load ctx's kafka commit offset
+                        case TLoadSourceType::KAFKA:
+                            ctx->kafka_info->reset_offset();
+                            break;
+                        default:
+                            break;
+                        }
                     }
-                } else {
-                    LOG(WARNING) << "fragment execute failed"
-                                 << ", query_id="
-                                 << UniqueId(ctx->put_result.params.params.query_id)
-                                 << ", err_msg=" << status->to_string() << ", " << ctx->brief();
-                    // cancel body_sink, make sender known it
-                    if (ctx->body_sink != nullptr) {
+                    ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
+                    ctx->promise.set_value(*status);
+
+                    if (!status->ok() && ctx->body_sink != nullptr) {
+                        // In some cases, the load execution is exited early.
+                        // For example, when max_filter_ratio is 0 and illegal data is encountered
+                        // during stream loading, the entire load process is terminated early.
+                        // However, the http connection may still be sending data to stream_load_pipe
+                        // and waiting for it to be consumed.
+                        // Therefore, we need to actively cancel to end the pipe.
                         ctx->body_sink->cancel(status->to_string());
                     }
 
-                    switch (ctx->load_src_type) {
-                    // reset the stream load ctx's kafka commit offset
-                    case TLoadSourceType::KAFKA:
-                        ctx->kafka_info->reset_offset();
-                        break;
-                    default:
-                        break;
+                    if (ctx->need_commit_self && ctx->body_sink != nullptr) {
+                        if (ctx->body_sink->cancelled() || !status->ok()) {
+                            ctx->status = *status;
+                            this->rollback_txn(ctx.get());
+                        } else {
+                            this->commit_txn(ctx.get());
+                        }
                     }
-                }
-                ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
-                ctx->promise.set_value(*status);
+                });
+    } else {
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(
+                ctx->put_result.pipeline_params, [ctx, this](RuntimeState* state, Status* status) {
+                    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+                    ctx->commit_infos = std::move(state->tablet_commit_infos());
+                    if (status->ok()) {
+                        ctx->number_total_rows = state->num_rows_load_total();
+                        ctx->number_loaded_rows = state->num_rows_load_success();
+                        ctx->number_filtered_rows = state->num_rows_load_filtered();
+                        ctx->number_unselected_rows = state->num_rows_load_unselected();
 
-                if (!status->ok() && ctx->body_sink != nullptr) {
-                    // In some cases, the load execution is exited early.
-                    // For example, when max_filter_ratio is 0 and illegal data is encountered
-                    // during stream loading, the entire load process is terminated early.
-                    // However, the http connection may still be sending data to stream_load_pipe
-                    // and waiting for it to be consumed.
-                    // Therefore, we need to actively cancel to end the pipe.
-                    ctx->body_sink->cancel(status->to_string());
-                }
+                        int64_t num_selected_rows =
+                                ctx->number_total_rows - ctx->number_unselected_rows;
+                        if (num_selected_rows > 0 &&
+                            (double)ctx->number_filtered_rows / num_selected_rows >
+                                    ctx->max_filter_ratio) {
+                            // NOTE: Do not modify the error message here, for historical reasons,
+                            // some users may rely on this error message.
+                            *status = Status::InternalError("too many filtered rows");
+                        }
+                        if (ctx->number_filtered_rows > 0 &&
+                            !state->get_error_log_file_path().empty()) {
+                            ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
 
-                if (ctx->need_commit_self && ctx->body_sink != nullptr) {
-                    if (ctx->body_sink->cancelled() || !status->ok()) {
-                        ctx->status = *status;
-                        this->rollback_txn(ctx.get());
+                        if (status->ok()) {
+                            DorisMetrics::instance()->stream_receive_bytes_total->increment(
+                                    ctx->receive_bytes);
+                            DorisMetrics::instance()->stream_load_rows_total->increment(
+                                    ctx->number_loaded_rows);
+                        }
                     } else {
-                        this->commit_txn(ctx.get());
+                        LOG(WARNING)
+                                << "fragment execute failed"
+                                << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
+                                << ", err_msg=" << status->to_string() << ", " << ctx->brief();
+                        // cancel body_sink, make sender known it
+                        if (ctx->body_sink != nullptr) {
+                            ctx->body_sink->cancel(status->to_string());
+                        }
+
+                        switch (ctx->load_src_type) {
+                        // reset the stream load ctx's kafka commit offset
+                        case TLoadSourceType::KAFKA:
+                            ctx->kafka_info->reset_offset();
+                            break;
+                        default:
+                            break;
+                        }
                     }
-                }
-            });
+                    ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
+                    ctx->promise.set_value(*status);
+
+                    if (!status->ok() && ctx->body_sink != nullptr) {
+                        // In some cases, the load execution is exited early.
+                        // For example, when max_filter_ratio is 0 and illegal data is encountered
+                        // during stream loading, the entire load process is terminated early.
+                        // However, the http connection may still be sending data to stream_load_pipe
+                        // and waiting for it to be consumed.
+                        // Therefore, we need to actively cancel to end the pipe.
+                        ctx->body_sink->cancel(status->to_string());
+                    }
+
+                    if (ctx->need_commit_self && ctx->body_sink != nullptr) {
+                        if (ctx->body_sink->cancelled() || !status->ok()) {
+                            ctx->status = *status;
+                            this->rollback_txn(ctx.get());
+                        } else {
+                            this->commit_txn(ctx.get());
+                        }
+                    }
+                });
+    }
     if (!st.ok()) {
         // no need to check unref's return value
         return st;
@@ -143,6 +226,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 #endif
     return Status::OK();
 }
+
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_begin_request_total->increment(1);
 
@@ -160,10 +244,12 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 
     TLoadTxnBeginResult result;
     Status status;
+    int64_t duration_ns = 0;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
     } else {
+        SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -175,6 +261,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 #endif
         status = Status(result.status);
     }
+    g_stream_load_begin_txn_latency << duration_ns / 1000;
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status << ctx->brief();
         if (result.__isset.job_status) {
@@ -197,16 +284,21 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxnPreCommit(result, request);
-            },
-            config::txn_commit_rpc_timeout_ms));
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnPreCommit(result, request);
+                },
+                config::txn_commit_rpc_timeout_ms));
 #else
-    result = k_stream_load_commit_result;
+        result = k_stream_load_commit_result;
 #endif
+    }
+    g_stream_load_precommit_txn_latency << duration_ns / 1000;
     // Return if this transaction is precommitted successful; otherwise, we need try
     // to
     // rollback this transaction
@@ -234,12 +326,17 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxn2PCResult result;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxn2PC(result, request);
-            },
-            config::txn_commit_rpc_timeout_ms));
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxn2PC(result, request);
+                },
+                config::txn_commit_rpc_timeout_ms));
+    }
+    g_stream_load_commit_txn_latency << duration_ns / 1000;
     Status status(result.status);
     if (!status.ok()) {
         LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status;

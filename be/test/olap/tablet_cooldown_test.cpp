@@ -319,9 +319,14 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .type(TYPE_INT)
                                    .column_name(SEQUENCE_COL)
                                    .column_pos(2)
+                                   .nullable(false)
                                    .build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATETIME)
+                                   .column_name("v1")
+                                   .column_pos(3)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.build(&desc_tbl_builder);
 
     return desc_tbl_builder.desc_tbl();
@@ -351,7 +356,9 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     WriteRequest write_req = {tablet_id, schema_hash, WriteType::LOAD,        txn_id, partition_id,
                               load_id,   tuple_desc,  &(tuple_desc->slots()), false,  &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;

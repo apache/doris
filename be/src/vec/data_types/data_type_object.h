@@ -75,6 +75,11 @@ public:
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method getDefault() is not implemented for data type " << get_name();
     }
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for object";
+    }
+
     DataTypeSerDeSPtr get_serde() const override {
         return std::make_shared<DataTypeObjectSerDe>();
     };
