@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -101,11 +102,20 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
+    private String getWorkloadGroupName(ConnectContext context) throws AnalysisException {
         String groupName = context.getSessionVariable().getWorkloadGroup();
         if (Strings.isNullOrEmpty(groupName)) {
             groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
         }
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = DEFAULT_GROUP_NAME;
+        }
+        return groupName;
+    }
+
+    public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
+        String groupName = getWorkloadGroupName(context);
+
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
         readLock();
         try {
