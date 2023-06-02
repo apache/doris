@@ -82,7 +82,7 @@ public class DecimalLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.DOWN);
+            v = v.setScale(scale, RoundingMode.HALF_UP);
         }
         init(v);
         analysisDone();

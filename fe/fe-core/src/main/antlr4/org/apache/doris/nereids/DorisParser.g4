@@ -258,7 +258,6 @@ multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
 
-
 // -----------------Expression-----------------
 namedExpression
     : expression (AS? (identifierOrText))?

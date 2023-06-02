@@ -221,6 +221,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; 
 }
     
 
@@ -625,6 +627,7 @@ struct TPipelineFragmentParams {
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
   26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
 }
 
 struct TPipelineFragmentParamsList {
