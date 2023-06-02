@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 
 /**
  * generate fragment id for nereids physical plan
@@ -45,7 +47,7 @@ public class FragmentProcessor extends PlanPostProcessor {
         return join;
     }
 
-    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext ctx) {
+    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext ctx) {
         scan.setMutableState(AbstractPlan.FRAGMENT_ID, frId);
         return scan;
     }
