@@ -281,6 +281,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        String memoryLimitString = properties.get(MEMORY_LIMIT);
+        this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
         this.initQueryQueue();
     }
 }
