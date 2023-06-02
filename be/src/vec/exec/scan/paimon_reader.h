@@ -50,7 +50,7 @@ namespace doris::vectorized {
  */
 class PaimonJniReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(PaimonJniReader);
-    
+
 public:
     PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                     RuntimeProfile* profile, const TFileRangeDesc& range);
