@@ -65,6 +65,8 @@ public class CastExpr extends Expr {
 
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
+    private boolean notFold = false;
+
     static {
         TYPE_NULLABLE_MODE = Maps.newHashMap();
         for (ScalarType fromType : Type.getSupportedTypes()) {
@@ -582,5 +584,14 @@ public class CastExpr extends Expr {
     public String getStringValueForArray() {
         return children.get(0).getStringValueForArray();
     }
+
+    public void setNotFold(boolean notFold) {
+        this.notFold = notFold;
+    }
+
+    public boolean isNotFold() {
+        return this.notFold;
+    }
+
 }
 

@@ -505,7 +505,7 @@ public class ArithmeticExpr extends Expr {
                     if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && t1TargetType.isDecimalV3()) {
+                } else if (op == Operator.DIVIDE && (t1TargetType.isDecimalV3())) {
                     int leftPrecision = t1Precision + t2Scale + Config.div_precision_increment;
                     int leftScale = t1Scale + t2Scale + Config.div_precision_increment;
                     if (leftPrecision > ScalarType.MAX_DECIMAL128_PRECISION) {
@@ -515,7 +515,15 @@ public class ArithmeticExpr extends Expr {
                         type = castBinaryOp(Type.DOUBLE);
                         break;
                     }
-                    castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
+                    Expr child = getChild(0);
+                    if (child instanceof DecimalLiteral) {
+                        DecimalLiteral literalChild = (DecimalLiteral) child;
+                        Expr newChild = literalChild
+                                .castToDecimalV3ByDivde(ScalarType.createDecimalV3Type(leftPrecision, leftScale));
+                        setChild(0, newChild);
+                    } else {
+                        castChild(ScalarType.createDecimalV3Type(leftPrecision, leftScale), 0);
+                    }
                 } else if (op == Operator.MOD) {
                     // TODO use max int part + max scale of two operands as result type
                     // because BE require the result and operands types are the exact the same decimalv3 type
