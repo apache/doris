@@ -25,28 +25,27 @@ under the License.
 -->
 
 ## DATE
-### Description
-DATE function
 
+<version since="1.2.0">
+
+DATE
+
+</version>
+
+### Description
 #### Syntax
-Date
-Convert input type to DATE type
 date
 Date type, the current range of values is ['0000-01-01','9999-12-31'], and the default print form is 'yyyy-MM-dd'.
 
-### note
-If you use version 1.2 and above, it is strongly recommended that you use the DATEV2 type instead of the DATE type as DATEV2 is more efficient than DATE type。
-
-We intend to delete this type in 2024. At this stage, Doris prohibits creating tables containing the `DATE` type by default. If you need to use it, you need to add `disable_datev1 = false` in the FE's config and restart the FE.
-
 ### example
 ```
-SELECT DATE('2003-12-31 01:02:03');
-+-----------------------------+
-| date('2003-12-31 01:02:03') |
-+-----------------------------+
-| 2003-12-31                  |
-+-----------------------------+
+SELECT CAST('2003-12-31 01:02:03' as DATE);
++---------------------------------------+
+| CAST('2003-12-31 01:02:03' AS DATE) |
++---------------------------------------+
+| 2003-12-31                            |
++---------------------------------------+
 ```
+
 ### keywords
 DATE
