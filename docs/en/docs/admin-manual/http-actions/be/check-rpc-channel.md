@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pad Rowset",
+    "title": "Check Stub Cache",
     "language": "en"
 }
 ---
@@ -24,27 +24,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# CHECK Stub Cache
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /api/check_rpc_channel/{host_to_check}/{remot_brpc_port}/{payload_size}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+Check whether the connection cache is available
 
-## Query parameters
+## Path parameters
 
-* `tablet_id`
-    ID of the tablet
+* `host_to_check`
 
-* `start_version`
-    Start version
+    Host to check
 
-* `end_version`
-    End version       
+* `remot_brpc_port`
 
+    Remot brpc port
+
+* `payload_size`
+
+    Load size, unit: B, value range 1~1024000.
 
 ## Request body
 
@@ -54,15 +56,16 @@ None
 
     ```
     {
-        msg: "OK",
-        code: 0
+        "msg":"success",
+        "code":0,
+        "data": "open brpc connection to {host_to_check}:{remot_brpc_port} succcess.",
+        "count":0
     }
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+    curl http://127.0.0.1:8040/api/be_version_info/127.0.0.1/8888/1024000
     ```
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Compaction Action",
+    "title": "查看Compaction状态",
     "language": "zh-CN"
 }
 ---
@@ -24,19 +24,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compaction Action
+# 查看Compaction状态
 
-该 API 用于查看某个 BE 节点总体的 compaction 状态，或者指定 tablet 的 compaction 状态。也可以用于手动触发 Compaction。
+## Request
 
-## 查看 Compaction 状态
+`GET /api/compaction/run_status`
+`GET /api/compaction/show?tablet_id={int}`
 
-### 节点整体 compaction 状态
+## Description
 
-```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status
-```
+用于查看某个 BE 节点总体的 compaction 状态，或者指定 tablet 的 compaction 状态。
 
-返回 JSON 格式
+## Query parameters
+
+* `tablet_id`
+    - tablet的id
+
+## Request body
+
+无
+
+## Response
+
+### 整体Compaction状态
 
 ```
 {
@@ -53,22 +63,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/run_status
 
 该结构表示某个数据目录下，正在执行 compaction 任务的 tablet 的 id，以及 compaction 的类型。
 
-### 指定 tablet 的 compaction 状态
-
-```
-curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx
-```
-
-若 tablet 不存在，返回 JSON 格式的错误：
-
-```
-{
-    "status": "Fail",
-    "msg": "Tablet not found"
-}
-```
-
-若 tablet 存在，则返回 JSON 格式的结果:
+### 指定tablet的Compaction状态
 
 ```
 {
@@ -110,103 +105,8 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx
 * missing_rowsets: 缺失的版本。
 * stale version path：该 table 当前被合并rowset集合的合并版本路径，该结构是一个数组结构，每个元素表示一个合并路径。每个元素中包含了三个属性：path id 表示版本路径id，last create time 表示当前路径上最近的 rowset 创建时间，默认在这个时间半个小时之后这条路径上的所有 rowset 会被过期删除。
 
-### 示例
+## Examples
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015
+curl http://192.168.10.24:8040/api/compaction/show?tablet_id=10015
 ```
-
-## 手动触发 Compaction
-
-```
-curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&compact_type=cumulative
-```
-
-当前仅能执行一个手动compaction任务，其中compact_type取值为base或cumulative
-
-若 tablet 不存在，返回 JSON 格式的错误：
-
-```
-{
-    "status": "Fail",
-    "msg": "Tablet not found"
-}
-```
-
-若 compaction 执行任务触发失败时，返回 JSON 格式的错误：
-
-```
-{
-    "status": "Fail",
-    "msg": "fail to execute compaction, error = -2000"
-}
-```
-
-若 compaction 执行触发成功时，则返回 JSON 格式的结果:
-
-```
-{
-    "status": "Success",
-    "msg": "compaction task is successfully triggered."
-}
-```
-
-结果说明：
-
-* status：触发任务状态，当成功触发时为Success；当因某些原因（比如，没有获取到合适的版本）时，返回Fail。
-* msg：给出具体的成功或失败的信息。
-### 示例
-
-```
-curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&compact_type=cumulative
-```
-
-## 手动 Compaction 执行状态
-
-```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx
-```
-
-若 tablet 不存在，返回 JSON 格式：
-
-```
-{
-    "status": "Fail",
-    "msg": "Tablet not found"
-}
-```
-
-若 tablet 存在并且 tablet 不在正在执行 compaction，返回 JSON 格式：
-
-```
-{
-    "status" : "Success",
-    "run_status" : false,
-    "msg" : "this tablet_id is not running",
-    "tablet_id" : 11308,
-    "schema_hash" : 700967178,
-    "compact_type" : ""
-}
-```
-
-若 tablet 存在并且 tablet 正在执行 compaction，返回 JSON 格式：
-
-```
-{
-    "status" : "Success",
-    "run_status" : true,
-    "msg" : "this tablet_id is running",
-    "tablet_id" : 11308,
-    "schema_hash" : 700967178,
-    "compact_type" : "cumulative"
-}
-```
-
-结果说明：
-
-* run_status：获取当前手动 compaction 任务执行状态
-
-### 示例
-
-```
-curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015

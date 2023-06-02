@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Pad Rowset",
-    "language": "en"
+    "title": "metrics信息",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,45 +24,44 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pad Rowset
+# metrics信息
 
 ## Request
 
-`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
+`GET /metrics?type={enum}&with_tablet={bool}`
 
 ## Description
 
-Pad one empty rowset as one substitute for error replica.
+prometheus监控采集接口
 
 ## Query parameters
 
-* `tablet_id`
-    ID of the tablet
+* `type`
+    输出方式，选填，默认全部输出，另有以下取值：
+    - `core`: 只输出核心采集项
+    - `json`: 以json格式输出
 
-* `start_version`
-    Start version
-
-* `end_version`
-    End version       
-
+* `with_tablet`
+    是否输出tablet相关的采集项，选填，默认`false`。
 
 ## Request body
 
-None
+无
 
 ## Response
 
     ```
-    {
-        msg: "OK",
-        code: 0
-    }
+    doris_be__max_network_receive_bytes_rate LONG 60757
+    doris_be__max_network_send_bytes_rate LONG 16232
+    doris_be_process_thread_num LONG 1120
+    doris_be_process_fd_num_used LONG 336
+    ，，，
+
     ```
 ## Examples
 
 
     ```
-    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
-
+        curl "http://127.0.0.1:8040/metrics?type=json&with_tablet=true"
     ```
 
