@@ -120,6 +120,9 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             tables.put(tableRef.getAlias(), table);
         }
         for (SelectListItem item : selectStmt.getSelectList().getItems()) {
+            if (item.isStar()) {
+                continue;
+            }
             Expr itemExpr = item.getExpr();
             String alias = item.getAlias();
             if (itemExpr instanceof SlotRef) {
