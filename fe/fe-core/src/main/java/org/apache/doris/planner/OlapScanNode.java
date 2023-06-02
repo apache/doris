@@ -101,6 +101,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -766,6 +767,15 @@ public class OlapScanNode extends ScanNode {
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 replicas.clear();
                 replicas.add(replica);
+            }
+            final long coolDownReplicaId = tablet.getCooldownReplicaId();
+            if (-1L != coolDownReplicaId) {
+                final Optional<Replica> replicaOptional = replicas.stream()
+                                .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                if (replicaOptional.isPresent()) {
+                    replicas.clear();
+                    replicas.add(replicaOptional.get());
+                }
             }
             boolean tabletIsNull = true;
             boolean collectedStat = false;
