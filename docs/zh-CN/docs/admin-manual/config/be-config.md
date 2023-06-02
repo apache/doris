@@ -658,6 +658,17 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: 选取 rowset 去合并的时间间隔，单位为秒
 * 默认值: 86400
 
+#### `max_single_replica_compaction_threads`
+
+* 类型：int32
+* 描述：Single Replica Compaction 线程池中线程数量的最大值。
+* 默认值：10
+
+#### `update_replica_infos_interval_seconds`
+
+* 描述：更新 peer replica infos 的最小间隔时间
+* 默认值：10（s）
+
 
 ### 导入
 

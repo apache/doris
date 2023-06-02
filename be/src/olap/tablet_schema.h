@@ -235,6 +235,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
+        _enable_single_replica_compaction = enable_single_replica_compaction;
+    }
+    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
     bool store_row_column() const { return _store_row_column; }
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
@@ -338,6 +342,7 @@ private:
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
+    bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
 

@@ -295,7 +295,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     }
 
     /*
-     * Each balance is performed for a single resource group in a colocate group.
+     * Each balance is performed for a single workload group in a colocate group.
      * For example, if the replica allocation of a colocate group is {TagA: 2, TagB: 1},
      * So the backend bucket seq may be like:
      *
@@ -304,10 +304,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * TagA  B  C  A  B
      * TagB  D  D  D  D
      *
-     * First, we will handle resource group of TagA, then TagB.
+     * First, we will handle workload group of TagA, then TagB.
      *
-     * For a single resource group, the balance logic is as follow
-     * (Suppose there is only one resource group with 3 replicas):
+     * For a single workload group, the balance logic is as follow
+     * (Suppose there is only one workload group with 3 replicas):
      *
      * All backends: A,B,C,D,E,F,G,H,I,J
      *

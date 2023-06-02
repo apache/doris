@@ -643,13 +643,12 @@ Status TabletReader::init_reader_params_and_create_block(
             tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        auto& delete_preds = tablet->delete_predicates();
-        std::copy(delete_preds.cbegin(), delete_preds.cend(),
-                  std::inserter(reader_params->delete_predicates,
-                                reader_params->delete_predicates.begin()));
-    }
+
+    auto& delete_preds = tablet->delete_predicates();
+    std::copy(delete_preds.cbegin(), delete_preds.cend(),
+              std::inserter(reader_params->delete_predicates,
+                            reader_params->delete_predicates.begin()));
+
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_pb : reader_params->delete_predicates) {
         merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_pb->version()));

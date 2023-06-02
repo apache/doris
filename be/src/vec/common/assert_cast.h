@@ -43,6 +43,9 @@ To assert_cast(From&& from) {
                 if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
                     return ptr;
                 }
+                LOG(FATAL) << fmt::format("Bad cast from type:{}* to {}",
+                                          demangle(typeid(*from).name()),
+                                          demangle(typeid(To).name()));
             }
         } else {
             if (typeid(from) == typeid(To)) return static_cast<To>(from);

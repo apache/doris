@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
@@ -770,6 +771,10 @@ public class Auth implements Writable {
         LOG.debug("finish replaying ldap admin password.");
     }
 
+    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
+        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
+    }
+
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
         createRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfNotExists(), false);
@@ -943,6 +948,15 @@ public class Auth implements Writable {
         }
     }
 
+    public String getWorkloadGroup(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getWorkloadGroup(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
@@ -1082,7 +1096,7 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getGlobalPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserInfo(userIdentity.getQualifiedUser()).getPaloRole().getGlobalPrivTable());
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getGlobalPrivTable());
         }
         return table;
     }
@@ -1094,7 +1108,7 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getCatalogPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserInfo(userIdentity.getQualifiedUser()).getPaloRole().getCatalogPrivTable());
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getCatalogPrivTable());
         }
         return table;
     }
@@ -1106,7 +1120,7 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getDbPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserInfo(userIdentity.getQualifiedUser()).getPaloRole().getDbPrivTable());
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getDbPrivTable());
         }
         return table;
     }
@@ -1118,7 +1132,7 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getTablePrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserInfo(userIdentity.getQualifiedUser()).getPaloRole().getTablePrivTable());
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getTablePrivTable());
         }
         return table;
     }
@@ -1130,7 +1144,7 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getResourcePrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserInfo(userIdentity.getQualifiedUser()).getPaloRole().getResourcePrivTable());
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getResourcePrivTable());
         }
         return table;
     }

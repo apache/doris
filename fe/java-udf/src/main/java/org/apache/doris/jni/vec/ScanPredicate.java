@@ -24,6 +24,7 @@ import org.apache.doris.jni.vec.ColumnType.Type;
 import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -94,6 +95,8 @@ public class ScanPredicate {
                     return byteBuffer.getInt();
                 case BIGINT:
                     return byteBuffer.getLong();
+                case LARGEINT:
+                    return TypeNativeBytes.getBigInteger(Arrays.copyOf(valueBytes, valueBytes.length));
                 case FLOAT:
                     return byteBuffer.getFloat();
                 case DOUBLE:
@@ -152,6 +155,11 @@ public class ScanPredicate {
         @Override
         public double getDouble() {
             return (double) inspectObject();
+        }
+
+        @Override
+        public BigInteger getBigInteger() {
+            return (BigInteger) inspectObject();
         }
 
         @Override

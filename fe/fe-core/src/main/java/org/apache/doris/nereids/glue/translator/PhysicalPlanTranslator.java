@@ -28,13 +28,11 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -42,7 +40,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -288,11 +285,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
+
         if (!(physicalPlan instanceof PhysicalOlapTableSink) && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (!(physicalPlan instanceof PhysicalOlapTableSink)) {
+        if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
@@ -313,7 +311,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
-        for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
+        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
+        for (Column column : targetTableColumns) {
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(column.getType());
@@ -328,56 +327,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
-        Map<Column, Slot> columnToSlots = Maps.newHashMap();
-        Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
-                "this is a bug in insert into command");
-        for (int i = 0; i < olapTableSink.getCols().size(); ++i) {
-            columnToSlots.put(olapTableSink.getCols().get(i), olapTableSink.getOutput().get(i));
-        }
-        List<Expr> outputExprs = Lists.newArrayList();
-        try {
-            for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
-                if (columnToSlots.containsKey(column)) {
-                    ExprId exprId = columnToSlots.get(column).getExprId();
-                    outputExprs.add(context.findSlotRef(exprId).checkTypeCompatibility(column.getType()));
-                } else if (column.getDefaultValue() == null) {
-                    outputExprs.add(NullLiteral.create(column.getType()));
-                } else {
-                    if (column.getDefaultValueExprDef() != null) {
-                        outputExprs.add(column.getDefaultValueExpr());
-                    } else {
-                        StringLiteral defaultValueExpr = new StringLiteral(column.getDefaultValue());
-                        outputExprs.add(defaultValueExpr.checkTypeCompatibility(column.getType()));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTableSink.getTargetTable()
-                .getDefaultDistributionInfo());
-        List<Expr> partitionExprs = distributionInfo.getDistributionColumns().stream()
-                .map(column -> context.findSlotRef(columnToSlots.get(column).getExprId()))
-                .collect(Collectors.toList());
-
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
             PlanFragment currentFragment = new PlanFragment(
                     context.nextFragmentId(),
                     exchangeNode,
-                    rootFragment.getDataPartition());
+                    DataPartition.UNPARTITIONED);
 
             rootFragment.setPlanRoot(exchangeNode.getChild(0));
             rootFragment.setDestination(exchangeNode);
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
+
         rootFragment.setSink(sink);
 
-        rootFragment.finalize(null);
-        rootFragment.setOutputExprs(outputExprs);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
         return rootFragment;
     }
 

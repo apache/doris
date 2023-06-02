@@ -284,16 +284,25 @@ public class OperationType {
     public static final short OP_COOLDOWN_DELETE = 402;
     public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
 
-    // resource group 410 ~ 419
-    public static final short OP_CREATE_RESOURCE_GROUP = 410;
-    public static final short OP_DROP_RESOURCE_GROUP = 411;
-    public static final short OP_ALTER_RESOURCE_GROUP = 412;
+    // workload group 410 ~ 419
+    public static final short OP_CREATE_WORKLOAD_GROUP = 410;
+    public static final short OP_DROP_WORKLOAD_GROUP = 411;
+    public static final short OP_ALTER_WORKLOAD_GROUP = 412;
 
     // query stats 440 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
 
     // update binlog config
     public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
+
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
+
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
+
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
 
     /**
      * Get opcode name by op code.

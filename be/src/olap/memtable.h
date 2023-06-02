@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -44,6 +45,7 @@ class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
+struct FlushContext;
 
 // row pos in _input_mutable_block
 struct RowInBlock {
@@ -106,8 +108,8 @@ public:
     int64_t delete_bitmap_ns = 0;
     int64_t segment_writer_ns = 0;
     int64_t duration_ns = 0;
-    int32_t sort_times = 0;
-    int32_t agg_times = 0;
+    int64_t sort_times = 0;
+    int64_t agg_times = 0;
 };
 
 class MemTable {
@@ -144,6 +146,9 @@ public:
         _delta_writer_callback = callback;
     }
 
+    bool empty() const { return _input_mutable_block.rows() == 0; }
+    void assign_segment_id();
+
 private:
     Status _do_flush();
 
@@ -163,7 +168,8 @@ private:
     // Eg. [A | B | C | (D, E, F)]
     // After unfold block structure changed to -> [A | B | C | D | E | F]
     // The expanded D, E, F is dynamic part of the block
-    void unfold_variant_column(vectorized::Block& block);
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx);
 
 private:
     TabletSharedPtr _tablet;
@@ -223,6 +229,7 @@ private:
     void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
     std::function<void(MemTableStat&)> _delta_writer_callback;
+    std::optional<int32_t> _segment_id = std::nullopt;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

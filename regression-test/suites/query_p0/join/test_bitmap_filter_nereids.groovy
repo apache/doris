@@ -76,11 +76,10 @@ suite("test_bitmap_filter_nereids") {
 
     qt_sql14 "select k1, k2 from ${tbl1} where k1 in (select bitmap_from_string('1,10')) order by 1, 2"
 
-    qt_sql15 "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
-
-    sql "set enable_pipeline_engine=true;"
-    qt_sql15 "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
-    sql "set enable_pipeline_engine=false;"
+    test {
+        sql "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
+        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't support filter or group by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' in your mysql client."
+    }
 
     explain{
         sql "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) order by k1;"

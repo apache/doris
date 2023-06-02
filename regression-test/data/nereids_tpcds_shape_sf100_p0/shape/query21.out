@@ -3,7 +3,7 @@
 PhysicalTopN
 --PhysicalDistribute
 ----PhysicalTopN
-------filter((CASE WHEN (inv_before > 0) THEN (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)) ELSE NULL END >= cast((2.00 / 3.0) as DOUBLE))(CASE WHEN (inv_before > 0) THEN (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)) ELSE NULL END <= 1.5))
+------filter((CASE WHEN (inv_before > 0) THEN (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)) ELSE NULL END >= cast((2.000000 / 3.0) as DOUBLE))(CASE WHEN (inv_before > 0) THEN (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)) ELSE NULL END <= 1.5))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]

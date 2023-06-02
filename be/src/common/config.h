@@ -371,6 +371,7 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 // This config can be set to limit thread number in compaction thread pool.
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
+DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -410,6 +411,8 @@ DECLARE_mInt64(total_permits_for_compaction_score);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
+// sleep interval in second after update replica infos
+DECLARE_mInt32(update_replica_infos_interval_seconds);
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -1021,6 +1024,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+
+// enable set in BitmapValue
+DECLARE_Bool(enable_set_in_bitmap_value);
 
 #ifdef BE_TEST
 // test s3
