@@ -6345,8 +6345,8 @@ map_expr ::=
   ;
 
 struct_field ::=
-  ident:name COLON type:type
-  {: RESULT = new StructField(name, type); :}
+  ident:name COLON type:type opt_comment:comment
+  {: RESULT = new StructField(name, type, comment); :}
   ;
 
 struct_field_list ::=
