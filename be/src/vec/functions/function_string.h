@@ -1333,7 +1333,7 @@ public:
 
                     // Prepend chars of pad.
                     while (result_index < pad_byte_len) {
-                        int remain = std::min(pad_len, byte_len - result_index);
+                        int remain = std::min(pad_len, pad_byte_len - result_index);
                         buffer.append(pad_data, pad_data + remain);
                         result_index += remain;
                     }
