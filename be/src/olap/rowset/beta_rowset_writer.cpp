@@ -532,6 +532,8 @@ RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_r
 }
 
 RowsetSharedPtr BetaRowsetWriter::build() {
+    // make sure all segments are flushed
+    DCHECK_EQ(_num_segment, _next_segment_id);
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
         Status status = file_writer->close();
@@ -631,8 +633,6 @@ void BetaRowsetWriter::_build_rowset_meta_with_spec_field(
 }
 
 void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta) {
-    // make sure all segments are flushed
-    DCHECK_EQ(_num_segment, _next_segment_id);
     int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
