@@ -216,8 +216,6 @@ public class IndexChangeJob implements Writable {
      */
     public synchronized void run() {
         try {
-            this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionIDGenerator().getNextTransactionId();
             switch (jobState) {
                 case WAITING_TXN:
                     runWaitingTxnJob();
@@ -245,6 +243,8 @@ public class IndexChangeJob implements Writable {
 
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionIDGenerator().getNextTransactionId();
         try {
             if (!isPreviousLoadFinished()) {
                 LOG.info("wait transactions before {} to be finished, inverted index job: {}", watershedTxnId, jobId);
