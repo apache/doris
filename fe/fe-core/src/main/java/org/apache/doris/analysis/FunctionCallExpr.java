@@ -486,14 +486,6 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
-        if (orderByElements.size() != o.orderByElements.size()) {
-            return false;
-        }
-        for (int i = 0; i < orderByElements.size(); i++) {
-            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
-                return false;
-            }
-        }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
                 && fnParams.isStar() == o.fnParams.isStar();
@@ -528,18 +520,12 @@ public class FunctionCallExpr extends Expr {
                     || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                sb.append("ORDER BY ");
-            }
-            sb.append(children.get(i).toSql());
-            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
-                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
-                    sb.append(" ASC");
-                } else {
-                    sb.append(" DESC");
-                }
+                result.add("ORDER BY " + children.get(i).toSql());
+            } else {
+                result.add(children.get(i).toSql());
             }
         }
-        sb.append(")");
+        sb.append(Joiner.on(", ").join(result)).append(")");
         return sb.toString();
     }
 
