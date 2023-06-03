@@ -96,9 +96,21 @@ under the License.
    建议以挂载本地 Doris 源码目录的方式运行镜像，这样编译的产出二进制文件会存储在宿主机中，不会因为镜像退出而消失。
 
    同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
+   
+   此外，运行镜像编译时需要 download 部分文件，可以采用 host 模式启动镜像。 host 模式不需要加 -p 进行端口映射，因为和宿主机共享网络IP和端口。
+   
+   docker run 部分参数说明如下：
+   
+    | 参数 | 注释 |
+    |---|---|
+    | -v | 给容器挂载存储卷，挂载到容器的某个目录 |
+    | --name | 指定容器名字，后续可以通过名字进行容器管理 |
+    | --network | 容器网络设置: bridge 使用 docker daemon 指定的网桥，host 容器使用主机的网络， container:NAME_or_ID 使用其他容器的网路，共享IP和PORT等网络资源， none 容器使用自己的网络（类似--net=bridge），但是不进行配置 |
+    
+    如下示例，是指将容器的 /root/doris-DORIS-x.x.x-release 挂载至宿主机 /your/local/doris-DORIS-x.x.x-release 目录，且命名 mydocker 后用 host 模式 启动镜像：
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
+    $ docker run -it --network=host --name mydocker -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
     ```
 
 3. 下载源码
