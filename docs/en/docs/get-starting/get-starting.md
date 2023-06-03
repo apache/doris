@@ -124,7 +124,7 @@ mysql -uroot -P9030 -h127.0.0.1
 >
 >1. The root user used here is the default user built into doris, and is also the super administrator user, see [Rights Management](../admin-manual/privilege-ldap/user-privilege.md)
 >2. -P: Here is our query port to connect to Doris, the default port is 9030, which corresponds to `query_port` in fe.conf
->3. -h: Here is the IP address of the FE we are connecting to, if your client and FE are installed on the same node you can use 127.0.0.1, this is also provided by Doris if you forget the root password, you can connect directly to the login without the password in this way and reset the root password
+>3. -h: Here is the IP address of the FE we are connecting to, if your client and FE are installed on the same node you can use 127.0.0.1
 
 Execute the following command to view the FE running status
 
