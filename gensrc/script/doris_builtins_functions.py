@@ -1071,10 +1071,10 @@ visible_functions = {
         [['timediff'], 'TIME', ['DATETIMEV2', 'DATEV2'], ''],
 
         [['datediff'], 'INT', ['DATEV2', 'DATETIMEV2'], ''],
-        [['timediff'], 'TIMEV2', ['DATEV2', 'DATETIMEV2'], ''],
+        [['timediff'], 'TIME', ['DATEV2', 'DATETIMEV2'], ''],
 
         [['datediff'], 'INT', ['DATEV2', 'DATEV2'], ''],
-        [['timediff'], 'TIMEV2', ['DATEV2', 'DATEV2'], ''],
+        [['timediff'], 'TIME', ['DATEV2', 'DATEV2'], ''],
 
         [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
