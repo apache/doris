@@ -111,7 +111,7 @@ public class InsertStreamTxnExecutor {
                 throw new TException(e);
             }
         } else {
-            TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
+            TExecPlanFragmentParams tRequest = planner.plan(streamLoadStmt.getId());
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
             List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (beIds.isEmpty()) {
