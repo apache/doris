@@ -23,8 +23,8 @@ import org.apache.doris.regression.util.OutputUtils
 import groovy.util.logging.Slf4j
 import org.apache.doris.thrift.BackendService
 import org.apache.doris.thrift.FrontendService
-import org.apache.doris.thrift.TBinlog
 import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.thrift.protocol.TBinaryProtocol
 import org.apache.thrift.transport.TSocket
 import org.apache.thrift.transport.TTransportException
@@ -40,24 +40,33 @@ class FrontendClientImpl {
     public FrontendService.Client client
 
     FrontendClientImpl(TNetworkAddress address) throws TTransportException {
-        tSocket = new TSocket(address.hostname, address.port)
-        client = new FrontendService.Client(new TBinaryProtocol(tSocket))
-        tSocket.open()
+        this.tSocket = new TSocket(address.hostname, address.port)
+        this.client = new FrontendService.Client(new TBinaryProtocol(tSocket))
+        this.tSocket.open()
     }
 
     void close() {
-        tSocket.close()
+        this.tSocket.close()
     }
 }
 
 class BackendClientImpl {
     private TSocket tSocket
+
+    public TNetworkAddress address
+    public int httpPort
     public BackendService.Client client
 
-    BackendClientImpl(TNetworkAddress address) throws TTransportException {
-        tSocket = new TSocket(address.hostname, address.port)
-        client = new BackendService.Client(new TBinaryProtocol(tSocket))
-        tSocket.open()
+    BackendClientImpl(TNetworkAddress address, int httpPort) throws TTransportException {
+        this.address = address
+        this.httpPort = httpPort
+        this.tSocket = new TSocket(address.hostname, address.port)
+        this.client = new BackendService.Client(new TBinaryProtocol(this.tSocket))
+        this.tSocket.open()
+    }
+
+    String toString() {
+        return "BackendClientImpl: {" + address.toString() + " }"
     }
 
     void close() {
@@ -65,17 +74,80 @@ class BackendClientImpl {
     }
 }
 
+class PartitionMeta {
+    public long version
+    public TreeMap<Long, Long> tabletMeta
+
+    PartitionMeta(long version) {
+        this.version = version
+        this.tabletMeta = new TreeMap<Long, Long>()
+    }
+
+    String toString() {
+        return "PartitionMeta: { version: " + version.toString() + ", " + tabletMeta.toString() + " }"
+    }
+
+}
+
 class SyncerContext {
+    protected Connection targetConnection
     protected FrontendClientImpl sourceFrontendClient
     protected FrontendClientImpl targetFrontendClient
-    protected ArrayList<BackendClientImpl> sourceBackendClients
-    protected ArrayList<BackendClientImpl> targetBackendClients
+
+    protected Long sourceTableId
+    protected TreeMap<Long, PartitionMeta> sourcePartitionMap = new TreeMap<Long, PartitionMeta>()
+    protected Long targetTableId
+    protected TreeMap<Long, PartitionMeta> targetPartitionMap = new TreeMap<Long, PartitionMeta>()
+
+    protected HashMap<Long, BackendClientImpl> sourceBackendClients = new HashMap<Long, BackendClientImpl>()
+    protected HashMap<Long, BackendClientImpl> targetBackendClients = new HashMap<Long, BackendClientImpl>()
+
+    public ArrayList<TTabletCommitInfo> commitInfos = new ArrayList<TTabletCommitInfo>()
 
     public String user
     public String passwd
     public String db
-    public TBinlog binlog
+    public long txnId
     public long seq
+
+    Boolean metaIsValid() {
+        if (sourcePartitionMap.isEmpty() || targetPartitionMap.isEmpty()) {
+            return false
+        }
+
+        if (sourcePartitionMap.size() != targetPartitionMap.size()) {
+            return false
+        }
+
+        Iterator sourceIter = sourcePartitionMap.iterator()
+        Iterator targetIter = targetPartitionMap.iterator()
+        while (sourceIter.hasNext()) {
+             if (sourceIter.next().value.tabletMeta.size() !=
+                 targetIter.next().value.tabletMeta.size()) {
+                 return false
+             }
+        }
+
+        return true
+    }
+
+    void closeSourceBackendClients() {
+        if (!sourceBackendClients.isEmpty()) {
+            for (BackendClientImpl client in sourceBackendClients.values()) {
+                client.close()
+            }
+        }
+        sourceBackendClients.clear()
+    }
+
+    void closeTargetBackendClients() {
+        if (!targetBackendClients.isEmpty()) {
+            for (BackendClientImpl client in targetBackendClients.values()) {
+                client.close()
+            }
+        }
+        targetBackendClients.clear()
+    }
 
     void closeAllClients() {
         if (sourceFrontendClient != null) {
@@ -84,16 +156,7 @@ class SyncerContext {
         if (targetFrontendClient != null) {
             targetFrontendClient.close()
         }
-        if (!sourceBackendClients.isEmpty()) {
-            for (BackendClientImpl client in sourceBackendClients) {
-                client.close()
-            }
-        }
-        if (!targetBackendClients.isEmpty()) {
-            for (BackendClientImpl client in targetBackendClients) {
-                client.close()
-            }
-        }
+        closeTargetBackendClients()
     }
 }
 
@@ -173,6 +236,19 @@ class SuiteContext implements Closeable {
         return className
     }
 
+    SyncerContext getSyncerContext() {
+        SyncerContext context = syncerContext.get()
+        if (context == null) {
+            context = new SyncerContext()
+            context.user = config.feSyncerUser
+            context.passwd = config.feSyncerPassword
+            context.db = dbName
+            context.seq = -1
+            syncerContext.set(context)
+        }
+        return context
+    }
+
     // compatible to context.conn
     Connection getConn() {
         return getConnection()
@@ -187,17 +263,12 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
-    SyncerContext getSyncerContext() {
-        SyncerContext context = syncerContext.get()
-        if (context == null) {
-            context = new SyncerContext()
-            context.user = config.feSyncerUser
-            context.passwd = config.feSyncerPassword
-            context.db = dbName
-            context.seq = -1
-            syncerContext.set(context)
+    Connection getTargetConnection() {
+        def context = getSyncerContext()
+        if (context.targetConnection == null) {
+            context.targetConnection = config.getTargetConnectionByDbName(dbName)
         }
-        return context
+        return context.targetConnection
     }
 
     FrontendClientImpl getSourceFrontClient() {

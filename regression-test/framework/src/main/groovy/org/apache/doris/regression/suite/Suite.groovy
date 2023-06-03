@@ -20,9 +20,12 @@ package org.apache.doris.regression.suite
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.gson.Gson
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.json.BinlogData
+import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -36,14 +39,26 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.SyncerUtils
+import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TBinlog
+import org.apache.doris.thrift.TBinlogType
+import org.apache.doris.thrift.TCommitTxnResult
 import org.apache.doris.thrift.TGetBinlogResult
+import org.apache.doris.thrift.TIngestBinlogRequest
+import org.apache.doris.thrift.TIngestBinlogResult
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TStatus
 import org.apache.doris.thrift.TStatusCode
+import org.apache.doris.thrift.TTabletCommitInfo
+import org.apache.doris.thrift.TUniqueId
+import org.apache.thrift.transport.TTransportException
+import org.apache.tools.ant.taskdefs.Sync
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
 
+import java.util.Map.Entry
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -67,6 +82,11 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+
+    enum ccrCluster {
+        SOURCE,
+        TARGET
+    }
 
     Suite(String name, String group, SuiteContext context) {
         this.name = name
@@ -194,68 +214,458 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
-    Boolean get_binlog(String table) {
-        logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}")
-        SyncerContext syncerContext = context.getSyncerContext()
-        FrontendClientImpl clientImpl = context.getSourceFrontClient()
-        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, syncerContext, table, logger)
-        if (result != null && result.isSetStatus()) {
-            TStatusCode code = result.getStatus().getStatusCode()
-            switch (code) {
-                case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
-                case TStatusCode.OK:
-                    if (result.isSetBinlogs()) {
-                        syncerContext.binlog = result.getBinlogs().first()
-                    }
-                    break
-                case TStatusCode.BINLOG_DISABLE:
-                    syncerContext.binlog = null
-                    logger.error("Binlog is disabled!")
-                    break
-                case TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ:
-                    logger.error("Binlog is too new! seq: ${clientImpl.seq}")
-                    break
-                case TStatusCode.BINLOG_NOT_FOUND_DB:
-                    syncerContext.binlog = null
-                    logger.error("Binlog not found DB! DB: ${clientImpl.db}")
-                    break
-                case TStatusCode.BINLOG_NOT_FOUND_TABLE:
-                    syncerContext.binlog = null
-                    logger.error("Binlog not found table! table is ${table}")
-                    break
-                default:
-                    syncerContext.binlog = null
-                    logger.error("Binlog result is an unexpected code: ${code}")
-                    break
-            }
-        } else {
-            logger.error("Invalid TGetBinlogResult! result: ${result}")
-        }
-        return check_binlog()
-    }
-
-    Boolean check_binlog() {
+    private Boolean checkBinlog(TBinlog binlog) {
         SyncerContext syncerContext = context.getSyncerContext()
 
-        if (syncerContext.binlog == null) {
-            logger.error("binlog is null!")
+        // step 1: check binlog availability
+        if (binlog == null) {
             return false
         }
 
-        if (syncerContext.binlog.isSetCommitSeq()) {
-            syncerContext.seq = syncerContext.binlog.getCommitSeq()
+        // step 2: check and set seq to context
+        if (binlog.isSetCommitSeq()) {
+            syncerContext.seq = binlog.getCommitSeq()
             logger.info("Now last seq is ${syncerContext.seq}")
         } else {
             logger.error("Invalid binlog! binlog seq is unset.")
             return false
         }
 
+        // step 3: print binlog type
+        if (binlog.isSetType()) {
+            String typeName
+            switch (binlog.getType()) {
+                case TBinlogType.UPSERT:
+                    typeName = "UPSERT"
+                    break
+                case TBinlogType.CREATE_TABLE:
+                    typeName = "CREATE_TABLE"
+                    break
+                case TBinlogType.ADD_PARTITION:
+                    typeName = "ADD_PARTITION"
+                    break
+                default:
+                    typeName = "UNKNOWN"
+                    break
+            }
+            logger.info("binlog type name is ${typeName}")
+        }
+
+        // step 4: check binlog data is set and get metadata
+        if (binlog.isSetData()) {
+            String data = binlog.getData()
+            logger.info("binlog data is ${data}")
+            Gson gson = new Gson()
+            getSourceMeta(syncerContext, gson.fromJson(data, BinlogData.class))
+            logger.info("Source tableId: ${syncerContext.sourceTableId}, ${syncerContext.sourcePartitionMap}")
+        } else {
+            logger.error("binlog data is not contains data!")
+            return false
+        }
+
         return true
+    }
+
+    private Boolean checkGetBinlog(TGetBinlogResult result, ccrCluster cluster) {
+        SyncerContext syncerContext = context.getSyncerContext()
+        TBinlog binlog = null
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ:
+                    case TStatusCode.OK:
+                        if (result.isSetBinlogs()) {
+                            binlog = result.getBinlogs().first()
+                        }
+                        break
+                    case TStatusCode.BINLOG_DISABLE:
+                        logger.error("Binlog is disabled!")
+                        break
+                    case TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ:
+                        logger.error("Binlog is too new! Msg: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.BINLOG_NOT_FOUND_DB:
+                        logger.error("Binlog not found DB! DB: ${syncerContext.db}")
+                        break
+                    case TStatusCode.BINLOG_NOT_FOUND_TABLE:
+                        logger.error("Binlog not found table!")
+                        break
+                    default:
+                        logger.error("Binlog result is an unexpected code: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TGetBinlogResult! result: ${result}")
+        }
+
+        // step 2: check binlog
+        return checkBinlog(binlog)
+    }
+
+    private Boolean checkBeginTxn(TBeginTxnResult result) {
+        SyncerContext syncerContext = context.getSyncerContext()
+        Boolean isCheckedOK = false
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        isCheckedOK = true
+                        break
+                    case TStatusCode.LABEL_ALREADY_EXISTS:
+                        logger.error("Begin transaction label is exist! job status: ${result.getJobStatus()}")
+                        break
+                    case TStatusCode.ANALYSIS_ERROR:
+                        logger.error("Begin transaction analysis error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.INTERNAL_ERROR:
+                        logger.error("Begin transaction internal error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    default:
+                        logger.error("Begin transaction result is an unexpected code: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TBeginTxnResult! result: ${result}")
+        }
+
+        // step 2: check and set txnId to context
+        if (isCheckedOK && result.isSetTxnId()) {
+            logger.info("Begin transaction id is ${result.getTxnId()}")
+            syncerContext.txnId = result.getTxnId()
+        } else {
+            logger.error("Begin transaction txnId is unset!")
+            isCheckedOK = false
+        }
+
+        // step 3: print result information
+        if (isCheckedOK) {
+            if (result.isSetDbId()) {
+                logger.info("Begin transaction db id is ${result.getDbId()}")
+            }
+        }
+        return isCheckedOK
+    }
+
+    private Boolean checkIngestBinlog(TIngestBinlogResult result) {
+        Boolean isCheckedOK = false
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        isCheckedOK = true
+                        break
+                    case TStatusCode.NOT_IMPLEMENTED_ERROR:
+                        logger.error("Ingest binlog enable feature binlog is false! job status: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.ANALYSIS_ERROR:
+                        logger.error("Ingest binlog analysis error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.RUNTIME_ERROR:
+                        logger.error("Ingest binlog runtime error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    default:
+                        logger.error("Ingest binlog result is an unexpected code: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TIngestBinlogResult! result: ${result}")
+        }
+        return isCheckedOK
+    }
+
+    private Boolean checkCommitTxn(TCommitTxnResult result) {
+        SyncerContext syncerContext = context.getSyncerContext()
+        Boolean isCheckedOK = false
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        isCheckedOK = true
+                        break
+                    case TStatusCode.PUBLISH_TIMEOUT:
+                        logger.error("Commit transaction publish timeout! job status: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.ANALYSIS_ERROR:
+                        logger.error("Commit transaction analysis error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    case TStatusCode.INTERNAL_ERROR:
+                        logger.error("Commit transaction internal error! error massage: ${status.getErrorMsgs()}")
+                        break
+                    default:
+                        logger.error("Commit transaction result is an unexpected code: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TCommitTxnResult! result: ${result}")
+        }
+
+        if (isCheckedOK) {
+            syncerContext.sourcePartitionMap.clear()
+            syncerContext.commitInfos.clear()
+            syncerContext.closeSourceBackendClients()
+        }
+
+        return isCheckedOK
+    }
+
+    HashMap<Long, BackendClientImpl> getBackendClientsImpl(ccrCluster cluster) throws TTransportException {
+        HashMap<Long, BackendClientImpl> clientsMap = new HashMap<Long, BackendClientImpl>()
+        String backendSQL = "SHOW PROC '/backends'"
+        List<List<Object>> backendInformation
+        if (cluster == ccrCluster.SOURCE) {
+            backendInformation = sql(backendSQL)
+        } else {
+            backendInformation = target_sql(backendSQL)
+        }
+        for (List<Object> row : backendInformation) {
+            TNetworkAddress address = new TNetworkAddress(row[1] as String, row[3] as int)
+            BackendClientImpl client = new BackendClientImpl(address, row[4] as int)
+            clientsMap.put(row[0] as Long, client)
+        }
+        return clientsMap
+    }
+
+    void getBackendClients() {
+        logger.info("Begin to get backend's maps.")
+        SyncerContext syncerContext = context.getSyncerContext()
+
+        // get source backend clients
+        try {
+            syncerContext.sourceBackendClients = getBackendClientsImpl(ccrCluster.SOURCE)
+        } catch (TTransportException e) {
+            logger.error("Create source cluster backend client fail: ${e.toString()}")
+        }
+
+        // get target backend clients
+        try {
+            syncerContext.targetBackendClients = getBackendClientsImpl(ccrCluster.TARGET)
+        } catch (TTransportException e) {
+            logger.error("Create target cluster backend client fail: ${e.toString()}")
+        }
+    }
+
+    void getSourceMeta(SyncerContext syncerContext, BinlogData binlogData) {
+        Entry<Long, PartitionRecords> tableEntry = binlogData.tableRecords.entrySet()[0]
+        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString() + "/" +
+                                              tableEntry.key.toString() + "/partitions/"
+
+        syncerContext.sourceTableId = tableEntry.key
+        tableEntry.value.partitionRecords.forEach(data -> {
+            PartitionMeta partitionMeta = new PartitionMeta(data.version)
+            List<List<Object>> sqlInfo
+            String partitionSQL = metaSQL + data.partitionId.toString()
+            sqlInfo = sql(partitionSQL + "'")
+            partitionSQL += "/" + (sqlInfo[0][0] as Long).toString()
+            sqlInfo = sql(partitionSQL + "'")
+            sqlInfo.forEach(row -> {
+                partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
+            })
+            syncerContext.sourcePartitionMap.put(data.partitionId, partitionMeta)
+        })
+    }
+
+    Boolean get_target_meta(String table) {
+        logger.info("Get target cluster meta data.")
+        SyncerContext syncerContext = context.getSyncerContext()
+        String baseSQL = "SHOW PROC '/dbs"
+        List<List<Object>> sqlInfo
+
+        // step 1: get target dbId
+        Long dbId = -1
+        sqlInfo = target_sql(baseSQL + "'")
+        for (List<Object> row : sqlInfo) {
+            if ((row[1] as String).contains(context.dbName)) {
+                dbId = row[0] as Long
+                break
+            }
+        }
+        if (dbId == -1) {
+            logger.error("Target cluster get ${context.dbName} db error.")
+            return false
+        }
+
+        // step 2: get target dbId/tableId
+        baseSQL += "/" + dbId.toString()
+        sqlInfo = target_sql(baseSQL + "'")
+        Long tableId = -1
+        for (List<Object> row : sqlInfo) {
+            if ((row[1] as String).contains(table)) {
+                tableId = (row[0] as Long)
+                break
+            }
+        }
+        if (tableId == -1) {
+            logger.error("Target cluster get ${table} tableId fault.")
+            return false
+        }
+        syncerContext.targetTableId = tableId
+
+        // step 3: get partitionIds
+        baseSQL += "/" + tableId.toString() + "/partitions"
+        ArrayList<Long> partitionIds = new ArrayList<Long>()
+        sqlInfo = target_sql(baseSQL + "'")
+        for (List<Object> row : sqlInfo) {
+            partitionIds.add(row[0] as Long)
+        }
+        if (partitionIds.isEmpty()) {
+            logger.error("Target cluster get partitions fault.")
+            return false
+        }
+
+        // step 4: get partitionMetas
+        for (Long id : partitionIds) {
+            PartitionMeta meta = new PartitionMeta(-1)
+
+            // step 4.1: get partition/indexId
+            String partitionSQl = baseSQL + "/" + id.toString()
+            Long indexId
+            sqlInfo = target_sql(partitionSQl + "'")
+            if (sqlInfo.isEmpty()) {
+                logger.error("Target cluster partition-${id} indexId fault.")
+                return false
+            }
+            indexId = sqlInfo[0][0] as Long
+
+            // step 4.2: get partition/indexId/tabletId
+            partitionSQl += "/" + indexId.toString()
+            sqlInfo = target_sql(partitionSQl + "'")
+            for (List<Object> row : sqlInfo) {
+                meta.tabletMeta.put(row[0] as Long, row[2] as Long)
+            }
+            if (meta.tabletMeta.isEmpty()) {
+                logger.error("Target cluster get (partitionId/indexId)-(${id}/${indexId}) tabletIds fault.")
+                return false
+            }
+
+            syncerContext.targetPartitionMap.put(id, meta)
+        }
+
+        logger.info("Target cluster metadata: ${syncerContext.targetPartitionMap}")
+        return true
+    }
+
+    Boolean get_binlog(String table) {
+        SyncerContext syncerContext = context.getSyncerContext()
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+        logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}, binlog seq: ${syncerContext.seq}")
+        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, syncerContext, table)
+        return checkGetBinlog(result, ccrCluster.SOURCE)
+    }
+
+    Boolean begin_txn(String table) {
+        logger.info("Begin transaction to target cluster ${context.config.feTargetThriftNetworkAddress}")
+        getBackendClients()
+        SyncerContext syncerContext = context.getSyncerContext()
+        FrontendClientImpl clientImpl = context.getTargetFrontClient()
+        TBeginTxnResult result = SyncerUtils.beginTxn(clientImpl, syncerContext, table)
+        return checkBeginTxn(result)
+    }
+
+    Boolean ingest_binlog(String table) {
+        logger.info("Begin to ingest binlog.")
+        SyncerContext syncerContext = context.getSyncerContext()
+
+        // step 1: Check meta data is valid
+        if (!syncerContext.metaIsValid()) {
+            logger.error("Meta data miss match")ß
+            return false
+        }
+
+        // step 2: Begin ingest task
+        Iterator sourcePartitionIter = syncerContext.sourcePartitionMap.iterator()
+        Iterator targetPartitionIter = syncerContext.targetPartitionMap.iterator()
+
+        // step 3:
+        while (sourcePartitionIter.hasNext()) {
+            Entry srcPartition = sourcePartitionIter.next()
+            Entry tarPartition = targetPartitionIter.next()
+            Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
+            Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
+
+            while (srcTabletIter.hasNext()) {
+                Entry srcTabletMap = srcTabletIter.next()
+                Entry tarTabletMap = tarTabletIter.next()
+
+                BackendClientImpl srcClient = syncerContext.sourceBackendClients.get(srcTabletMap.value)
+                if (srcClient == null) {
+                    logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcTabletMap.value}")
+                    return false
+                }
+                BackendClientImpl tarClient = syncerContext.targetBackendClients.get(tarTabletMap.value)
+                if (tarClient == null) {
+                    logger.error("Can't find target tabletId-${tarTabletMap.key} -> beId-${tarTabletMap.value}")
+                    return false
+                }
+
+                TIngestBinlogRequest request = new TIngestBinlogRequest()
+                TUniqueId uid = new TUniqueId(-1, -1)
+                request.setTxnId(syncerContext.txnId)
+                request.setRemoteTabletId(srcTabletMap.key)
+                request.setBinlogVersion(srcPartition.value.version)
+                request.setRemoteHost(srcClient.address.hostname)
+                request.setRemotePort(srcClient.httpPort.toString())
+                request.setPartitionId(srcPartition.key)
+                request.setLocalTabletId(tarTabletMap.key)
+                request.setLoadId(uid)
+                logger.info("request -> ${request}")
+                TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
+                if (!checkIngestBinlog(result)) {
+                    logger.error("Ingest result error.")
+                    return false
+                }
+                syncerContext.commitInfos.add(new TTabletCommitInfo(tarTabletMap.key, tarTabletMap.value))
+            }
+        }
+
+        return true
+    }
+
+    Boolean commit_txn(String table) {
+        logger.info("Commit transaction to target cluster ${context.config.feTargetThriftNetworkAddress}")
+        SyncerContext syncerContext = context.getSyncerContext()
+        FrontendClientImpl clientImpl = context.getTargetFrontClient()
+        TCommitTxnResult result = SyncerUtils.commitTxn(clientImpl, syncerContext)
+        return checkCommitTxn(result)
     }
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }

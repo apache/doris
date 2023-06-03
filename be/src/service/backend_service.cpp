@@ -521,7 +521,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
     RowsetMetaPB rowset_meta_pb;
     if (!rowset_meta_pb.ParseFromString(rowset_meta_str)) {
-        LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url;
+        LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url
+                     << ", the string is " << rowset_meta_str;
         status = Status::InternalError("failed to parse rowset meta");
         status.to_thrift(&tstatus);
         return;
