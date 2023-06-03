@@ -233,10 +233,10 @@ Before exporting data, all files and directories in the `/home/user/` directory 
 
 #### export with S3
 
-8. Export all data from the `testTbl` table to S3 using invisible character '\x07' as a delimiter for columns and rows.
+8. Export all data from the `testTbl` table to S3 using invisible character '\x07' as a delimiter for columns and rows.If you want to export data to minio, you also need to specify use_path_style=true.
 
 ```sql
-EXPORT TABLE testTbl TO "s3://hdfs_host:port/a/b/c" 
+EXPORT TABLE testTbl TO "s3://bucket/a/b/c" 
 PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"
@@ -247,6 +247,22 @@ PROPERTIES (
   "AWS_REGION" = "xxxxx"
 )
 ```
+
+```sql
+EXPORT TABLE minio_test TO "s3://bucket/a/b/c" 
+PROPERTIES (
+  "column_separator"="\\x07", 
+  "line_delimiter" = "\\x07"
+) WITH s3 (
+  "AWS_ENDPOINT" = "xxxxx",
+  "AWS_ACCESS_KEY" = "xxxxx",
+  "AWS_SECRET_KEY"="xxxx",
+  "AWS_REGION" = "xxxxx",
+  "use_path_style" = "true"
+)
+```
+
+9. Export all data in the test table to HDFS in the format of parquet, limit the size of a single file to 1024MB, and reserve all files in the specified directory.
 
 #### export with HDFS
 
