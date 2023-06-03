@@ -48,6 +48,7 @@ add_library(Webserver STATIC
   action/metrics_action.cpp
   action/stream_load.cpp
   action/stream_load_2pc.cpp
+  action/stream_tvf_action.cpp
   action/meta_action.cpp
   action/compaction_action.cpp
   action/config_action.cpp
