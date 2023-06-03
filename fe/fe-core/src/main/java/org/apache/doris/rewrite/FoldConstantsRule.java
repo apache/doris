@@ -109,7 +109,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
-            if (castExpr.isNotFold()) {
+            if (castExpr.isImplicit()) {
                 return castExpr;
             }
             if (castExpr.getChild(0) instanceof NullLiteral) {

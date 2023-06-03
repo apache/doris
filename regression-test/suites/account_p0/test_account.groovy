@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_account") {
-    // only test
     // todo: test account management, such as role, user, grant, revoke ...
     sql "show roles"
 }
