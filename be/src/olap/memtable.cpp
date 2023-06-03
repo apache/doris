@@ -251,14 +251,31 @@ void MemTable::_put_into_output(vectorized::Block& in_block) {
                                    row_pos_vec.data() + in_block.rows());
 }
 
-/*
 int MemTable::_sort() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
-    _vec_row_comparator->set_block(&_input_mutable_block);
-    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
-    size_t same_keys_num = 0;
+    int same_keys_num = 0;
+    // sort new rows
+    Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
+    for (size_t i = 0; i < _schema->num_key_columns(); i++) {
+        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+            return _input_mutable_block.compare_one(lhs->_row_pos, rhs->_row_pos, i,
+                                                    _input_mutable_block, -1);
+        };
+        _inc_sort(_row_in_blocks, tie, cmp);
+    }
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
+    // sort extra round by _row_pos to make the sort stable
+    auto iter = tie.iter();
+    while (iter.next()) {
+        ::pdqsort(_row_in_blocks.begin() + iter.left(), _row_in_blocks.begin() + iter.right(),
+                  [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                      return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
+                  });
+        same_keys_num += iter.right() - iter.left();
+    }
+    // merge new rows and old rows
+    _vec_row_comparator->set_block(&_input_mutable_block);
     auto cmp_func = [this, is_dup, &same_keys_num](const RowInBlock* l,
                                                    const RowInBlock* r) -> bool {
         auto value = (*(this->_vec_row_comparator))(l, r);
@@ -269,35 +286,9 @@ int MemTable::_sort() {
             return value < 0;
         }
     };
-    // sort new rows
-    std::sort(new_row_it, _row_in_blocks.end(), cmp_func);
-    // merge new rows and old rows
+    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
-    return same_keys_num;
-}
-*/
-
-int MemTable::_sort() {
-    Tie tie = Tie(0, _row_in_blocks.size());
-    for (size_t i = 0; i < _schema->num_key_columns(); i++) {
-        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-            return _input_mutable_block.compare_one(lhs->_row_pos, rhs->_row_pos, i,
-                                                    _input_mutable_block, -1);
-        };
-        _inc_sort(_row_in_blocks, tie, cmp);
-    }
-    int same_keys_num = 0;
-    bool is_dup = (_keys_type == KeysType::DUP_KEYS);
-    // sort extra round by _row_pos to make the sort stable
-    auto iter = tie.iter();
-    while (iter.next()) {
-        ::pdqsort(_row_in_blocks.begin() + iter.left(), _row_in_blocks.begin() + iter.right(),
-                  [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
-                      return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
-                  });
-        same_keys_num++;
-    }
     return same_keys_num;
 }
 
