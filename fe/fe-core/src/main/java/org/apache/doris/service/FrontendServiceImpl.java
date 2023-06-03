@@ -1649,9 +1649,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId());
+            StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadStmt);
+            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadStmt.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
