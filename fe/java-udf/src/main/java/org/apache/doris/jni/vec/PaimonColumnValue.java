@@ -20,6 +20,7 @@ package org.apache.doris.jni.vec;
 import org.apache.paimon.data.columnar.ColumnarRow;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -74,6 +75,11 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public double getDouble() {
         return record.getDouble(idx);
+    }
+
+    @Override
+    public BigInteger getBigInteger() {
+        return BigInteger.valueOf(record.getInt(idx));
     }
 
     @Override
