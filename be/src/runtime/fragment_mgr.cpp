@@ -816,11 +816,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
-    std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-
-    for (size_t i = 0; i < params.local_params.size(); i++) {
+    auto pre_and_submit = [&](int i) {
         const auto& local_params = params.local_params[i];
 
         const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
@@ -829,15 +827,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             auto iter = _pipeline_map.find(fragment_instance_id);
             if (iter != _pipeline_map.end()) {
                 // Duplicated
-                continue;
+                return Status::OK();
             }
+            query_ctx->fragment_ids.push_back(fragment_instance_id);
         }
         START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
         span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
-        query_ctx->fragment_ids.push_back(fragment_instance_id);
-
-        exec_state.reset(new FragmentExecState(
+        std::shared_ptr<FragmentExecState> exec_state(new FragmentExecState(
                 query_ctx->query_id, fragment_instance_id, local_params.backend_num, _exec_env,
                 query_ctx,
                 std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
@@ -880,10 +877,42 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
             _cv.notify_all();
         }
-        RETURN_IF_ERROR(context->submit());
-    }
 
-    return Status::OK();
+        return context->submit();
+    };
+
+    int target_size = params.local_params.size();
+    if (target_size > 1) {
+        int prepare_done = {0};
+        Status prepare_status[target_size];
+        std::mutex m;
+        std::condition_variable cv;
+
+        for (size_t i = 0; i < target_size; i++) {
+            _thread_pool->submit_func([&, i]() {
+                prepare_status[i] = pre_and_submit(i);
+                std::unique_lock<std::mutex> lock(m);
+                prepare_done++;
+                if (prepare_done == target_size) {
+                    cv.notify_one();
+                }
+            });
+        }
+
+        std::unique_lock<std::mutex> lock(m);
+        if (prepare_done != target_size) {
+            cv.wait(lock);
+
+            for (size_t i = 0; i < target_size; i++) {
+                if (!prepare_status[i].ok()) {
+                    return prepare_status[i];
+                }
+            }
+        }
+        return Status::OK();
+    } else {
+        return pre_and_submit(0);
+    }
 }
 
 template <typename Param>
