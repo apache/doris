@@ -144,7 +144,7 @@ public class S3Storage extends BlobStorage {
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
             S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
-                dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
+		dfsFileSystem = FileSystem.get(new org.apache.hadoop.fs.Path(remotePath).toUri(), conf);
             } catch (Exception e) {
                 throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
             }
