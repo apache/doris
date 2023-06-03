@@ -98,9 +98,20 @@ This topic is about how to compile Doris from source.
     It is recommended to run the image by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because of the exit of the image.
 
     Meanwhile, it is recommended to mount the maven `.m2` directory in the image to the host directory to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
+    
+    In addition, when running image compilation, it is necessary to download some files, and the image can be started in host mode. The host mode does not require the addition of - p for port mapping, as it shares network IP and ports with the host.
+    
+    The parameters of the docker run section are explained as follows:
+    | parameter | annotation |
+    |---|---|
+    | -v | Mount a storage volume to a container and mount it to a directory on the container |
+    | --name | Specify a container name, which can be used for container management in the future |
+    | --network | Container network settings: 1 Bridge ( using the bridge specified by the Docker daemon ), 2 Host ( the network where the container uses the host ), 3 Container: NAME_ Or_ ID ( using network resources such as IP and PORT from other containers ), 4. none ( containers using their own network are similar to - net=bridge, but not configured ) |
+    
+    The following example refers to mounting the container's/root/doris DORIS-x.x.x-release to the host/your/local/doris DORIS-x.x.x-release directory, naming mydocker, and starting the image in host mode:
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
+    $ docker run -it --network=host --name mydocker -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
     ```
 
 3. Download source code
