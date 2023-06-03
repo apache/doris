@@ -56,7 +56,7 @@ public class FileSystemFactory {
         // TODO: need optimize the method. the conf is converted many times.
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
-        if (location.startsWith(FeConstants.FS_PREFIX_S3)) {
+        if (location.startsWith(FeConstants.FS_PREFIX_S3) || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
             return new S3FileSystem(properties);
         } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
             return new DFSFileSystem(properties);

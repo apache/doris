@@ -94,9 +94,7 @@ public class PropertyConverter {
      * Support other cloud client here.
      */
     public static Map<String, String> convertToHadoopFSProperties(Map<String, String> props) {
-        if (props.containsKey(S3Properties.ENDPOINT)) {
-            return convertToS3Properties(props, S3Properties.getCredential(props));
-        } else if (props.containsKey(ObsProperties.ENDPOINT)) {
+        if (props.containsKey(ObsProperties.ENDPOINT)) {
             return convertToOBSProperties(props, ObsProperties.getCredential(props));
         } else if (props.containsKey(GCSProperties.ENDPOINT)) {
             return convertToGCSProperties(props, GCSProperties.getCredential(props));
@@ -104,6 +102,8 @@ public class PropertyConverter {
             return convertToOSSProperties(props, OssProperties.getCredential(props));
         } else if (props.containsKey(CosProperties.ENDPOINT)) {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
+        } else if (props.containsKey(S3Properties.ENDPOINT)) {
+            return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
