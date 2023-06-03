@@ -386,7 +386,9 @@ public class DecimalLiteral extends LiteralExpr {
 
     public Expr castToDecimalV3ByDivde(Type targetType) {
         // onlye use in DecimalLiteral divide DecimalV3
-        return  new CastExpr(targetType, this);
+        CastExpr expr = new CastExpr(targetType, this);
+        expr.setNotFold(true);
+        return expr;
     }
 
     @Override
