@@ -279,19 +279,20 @@ int MemTable::_sort() {
 */
 
 int MemTable::_sort() {
-    Tie tie = Tie(_row_in_blocks.size(), 1);
+    Tie tie = Tie(0, _row_in_blocks.size());
     for (size_t i = 0; i < _schema->num_key_columns(); i++) {
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-          return _input_mutable_block.compare_one(lhs->_row_pos, rhs->_row_pos, i, _input_mutable_block, -1);
+            return _input_mutable_block.compare_one(lhs->_row_pos, rhs->_row_pos, i,
+                                                    _input_mutable_block, -1);
         };
         _inc_sort(_row_in_blocks, tie, cmp);
     }
     int same_keys_num = 0;
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
     // sort extra round by _row_pos to make the sort stable
-    TieIterator iter = TieIterator(tie);
+    auto iter = tie.iter();
     while (iter.next()) {
-        ::pdqsort(_row_in_blocks.begin() + iter.range_first, _row_in_blocks.begin() + iter.range_last,
+        ::pdqsort(_row_in_blocks.begin() + iter.left(), _row_in_blocks.begin() + iter.right(),
                   [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
                       return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
                   });
@@ -301,46 +302,16 @@ int MemTable::_sort() {
 }
 
 void MemTable::_inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
-                         std::function<int (const RowInBlock*, const RowInBlock*)> cmp) {
-    TieIterator iter = TieIterator(tie);
+                         std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
+    auto iter = tie.iter();
     while (iter.next()) {
-        ::pdqsort(row_in_blocks.begin() + iter.range_first, row_in_blocks.begin() + iter.range_last,
-              [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
-        tie[iter.range_first] = 0;
-        for (int i = iter.range_first + 1; i < iter.range_last; i++) {
-            tie[i] &= cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0;
+        ::pdqsort(row_in_blocks.begin() + iter.left(), row_in_blocks.begin() + iter.right(),
+                  [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
+        tie[iter.left()] = 0;
+        for (int i = iter.left() + 1; i < iter.right(); i++) {
+            tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
         }
     }
-}
-
-bool TieIterator::next() {
-    if (_inner_range_first >= end) {
-        return false;
-    }
-
-    // Find the first `1`
-    if (_inner_range_first == 0 && tie[_inner_range_first] == 1) {
-        // Just start from the 0
-    } else {
-        _inner_range_first = _find_nonzero(tie, _inner_range_first + 1);
-        if (_inner_range_first >= end) {
-            return false;
-        }
-        _inner_range_first--;
-    }
-
-    // Find the zero, or the end of range
-    _inner_range_last = _find_zero(tie, _inner_range_first + 1);
-    _inner_range_last = std::min(_inner_range_last, end);
-
-    if (_inner_range_first >= _inner_range_last) {
-        return false;
-    }
-
-    range_first = _inner_range_first;
-    range_last = _inner_range_last;
-    _inner_range_first = _inner_range_last;
-    return true;
 }
 
 template <bool is_final>

@@ -70,56 +70,66 @@ struct RowInBlock {
     inline void remove_init_agg() { _has_init_agg = false; }
 };
 
-
-using Tie = std::vector<uint8_t>;
-
-class TieIterator {
+class Tie {
 public:
-    const Tie& tie;
-    const int begin;
-    const int end;
+    class Iter {
+    public:
+        Iter(Tie& tie) : _tie(tie), _next(tie._begin) {}
+        size_t left() { return _left; }
+        size_t right() { return _right; }
 
-    // For outer access
-    int range_first;
-    int range_last;
+        // return false means no more ranges
+        bool next() {
+            if (_next >= _tie._end) {
+                return false;
+            }
+            if (_next == _tie._begin && _tie[_next] == 1) {
+                _left = _tie._begin;
+            } else {
+                _next = _find(1, _next);
+                _left = _next - 1;
+            }
+            if (_next >= _tie._end) {
+                return false;
+            }
+            _next = _find(0, _next);
+            _right = _next;
+            return true;
+        }
 
-    TieIterator(const Tie& tie) : TieIterator(tie, 0, tie.size()) {}
+    private:
+        size_t _find(uint8_t value, size_t start) {
+            if (start >= _tie._end) {
+                return start;
+            }
+            size_t offset = start - _tie._begin;
+            size_t size = _tie._end - start;
+            void* p = std::memchr(_tie._bits.data() + offset, value, size);
+            if (p == nullptr) {
+                return _tie._end;
+            }
+            return static_cast<uint8_t*>(p) - _tie._bits.data() + _tie._begin;
+        }
 
-    TieIterator(const Tie& tie, int begin, int end) : tie(tie), begin(begin), end(end) {
-        range_first = begin;
-        range_last = end;
-        _inner_range_first = begin;
-        _inner_range_last = end;
+    private:
+        Tie& _tie;
+        size_t _left;
+        size_t _right;
+        size_t _next;
+    };
+
+public:
+    Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
+        _bits = std::vector<uint8_t>(_end - _begin, 1);
     }
-
-    // Iterate the tie
-    // Return false means the loop should terminate
-    bool next();
+    uint8_t operator[](int i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    Iter iter() { return Iter(*this); }
 
 private:
-    int _inner_range_first;
-    int _inner_range_last;
-
-    template <class T>
-    static size_t _find_byte(const std::vector<T>& list, size_t start, T byte) {
-        if (start >= list.size()) {
-            return start;
-        }
-        const void* p = std::memchr((const void*)(list.data() + start), byte, list.size() - start);
-        if (p == nullptr) {
-            return list.size();
-        }
-        return (T*)p - list.data();
-    }
-
-    // Find position for zero byte, return size of list if not found
-    size_t _find_zero(const std::vector<uint8_t>& list, size_t start) {
-        return _find_byte<uint8_t>(list, start, 0);
-    }
-
-    size_t _find_nonzero(const std::vector<uint8_t>& list, size_t start) {
-        return _find_byte<uint8_t>(list, start, 1);
-    }
+    const size_t _begin;
+    const size_t _end;
+    std::vector<uint8_t> _bits;
 };
 
 class RowInBlockComparator {
