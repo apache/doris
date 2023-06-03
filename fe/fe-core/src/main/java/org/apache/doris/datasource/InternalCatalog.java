@@ -2227,6 +2227,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // register or remove table from DynamicPartition after table created
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
+                            .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
             }
