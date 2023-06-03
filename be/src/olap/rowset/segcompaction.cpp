@@ -79,7 +79,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<INIT_FAILED>();
@@ -215,7 +215,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 READER_SEGMENT_COMPACTION);
+                                                 ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     Merger::Statistics key_merger_stats;
@@ -240,8 +240,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
-                tablet, READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key, column_ids,
-                &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
+                tablet, ReaderType::READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key,
+                column_ids, &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
                 key_bounds));
         total_index_size += index_size;
         if (is_key) {

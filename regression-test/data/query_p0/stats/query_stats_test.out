@@ -16,11 +16,11 @@ k12	0	0
 k13	0	0
 
 -- !sql --
-k0	1	1
-k1	1	0
-k2	1	1
+k0	0	0
+k1	0	0
+k2	0	0
 k3	0	0
-k4	1	0
+k4	0	0
 k5	0	0
 k6	0	0
 k10	0	0
@@ -32,14 +32,14 @@ k12	0	0
 k13	0	0
 
 -- !sql --
-baseall	2
+stats_table	0
 
 -- !sql --
-baseall	k0	1	1
-	k1	1	0
-	k2	1	1
+stats_table	k0	0	0
+	k1	0	0
+	k2	0	0
 	k3	0	0
-	k4	1	0
+	k4	0	0
 	k5	0	0
 	k6	0	0
 	k10	0	0
@@ -49,3 +49,4 @@ baseall	k0	1	1
 	k9	0	0
 	k12	0	0
 	k13	0	0
+

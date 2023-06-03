@@ -189,6 +189,10 @@ distribution_desc
     * AGGREGATE KEY：其后指定的列为维度列。
     * UNIQUE KEY：其后指定的列为主键列。
 
+    <version since="2.0">
+    注：当表属性`enable_duplicate_without_keys_by_default = true`时, 默认创建没有排序列的DUPLICATE表。
+    </version>
+
     示例：
     
     ```
@@ -367,6 +371,20 @@ distribution_desc
         如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
 
         `"disable_auto_compaction" = "false"`
+    
+    * `enable_single_replica_compaction`
+
+        是否对这个表开启单副本 compaction。
+
+        如果这个属性设置成 `true`, 这个表的 tablet 的所有副本只有一个 do compaction，其他的从该副本拉取 rowset
+
+        `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        当配置为`true`时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
 
     * 动态分区相关
     
@@ -684,6 +702,34 @@ distribution_desc
 ```
 
 注：批量创建分区可以和常规手动创建分区混用，使用时需要限制分区列只能有一个，批量创建分区实际创建默认最大数量为4096，这个参数可以在fe配置项 `max_multi_partition_num` 调整
+
+</version>
+
+<version since="2.0">
+
+14. 批量无排序列Duplicate表
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
+    );
+```
 
 </version>
 

@@ -21,29 +21,32 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * some check need to do after analyze whole plan.
  */
 public class CheckAfterRewrite extends OneAnalysisRuleFactory {
+
     @Override
     public Rule build() {
         return any().then(plan -> {
@@ -58,7 +61,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(Collectors.toSet());
         Set<ExprId> childrenOutput = plan.children().stream()
-                .flatMap(child -> Stream.concat(child.getOutput().stream(), child.getNonUserVisibleOutput().stream()))
+                .flatMap(child -> child.getOutput().stream())
                 .map(NamedExpression::getExprId)
                 .collect(Collectors.toSet());
         notFromChildren = notFromChildren.stream()
@@ -111,6 +114,21 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                             .isOnlyMetricType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
+        } else if (plan instanceof LogicalWindow) {
+            ((LogicalWindow<?>) plan).getWindowExpressions().forEach(a -> {
+                if (!(a instanceof Alias && ((Alias) a).child() instanceof WindowExpression)) {
+                    return;
+                }
+                WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
+                if (windowExpression.getOrderKeys().stream().anyMatch((
+                        orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
+                if (windowExpression.getPartitionKeys().stream().anyMatch((
+                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
+            });
         }
     }
 }

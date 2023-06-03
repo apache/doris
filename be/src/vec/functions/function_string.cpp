@@ -552,8 +552,6 @@ public:
     // The second parameter of "trim" is a constant.
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     DataTypes get_variadic_argument_types_impl() const override {
         return impl::get_variadic_argument_types();
     }

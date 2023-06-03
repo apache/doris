@@ -49,9 +49,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
 
-    public IcebergExternalCatalog(long catalogId, String name) {
-        super(catalogId, name, InitCatalogLog.Type.ICEBERG);
-        this.type = "iceberg";
+    public IcebergExternalCatalog(long catalogId, String name, String comment) {
+        super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
     }
 
     @Override

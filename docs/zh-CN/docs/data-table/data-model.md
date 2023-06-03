@@ -354,6 +354,9 @@ Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种�
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+> 注意：
+> 1. 建议使用1.2.4及以上版本，该版本修复了一些bug和稳定性问题
+> 2. 在be.conf中添加配置项：disable_storage_page_cache=false。不添加该配置项可能会对数据导入性能产生较大影响
 
 仍然以上面的表为例，建表语句为
 
@@ -434,6 +437,53 @@ PROPERTIES (
 这种数据模型区别于 Aggregate 和 Unique 模型。数据完全按照导入文件中的数据进行存储，不会有任何聚合。即使两行数据完全相同，也都会保留。 而在建表语句中指定的 DUPLICATE KEY，只是用来指明底层数据按照那些列进行排序。（更贴切的名称应该为 “Sorted Column”，这里取名 “DUPLICATE KEY” 只是用以明确表示所用的数据模型。关于 “Sorted Column”的更多解释，可以参阅[前缀索引](./index/prefix-index.md)）。在 DUPLICATE KEY 的选择上，我们建议适当的选择前 2-4 列就可以。
 
 这种数据模型适用于既没有聚合需求，又没有主键唯一性约束的原始数据的存储。更多使用场景，可参阅**聚合模型的局限性**小节。
+
+<version since="2.0">
+
+### 无排序列 Duplicate 模型
+
+当创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个Duplicate模型的表，并自动指定排序列。
+
+当用户并没有排序需求的时候，可以通过在表属性中配置：
+
+```
+"enable_duplicate_without_keys_by_default" = "true"
+```
+
+然后再创建默认模型的时候，就会不再指定排序列，也不会给该表创建前缀索引，以此减少在导入和存储上额外的开销。
+
+建表语句如下：
+
+```sql
+CREATE TABLE IF NOT EXISTS example_db.example_tbl
+(
+    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
+    `type` INT NOT NULL COMMENT "日志类型",
+    `error_code` INT COMMENT "错误码",
+    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
+    `op_id` BIGINT COMMENT "负责人id",
+    `op_time` DATETIME COMMENT "处理时间"
+)
+DISTRIBUTED BY HASH(`type`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1",
+"enable_duplicate_without_keys_by_default" = "true"
+);
+
+MySQL > desc example_tbl;
++------------+---------------+------+-------+---------+-------+
+| Field      | Type          | Null | Key   | Default | Extra |
++------------+---------------+------+-------+---------+-------+
+| timestamp  | DATETIME      | No   | false | NULL    | NONE  |
+| type       | INT           | No   | false | NULL    | NONE  |
+| error_code | INT           | Yes  | false | NULL    | NONE  |
+| error_msg  | VARCHAR(1024) | Yes  | false | NULL    | NONE  |
+| op_id      | BIGINT        | Yes  | false | NULL    | NONE  |
+| op_time    | DATETIME      | Yes  | false | NULL    | NONE  |
++------------+---------------+------+-------+---------+-------+
+6 rows in set (0.01 sec)
+```
+</version>
 
 ## 聚合模型的局限性
 

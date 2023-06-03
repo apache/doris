@@ -127,14 +127,12 @@ struct ToBitmap {
             size_t size = col->size();
 
             for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
-                    continue;
-                } else {
-                    int64_t int_value = col->get_data()[i];
-                    if (LIKELY(int_value >= 0)) {
-                        res_data[i].add(int_value);
+                if constexpr (arg_is_nullable) {
+                    if ((*nullmap)[i]) {
+                        continue;
                     }
                 }
+                res_data[i].add(col->get_data()[i]);
             }
         }
     }
@@ -305,8 +303,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -444,8 +440,6 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -692,8 +686,6 @@ public:
         auto result_type = std::make_shared<ResultDataType>();
         return return_nullable ? make_nullable(result_type) : result_type;
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override {
         // for bitmap_and_not_count, result is always not null, and if the bitmap op result is null,
@@ -1022,8 +1014,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 3);
@@ -1082,7 +1072,6 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

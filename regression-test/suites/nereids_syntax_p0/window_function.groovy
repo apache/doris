@@ -116,7 +116,7 @@ suite("window_function") {
         GROUP BY ROLLUP (c2, c3)
     """
 
-    qt_subquery_1 """
+    order_qt_subquery_1 """
         SELECT *, row_number() over(partition by c1 order by c3, c2, c1, r1) as r2
         FROM (
             SELECT *, row_number() over(partition by c2 order by c3, c2, c1) as r1

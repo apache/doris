@@ -381,8 +381,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
         std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
         for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
-                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
-                            label_to_queryid(tracker->label()))) {
+                if (tracker->is_query_cancelled()) {
                     continue;
                 }
                 if (tracker->consumption() > min_free_mem) {
@@ -441,8 +440,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                 if (tracker->consumption() <= 33554432) { // 32M small query does not cancel
                     continue;
                 }
-                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
-                            label_to_queryid(tracker->label()))) {
+                if (tracker->is_query_cancelled()) {
                     continue;
                 }
                 int64_t overcommit_ratio =
@@ -487,21 +485,13 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
 }
 
 int64_t MemTrackerLimiter::tg_memory_limit_gc(
-        uint64_t id, const std::string& name, int64_t memory_limit,
+        int64_t need_free_mem, int64_t used_memory, uint64_t id, const std::string& name,
+        int64_t memory_limit,
         std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups) {
-    int64_t used_memory = 0;
-    for (auto& mem_tracker_group : tracker_limiter_groups) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (const auto& tracker : mem_tracker_group.trackers) {
-            used_memory += tracker->consumption();
-        }
-    }
-
-    if (used_memory <= memory_limit) {
+    if (need_free_mem <= 0) {
         return 0;
     }
 
-    int64_t need_free_mem = used_memory - memory_limit;
     int64_t freed_mem = 0;
     constexpr auto query_type = MemTrackerLimiter::Type::QUERY;
     auto cancel_str = [id, &name, memory_limit, used_memory](int64_t mem_consumption,
@@ -514,7 +504,7 @@ int64_t MemTrackerLimiter::tg_memory_limit_gc(
                 MemTracker::print_bytes(mem_consumption), BackendOptions::get_localhost(),
                 MemTracker::print_bytes(used_memory), MemTracker::print_bytes(memory_limit));
     };
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 need_free_mem - freed_mem, query_type, tracker_limiter_groups, cancel_str);
     }
