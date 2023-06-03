@@ -259,8 +259,7 @@ int MemTable::_sort() {
     Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
     for (size_t i = 0; i < _schema->num_key_columns(); i++) {
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
-            return _input_mutable_block.compare_one(lhs->_row_pos, rhs->_row_pos, i,
-                                                    _input_mutable_block, -1);
+            return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
         };
         _inc_sort(_row_in_blocks, tie, cmp);
     }
