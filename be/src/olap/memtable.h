@@ -283,7 +283,7 @@ private:
     size_t _last_sorted_pos = 0;
 
     //return number of same keys
-    int _sort();
+    size_t _sort();
     void _inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                    std::function<int (const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>

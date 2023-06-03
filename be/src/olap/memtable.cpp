@@ -251,10 +251,10 @@ void MemTable::_put_into_output(vectorized::Block& in_block) {
                                    row_pos_vec.data() + in_block.rows());
 }
 
-int MemTable::_sort() {
+size_t MemTable::_sort() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
-    int same_keys_num = 0;
+    size_t same_keys_num = 0;
     // sort new rows
     Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
     for (size_t i = 0; i < _schema->num_key_columns(); i++) {
@@ -409,7 +409,7 @@ void MemTable::shrink_memtable_by_agg() {
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
         _put_into_output(in_block);
@@ -495,7 +495,7 @@ Status MemTable::flush() {
 
 Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
