@@ -37,13 +37,14 @@ import java.util.List;
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last_index").add("array_last").add("array_count").build();
+            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
     // rather than reimplementing a lambda function, this will be reused the implementation of normal array function
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
-            .add("array_first_index").add("array_last_index").add("array_last").add("array_count")
+            .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
@@ -205,6 +206,26 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 LambdaFunctionCallExpr arrayFilterFunc = new LambdaFunctionCallExpr("array_filter", params);
                 arrayFilterFunc.analyzeImpl(analyzer);
                 IntLiteral indexParam = new IntLiteral(-1, Type.INT);
+
+                argTypes = new Type[2];
+                argTypes[0] = getChild(0).getType();
+                argTypes[1] = indexParam.getType();
+                this.children.clear();
+                this.children.add(arrayFilterFunc);
+                this.children.add(indexParam);
+            }
+            fnName = new FunctionName(null, "element_at");
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_first")) {
+            // array_last(lambda,array)--->array_first(array,lambda)--->element_at(array_filter,1)
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayFilterFunc = new LambdaFunctionCallExpr("array_filter", params);
+                arrayFilterFunc.analyzeImpl(analyzer);
+                IntLiteral indexParam = new IntLiteral(1, Type.INT);
 
                 argTypes = new Type[2];
                 argTypes[0] = getChild(0).getType();
