@@ -19,6 +19,7 @@ suite("test_ccr_util") {
     // context_check
     def res = false
     def tableName = "tbl_test_ccr_util"
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE if NOT EXISTS ${tableName} 
@@ -33,12 +34,30 @@ suite("test_ccr_util") {
             "binlog.enable" = "true"
         )
     """
+
+    target_sql "DROP TABLE IF EXISTS ${tableName}"
+    target_sql """
+        CREATE TABLE if NOT EXISTS ${tableName} 
+        (
+            `id` INT
+        )
+        ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 
+        PROPERTIES ( 
+            "replication_allocation" = "tag.location.default: 1",
+            "binlog.enable" = "true"
+        )
+    """
+    assertTrue(get_target_meta "${tableName}")
+
     for (int index = 0; index < 10; index++) {
         sql """
             INSERT INTO ${tableName} VALUES (${index})
         """
         assertTrue(get_binlog "${tableName}")
+        assertTrue(begin_txn "${tableName}")
+        assertTrue(ingest_binlog "${tableName}")
+        assertTrue(commit_txn "${tableName}")
     }
-
-    
 }

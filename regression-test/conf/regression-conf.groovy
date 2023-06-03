@@ -26,6 +26,7 @@ feAddress = "127.0.0.1"
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
 jdbcUrl = "jdbc:mysql://${feAddress}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://${feAddress}:9130/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -40,7 +41,7 @@ feHttpPassword = ""
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
-suitePath = "${DORIS_HOME}/regression-test/suites/CCR"
+suitePath = "${DORIS_HOME}/regression-test/ccr-suite"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"

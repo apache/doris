@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 @CompileStatic
 class Config {
     public String jdbcUrl
+    public String targetJdbcUrl
     public String jdbcUser
     public String jdbcPassword
     public String defaultDb
@@ -93,7 +94,7 @@ class Config {
 
     Config() {}
 
-    Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+    Config(String defaultDb, String jdbcUrl, String targetJdbcUrl, String jdbcUser, String jdbcPassword,
            String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
@@ -101,6 +102,7 @@ class Config {
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
+        this.targetJdbcUrl = targetJdbcUrl
         this.jdbcUser = jdbcUser
         this.jdbcPassword = jdbcPassword
         this.feSourceThriftAddress = feSourceThriftAddress
@@ -252,7 +254,8 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
+        config.tryCreateDbIfNotExist(config.jdbcUrl, config.defaultDb)
+        config.tryCreateDbIfNotExist(config.targetJdbcUrl, config.defaultDb)
         config.buildUrlWithDefaultDb()
 
         return config
@@ -262,6 +265,7 @@ class Config {
         def config = new Config(
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
+            configToString(obj.targetJdbcUrl),
             configToString(obj.jdbcUser),
             configToString(obj.jdbcPassword),
             configToString(obj.feSourceThriftAddress),
@@ -441,32 +445,35 @@ class Config {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
     }
 
-    void tryCreateDbIfNotExist() {
-        tryCreateDbIfNotExist(defaultDb)
-    }
-
-    void tryCreateDbIfNotExist(String dbName) {
+    void tryCreateDbIfNotExist(String url, String dbName) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
-            log.info("Try to create db, sql: ${sql}".toString())
+            log.info("Try to create db to ${url}, sql: ${sql}".toString())
             if (!dryRun) {
-                getConnection().withCloseable { conn ->
+                getConnection(url).withCloseable { conn ->
                     JdbcUtils.executeToList(conn, sql)
                 }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+            throw new IllegalStateException("Create database failed, url: ${url}", t)
         }
     }
 
-    Connection getConnection() {
-        return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    Connection getConnection(String url) {
+        return DriverManager.getConnection(url, jdbcUser, jdbcPassword)
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(dbName)
-        tryCreateDbIfNotExist(dbName)
+        String dbUrl = buildUrl(jdbcUrl, dbName)
+        tryCreateDbIfNotExist(jdbcUrl, dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getTargetConnectionByDbName(String dbName) {
+        String dbUrl = buildUrl(targetJdbcUrl, dbName)
+        tryCreateDbIfNotExist(targetJdbcUrl, dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
@@ -520,19 +527,21 @@ class Config {
     }
 
     private void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrl(defaultDb)
+        this.jdbcUrl = buildUrl(jdbcUrl, defaultDb)
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+        this.targetJdbcUrl = buildUrl(targetJdbcUrl, defaultDb)
+        log.info("Reset targetJdbcUrl to ${targetJdbcUrl}".toString())
     }
 
-    private String buildUrl(String dbName) {
-        String urlWithDb = jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+    private String buildUrl(String url, String dbName) {
+        String urlWithDb = url
+        String urlWithoutSchema = url.substring(url.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
-            if (jdbcUrl.contains("?")) {
+            if (url.contains("?")) {
                 // e.g: jdbc:mysql://locahost:8080/?a=b
-                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("?"))
+                urlWithDb = url.substring(0, url.lastIndexOf("?"))
                 urlWithDb = urlWithDb.substring(0, urlWithDb.lastIndexOf("/"))
-                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
+                urlWithDb += ("/" + dbName) + url.substring(url.lastIndexOf("?"))
             } else {
                 // e.g: jdbc:mysql://locahost:8080/
                 urlWithDb += dbName
