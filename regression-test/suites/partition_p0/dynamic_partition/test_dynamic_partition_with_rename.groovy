@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dynamic_partition_with_alter") {
-    def tbl = "test_dynamic_partition_with_alter"
+suite("test_dynamic_partition_with_rename") {
+    def tbl = "test_dynamic_partition_with_rename"
     sql "drop table if exists ${tbl}"
     sql """
         CREATE TABLE IF NOT EXISTS ${tbl}
@@ -37,8 +37,8 @@ suite("test_dynamic_partition_with_alter") {
     result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
 
-    // modify distributed column comment, then try to add too more dynamic partition
-    sql """ alter table ${tbl} modify column k1 comment 'new_comment_for_k1' """
+    // rename distributed column, then try to add too more dynamic partition
+    sql "alter table ${tbl} rename column k1 renamed_k1"
     sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
     result = sql "show partitions from ${tbl}"
     for (def retry = 0; retry < 15; retry++) {
@@ -50,6 +50,10 @@ suite("test_dynamic_partition_with_alter") {
         result = sql "show partitions from ${tbl}"
     }
     assertEquals(9, result.size())
+    for (def line = 0; line < result.size(); line++) {
+        // XXX: DistributionKey at pos(7), next maybe impl by sql meta
+        assertEquals("renamed_k1", result.get(line).get(7))
+    }
 
     sql "drop table ${tbl}"
 }
