@@ -28,7 +28,7 @@ under the License.
 
 <version since="dev"></version>
 
-Workload groups can limit the use of compute and memory resources on a single be node for tasks within the group, thus achieving resource isolation.
+The workload group can limit the use of compute and memory resources on a single be node for tasks within the group. Currently, query binding to workload groups is supported.
 
 ## Workload group properties
 
@@ -44,7 +44,7 @@ Workload groups can limit the use of compute and memory resources on a single be
 ```
 experimental_enable_workload_group=true
 ```
-The system will automatically create a default workload group named ``normal`` after this configuration is enabled. 2.
+The system will automatically create a default workload group named ``normal`` after this configuration is enabled. 
 
 2. To create a workload group:
 ```
@@ -63,10 +63,17 @@ For details on creating a workload group, see [CREATE-WORKLOAD-GROUP](../sql-man
 set experimental_enable_pipeline_engine = true.
 ```
 
-4. Queries bind to workload groups. Currently, queries are mainly bound to workload groups by specifying session variables. If the user does not specify a workload group, the query will be submitted to the `normal` workload group by default.
+4. Bind the workload group.
+* Bind the user to the workload group by default by setting the user property to ``normal``.
 ```
-set workload_group = g1.
+set property 'default_workload_group' = 'g1'.
 ```
+The current user's query will use 'g1' by default.
+* Specify the workload group via the session variable, which defaults to null.
+```
+set workload_group = 'g2'.
+```
+session variable `workload_group` takes precedence over user property `default_workload_group`, in case `workload_group` is empty, the query will be bound to `default_workload_group`, in case session variable ` workload_group` is not empty, the query will be bound to `workload_group`.
 
 5. Execute the query, which will be associated with the g1 workload group.
 
