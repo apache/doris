@@ -1,6 +1,6 @@
 ---
 {
-    "title": "资源组",
+    "title": "WORKLOAD GROUP",
     "language": "zh-CN"
 }
 ---
@@ -24,29 +24,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 资源组
+# WORKLOAD GROUP
 
 <version since="dev"></version>
 
-资源组可限制组内任务在单个be节点上的计算资源和内存资源的使用，从而达到资源隔离的目的。
+workload group 可限制组内任务在单个be节点上的计算资源和内存资源的使用。当前支持query绑定到workload group。
 
-## 资源组属性
+## workload group属性
 
-* cpu_share：必选，用于设置资源组获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的资源组可获取cpu资源的权重。例如，用户创建了3个资源组 rg-a、rg-b和rg-c，cpu_share 分别为 10、30、40，某一时刻rg-a和rg-b正在跑任务，而rg-c没有任务，此时rg-a可获得 25% (10 / (10 + 30))的cpu资源，而资源组rg-b可获得75%的cpu资源。如果系统只有一个资源组正在运行，则不管其cpu_share的值为多少，它都可以获取全部的cpu资源。
+* cpu_share：必选，用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
 
-* memory_limit: 必选，用于设置资源组可以使用be内存的百分比。资源组内存限制的绝对值为： 物理内存 * mem_limit * memory_limit，其中 mem_limit 为be配置项。系统所有资源组的 memory_limit总合不可超过100%。资源组在绝大多数情况下保证组内任务可使用memory_limit的内存，当资源组内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
+* memory_limit: 必选，用于设置workload group可以使用be内存的百分比。workload group内存限制的绝对值为： 物理内存 * mem_limit * memory_limit，其中 mem_limit 为be配置项。系统所有workload group的 memory_limit总合不可超过100%。workload group在绝大多数情况下保证组内任务可使用memory_limit的内存，当workload group内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
 
-* enable_memory_overcommit: 可选，用于开启资源组内存软隔离，默认为false。如果设置为false，则该资源组为内存硬隔离，系统检测到资源组内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该资源组为内存软隔离，如果系统有空闲内存资源则该资源组在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有资源组开启该配置时，所有资源组的 memory_limit 总合低于100%，剩余部分用于资源组内存超发。
+* enable_memory_overcommit: 可选，用于开启workload group内存软隔离，默认为false。如果设置为false，则该workload group为内存硬隔离，系统检测到workload group内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该workload group为内存软隔离，如果系统有空闲内存资源则该workload group在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有workload group开启该配置时，所有workload group的 memory_limit 总合低于100%，剩余部分用于workload group内存超发。
 
-## 资源组使用
+## workload group使用
 
 1. 开启 experimental_enable_workload_group 配置项，在fe.conf中设置：
 ```
 experimental_enable_workload_group=true
 ```
-在开启该配置后系统会自动创建名为`normal`的默认资源组。
+在开启该配置后系统会自动创建名为`normal`的默认workload group。
 
-2. 创建资源组：
+2. 创建workload group：
 ```
 create workload group if not exists g1
 properties (
@@ -55,19 +55,26 @@ properties (
     "enable_memory_overcommit"="true"
 );
 ```
-创建资源组详细可参考：[CREATE-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP.md)，另删除资源组可参考[DROP-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP.md)；修改资源组可参考：[ALTER-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP.md)；查看资源组可参考：[WORKLOAD_GROUPS()](../sql-manual/sql-functions/table-functions/workload-group.md)和[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md)。
+创建workload group详细可参考：[CREATE-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP.md)，另删除workload group可参考[DROP-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP.md)；修改workload group可参考：[ALTER-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP.md)；查看workload group可参考：[WORKLOAD_GROUPS()](../sql-manual/sql-functions/table-functions/workload-group.md)和[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md)。
 
-3. 开启pipeline执行引擎，资源组cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
+3. 开启pipeline执行引擎，workload group cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
 ```
 set experimental_enable_pipeline_engine = true;
 ```
 
-4. 查询绑定资源组。目前主要通过指定session变量的方式绑定查询到资源组。如果用户不指定资源组，那么查询默认会提交到`normal`资源组:
+4. 绑定workload group。
+* 通过设置user property 将user默认绑定到workload group，默认为`normal`:
 ```
-set workload_group = g1;
+set property 'default_workload_group' = 'g1';
 ```
+当前用户的查询将默认使用'g1'。
+* 通过session变量指定workload group, 默认为空:
+```
+set workload_group = 'g2';
+```
+session变量`workload_group`优先于 user property `default_workload_group`, 在`workload_group`为空时，查询将绑定到`default_workload_group`, 在session变量`workload_group`不为空时，查询将绑定到`workload_group`。
 
-5. 执行查询，查询将关联到 g1 资源组。
+5. 执行查询，查询将关联到指定的 workload group。
 
 ### 查询排队功能
 ```
