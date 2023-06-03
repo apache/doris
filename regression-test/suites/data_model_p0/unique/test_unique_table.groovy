@@ -48,7 +48,7 @@ suite("test_unique_table") {
     test {
         sql """
             CREATE TABLE IF NOT EXISTS ${table_auto_inc} (
-                k int NOT NULL AUTO_INCREMENT,
+                k BIGINT NOT NULL AUTO_INCREMENT,
                 int_value int,
                 char_value char(10),
                 date_value date

@@ -105,7 +105,7 @@ suite("test_aggregate_table") {
     test {
         sql """
             CREATE TABLE IF NOT EXISTS ${table_auto_inc} (
-                k int NOT NULL AUTO_INCREMENT,
+                k BIGINT NOT NULL AUTO_INCREMENT,
                 int_value_sum int sum,
                 int_value_max int max,
                 int_value_min int min,
