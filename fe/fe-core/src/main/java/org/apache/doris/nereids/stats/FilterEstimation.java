@@ -197,7 +197,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private Statistics calculateWhenLiteralRight(ComparisonPredicate cp,
             ColumnStatistic statsForLeft, ColumnStatistic statsForRight, EstimationContext context) {
-        if (statsForLeft == ColumnStatistic.UNKNOWN) {
+        if (statsForLeft.isUnKnown) {
             return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
         }
 
