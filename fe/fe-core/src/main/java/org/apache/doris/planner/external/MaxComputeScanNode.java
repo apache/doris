@@ -42,6 +42,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
     private final MaxComputeExternalCatalog catalog;
+    public static final int MIN_SPLIT_SIZE = 4096;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                               StatisticalType statisticalType, boolean needCheckColumnPriv) {
@@ -88,14 +89,19 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             List<Pair<Long, Long>> sliceRange = new ArrayList<>();
             long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
             long fileNum = odpsTable.getFileNum();
-            long splitSize = (long) Math.ceil((double) totalRows / fileNum);
             long start = 0;
-            for (int i = 0; i < fileNum; i++) {
-                if (start > totalRows) {
-                    break;
+            long splitSize = (long) Math.ceil((double) totalRows / fileNum);
+            if (splitSize <= 0 || totalRows < MIN_SPLIT_SIZE) {
+                // use whole split
+                sliceRange.add(Pair.of(start, totalRows));
+            } else {
+                for (int i = 0; i < fileNum; i++) {
+                    if (start > totalRows) {
+                        break;
+                    }
+                    sliceRange.add(Pair.of(start, splitSize));
+                    start += splitSize;
                 }
-                sliceRange.add(Pair.of(start, splitSize));
-                start += splitSize;
             }
             long modificationTime = odpsTable.getLastDataModifiedTime().getTime();
             if (!sliceRange.isEmpty()) {

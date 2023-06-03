@@ -193,6 +193,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
+        // avoid null pointer, it maybe has no slots when two tables are joined
         if (params.getRequiredSlots() == null) {
             params.setColumnIdxs(columnIdxs);
             return;
