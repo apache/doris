@@ -1372,15 +1372,15 @@ public class SingleNodePlanner {
                     tupleSelectFailed = true;
                 } else {
                     try {
-                        // mv index have where clause, so where expr on scan node is unused.
-                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
-                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
-                                .getWhereClause());
-
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
                         olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                                 bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                        // mv index have where clause, so where expr on scan node is unused.
+                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
+                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
+                                .getWhereClause());
 
                         if (selectStmt.getAggInfo() != null) {
                             selectStmt.getAggInfo().updateTypeOfAggregateExprs();
@@ -1994,9 +1994,6 @@ public class SingleNodePlanner {
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
                 throw new RuntimeException("Iceberg external table is not supported, use iceberg catalog please");
-            case HUDI:
-                throw new UserException(
-                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
@@ -2037,7 +2034,7 @@ public class SingleNodePlanner {
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
-                break;
+                throw new UserException("Not supported table type" + tblRef.getTable().getType());
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof FileQueryScanNode) {
@@ -2210,7 +2207,9 @@ public class SingleNodePlanner {
             Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
             Set<Expr> exprs = viewAnalyzer.findMigrateFailedConjuncts(inlineViewRef);
             if (CollectionUtils.isNotEmpty(exprs)) {
-                scanNode.setVConjunct(exprs);
+                for (Expr expr : exprs) {
+                    scanNode.addConjunct(expr);
+                }
             }
         }
         if (scanNode == null) {

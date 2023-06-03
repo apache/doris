@@ -75,8 +75,7 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
 
     return Status::OK();

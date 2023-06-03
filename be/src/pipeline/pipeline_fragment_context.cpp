@@ -61,6 +61,8 @@
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/partition_sort_sink_operator.h"
+#include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -309,8 +311,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _root_pipeline = fragment_context->add_pipeline();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
-        RETURN_IF_ERROR(
-                _create_sink(request.local_params[idx].sender_id, request.fragment.output_sink));
+        RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
+                                     request.fragment.output_sink, _runtime_state.get()));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
     if (_sink) {
@@ -532,6 +534,20 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
         break;
     }
+    case TPlanNodeType::PARTITION_SORT_NODE: {
+        auto new_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
+
+        OperatorBuilderPtr partition_sort_sink = std::make_shared<PartitionSortSinkOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipeline->set_sink(partition_sort_sink));
+
+        OperatorBuilderPtr partition_sort_source =
+                std::make_shared<PartitionSortSourceOperatorBuilder>(next_operator_builder_id(),
+                                                                     node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(partition_sort_source));
+        break;
+    }
     case TPlanNodeType::ANALYTIC_EVAL_NODE: {
         auto new_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
@@ -685,7 +701,12 @@ Status PipelineFragmentContext::submit() {
 
 void PipelineFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
-        _root_plan->close(_runtime_state.get());
+        if (_root_plan) {
+            _root_plan->close(_runtime_state.get());
+        }
+        if (_sink) {
+            _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed"));
+        }
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
@@ -695,7 +716,8 @@ void PipelineFragmentContext::close_if_prepare_failed() {
 }
 
 // construct sink operator
-Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thrift_sink) {
+Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thrift_sink,
+                                             RuntimeState* state) {
     OperatorBuilderPtr sink_;
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
@@ -754,6 +776,12 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
             OperatorBuilderPtr sink_op_builder = std::make_shared<ExchangeSinkOperatorBuilder>(
                     next_operator_builder_id(), _multi_cast_stream_sink_senders[i].get(), this, i);
             new_pipeline->set_sink(sink_op_builder);
+
+            // 4. init and prepare the data_stream_sender of diff exchange
+            TDataSink t;
+            t.stream_sink = thrift_sink.multi_cast_stream_sink.sinks[i];
+            RETURN_IF_ERROR(_multi_cast_stream_sink_senders[i]->init(t));
+            RETURN_IF_ERROR(_multi_cast_stream_sink_senders[i]->prepare(state));
         }
 
         return Status::OK();

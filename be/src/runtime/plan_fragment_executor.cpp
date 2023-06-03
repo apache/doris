@@ -225,7 +225,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
-    profile()->add_info_string("DoriBeVersion", version::doris_build_short_hash());
+    profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");

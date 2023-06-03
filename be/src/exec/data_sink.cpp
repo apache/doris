@@ -110,8 +110,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
-                                                     thrift_sink.memory_scratch_sink, pool);
+        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs);
         sink->reset(tmp_sink);
         break;
     }
@@ -254,8 +253,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
-                                                     thrift_sink.memory_scratch_sink, pool);
+        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs);
         sink->reset(tmp_sink);
         break;
     }
@@ -332,6 +330,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
+        RETURN_IF_ERROR((*sink)->prepare(state));
     }
 
     return Status::OK();

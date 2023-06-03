@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionSignature.TripleFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.util.ResponsibilityChain;
 
 import com.google.common.base.Preconditions;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
@@ -160,8 +162,15 @@ public class ComputeSignatureHelper {
             if (finalType == null) {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
-                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
-                        DecimalV3Type.forType(arguments.get(i).getDataType()), true);
+                Expression arg = arguments.get(i);
+                DecimalV3Type argType;
+                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+                    // create decimalV3 with minimum scale enough to hold the integral literal
+                    argType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+                } else {
+                    argType = DecimalV3Type.forType(arg.getDataType());
+                }
+                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType, argType, true);
             }
             Preconditions.checkState(finalType.isDecimalV3Type(),
                     "decimalv3 precision promotion failed.");

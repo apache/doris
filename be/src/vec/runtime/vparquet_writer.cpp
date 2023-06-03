@@ -255,7 +255,7 @@ void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& build
 }
 
 VParquetWriterWrapper::VParquetWriterWrapper(doris::io::FileWriter* file_writer,
-                                             const std::vector<VExprContext*>& output_vexpr_ctxs,
+                                             const VExprContextSPtrs& output_vexpr_ctxs,
                                              const std::vector<TParquetSchema>& parquet_schemas,
                                              const TParquetCompressionType::type& compression_type,
                                              const bool& parquet_disable_dictionary,

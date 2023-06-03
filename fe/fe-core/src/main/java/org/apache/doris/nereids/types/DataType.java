@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -131,16 +133,32 @@ public abstract class DataType implements AbstractDataType {
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
-                switch (types.size()) {
-                    case 1:
-                        return DecimalV2Type.SYSTEM_DEFAULT;
-                    case 2:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
-                    case 3:
-                        return DecimalV2Type.createDecimalV2Type(
-                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)));
-                    default:
-                        throw new AnalysisException("Nereids do not support type: " + type);
+                if (Config.enable_decimal_conversion) {
+                    switch (types.size()) {
+                        case 1:
+                            return DecimalV3Type.SYSTEM_DEFAULT;
+                        case 2:
+                            return DecimalV3Type
+                                    .createDecimalV3Type(Integer.parseInt(types.get(1)));
+                        case 3:
+                            return DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)),
+                                    Integer.parseInt(types.get(2)));
+                        default:
+                            throw new AnalysisException("Nereids do not support type: " + type);
+                    }
+                } else {
+                    switch (types.size()) {
+                        case 1:
+                            return DecimalV2Type.SYSTEM_DEFAULT;
+                        case 2:
+                            return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                    0);
+                        case 3:
+                            return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                    Integer.parseInt(types.get(2)));
+                        default:
+                            throw new AnalysisException("Nereids do not support type: " + type);
+                    }
                 }
             case "decimalv3":
                 switch (types.size()) {
@@ -306,6 +324,10 @@ public abstract class DataType implements AbstractDataType {
             // TODO: support array type really
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isAggStateType()) {
+            List<DataType> types = ((ScalarType) type).getSubTypes().stream().map(t -> fromCatalogType(t))
+                    .collect(Collectors.toList());
+            return new AggStateType(types, ((ScalarType) type).getSubTypeNullables());
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
@@ -491,6 +513,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof QuantileStateType;
     }
 
+    public boolean isAggStateType() {
+        return this instanceof AggStateType;
+    }
+
     public boolean isHllType() {
         return this instanceof HllType;
     }
@@ -561,6 +587,13 @@ public abstract class DataType implements AbstractDataType {
         } else {
             throw new AnalysisException("Illegal array type: " + type);
         }
+    }
+
+    public static List<DataType> trivialTypes() {
+        return Type.getTrivialTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static List<DataType> supportedTypes() {

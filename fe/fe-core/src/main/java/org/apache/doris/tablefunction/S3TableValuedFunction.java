@@ -50,10 +50,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String S3_URI = "uri";
 
     private static final ImmutableSet<String> DEPRECATED_KEYS =
-            ImmutableSet.of("access_key", "secret_key", "session_token", "region", S3Properties.REGION);
+            ImmutableSet.of("access_key", "secret_key", "session_token", "region");
 
     private static final ImmutableSet<String> OPTIONAL_KEYS =
-            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE);
+            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION);
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.<String>builder()
             .add(S3_URI)
@@ -72,7 +72,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         s3uri = getS3Uri(tvfParams);
         String endpoint = getEndpointFromUri();
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                S3Properties.getRegionOfEndpoint(endpoint),
+                tvfParams.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint)),
                 tvfParams.get(S3Properties.ACCESS_KEY),
                 tvfParams.get(S3Properties.SECRET_KEY));
         if (tvfParams.containsKey(S3Properties.SESSION_TOKEN)) {

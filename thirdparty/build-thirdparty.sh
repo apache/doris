@@ -1571,59 +1571,17 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
-#clucene
-build_clucene() {
-    if [[ "$(uname -m)" == 'x86_64' ]]; then
-        USE_AVX2="${USE_AVX2:-1}"
-    else
-        USE_AVX2="${USE_AVX2:-0}"
-    fi
-    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
-        USE_BTHREAD_SCANNER='OFF'
-    fi
-    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
-        USE_BTHREAD=1
-    else
-        USE_BTHREAD=0
-    fi
+# hadoop_libs
+build_hadoop_libs() {
+    check_if_source_exist "${HADOOP_LIBS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
+    ./build.sh
 
-    check_if_source_exist "${CLUCENE_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-    rm -rf CMakeCache.txt CMakeFiles/
-
-    ${CMAKE_CMD} -G "${GENERATOR}" \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DBUILD_STATIC_LIBRARIES=ON \
-        -DBUILD_SHARED_LIBRARIES=OFF \
-        -DBOOST_ROOT="${TP_INSTALL_DIR}" \
-        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
-        -DCMAKE_CXX_FLAGS="-g -fno-omit-frame-pointer ${warning_narrowing}" \
-        -DUSE_STAT64=0 \
-        -DUSE_AVX2="${USE_AVX2}" \
-        -DUSE_BTHREAD="${USE_BTHREAD}" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_CONTRIBS_LIB=ON ..
-    ${BUILD_SYSTEM} -j "${PARALLEL}"
-    ${BUILD_SYSTEM} install
-
-    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
-    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
-        mkdir -p "${TP_INSTALL_DIR}"/share
-    fi
-    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
-}
-
-# hadoop_libs_x86
-build_hadoop_libs_x86() {
-    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -1685,12 +1643,11 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
-        clucene
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
-    elif [[ "$(uname -s)" == 'Linux' ]] && [[ "$(uname -m)" == 'x86_64' ]]; then
-        read -r -a packages <<<"${packages[*]} hadoop_libs_x86"
+    elif [[ "$(uname -s)" == 'Linux' ]]; then
+        read -r -a packages <<<"${packages[*]} hadoop_libs"
     fi
 fi
 

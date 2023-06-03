@@ -42,6 +42,8 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
+public:
+    DataTypeDateTimeV2SerDe(int scale) : scale(scale) {};
     void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
@@ -49,6 +51,26 @@ class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "not support read arrow array to uint64 column";
     }
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
+    }
+
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
+    }
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
+                                  int row_idx, int start, int end, bool col_const) const;
+    int scale;
 };
 } // namespace vectorized
 } // namespace doris

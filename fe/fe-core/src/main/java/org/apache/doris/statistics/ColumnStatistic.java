@@ -52,14 +52,21 @@ public class ColumnStatistic {
             .setSelectivity(0)
             .build();
 
-    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.STRUCT);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.HLL);
+        UNSUPPORTED_TYPE.add(Type.BITMAP);
+        UNSUPPORTED_TYPE.add(Type.ARRAY);
+        UNSUPPORTED_TYPE.add(Type.STRUCT);
+        UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.QUANTILE_STATE);
+        UNSUPPORTED_TYPE.add(Type.AGG_STATE);
+        UNSUPPORTED_TYPE.add(Type.JSONB);
+        UNSUPPORTED_TYPE.add(Type.VARIANT);
+        UNSUPPORTED_TYPE.add(Type.TIME);
+        UNSUPPORTED_TYPE.add(Type.TIMEV2);
+        UNSUPPORTED_TYPE.add(Type.LAMBDA_FUNCTION);
     }
 
     public final double count;
@@ -145,17 +152,17 @@ public class ColumnStatistic {
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            if (!StatisticsUtil.isNullOrEmpty(min)) {
+            if (min != null) {
                 columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                 columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (!StatisticsUtil.isNullOrEmpty(max)) {
+            if (max != null) {
                 columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                 columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             } else {
-                columnStatisticBuilder.setMinValue(Double.NaN);
+                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);

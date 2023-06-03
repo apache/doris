@@ -182,18 +182,8 @@ protected:
     bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
-    uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
-                                  TPriority::type priority);
 
-    void _create_tablet_worker_thread_callback();
-    void _drop_tablet_worker_thread_callback();
-    void _push_worker_thread_callback();
-    void _publish_version_worker_thread_callback();
-    void _clear_transaction_task_worker_thread_callback();
-    void _alter_tablet_worker_thread_callback();
     void _alter_inverted_index_worker_thread_callback();
-    void _clone_worker_thread_callback();
-    void _storage_medium_migrate_worker_thread_callback();
     void _check_consistency_worker_thread_callback();
     void _report_task_worker_thread_callback();
     void _report_disk_state_worker_thread_callback();
@@ -208,12 +198,12 @@ protected:
     void _push_cooldown_conf_worker_thread_callback();
     void _push_storage_policy_worker_thread_callback();
 
+    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
+                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
                                int64_t signature, const TTaskType::type task_type,
                                TFinishTaskRequest* finish_task_request);
 
-    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
-                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _handle_report(const TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
@@ -221,9 +211,6 @@ protected:
 
     Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
                      bool overwrite);
-
-    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                  DataDir** dest_store);
 
     // random sleep 1~second seconds
     void _random_sleep(int second);
@@ -271,6 +258,70 @@ public:
     void _create_tablet_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(CreateTableTaskPool);
+};
+
+class DropTableTaskPool : public TaskWorkerPool {
+public:
+    DropTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _drop_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(DropTableTaskPool);
+};
+
+class PushTaskPool : public TaskWorkerPool {
+public:
+    enum class PushWokerType { LOAD_V2, DELETE };
+    PushTaskPool(ExecEnv* env, ThreadModel thread_model, PushWokerType type);
+    void _push_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PushTaskPool);
+
+private:
+    PushWokerType _push_worker_type;
+};
+
+class PublishVersionTaskPool : public TaskWorkerPool {
+public:
+    PublishVersionTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _publish_version_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(PublishVersionTaskPool);
+};
+
+class ClearTransactionTaskPool : public TaskWorkerPool {
+public:
+    ClearTransactionTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _clear_transaction_task_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(ClearTransactionTaskPool);
+};
+
+class AlterTableTaskPool : public TaskWorkerPool {
+public:
+    AlterTableTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
+                       const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
+    void _alter_tablet_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(AlterTableTaskPool);
+};
+
+class CloneTaskPool : public TaskWorkerPool {
+public:
+    CloneTaskPool(ExecEnv* env, ThreadModel thread_model);
+    void _clone_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(CloneTaskPool);
+};
+
+class StorageMediumMigrateTaskPool : public TaskWorkerPool {
+public:
+    StorageMediumMigrateTaskPool(ExecEnv* env, ThreadModel thread_model);
+    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+                                  DataDir** dest_store);
+    void _storage_medium_migrate_worker_thread_callback();
+
+    DISALLOW_COPY_AND_ASSIGN(StorageMediumMigrateTaskPool);
 };
 
 } // namespace doris

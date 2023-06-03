@@ -166,6 +166,8 @@ struct TFetchOption {
     2: optional Descriptors.TPaloNodesInfo nodes_info;
     // Whether fetch row store
     3: optional bool fetch_row_store;
+    // Fetch schema
+    4: optional list<Descriptors.TColumn> column_desc;
 }
 
 struct TResultSink {
@@ -203,6 +205,7 @@ struct TJdbcTableSink {
     1: optional Descriptors.TJdbcTable jdbc_table
     2: optional bool use_transaction
     3: optional Types.TOdbcTableType table_type
+    4: optional string insert_sql
 }
 
 struct TExportSink {

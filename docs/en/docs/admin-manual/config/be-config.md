@@ -638,6 +638,23 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 * Default value: true
 
+#### `pick_rowset_to_compact_interval_sec`
+
+* Type: int64
+* Description: select the time interval in seconds for rowset to be compacted.
+* Default value: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in single replica compaction thread pool.
+* Default value: 10
+
+#### `update_replica_infos_interval_seconds`
+
+* Description: Minimal interval (s) to update peer replica infos
+* Default value: 10 (s)
+
 
 ### Load
 
@@ -1411,3 +1428,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Default value: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true

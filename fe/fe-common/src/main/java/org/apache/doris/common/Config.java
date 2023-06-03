@@ -452,7 +452,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
-    public static int insert_load_default_timeout_second = 3600; // 1 hour
+    public static int insert_load_default_timeout_second = 14400; // 4 hour
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -772,7 +772,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int storage_high_watermark_usage_percent = 85;
     @ConfField(mutable = true, masterOnly = true)
-    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
+    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024L; // 2G
 
     /**
      * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
@@ -943,6 +943,10 @@ public class Config extends ConfigBase {
     // Valid only if use PartitionRebalancer
     @ConfField(mutable = true, masterOnly = true)
     public static int partition_rebalance_max_moves_num_per_selection = 10;
+
+    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
+    @ConfField(masterOnly = true, mutable = true)
+    public static int balance_slot_num_per_path = 1;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
@@ -1441,7 +1445,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_sec = 300;
+    public static int auto_check_statistics_in_minutes = 5;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -1484,9 +1488,12 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
-    // enable_resource_group should be immutable and temporarily set to mutable during the development test phase
+    // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_resource_group = false;
+    public static boolean enable_workload_group = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_query_queue = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
@@ -1514,8 +1521,8 @@ public class Config extends ConfigBase {
     /**
      * If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_decimal_conversion = false;
+    @ConfField(mutable = true)
+    public static boolean enable_decimal_conversion = true;
 
     /**
      * List of S3 API compatible object storage systems.
@@ -1756,7 +1763,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1914,13 +1921,6 @@ public class Config extends ConfigBase {
     public static boolean enable_stats = true;
 
     /**
-     * Whether create a duplicate table without keys by default
-     * when creating a table which not set key type and key columns
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
-
-    /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
      * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
@@ -1932,6 +1932,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
+    /**
+     * Now we not fully support array/struct/map nesting complex type in many situation,
+     * so just disable creating nesting complex data type when create table.
+     * We can make it able after we fully support
+     */
+    @ConfField(mutable = true)
+    public static boolean disable_nested_complex_type  = true;
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set
      * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
@@ -1939,6 +1946,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int max_instance_num = 128;
+
+    /*
+     * This variable indicates the number of digits by which to increase the scale
+     * of the result of division operations performed with the `/` operator. The
+     * default value is 4, and it is currently only used for the DECIMALV3 type.
+     */
+    @ConfField(mutable = true)
+    public static int div_precision_increment = 4;
 
     /**
      * This config used for export/outfile.
@@ -1968,6 +1983,26 @@ public class Config extends ConfigBase {
      * optimization of table structures
      *
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true)
     public static boolean enable_query_hit_stats = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，" + "以及不可查询的具体原因。",
+            "When set to true, if a query is unable to select a healthy replica, "
+                    + "the detailed information of all the replicas of the tablet,"
+                    + " including the specific reason why they are unqueryable, will be printed out."})
+    public static boolean show_details_for_unaccessible_tablet = false;
+
+    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
+            "是否启用binlog特性",
+            "Whether to enable binlog feature"})
+    public static boolean enable_feature_binlog = false;
+
+    @ConfField
+    public static int analyze_task_timeout_in_minutes = 120;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "Whether to disable creating catalog with WITH RESOURCE statement."})
+    public static boolean disallow_create_catalog_with_resource = true;
 }

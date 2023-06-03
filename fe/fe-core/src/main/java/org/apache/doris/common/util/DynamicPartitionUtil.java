@@ -228,14 +228,14 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {
@@ -475,12 +475,6 @@ public class DynamicPartitionUtil {
         if (olapTable.getTableProperty() != null
                 && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
             if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
-                if (!isReplay) {
-                    // execute create partition first time only in master of FE, So no need execute
-                    // when it's replay
-                    Env.getCurrentEnv().getDynamicPartitionScheduler()
-                            .executeDynamicPartitionFirstTime(dbId, olapTable.getId());
-                }
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {

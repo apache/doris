@@ -138,8 +138,6 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
@@ -153,6 +151,9 @@ protected:
     Status execute_substring(const ColumnString::Chars& values,
                              const ColumnString::Offsets& value_offsets,
                              ColumnUInt8::Container& result, LikeSearchState* search_state);
+
+    static Status constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
+                                      const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
                                           const StringRef& pattern, ColumnUInt8::Container& result);
@@ -184,6 +185,12 @@ protected:
                                       const StringRef& pattern, ColumnUInt8::Container& result,
                                       const uint16_t* sel, size_t sz);
 
+    static Status constant_allpass_fn_predicate(LikeSearchState* state,
+                                                const PredicateColumnType<TYPE_STRING>& val,
+                                                const StringRef& pattern,
+                                                ColumnUInt8::Container& result, const uint16_t* sel,
+                                                size_t sz);
+
     static Status constant_starts_with_fn_predicate(LikeSearchState* state,
                                                     const PredicateColumnType<TYPE_STRING>& val,
                                                     const StringRef& pattern,
@@ -207,6 +214,9 @@ protected:
                                                   const StringRef& pattern,
                                                   ColumnUInt8::Container& result,
                                                   const uint16_t* sel, size_t sz);
+
+    static Status constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                             const StringRef& pattern, unsigned char* result);
 
     static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);

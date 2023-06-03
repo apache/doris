@@ -780,6 +780,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
+                                            olapTable.enableSingleReplicaCompaction(),
                                             olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
                                     createReplicaTask.setIsRecoverTask(true);
@@ -1141,10 +1142,9 @@ public class ReportHandler extends Daemon {
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
-                    db.getClusterName(), visibleVersion,
-                    replicaAlloc, aliveBeIdsInCluster);
+                    visibleVersion, replicaAlloc, aliveBeIds);
 
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {

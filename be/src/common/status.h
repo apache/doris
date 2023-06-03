@@ -256,6 +256,8 @@ E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
 E(PIP_WAIT_FOR_SC, -3121);
+E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
+E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
@@ -263,6 +265,7 @@ E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
+E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 #undef E
 } // namespace ErrorCode
 
@@ -292,8 +295,13 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
         && code != ErrorCode::META_KEY_NOT_FOUND
-        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST;
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
 }
 // clang-format on
 
@@ -440,11 +448,6 @@ public:
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
-
     std::string to_string() const;
 
     /// @return A json representation of this status.
@@ -492,6 +495,11 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
+
+    std::string code_as_string() const {
+        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                               : fmt::format("E{}", (int16_t)_code);
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
@@ -569,6 +577,15 @@ inline std::string Status::to_string() const {
 
 template <typename T>
 using Result = expected<T, Status>;
+
+#define RETURN_IF_ERROR_RESULT(stmt)                \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            return unexpected(std::move(_status_)); \
+        }                                           \
+    } while (false)
+
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

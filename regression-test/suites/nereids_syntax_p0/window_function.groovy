@@ -20,6 +20,10 @@ suite("window_function") {
 
     sql "DROP TABLE IF EXISTS window_test"
 
+    sql "DROP TABLE IF EXISTS adj_nullable_1"
+
+    sql "DROP TABLE IF EXISTS adj_nullable_2"
+
     sql """
         CREATE TABLE `window_test` (
             `c1` int NULL,
@@ -112,7 +116,7 @@ suite("window_function") {
         GROUP BY ROLLUP (c2, c3)
     """
 
-    qt_subquery_1 """
+    order_qt_subquery_1 """
         SELECT *, row_number() over(partition by c1 order by c3, c2, c1, r1) as r2
         FROM (
             SELECT *, row_number() over(partition by c2 order by c3, c2, c1) as r1

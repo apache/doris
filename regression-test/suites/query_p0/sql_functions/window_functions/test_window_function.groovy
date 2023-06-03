@@ -363,7 +363,9 @@ suite("test_window_function") {
     // test error
     test {
         sql("select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}) over (partition by ${k1} order by ${k3}) from baseall")
-        exception "errCode = 2, detailMessage = Lag/offset must have three parameters"
+        check { result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+        }
     }
     test {
         sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"

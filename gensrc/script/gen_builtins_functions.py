@@ -67,7 +67,6 @@ public class ScalarBuiltins { \n\
 \n'
 
 java_registry_epilogue = '\
-  }\n\
 }\n'
 
 FE_PATH = "../../../fe/fe-core/target/generated-sources/build/org/apache/doris/builtins/"
@@ -76,32 +75,6 @@ print(FE_PATH)
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data
 #   - fn_name, ret_type, args, symbol, sql_names, template_types(optional)
-meta_data_entries = []
-
-# Read in the function and add it to the meta_data_entries map
-def add_function(fn_meta_data, user_visible):
-    """add function
-    """
-    assert len(fn_meta_data) >= 4, \
-            "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(fn_meta_data)
-    entry = {}
-    entry["sql_names"] = fn_meta_data[0]
-    entry["ret_type"] = fn_meta_data[1]
-    entry["args"] = fn_meta_data[2]
-    if fn_meta_data[3] != '':
-        entry['nullable_mode'] = fn_meta_data[3]
-    else:
-        entry['nullable_mode'] = 'DEPEND_ON_ARGUMENT'
-
-    # process template
-    if len(fn_meta_data) >= 5:
-        entry["template_types"] = fn_meta_data[4]
-    else:
-        entry["template_types"] = []
-
-    entry["user_visible"] = user_visible
-    meta_data_entries.append(entry)
-
 
 """
 generate fe data type, support nested ARRAY type.
@@ -149,7 +122,7 @@ def generate_fe_datatype(str_type, template_types):
             return "new ArrayType(" + generate_fe_datatype(vec_type[1], template_types) + ")"
     if str_type.startswith("MAP_"):
         vec_type = str_type.split('_', 2)
-        if len(vec_type) > 2 and vec_type[0] == "MAP": 
+        if len(vec_type) > 2 and vec_type[0] == "MAP":
             return "new MapType(" + generate_fe_datatype(vec_type[1], template_types) + "," + generate_fe_datatype(vec_type[2], template_types)+")"
     if str_type == "DECIMALV2":
         return "Type.MAX_DECIMALV2_TYPE"
@@ -194,12 +167,9 @@ def generate_fe_registry_init(filename):
     java_registry_file = open(filename, "w")
     java_registry_file.write(java_registry_preamble)
 
-    for entry in meta_data_entries:
-        for name in entry["sql_names"]:
-            java_output = generate_fe_entry(entry, name)
-            java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
-
-    java_registry_file.write("\n")
+    # Generate initialization calls for each category
+    for category, functions in doris_builtins_functions.visible_functions.items():
+        java_registry_file.write("        init{}Builtins(functionSet);\n".format(category.capitalize()))
 
     # add non_null_result_with_null_param_functions
     java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
@@ -218,8 +188,44 @@ def generate_fe_registry_init(filename):
         java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
     java_registry_file.write("        functionSet.buildNullResultWithOneNullParamFunction(funcNames);\n");
 
+    java_registry_file.write("    }\n")
+    java_registry_file.write("\n")
+
+    # Generate functions for each category
+    for category, functions in doris_builtins_functions.visible_functions.items():
+        generate_fe_category(category, functions, java_registry_file, True)
+
     java_registry_file.write(java_registry_epilogue)
     java_registry_file.close()
+
+def generate_fe_category(category, functions, java_registry_file, user_visible):
+    java_registry_file.write("    private static void init{}Builtins(FunctionSet functionSet) {{\n".format(category.capitalize()))
+    for function in functions:
+        assert len(function) >= 4, \
+            "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(function)
+        entry = {}
+        entry["sql_names"] = function[0]
+        entry["ret_type"] = function[1]
+        entry["args"] = function[2]
+        if function[3] != '':
+            entry['nullable_mode'] = function[3]
+        else:
+            entry['nullable_mode'] = 'DEPEND_ON_ARGUMENT'
+
+        # process template
+        if len(function) >= 5:
+            entry["template_types"] = function[4]
+        else:
+            entry["template_types"] = []
+
+        entry["user_visible"] = user_visible
+
+        for name in entry["sql_names"]:
+            java_output = generate_fe_entry(entry, name)
+            java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
+
+    java_registry_file.write("    }\n")
+
 
 if __name__ == "__main__":
 
@@ -230,11 +236,5 @@ if __name__ == "__main__":
             pass
         else:
             raise
-
-    # Read the function metadata inputs
-    for function in doris_builtins_functions.visible_functions:
-        add_function(function, True)
-    for function in doris_builtins_functions.invisible_functions:
-        add_function(function, False)
 
     generate_fe_registry_init(FE_PATH + "ScalarBuiltins.java")

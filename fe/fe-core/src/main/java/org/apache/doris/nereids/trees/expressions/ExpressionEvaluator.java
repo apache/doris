@@ -65,6 +65,7 @@ public enum ExpressionEvaluator {
 
         String fnName = null;
         DataType[] args = null;
+        DataType ret = expression.getDataType();
         if (expression instanceof BinaryArithmetic) {
             BinaryArithmetic arithmetic = (BinaryArithmetic) expression;
             fnName = arithmetic.getLegacyOperator().getName();
@@ -82,7 +83,7 @@ public enum ExpressionEvaluator {
         if ((Env.getCurrentEnv().isNullResultWithOneNullParamFunction(fnName))) {
             for (Expression e : expression.children()) {
                 if (e instanceof NullLiteral) {
-                    return Literal.of(null);
+                    return new NullLiteral(ret);
                 }
             }
         }
@@ -136,11 +137,11 @@ public enum ExpressionEvaluator {
         ImmutableMultimap.Builder<String, FunctionInvoker> mapBuilder =
                 new ImmutableMultimap.Builder<String, FunctionInvoker>();
         List<Class> classes = ImmutableList.of(
+                DateTimeAcquire.class,
                 DateTimeExtractAndTransform.class,
                 ExecutableFunctions.class,
                 DateLiteral.class,
                 DateTimeArithmetic.class,
-                DateTimeAcquire.class,
                 NumericArithmetic.class
         );
         for (Class cls : classes) {

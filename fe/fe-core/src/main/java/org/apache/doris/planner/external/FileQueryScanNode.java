@@ -32,6 +32,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -138,7 +139,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
-        setColumnPositionMappingForTextFile();
+        setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
     }
@@ -166,6 +167,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
+        // Update required slots and column_idxs in scanRangeLocations.
+        setColumnPositionMapping();
+        for (TScanRangeLocations location : scanRangeLocations) {
+            TFileScanRangeParams rangeParams = location.getScanRange().getExtScanRange().getFileScanRange().getParams();
+            rangeParams.setRequiredSlots(params.getRequiredSlots());
+            rangeParams.setColumnIdxs(params.getColumnIdxs());
+        }
     }
 
     @Override
@@ -183,7 +191,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         createScanRangeLocations();
     }
 
-    private void setColumnPositionMappingForTextFile()
+    private void setColumnPositionMapping()
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
@@ -235,7 +243,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 if (broker == null) {
                     throw new UserException("No alive broker.");
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         } else if (locationType == TFileType.FILE_S3) {
             params.setProperties(locationProperties);
@@ -267,6 +275,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (fileSplit instanceof IcebergSplit) {
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
+
+            // if (fileSplit instanceof HudiSplit) {
+            //     HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            // }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
@@ -352,7 +364,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {
-            if (FeConstants.isObjStorage(location)) {
+            if (S3Util.isObjStorage(location)) {
                 return Optional.of(TFileType.FILE_S3);
             } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return Optional.of(TFileType.FILE_HDFS);

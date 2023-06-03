@@ -28,10 +28,12 @@ import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
+import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
+import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
@@ -75,7 +77,6 @@ import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
-import org.apache.doris.analysis.ShowResourceGroupsStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -101,13 +102,13 @@ import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
+import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.blockrule.SqlBlockRule;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -152,6 +153,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.BackendsProcDir;
+import org.apache.doris.common.proc.BuildIndexProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -186,6 +188,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -220,6 +223,9 @@ import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -331,8 +337,8 @@ public class ShowExecutor {
             handleShowBroker();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
-        } else if (stmt instanceof ShowResourceGroupsStmt) {
-            handleShowResourceGroups();
+        } else if (stmt instanceof ShowWorkloadGroupsStmt) {
+            handleShowWorkloadGroups();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -413,6 +419,10 @@ public class ShowExecutor {
             handleMTMVTasks();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
+        } else if (stmt instanceof ShowBuildIndexStmt) {
+            handleShowBuildIndexStmt();
+        } else if (stmt instanceof ShowAnalyzeTaskStatus) {
+            handleShowAnalyzeTaskStatus();
         } else {
             handleEmtpy();
         }
@@ -1754,9 +1764,6 @@ public class ShowExecutor {
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
         List<List<String>> brokersInfo = Env.getCurrentEnv().getBrokerMgr().getBrokersInfo();
-        for (List<String> row : brokersInfo) {
-            row.remove(BrokerMgr.HOSTNAME_INDEX);
-        }
 
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), brokersInfo);
@@ -1807,11 +1814,11 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowResourceGroups() {
-        ShowResourceGroupsStmt showStmt = (ShowResourceGroupsStmt) stmt;
-        List<List<String>> resourceGroupsInfos = Env.getCurrentEnv().getResourceGroupMgr().getResourcesInfo();
+    private void handleShowWorkloadGroups() {
+        ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
+        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
 
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resourceGroupsInfos);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
     private void handleShowExport() throws AnalysisException {
@@ -2505,36 +2512,26 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-
-        List<List<Comparable>> results;
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
+                .showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
-
-        try {
-            results = Env.getCurrentEnv().getAnalysisManager()
-                    .showAnalysisJob(showStmt);
-        } catch (DdlException e) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-            return;
-        }
-
-        // order the result
-        ListComparator<List<Comparable>> comparator;
-        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-        if (orderByPairs == null) {
-            // sort by id asc
-            comparator = new ListComparator<>(0);
-        } else {
-            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-        }
-        results.sort(comparator);
-
-        // convert to result and return it
-        for (List<Comparable> result : results) {
-            List<String> row = result.stream().map(Object::toString).collect(Collectors.toList());
+        for (AnalysisInfo analysisInfo : results) {
+            List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.jobId));
+            row.add(analysisInfo.catalogName);
+            row.add(analysisInfo.dbName);
+            row.add(analysisInfo.tblName);
+            row.add(analysisInfo.colName);
+            row.add(analysisInfo.jobType.toString());
+            row.add(analysisInfo.analysisType.toString());
+            row.add(analysisInfo.message);
+            row.add(TimeUtils.DATETIME_FORMAT.format(
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                            ZoneId.systemDefault())));
+            row.add(analysisInfo.state.toString());
+            row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }
-
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
@@ -2709,5 +2706,34 @@ public class ShowExecutor {
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
+
+    private void  handleShowBuildIndexStmt() throws AnalysisException {
+        ShowBuildIndexStmt showStmt = (ShowBuildIndexStmt) stmt;
+        ProcNodeInterface procNodeI = showStmt.getNode();
+        Preconditions.checkNotNull(procNodeI);
+        // List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
+        List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowAnalyzeTaskStatus() {
+        ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
+        List<List<String>> rows = new ArrayList<>();
+        for (AnalysisInfo analysisInfo : analysisInfos) {
+            List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.taskId));
+            row.add(analysisInfo.colName);
+            row.add(analysisInfo.message);
+            row.add(TimeUtils.DATETIME_FORMAT.format(
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                            ZoneId.systemDefault())));
+            row.add(analysisInfo.state.toString());
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
 
