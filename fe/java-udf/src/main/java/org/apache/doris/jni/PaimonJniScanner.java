@@ -132,7 +132,8 @@ public class PaimonJniScanner extends JniScanner {
                 batch.releaseBatch();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.warn("failed to getNext columnValue ", e);
+            throw new RuntimeException(e);
         }
         return rows;
     }
