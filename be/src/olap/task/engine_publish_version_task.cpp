@@ -44,9 +44,9 @@ using namespace ErrorCode;
 
 using std::map;
 
-EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
-                                                   std::vector<TTabletId>* error_tablet_ids,
-                                                   std::vector<TTabletId>* succ_tablet_ids)
+EnginePublishVersionTask::EnginePublishVersionTask(
+        const TPublishVersionRequest& publish_version_req, std::vector<TTabletId>* error_tablet_ids,
+        std::vector<TTabletId>* succ_tablet_ids)
         : _total_task_num(0),
           _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),

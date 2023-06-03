@@ -59,7 +59,7 @@ std::string MysqlConnInfo::debug_string() const {
     return ss.str();
 }
 
-VMysqlTableWriter::VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_expr_ctxs)
+VMysqlTableWriter::VMysqlTableWriter(const VExprContextSPtrs& output_expr_ctxs)
         : _vec_output_expr_ctxs(output_expr_ctxs) {}
 
 VMysqlTableWriter::~VMysqlTableWriter() {

@@ -74,9 +74,9 @@ namespace doris {
 namespace vectorized {
 
 template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
-        BufferControlBlock* sinker, const std::vector<VExprContext*>& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile)
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
+                                                         const VExprContextSPtrs& output_vexpr_ctxs,
+                                                         RuntimeProfile* parent_profile)
         : VResultWriter(),
           _sinker(sinker),
           _output_vexpr_ctxs(output_vexpr_ctxs),
@@ -624,8 +624,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                 << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
                                block.get_by_position(i).column->size());
 
-        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(*column_ptr, rows_buffer, 0, 0,
-                                                                     num_rows, col_const));
+        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(
+                *column_ptr, output_object_data(), rows_buffer, 0, 0, num_rows, col_const));
 
         if (!status) {
             LOG(WARNING) << "convert row to mysql result failed. block_struct="

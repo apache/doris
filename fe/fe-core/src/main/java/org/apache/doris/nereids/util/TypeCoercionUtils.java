@@ -466,7 +466,7 @@ public class TypeCoercionUtils {
                 return castChildren(divide, left, right, DoubleType.INSTANCE);
             }
             return divide.withChildren(castIfNotSameType(left,
-                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), dt1.getScale() + dt2.getScale())),
+                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), retType.getScale())),
                     castIfNotSameType(right, dt2));
         } else if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             commonType = DecimalV2Type.SYSTEM_DEFAULT;

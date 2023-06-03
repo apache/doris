@@ -62,6 +62,7 @@ class Tablet;
 class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
+class SingleReplicaCompaction;
 class RowsetWriter;
 struct TabletTxnInfo;
 struct RowsetWriterContext;
@@ -84,6 +85,8 @@ enum SortType : int;
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
+
+extern const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD;
 
 class Tablet : public BaseTablet {
 public:
@@ -201,6 +204,8 @@ public:
 
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
+    std::mutex& get_build_inverted_index_lock() { return _build_inverted_index_lock; }
+
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
     uint32_t calc_compaction_score(
@@ -248,6 +253,11 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_build_inverted_index(
+            const std::set<int32_t>& alter_index_uids, bool is_drop_op);
+
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
+    std::vector<Version> get_all_versions();
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -279,8 +289,13 @@ public:
 
     Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                     TabletSharedPtr tablet, int64_t* permits);
+
+    Status prepare_single_replica_compaction(TabletSharedPtr tablet,
+                                             CompactionType compaction_type);
     void execute_compaction(CompactionType compaction_type);
     void reset_compaction(CompactionType compaction_type);
+    void execute_single_replica_compaction(CompactionType compaction_type);
+    void reset_single_replica_compaction();
 
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
@@ -425,8 +440,10 @@ public:
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
                               DeleteBitmapPtr delete_bitmap, int64_t version,
-                              bool check_pre_segments = false,
                               RowsetWriter* rowset_writer = nullptr);
+    Status calc_delete_bitmap_between_segments(
+            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            DeleteBitmapPtr delete_bitmap);
     Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                                 const std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,
@@ -564,6 +581,7 @@ private:
     std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
+    std::mutex _build_inverted_index_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
@@ -606,6 +624,8 @@ private:
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
+    std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction;
+
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
 

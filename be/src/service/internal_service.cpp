@@ -1562,12 +1562,11 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                    << ", field_name_to_index=" << full_read_schema.get_all_field_names();
                 return Status::InternalError(ss.str());
             }
-            segment_v2::ColumnIterator* column_iterator = nullptr;
+            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
             segment_v2::ColumnIteratorOptions opt;
             OlapReaderStatistics stats;
             opt.file_reader = segment->file_reader().get();
@@ -1613,6 +1612,16 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
+                                                      const PGetTabletVersionsRequest* request,
+                                                      PGetTabletVersionsResponse* response,
+                                                      google::protobuf::Closure* done) {
+    //SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
 }
 
 } // namespace doris

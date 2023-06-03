@@ -170,6 +170,10 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return new LogicalRepeat<>(groupingSets, outputExpressionList, child);
     }
 
+    public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
+        return new LogicalRepeat<>(groupingSets, newOutput, child);
+    }
+
     public boolean canBindVirtualSlot() {
         return bound() && outputExpressions.stream()
                 .noneMatch(output -> output.containsType(VirtualSlotReference.class));

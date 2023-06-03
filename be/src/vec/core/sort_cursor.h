@@ -208,7 +208,7 @@ using BlockSupplier = std::function<Status(Block*, bool* eos)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
-                                const std::vector<VExprContext*>& ordering_expr,
+                                const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
@@ -266,7 +266,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         return _block.clone_with_columns(std::move(columns));
     }
 
-    std::vector<VExprContext*> _ordering_expr;
+    VExprContextSPtrs _ordering_expr;
     Block _block;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;

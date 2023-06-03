@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 namespace vectorized {
@@ -40,12 +41,11 @@ struct MysqlConnInfo {
     std::string debug_string() const;
 };
 
-class VExprContext;
 class Block;
 
 class VMysqlTableWriter {
 public:
-    VMysqlTableWriter(const std::vector<vectorized::VExprContext*>& output_exprs);
+    VMysqlTableWriter(const VExprContextSPtrs& output_exprs);
     ~VMysqlTableWriter();
 
     // connect to mysql server
@@ -61,7 +61,7 @@ public:
 
 private:
     Status insert_row(vectorized::Block& block, size_t row);
-    const std::vector<vectorized::VExprContext*>& _vec_output_expr_ctxs;
+    const VExprContextSPtrs& _vec_output_expr_ctxs;
     fmt::memory_buffer _insert_stmt_buffer;
     std::string _mysql_tbl;
     MYSQL* _mysql_conn;

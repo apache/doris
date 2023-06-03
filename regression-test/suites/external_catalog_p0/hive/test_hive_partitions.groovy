@@ -43,17 +43,15 @@ suite("test_hive_partitions", "p0") {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_partitions"
             sql """drop catalog if exists ${catalog_name}"""
-            sql """create resource if not exists hms_resource_hive_partitions properties (
+            sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );"""
-            sql """create catalog if not exists ${catalog_name} with resource hms_resource_hive_partitions;"""
             sql """use `${catalog_name}`.`default`"""
 
             q01()
 
             sql """drop catalog if exists ${catalog_name}"""
-            sql """drop resource if exists hms_resource_hive_partitions"""
         } finally {
         }
     }

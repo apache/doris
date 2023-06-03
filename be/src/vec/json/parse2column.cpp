@@ -192,8 +192,8 @@ bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
 }
 
 template <typename ParserImpl>
-Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
-                             JSONDataParser<ParserImpl>* parser) {
+void parse_json_to_variant(IColumn& column, const char* src, size_t length,
+                           JSONDataParser<ParserImpl>* parser) {
     auto& column_object = assert_cast<ColumnObject&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
@@ -205,8 +205,8 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         LOG(INFO) << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        return Status::DataQualityError(
-                fmt::format("Failed to parse object {}", std::string_view(src, length)));
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
+                               std::string_view(src, length));
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
@@ -214,18 +214,21 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
     size_t num_rows = column_object.size();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
-        RETURN_IF_ERROR(get_field_info(values[i], &field_info));
+        get_field_info(values[i], &field_info);
         // TODO support multi dimensions array
         if (!config::enable_parse_multi_dimession_array && field_info.num_dimensions >= 2) {
-            return Status::DataQualityError(
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
                     "Sorry multi dimensions array is not supported now, we are working on it");
         }
         if (is_nothing(field_info.scalar_type)) {
             continue;
         }
         if (!paths_set.insert(paths[i].get_path()).second) {
-            return Status::DataQualityError(
-                    fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
+            // return Status::DataQualityError(
+            //         fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Object has ambiguous path {}",
+                                   paths[i].get_path());
         }
 
         if (!column_object.has_subcolumn(paths[i])) {
@@ -237,16 +240,11 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         auto* subcolumn = column_object.get_subcolumn(paths[i]);
         if (!subcolumn) {
-            return Status::DataQualityError(
-                    fmt::format("Failed to find sub column {}", paths[i].get_path()));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
+                                   paths[i].get_path());
         }
         assert(subcolumn->size() == num_rows);
-        Status st = subcolumn->insert(std::move(values[i]), std::move(field_info));
-        if (st.is_invalid_argument()) {
-            return Status::DataQualityError(
-                    fmt::format("Failed to insert field {}", st.to_string()));
-        }
-        RETURN_IF_ERROR(st);
+        subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
     const auto& subcolumns = column_object.get_subcolumns();
@@ -259,7 +257,6 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
     }
     column_object.incr_num_rows();
-    return Status::OK();
 }
 
 bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
@@ -268,17 +265,16 @@ bool extract_key(MutableColumns& columns, StringRef json, const std::vector<Stri
 }
 
 // exposed interfaces
-Status parse_json_to_variant(IColumn& column, const StringRef& json,
-                             JSONDataParser<SimdJSONParser>* parser) {
-    return parse_json_to_variant(column, json.data(), json.size(), parser);
+void parse_json_to_variant(IColumn& column, const StringRef& json,
+                           JSONDataParser<SimdJSONParser>* parser) {
+    return parse_json_to_variant(column, json.data, json.size, parser);
 }
 
-Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
+void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
     for (StringRef str : jsons) {
-        RETURN_IF_ERROR(parse_json_to_variant(column, str.data(), str.size(), parser.get()));
+        parse_json_to_variant(column, str.data, str.size, parser.get());
     }
-    return Status::OK();
 }
 
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,

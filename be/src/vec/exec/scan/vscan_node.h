@@ -144,8 +144,8 @@ public:
     // Return num of filters which are applied already.
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
-    // Clone current vconjunct_ctx to _vconjunct_ctx, if exists.
-    Status clone_vconjunct_ctx(VExprContext** _vconjunct_ctx);
+    // Clone current _conjuncts to conjuncts, if exists.
+    Status clone_conjunct_ctxs(VExprContextSPtrs& conjuncts);
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
@@ -160,7 +160,9 @@ public:
 
     Status try_close();
 
-    bool should_run_serial() const { return _should_run_serial; }
+    bool should_run_serial() const {
+        return _should_run_serial || _state->enable_scan_node_run_serial();
+    }
     bool ready_to_open() { return _shared_scanner_controller->scanner_context_is_ready(id()); }
     bool ready_to_read() { return !_scanner_ctx->empty_in_queue(_context_queue_id); }
 
@@ -269,7 +271,7 @@ protected:
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
-    phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
+    phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
 
@@ -321,8 +323,8 @@ protected:
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
-    std::vector<VExprContext*> _stale_vexpr_ctxs;
-    VExprContext* _common_vexpr_ctxs_pushdown = nullptr;
+    VExprContextSPtrs _stale_expr_ctxs;
+    VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
@@ -373,10 +375,11 @@ private:
     // Get all arrived runtime filters at Open phase.
     Status _acquire_runtime_filter(bool wait = true);
     // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
+    Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
 
     Status _normalize_conjuncts();
-    Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
+    Status _normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,
+                                VExprSPtr& output_expr);
     Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
@@ -388,10 +391,11 @@ private:
     Status _normalize_function_filters(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
-    bool _is_predicate_acting_on_slot(VExpr* expr,
-                                      const std::function<bool(const std::vector<VExpr*>&,
-                                                               const VSlotRef**, VExpr**)>& checker,
-                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+    bool _is_predicate_acting_on_slot(
+            VExpr* expr,
+            const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
+                    checker,
+            SlotDescriptor** slot_desc, ColumnValueRangeType** range);
 
     template <PrimitiveType T>
     Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
@@ -410,9 +414,9 @@ private:
     Status _normalize_compound_predicate(
             vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
             bool is_runtimer_filter_predicate,
-            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+            const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
                     in_predicate_checker,
-            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+            const std::function<bool(const VExprSPtrs&, std::shared_ptr<VSlotRef>&, VExprSPtr&)>&
                     eq_predicate_checker);
 
     template <PrimitiveType T>

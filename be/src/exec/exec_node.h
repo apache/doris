@@ -38,16 +38,13 @@
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
 class MemTracker;
 class QueryStatistics;
-
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 
 namespace pipeline {
 class OperatorBase;
@@ -262,14 +259,14 @@ protected:
     ObjectPool* _pool;
     std::vector<TupleId> _tuple_ids;
 
-    doris::vectorized::VExprContext* _vconjunct_ctx_ptr = nullptr;
+    vectorized::VExprContextSPtrs _conjuncts;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
     vectorized::Block _origin_block;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
-    std::vector<doris::vectorized::VExprContext*> _projections;
+    vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;

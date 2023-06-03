@@ -38,6 +38,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
@@ -65,7 +66,7 @@ public class PhysicalPlanTranslatorTest {
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                Optional.empty(), t1Properties);
+                ImmutableList.of(), Optional.empty(), t1Properties);
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =

@@ -27,6 +27,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
@@ -53,7 +54,11 @@ Field DataTypeMap::get_default() const {
 };
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(column);
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];

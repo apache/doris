@@ -40,6 +40,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+
 /**
  * Receiver side of a 1:n data stream. Logically, an ExchangeNode consumes the data
  * produced by its children. For each of the sending child nodes the actual data
@@ -61,6 +63,18 @@ public class ExchangeNode extends PlanNode {
     // The parameters based on which sorted input streams are merged by this
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
+
+    /**
+     * use for Nereids only.
+     */
+    public ExchangeNode(PlanNodeId id, PlanNode inputNode) {
+        super(id, inputNode, EXCHANGE_NODE, StatisticalType.EXCHANGE_NODE);
+        offset = 0;
+        limit = -1;
+        this.conjuncts = Collections.emptyList();
+        children.add(inputNode);
+        computeTupleIds();
+    }
 
     /**
      * Create ExchangeNode that consumes output of inputNode.

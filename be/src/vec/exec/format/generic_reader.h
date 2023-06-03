@@ -56,7 +56,7 @@ public:
     virtual Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
         return Status::OK();
     }
 
