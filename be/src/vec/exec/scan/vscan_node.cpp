@@ -755,7 +755,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
+            constant_val = const_cast<char*>(const_column->get_data_at(0).data());
             if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
@@ -772,7 +772,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
-                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+                constant_val = const_cast<char*>(bool_column->get_data_at(0).data());
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;

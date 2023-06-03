@@ -30,8 +30,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::get_current_key(Slice& slice) {
         RETURN_IF_ERROR(_iter->seek_to_ordinal(_cur_row_id));
         RETURN_IF_ERROR(_next_batch(_cur_row_id));
     }
-    slice = Slice(_index_column->get_data_at(_cur_pos).data,
-                  _index_column->get_data_at(_cur_pos).size);
+    slice = Slice(_index_column->get_data_at(_cur_pos));
     return Status::OK();
 }
 
