@@ -491,7 +491,7 @@ void test_arrow_to_fixed_binary_column(ColumnWithTypeAndName& column, size_t num
             NullMap& map_data = nullable_column->get_null_map_data();
             if (i % 2 == 0) {
                 ASSERT_EQ(map_data[idx], true);
-                ASSERT_EQ(s.size, 0);
+                ASSERT_EQ(s.size(), 0);
             } else {
                 ASSERT_EQ(map_data[idx], false);
                 ASSERT_EQ(value.compare(0, string_size, s.to_string(), 0, string_size), 0);
@@ -592,7 +592,7 @@ void test_arrow_to_binary_column(ColumnWithTypeAndName& column, size_t num_eleme
             NullMap& map_data = nullable_column->get_null_map_data();
             if (i % 2 == 0) {
                 ASSERT_EQ(map_data[idx], true);
-                ASSERT_EQ(s.size, 0);
+                ASSERT_EQ(s.size(), 0);
             } else {
                 ASSERT_EQ(map_data[idx], false);
                 ASSERT_EQ(value, s.to_string());

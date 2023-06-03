@@ -40,7 +40,7 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
     result.writeStartBinary();
-    result.writeBinary(value.data, value.size);
+    result.writeBinary(value.data(), value.size());
     result.writeEndBinary();
 }
 

@@ -172,12 +172,13 @@ private:
 
                 auto str = input->get_data_at(i);
 
-                DCHECK(str.size <= padding_length)
+                DCHECK(str.size() <= padding_length)
                         << "char type data length over limit, padding_length=" << padding_length
-                        << ", real=" << str.size;
+                        << ", real=" << str.size();
 
-                if (str.size) {
-                    memcpy(padded_column->chars.data() + i * padding_length, str.data, str.size);
+                if (str.size()) {
+                    memcpy(padded_column->chars.data() + i * padding_length, str.data(),
+                           str.size());
                 }
             }
 

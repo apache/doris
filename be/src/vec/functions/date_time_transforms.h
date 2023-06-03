@@ -186,11 +186,11 @@ struct DateFormatImpl {
     static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset) {
         const auto& dt = (DateType&)t;
-        if (format.size > 128) {
+        if (format.size() > 128) {
             return std::pair {offset, true};
         }
         char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        if (!dt.to_format_string(format.data(), format.size(), buf)) {
             return std::pair {offset, true};
         }
 
@@ -219,12 +219,12 @@ struct FromUnixTimeImpl {
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
         DateType dt;
-        if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
+        if (format.size() > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
             return std::pair {offset, true};
         }
 
         char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        if (!dt.to_format_string(format.data(), format.size(), buf)) {
             return std::pair {offset, true};
         }
 
@@ -285,7 +285,7 @@ struct TransformerToStringTwoArgument {
                                 PaddedPODArray<UInt8>& null_map) {
         auto len = ts.size();
         res_offsets.resize(len);
-        res_data.reserve(len * format.size + len);
+        res_data.reserve(len * format.size() + len);
         null_map.resize_fill(len, false);
 
         size_t offset = 0;

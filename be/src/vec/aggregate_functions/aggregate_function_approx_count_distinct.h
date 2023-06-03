@@ -71,8 +71,7 @@ struct AggregateFunctionApproxCountDistinctData {
     void read(BufferReadable& buf) {
         StringRef result;
         read_binary(result, buf);
-        Slice data = Slice(result.data, result.size);
-        hll_data.deserialize(data);
+        hll_data.deserialize(Slice(result));
     }
 
     int64_t get() const { return hll_data.estimate_cardinality(); }
@@ -105,7 +104,7 @@ public:
         } else {
             auto value = assert_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
             uint64_t hash_value =
-                    HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);
+                    HashUtil::murmur_hash64A(value.data(), value.size(), HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
         }
     }

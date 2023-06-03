@@ -44,7 +44,7 @@ void check_array_data(const IColumn& arr, const std::vector<T>& data) {
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
         auto element = data_col->get_data_at(i);
-        ASSERT_EQ(*((T*)element.data), data[i]);
+        ASSERT_EQ(*((T*)element.data()), data[i]);
     }
 }
 template <>
@@ -54,7 +54,7 @@ void check_array_data(const IColumn& arr, const std::vector<std::string>& data) 
     ASSERT_EQ(data_col->size(), data.size());
     for (size_t i = 0; i < data_col->size(); ++i) {
         auto element = data_col->get_data_at(i);
-        ASSERT_EQ(std::string(element.data, element.size), data[i]);
+        ASSERT_EQ(std::string(element), data[i]);
     }
 }
 

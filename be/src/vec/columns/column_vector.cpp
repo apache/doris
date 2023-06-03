@@ -66,8 +66,8 @@ template <typename T>
 void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                     size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
-        keys[i].size += sizeof(T);
+        memcpy(const_cast<char*>(keys[i].end()), &data[i], sizeof(T));
+        keys[i].replace(keys[i].data(), keys[i].size() + sizeof(T));
     }
 }
 
@@ -77,8 +77,8 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
                                                   size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
-            keys[i].size += sizeof(T);
+            memcpy(const_cast<char*>(keys[i].end()), &data[i], sizeof(T));
+            keys[i].replace(keys[i].data(), keys[i].size() + sizeof(T));
         }
     }
 }
@@ -86,8 +86,8 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
 template <typename T>
 void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-        keys[i].size -= sizeof(T);
+        keys[i].replace(deserialize_and_insert_from_arena(keys[i].data()),
+                        keys[i].size() - sizeof(T));
     }
 }
 
@@ -97,8 +97,8 @@ void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys
                                                     const uint8_t* null_map) {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-            keys[i].size -= sizeof(T);
+            keys[i].replace(deserialize_and_insert_from_arena(keys[i].data()),
+                            keys[i].size() - sizeof(T));
         } else {
             insert_default();
         }
@@ -371,7 +371,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data());
 
     if constexpr (std::is_same_v<T, UInt8>) {
         // nullmap : indices_begin[i] == -1 means is null at the here, set true here

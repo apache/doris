@@ -125,7 +125,7 @@ void get_decimal_value(const IColumn& nested_column, DecimalV2Value& decimal_val
                 reinterpret_cast<const ColumnNullable*>(&nested_column)->get_nested_column_ptr();
     }
     decimal_value = (DecimalV2Value)(reinterpret_cast<const PackedInt128*>(
-                                             nested_col->get_data_at(pos).data)
+                                             nested_col->get_data_at(pos).data())
                                              ->value);
 }
 
@@ -189,7 +189,6 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
 }
 
 bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
-    StringRef element(rb.position(), 0);
     has_quota = false;
     if (rb.eof()) {
         return false;
@@ -198,8 +197,10 @@ bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota
     // ltrim
     while (!rb.eof() && isspace(*rb.position())) {
         ++rb.position();
-        element.data = rb.position();
     }
+
+    // Begin of the element
+    const char* data = rb.position();
 
     // parse string
     if (*rb.position() == '"' || *rb.position() == '\'') {
@@ -216,7 +217,6 @@ bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota
         }
         has_quota = true;
         rb.position() += str_len + 1;
-        element.size += str_len + 1;
     }
 
     // parse array element until array separator ',' or end ']'
@@ -227,25 +227,27 @@ bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota
             return false;
         }
         ++rb.position();
-        ++element.size;
     }
     // invalid array element
     if (rb.eof()) {
         return false;
     }
+
+    // Now rb.position() is end of the element.
+    StringRef element(data, rb.position() - data);
+
     // adjust read buffer position to first char of next array element
     ++rb.position();
 
     // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
+    while (element.size() > 0 && isspace(element.back())) {
+        element.remove_suffix(1);
     }
 
     // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
+    if (has_quota) {
+        element.remove_prefix(1);
+        element.remove_suffix(1);
     }
     output = element;
     return true;
@@ -287,7 +289,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         }
 
         // handle empty element
-        if (element.size == 0) {
+        if (element.empty()) {
             auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
@@ -296,7 +298,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         }
 
         // handle null element, need to distinguish null and "null"
-        if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
+        if (!has_quota && element.size() == 4 && strncmp(element.data(), "null", 4) == 0) {
             // insert null
             auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
@@ -306,7 +308,7 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         }
 
         // handle normal element
-        ReadBuffer read_buffer(const_cast<char*>(element.data), element.size);
+        ReadBuffer read_buffer(const_cast<char*>(element.data()), element.size());
         auto st = nested->from_string(read_buffer, &nested_column);
         if (!st.ok()) {
             // we should do array element column revert if error

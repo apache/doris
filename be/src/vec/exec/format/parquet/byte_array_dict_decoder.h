@@ -94,8 +94,8 @@ Status ByteArrayDictDecoder::_decode_binary_decimal(MutableColumnPtr& doris_colu
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
                 StringRef& slice = _dict_items[_indexes[dict_index++]];
-                char* buf_start = const_cast<char*>(slice.data);
-                uint32_t length = (uint32_t)slice.size;
+                char* buf_start = const_cast<char*>(slice.data());
+                uint32_t length = (uint32_t)slice.size();
                 // When Decimal in parquet is stored in byte arrays, binary and fixed,
                 // the unscaled number must be encoded as two's complement using big-endian byte order.
                 Int128 value = buf_start[0] & 0x80 ? -1 : 0;

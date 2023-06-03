@@ -94,7 +94,6 @@ void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritabl
 }
 
 bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
-    StringRef element(rb.position(), 0);
     has_quota = false;
     if (rb.eof()) {
         return false;
@@ -103,8 +102,10 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
     // ltrim
     while (!rb.eof() && isspace(*rb.position())) {
         ++rb.position();
-        element.data = rb.position();
     }
+
+    // Begin of the element
+    const char* data = rb.position();
 
     // parse string
     if (*rb.position() == '"' || *rb.position() == '\'') {
@@ -121,7 +122,6 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
         }
         has_quota = true;
         rb.position() += str_len + 1;
-        element.size += str_len + 1;
     }
 
     // parse array element until map separator ':' or ',' or end '}'
@@ -131,25 +131,27 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
             return false;
         }
         ++rb.position();
-        ++element.size;
     }
     // invalid array element
     if (rb.eof()) {
         return false;
     }
+
+    // Now rb.position() is end of the element.
+    StringRef element(data, rb.position() - data);
+
     // adjust read buffer position to first char of next array element
     ++rb.position();
 
     // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
+    while (element.size() > 0 && isspace(element.back())) {
+        element.remove_suffix(1);
     }
 
     // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
+    if (has_quota) {
+        element.remove_prefix(1);
+        element.remove_suffix(1);
     }
     output = element;
     return true;
@@ -158,14 +160,14 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
 bool is_empty_null_element(StringRef element, IColumn* nested_column, bool has_quota) {
     auto& nested_null_col = reinterpret_cast<ColumnNullable&>(*nested_column);
     // handle empty element
-    if (element.size == 0) {
+    if (element.empty()) {
         nested_null_col.get_nested_column().insert_default();
         nested_null_col.get_null_map_data().push_back(0);
         return true;
     }
 
     // handle null element
-    if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
+    if (!has_quota && element.size() == 4 && strncmp(element.data(), "null", 4) == 0) {
         nested_null_col.get_nested_column().insert_default();
         nested_null_col.get_null_map_data().push_back(1);
         return true;
@@ -210,7 +212,7 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
                                                key_element.to_string());
             }
             if (!is_empty_null_element(key_element, &nested_key_column, has_quota)) {
-                ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
+                ReadBuffer krb(const_cast<char*>(key_element.data()), key_element.size());
                 if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
                     // pop this current row which already put element_num item into this row.
                     map_column->get_keys().pop_back(element_num);
@@ -229,7 +231,7 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
                                                value_element.to_string());
             }
             if (!is_empty_null_element(value_element, &nested_val_column, has_quota)) {
-                ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
+                ReadBuffer vrb(const_cast<char*>(value_element.data()), value_element.size());
                 if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
                     map_column->get_keys().pop_back(element_num + 1);
                     map_column->get_values().pop_back(element_num);

@@ -280,7 +280,7 @@ void serialize_and_deserialize_arrow_test() {
                     for (int i = 0; i < strcol->size(); ++i) {
                         StringRef str = strcol->get_data_at(i);
                         vectorized::VecDateTimeValue value;
-                        value.from_date_str(str.data, str.size);
+                        value.from_date_str(str.data(), str.size());
                         date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                     }
                 }
@@ -299,7 +299,7 @@ void serialize_and_deserialize_arrow_test() {
                 for (int i = 0; i < strcol->size(); ++i) {
                     StringRef str = strcol->get_data_at(i);
                     DateV2Value<DateV2ValueType> value;
-                    value.from_date_str(str.data, str.size);
+                    value.from_date_str(str.data(), str.size());
                     date_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
                 }
             }

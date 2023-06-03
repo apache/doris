@@ -172,12 +172,12 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
 void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
     auto& null_map_data = _get_null_map_data();
     for (size_t i = 0; i != num; ++i) {
-        if (strings[i].data == nullptr) {
+        if (strings[i].data() == nullptr) {
             nested_column->insert_default();
             null_map_data.push_back(1);
             _has_null = true;
         } else {
-            nested_column->insert_data(strings[i].data, strings[i].size);
+            nested_column->insert_data(strings[i].data(), strings[i].size());
             null_map_data.push_back(0);
         }
     }
@@ -196,7 +196,7 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     auto nested_ref = get_nested_column().serialize_value_into_arena(n, arena, begin);
 
     /// serialize_value_into_arena may reallocate memory. Have to use ptr from nested_ref.data and move it back.
-    return StringRef(nested_ref.data - s, nested_ref.size + s);
+    return StringRef(nested_ref.data() - s, nested_ref.size() + s);
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
@@ -225,9 +225,9 @@ void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows
     const auto& arr = get_null_map_data();
     static constexpr auto s = sizeof(arr[0]);
     for (size_t i = 0; i < num_rows; ++i) {
-        auto* val = const_cast<char*>(keys[i].data + keys[i].size);
+        auto* val = const_cast<char*>(keys[i].end());
         *val = (arr[i] ? 1 : 0);
-        keys[i].size += s;
+        keys[i].replace(keys[i].data(), keys[i].size() + s);
     }
 
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data(), max_row_byte_size);
@@ -241,11 +241,10 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
     _has_null = has_null();
     auto* null_map_data = &arr[old_size];
     for (size_t i = 0; i != num_rows; ++i) {
-        UInt8 val = *reinterpret_cast<const UInt8*>(keys[i].data);
+        UInt8 val = *reinterpret_cast<const UInt8*>(keys[i].data());
         null_map_data[i] = val;
         _has_null |= val;
-        keys[i].data += sizeof(val);
-        keys[i].size -= sizeof(val);
+        keys[i].remove_prefix(sizeof(val));
     }
     get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
 }

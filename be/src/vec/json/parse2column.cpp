@@ -270,13 +270,13 @@ bool extract_key(MutableColumns& columns, StringRef json, const std::vector<Stri
 // exposed interfaces
 Status parse_json_to_variant(IColumn& column, const StringRef& json,
                              JSONDataParser<SimdJSONParser>* parser) {
-    return parse_json_to_variant(column, json.data, json.size, parser);
+    return parse_json_to_variant(column, json.data(), json.size(), parser);
 }
 
 Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
     for (StringRef str : jsons) {
-        RETURN_IF_ERROR(parse_json_to_variant(column, str.data, str.size, parser.get()));
+        RETURN_IF_ERROR(parse_json_to_variant(column, str.data(), str.size(), parser.get()));
     }
     return Status::OK();
 }

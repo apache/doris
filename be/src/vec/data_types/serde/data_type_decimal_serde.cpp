@@ -47,7 +47,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
-            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data());
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
             arrow::Decimal128 value(high, low);
@@ -64,7 +64,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
-            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+            const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data());
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
             arrow::Decimal128 value(high, low);
@@ -81,7 +81,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
-            const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data);
+            const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data());
             int64_t high = *p_value > 0 ? 0 : 1UL << 63;
             arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
             checkArrowStatus(builder.Append(value), column.get_name(),
@@ -97,7 +97,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
-            const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data);
+            const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data());
             int64_t high = *p_value > 0 ? 0 : 1UL << 63;
             arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
             checkArrowStatus(builder.Append(value), column.get_name(),

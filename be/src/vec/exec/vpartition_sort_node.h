@@ -133,9 +133,9 @@ struct PartitionMethodSerialized {
             }
 
             for (size_t i = 0; i < num_rows; ++i) {
-                keys[i].data =
-                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-                keys[i].size = 0;
+                keys[i].replace(
+                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size),
+                        0);
             }
 
             for (const auto& column : key_columns) {

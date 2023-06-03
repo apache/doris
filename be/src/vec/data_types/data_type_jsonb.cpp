@@ -41,7 +41,7 @@ std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) cons
     row_num = result.second;
 
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return s.size > 0 ? JsonbToJson::jsonb_to_json_string(s.data, s.size) : "";
+    return s.size() > 0 ? JsonbToJson::jsonb_to_json_string(s.data(), s.size()) : "";
 }
 
 void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
@@ -51,8 +51,8 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
     row_num = result.second;
 
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    if (s.size > 0) {
-        std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
+    if (s.size() > 0) {
+        std::string str = JsonbToJson::jsonb_to_json_string(s.data(), s.size());
         ostr.write(str.c_str(), str.size());
     }
 }

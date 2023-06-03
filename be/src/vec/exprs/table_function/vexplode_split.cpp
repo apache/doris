@@ -82,7 +82,7 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
 Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
     RETURN_IF_ERROR(TableFunction::process_row(row_idx));
 
-    if (!(_test_null_map && _test_null_map[row_idx]) && _delimiter.data != nullptr) {
+    if (!(_test_null_map && _test_null_map[row_idx]) && _delimiter.data() != nullptr) {
         // TODO: use the function to be better string_view/StringRef split
         auto split = [](std::string_view strv, std::string_view delims = " ") {
             std::vector<std::string_view> output;

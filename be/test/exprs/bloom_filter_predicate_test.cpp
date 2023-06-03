@@ -92,14 +92,12 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
     StringRef fixed_char_true;
     char true_buf[100] = "true";
     memset(true_buf + strlen(true_buf), 0, 100 - strlen(true_buf));
-    fixed_char_true.data = true_buf;
-    fixed_char_true.size = 10;
+    fixed_char_true.replace(true_buf, 10);
 
     StringRef fixed_char_false;
     char false_buf[100] = "false";
     memset(false_buf + strlen(false_buf), 0, 100 - strlen(false_buf));
-    fixed_char_false.data = false_buf;
-    fixed_char_false.size = 10;
+    fixed_char_false.replace(false_buf, 10);
 
     EXPECT_TRUE(func->find_olap_engine((const void*)&fixed_char_true));
     EXPECT_TRUE(func->find_olap_engine((const void*)&fixed_char_false));

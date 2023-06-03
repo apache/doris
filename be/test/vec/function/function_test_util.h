@@ -297,10 +297,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 auto s = column->get_data_at(i);
                 if (expect_data.size() == 0) {
                     // zero size result means invalid
-                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
+                    EXPECT_EQ(0, s.size()) << " invalid result size should be 0 at row " << i;
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
-                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data(), s.size()))
                             << " at row " << i;
                 }
             } else {

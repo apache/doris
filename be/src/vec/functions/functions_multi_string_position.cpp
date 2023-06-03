@@ -196,7 +196,7 @@ public:
             if (needle.get_type() != Field::Types::String) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
-            searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
+            searchers.emplace_back(needle.get<StringRef>().data(), needle.get<StringRef>().size());
         }
 
         const size_t haystack_size = haystack_offsets.size();
@@ -278,7 +278,7 @@ public:
             searchers.clear();
             searchers.reserve(needles_row_size);
             for (auto needle : needles_for_row) {
-                searchers.emplace_back(needle.data, needle.size);
+                searchers.emplace_back(needle.data(), needle.size());
             }
 
             // search for first so that the ans's size is constant for each row.

@@ -199,13 +199,13 @@ StringRef ColumnArray::get_data_at(size_t n) const {
 
     size_t array_size = size_at(n);
     if (array_size == 0) {
-        return StringRef(first.data, 0);
+        return StringRef(first.data(), 0);
     }
 
     size_t offset_of_last_elem = offset_at(n + 1) - 1;
     StringRef last = get_data().get_data_at(offset_of_last_elem);
 
-    return StringRef(first.data, last.data + last.size - first.data);
+    return StringRef(first.data(), last.data() + last.size() - first.data());
 }
 
 bool ColumnArray::is_default_at(size_t n) const {
@@ -247,8 +247,7 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
 
     for (size_t i = 0; i < array_size; ++i) {
         auto value_ref = get_data().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        res.replace(value_ref.data() - res.size(), res.size() + value_ref.size());
     }
 
     return res;

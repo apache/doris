@@ -122,12 +122,12 @@ public:
                     const StringRef* value = (const StringRef*)(iter->get_value());
                     if constexpr (Type == TYPE_CHAR) {
                         _temp_datas.push_back("");
-                        _temp_datas.back().resize(std::max(char_length, value->size));
-                        memcpy(_temp_datas.back().data(), value->data, value->size);
+                        _temp_datas.back().resize(std::max(char_length, value->size()));
+                        memcpy(_temp_datas.back().data(), value->data(), value->size());
                         const string& str = _temp_datas.back();
                         _values->insert((void*)str.data(), str.length());
                     } else {
-                        _values->insert((void*)value->data, value->size);
+                        _values->insert((void*)value->data(), value->size());
                     }
                     iter->next();
                 }
@@ -369,7 +369,7 @@ public:
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
                     const StringRef* value = (const StringRef*)iter->get_value();
-                    if (bf->test_bytes(value->data, value->size)) {
+                    if (bf->test_bytes(value->data(), value->size())) {
                         return true;
                     }
                 } else if constexpr (Type == TYPE_DATE) {

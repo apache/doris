@@ -177,8 +177,8 @@ private:
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             size_t l_str_size = loffsets[i] - loffsets[i - 1];
 
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, rdata.data,
-                                                           rdata.size, context, res, null_map, i);
+            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, rdata.data(),
+                                                           rdata.size(), context, res, null_map, i);
         }
     }
     template <typename DateValueType, typename NativeType>
@@ -425,7 +425,7 @@ private:
         res.resize(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
-            const char* str_data = rdata.data;
+            const char* str_data = rdata.data();
             _execute_inner_loop(dt, str_data, res, null_map, i);
         }
     }
@@ -579,7 +579,7 @@ struct UnixTimeStampDateImpl {
 
                 StringRef source = col_source->get_data_at(i);
                 const VecDateTimeValue& ts_value =
-                        reinterpret_cast<const VecDateTimeValue&>(*source.data);
+                        reinterpret_cast<const VecDateTimeValue&>(source.front());
                 int64_t timestamp;
                 if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                     null_map_data[i] = true;
@@ -604,7 +604,7 @@ struct UnixTimeStampDateImpl {
 
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
+                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(source.front());
                     int64_t timestamp;
                     if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                         null_map_data[i] = true;
@@ -620,7 +620,7 @@ struct UnixTimeStampDateImpl {
                     DCHECK(!col_source->is_null_at(i));
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
+                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(source.front());
                     int64_t timestamp;
                     const auto valid =
                             ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
@@ -643,7 +643,8 @@ struct UnixTimeStampDateImpl {
 
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                    source.front());
                     int64_t timestamp;
                     if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
                         null_map_data[i] = true;
@@ -659,7 +660,8 @@ struct UnixTimeStampDateImpl {
                     DCHECK(!col_source->is_null_at(i));
                     StringRef source = col_source->get_data_at(i);
                     const DateV2Value<DateTimeV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                    source.front());
                     int64_t timestamp;
                     const auto valid =
                             ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
@@ -713,7 +715,8 @@ struct UnixTimeStampStrImpl {
             StringRef fmt = col_format->get_data_at(i);
 
             VecDateTimeValue ts_value;
-            if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
+            if (!ts_value.from_date_format_str(fmt.data(), fmt.size(), source.data(),
+                                               source.size())) {
                 null_map_data[i] = true;
                 continue;
             }

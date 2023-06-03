@@ -180,9 +180,9 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         case TYPE_VARCHAR: {
             const auto& string_val =
                     assert_cast<const vectorized::ColumnString&>(*column).get_data_at(row);
-            DCHECK(string_val.data != nullptr);
-            std::unique_ptr<char[]> buf(new char[2 * string_val.size + 1]);
-            mysql_real_escape_string(_mysql_conn, buf.get(), string_val.data, string_val.size);
+            DCHECK_NE(string_val.data(), nullptr);
+            std::unique_ptr<char[]> buf(new char[2 * string_val.size() + 1]);
+            mysql_real_escape_string(_mysql_conn, buf.get(), string_val.data(), string_val.size());
             fmt::format_to(_insert_stmt_buffer, "'{}'", buf.get());
 
             break;

@@ -180,7 +180,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         result.mutable_bytes_value()->Reserve(row_count);
         for (size_t row_num = start; row_num < end; ++row_num) {
             StringRef single_data = col->get_data_at(row_num);
-            result.add_bytes_value(single_data.data, single_data.size);
+            result.add_bytes_value(single_data.data(), single_data.size());
         }
         return Status::OK();
     }
@@ -275,25 +275,25 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     // uint8_t for representation, making the cast acceptable. In the future, we should add support for
     // both unsigned integers in Doris types and the JSONB types.
     if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
-        int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
+        int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data());
         result.writeInt8(val);
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
-        int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
+        int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data());
         result.writeInt16(val);
     } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
-        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data());
         result.writeInt32(val);
     } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
-        int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
+        int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data());
         result.writeInt64(val);
     } else if constexpr (std::is_same_v<T, Int128>) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data());
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, float>) {
-        float val = *reinterpret_cast<const float*>(data_ref.data);
+        float val = *reinterpret_cast<const float*>(data_ref.data());
         result.writeFloat(val);
     } else if constexpr (std::is_same_v<T, double>) {
-        double val = *reinterpret_cast<const double*>(data_ref.data);
+        double val = *reinterpret_cast<const double*>(data_ref.data());
         result.writeDouble(val);
     } else {
         LOG(FATAL) << "unknown column type " << column.get_name() << " for writing to jsonb";

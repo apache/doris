@@ -79,8 +79,8 @@ void VExplodeTableFunction::get_value(MutableColumnPtr& column) {
     if (current_empty() || (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos])) {
         column->insert_default();
     } else {
-        column->insert_data(const_cast<char*>(_detail.nested_col->get_data_at(pos).data),
-                            _detail.nested_col->get_data_at(pos).size);
+        column->insert_data(_detail.nested_col->get_data_at(pos).data(),
+                            _detail.nested_col->get_data_at(pos).size());
     }
 }
 

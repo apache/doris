@@ -86,7 +86,7 @@ struct CompareMultiImpl {
                     str_data = Op<StringRef, StringRef>::apply(temp_data, str_data) ? temp_data
                                                                                     : str_data;
                 }
-                column_res.insert_data(str_data.data, str_data.size);
+                column_res.insert_data(str_data.data(), str_data.size());
             }
 
         } else {

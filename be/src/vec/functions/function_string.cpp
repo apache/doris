@@ -182,7 +182,7 @@ struct StringInStrImpl {
 
     static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
                                 const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
-        StringRef lstr_ref(ldata.data, ldata.size);
+        StringRef lstr_ref(ldata);
 
         auto size = roffsets.size();
         res.resize(size);
@@ -204,14 +204,14 @@ struct StringInStrImpl {
         auto size = loffsets.size();
         res.resize(size);
 
-        if (rdata.size == 0) {
+        if (rdata.empty()) {
             for (int i = 0; i < size; ++i) {
                 res[i] = 1;
             }
             return Status::OK();
         }
 
-        StringRef rstr_ref(rdata.data, rdata.size);
+        StringRef rstr_ref(rdata);
         StringSearch search(&rstr_ref);
 
         for (int i = 0; i < size; ++i) {
@@ -223,8 +223,8 @@ struct StringInStrImpl {
             // Hive returns positions starting from 1.
             int loc = search.search(&lstr_ref);
             if (loc > 0) {
-                size_t len = std::min(lstr_ref.size, (size_t)loc);
-                loc = simd::VStringFunctions::get_char_len(lstr_ref.data, len);
+                size_t len = std::min(lstr_ref.size(), (size_t)loc);
+                loc = simd::VStringFunctions::get_char_len(lstr_ref.data(), len);
             }
             res[i] = loc + 1;
         }
@@ -256,7 +256,7 @@ struct StringInStrImpl {
     }
 
     static int execute(const StringRef& strl, const StringRef& strr) {
-        if (strr.size == 0) {
+        if (strr.empty()) {
             return 1;
         }
 
@@ -264,8 +264,8 @@ struct StringInStrImpl {
         // Hive returns positions starting from 1.
         int loc = search.search(&strl);
         if (loc > 0) {
-            size_t len = std::min((size_t)loc, strl.size);
-            loc = simd::VStringFunctions::get_char_len(strl.data, len);
+            size_t len = std::min((size_t)loc, strl.size());
+            loc = simd::VStringFunctions::get_char_len(strl.data(), len);
         }
 
         return loc + 1;
@@ -337,7 +337,7 @@ struct StringFunctionImpl {
                               ResultPaddedPODArray& res) {
         auto size = loffsets.size();
         res.resize(size);
-        std::string_view rview(rdata.data, rdata.size);
+        std::string_view rview(rdata);
         for (int i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
@@ -350,7 +350,7 @@ struct StringFunctionImpl {
                               const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         auto size = roffsets.size();
         res.resize(size);
-        std::string_view lview(ldata.data, ldata.size);
+        std::string_view lview(ldata);
         for (int i = 0; i < size; ++i) {
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
@@ -458,8 +458,7 @@ struct TrimUtil {
             if constexpr (is_rtrim) {
                 str = simd::VStringFunctions::rtrim(str, rhs);
             }
-            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
-                                        res_offsets);
+            StringOP::push_value_string(std::string_view(str), i, res_data, res_offsets);
         }
         return Status::OK();
     }
@@ -807,7 +806,7 @@ struct StringAppendTrailingCharIfAbsent {
         res_offsets.resize(input_rows_count);
         fmt::memory_buffer buffer;
 
-        if (rdata.size != 1) {
+        if (rdata.size() != 1) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
             }
@@ -820,7 +819,7 @@ struct StringAppendTrailingCharIfAbsent {
             int l_size = loffsets[i] - loffsets[i - 1];
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
-            if (l_raw[l_size - 1] == rdata.data[0]) {
+            if (l_raw[l_size - 1] == rdata.front()) {
                 StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
                                             res_offsets);
                 continue;
@@ -849,7 +848,7 @@ struct StringAppendTrailingCharIfAbsent {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
                 continue;
             }
-            if (ldata.size == 0 || ldata.back() == r_raw[0]) {
+            if (ldata.empty() || ldata.back() == r_raw[0]) {
                 StringOP::push_value_string(ldata.to_string_view(), i, res_data, res_offsets);
                 continue;
             }

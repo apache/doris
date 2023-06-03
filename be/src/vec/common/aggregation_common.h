@@ -234,9 +234,9 @@ inline UInt128 hash128(size_t i, size_t keys_size, const ColumnRawPtrs& key_colu
 /// Copy keys to the pool. Then put into pool StringRefs to them and return the pointer to the first.
 inline StringRef* place_keys_in_pool(size_t keys_size, StringRefs& keys, Arena& pool) {
     for (size_t j = 0; j < keys_size; ++j) {
-        char* place = pool.alloc(keys[j].size);
-        memcpy_small_allow_read_write_overflow15(place, keys[j].data, keys[j].size);
-        keys[j].data = place;
+        char* place = pool.alloc(keys[j].size());
+        memcpy_small_allow_read_write_overflow15(place, keys[j].data(), keys[j].size());
+        keys[j].replace(place, keys[j].size());
     }
 
     /// Place the StringRefs on the newly copied keys in the pool.
@@ -253,8 +253,9 @@ inline StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
     const char* begin = nullptr;
 
     size_t sum_size = 0;
-    for (size_t j = 0; j < keys_size; ++j)
-        sum_size += key_columns[j]->serialize_value_into_arena(i, pool, begin).size;
+    for (size_t j = 0; j < keys_size; ++j) {
+        sum_size += key_columns[j]->serialize_value_into_arena(i, pool, begin).size();
+    }
 
     return {begin, sum_size};
 }

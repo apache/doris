@@ -165,64 +165,62 @@ void VOrcWriterWrapper::close() {
         RETURN_WRONG_TYPE                                                                      \
     }
 
-#define WRITE_LARGEINT_STRING_INTO_BATCH(VECTOR_BATCH, COLUMN)                                   \
-    VECTOR_BATCH* cur_batch = dynamic_cast<VECTOR_BATCH*>(root->fields[i]);                      \
-    size_t begin_off = offset;                                                                   \
-    if (null_map != nullptr) {                                                                   \
-        cur_batch->hasNulls = true;                                                              \
-        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                 \
-        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
-            if (null_data[row_id] != 0) {                                                        \
-                cur_batch->notNull[row_id] = 0;                                                  \
-            } else {                                                                             \
-                cur_batch->notNull[row_id] = 1;                                                  \
-                auto value = assert_cast<const COLUMN&>(*col).get_data()[row_id];                \
-                std::string value_str = fmt::format("{}", value);                                \
-                size_t len = value_str.size();                                                   \
-                while (buffer.size < offset + len) {                                             \
-                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);               \
-                    memcpy(new_ptr, buffer.data, buffer.size);                                   \
-                    free(const_cast<char*>(buffer.data));                                        \
-                    buffer.data = new_ptr;                                                       \
-                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                \
-                }                                                                                \
-                strcpy(const_cast<char*>(buffer.data) + offset, value_str.c_str());              \
-                offset += len;                                                                   \
-                cur_batch->length[row_id] = len;                                                 \
-            }                                                                                    \
-        }                                                                                        \
-        size_t data_off = 0;                                                                     \
-        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
-            if (null_data[row_id] != 0) {                                                        \
-                cur_batch->notNull[row_id] = 0;                                                  \
-            } else {                                                                             \
-                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off; \
-                data_off += cur_batch->length[row_id];                                           \
-            }                                                                                    \
-        }                                                                                        \
-    } else if (const auto& not_null_column = check_and_get_column<const COLUMN>(col)) {          \
-        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
-            auto value = not_null_column->get_data()[row_id];                                    \
-            std::string value_str = fmt::format("{}", value);                                    \
-            size_t len = value_str.size();                                                       \
-            while (buffer.size < offset + len) {                                                 \
-                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                   \
-                memcpy(new_ptr, buffer.data, buffer.size);                                       \
-                free(const_cast<char*>(buffer.data));                                            \
-                buffer.data = new_ptr;                                                           \
-                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                    \
-            }                                                                                    \
-            strcpy(const_cast<char*>(buffer.data) + offset, value_str.c_str());                  \
-            offset += len;                                                                       \
-            cur_batch->length[row_id] = len;                                                     \
-        }                                                                                        \
-        size_t data_off = 0;                                                                     \
-        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
-            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;     \
-            data_off += cur_batch->length[row_id];                                               \
-        }                                                                                        \
-    } else {                                                                                     \
-        RETURN_WRONG_TYPE                                                                        \
+#define WRITE_LARGEINT_STRING_INTO_BATCH(VECTOR_BATCH, COLUMN)                                     \
+    VECTOR_BATCH* cur_batch = dynamic_cast<VECTOR_BATCH*>(root->fields[i]);                        \
+    size_t begin_off = offset;                                                                     \
+    if (null_map != nullptr) {                                                                     \
+        cur_batch->hasNulls = true;                                                                \
+        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                   \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            if (null_data[row_id] != 0) {                                                          \
+                cur_batch->notNull[row_id] = 0;                                                    \
+            } else {                                                                               \
+                cur_batch->notNull[row_id] = 1;                                                    \
+                auto value = assert_cast<const COLUMN&>(*col).get_data()[row_id];                  \
+                std::string value_str = fmt::format("{}", value);                                  \
+                size_t len = value_str.size();                                                     \
+                while (buffer.size() < offset + len) {                                             \
+                    char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);               \
+                    memcpy(new_ptr, buffer.data(), buffer.size());                                 \
+                    free(const_cast<char*>(buffer.data()));                                        \
+                    buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                     \
+                }                                                                                  \
+                strcpy(const_cast<char*>(buffer.data()) + offset, value_str.c_str());              \
+                offset += len;                                                                     \
+                cur_batch->length[row_id] = len;                                                   \
+            }                                                                                      \
+        }                                                                                          \
+        size_t data_off = 0;                                                                       \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            if (null_data[row_id] != 0) {                                                          \
+                cur_batch->notNull[row_id] = 0;                                                    \
+            } else {                                                                               \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off; \
+                data_off += cur_batch->length[row_id];                                             \
+            }                                                                                      \
+        }                                                                                          \
+    } else if (const auto& not_null_column = check_and_get_column<const COLUMN>(col)) {            \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            auto value = not_null_column->get_data()[row_id];                                      \
+            std::string value_str = fmt::format("{}", value);                                      \
+            size_t len = value_str.size();                                                         \
+            while (buffer.size() < offset + len) {                                                 \
+                char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);                   \
+                memcpy(new_ptr, buffer.data(), buffer.size());                                     \
+                free(const_cast<char*>(buffer.data()));                                            \
+                buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                         \
+            }                                                                                      \
+            strcpy(const_cast<char*>(buffer.data()) + offset, value_str.c_str());                  \
+            offset += len;                                                                         \
+            cur_batch->length[row_id] = len;                                                       \
+        }                                                                                          \
+        size_t data_off = 0;                                                                       \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off;     \
+            data_off += cur_batch->length[row_id];                                                 \
+        }                                                                                          \
+    } else {                                                                                       \
+        RETURN_WRONG_TYPE                                                                          \
     }
 
 #define WRITE_DATE_STRING_INTO_BATCH(FROM, TO)                                                     \
@@ -238,13 +236,12 @@ void VOrcWriterWrapper::close() {
                 cur_batch->notNull[row_id] = 1;                                                    \
                 int len = binary_cast<FROM, TO>(                                                   \
                                   assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id]) \
-                                  .to_buffer(const_cast<char*>(buffer.data) + offset);             \
-                while (buffer.size < offset + len) {                                               \
-                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
-                    memcpy(new_ptr, buffer.data, buffer.size);                                     \
-                    free(const_cast<char*>(buffer.data));                                          \
-                    buffer.data = new_ptr;                                                         \
-                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
+                                  .to_buffer(const_cast<char*>(buffer.data()) + offset);           \
+                while (buffer.size() < offset + len) {                                             \
+                    char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);               \
+                    memcpy(new_ptr, buffer.data(), buffer.size());                                 \
+                    free(const_cast<char*>(buffer.data()));                                        \
+                    buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                     \
                 }                                                                                  \
                 cur_batch->length[row_id] = len;                                                   \
                 offset += len;                                                                     \
@@ -255,7 +252,7 @@ void VOrcWriterWrapper::close() {
             if (null_data[row_id] != 0) {                                                          \
                 cur_batch->notNull[row_id] = 0;                                                    \
             } else {                                                                               \
-                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;   \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off; \
                 data_off += cur_batch->length[row_id];                                             \
             }                                                                                      \
         }                                                                                          \
@@ -263,20 +260,19 @@ void VOrcWriterWrapper::close() {
                        check_and_get_column<const ColumnVector<FROM>>(col)) {                      \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
             int len = binary_cast<FROM, TO>(not_null_column->get_data()[row_id])                   \
-                              .to_buffer(const_cast<char*>(buffer.data) + offset);                 \
-            while (buffer.size < offset + len) {                                                   \
-                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
-                memcpy(new_ptr, buffer.data, buffer.size);                                         \
-                free(const_cast<char*>(buffer.data));                                              \
-                buffer.data = new_ptr;                                                             \
-                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
+                              .to_buffer(const_cast<char*>(buffer.data()) + offset);               \
+            while (buffer.size() < offset + len) {                                                 \
+                char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);                   \
+                memcpy(new_ptr, buffer.data(), buffer.size());                                     \
+                free(const_cast<char*>(buffer.data()));                                            \
+                buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                         \
             }                                                                                      \
             cur_batch->length[row_id] = len;                                                       \
             offset += len;                                                                         \
         }                                                                                          \
         size_t data_off = 0;                                                                       \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
-            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;       \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off;     \
             data_off += cur_batch->length[row_id];                                                 \
         }                                                                                          \
     } else {                                                                                       \
@@ -295,16 +291,15 @@ void VOrcWriterWrapper::close() {
             } else {                                                                               \
                 cur_batch->notNull[row_id] = 1;                                                    \
                 int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;                    \
-                int len =                                                                          \
-                        binary_cast<FROM, TO>(                                                     \
-                                assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id])   \
-                                .to_buffer(const_cast<char*>(buffer.data) + offset, output_scale); \
-                while (buffer.size < offset + len) {                                               \
-                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
-                    memcpy(new_ptr, buffer.data, buffer.size);                                     \
-                    free(const_cast<char*>(buffer.data));                                          \
-                    buffer.data = new_ptr;                                                         \
-                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
+                int len = binary_cast<FROM, TO>(                                                   \
+                                  assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id]) \
+                                  .to_buffer(const_cast<char*>(buffer.data()) + offset,            \
+                                             output_scale);                                        \
+                while (buffer.size() < offset + len) {                                             \
+                    char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);               \
+                    memcpy(new_ptr, buffer.data(), buffer.size());                                 \
+                    free(const_cast<char*>(buffer.data()));                                        \
+                    buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                     \
                 }                                                                                  \
                 cur_batch->length[row_id] = len;                                                   \
                 offset += len;                                                                     \
@@ -315,7 +310,7 @@ void VOrcWriterWrapper::close() {
             if (null_data[row_id] != 0) {                                                          \
                 cur_batch->notNull[row_id] = 0;                                                    \
             } else {                                                                               \
-                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;   \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off; \
                 data_off += cur_batch->length[row_id];                                             \
             }                                                                                      \
         }                                                                                          \
@@ -324,20 +319,19 @@ void VOrcWriterWrapper::close() {
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
             int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;                        \
             int len = binary_cast<FROM, TO>(not_null_column->get_data()[row_id])                   \
-                              .to_buffer(const_cast<char*>(buffer.data) + offset, output_scale);   \
-            while (buffer.size < offset + len) {                                                   \
-                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
-                memcpy(new_ptr, buffer.data, buffer.size);                                         \
-                free(const_cast<char*>(buffer.data));                                              \
-                buffer.data = new_ptr;                                                             \
-                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
+                              .to_buffer(const_cast<char*>(buffer.data()) + offset, output_scale); \
+            while (buffer.size() < offset + len) {                                                 \
+                char* new_ptr = (char*)malloc(buffer.size() + BUFFER_UNIT_SIZE);                   \
+                memcpy(new_ptr, buffer.data(), buffer.size());                                     \
+                free(const_cast<char*>(buffer.data()));                                            \
+                buffer.replace(new_ptr, buffer.size() + BUFFER_UNIT_SIZE);                         \
             }                                                                                      \
             cur_batch->length[row_id] = len;                                                       \
             offset += len;                                                                         \
         }                                                                                          \
         size_t data_off = 0;                                                                       \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
-            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;       \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data()) + begin_off + data_off;     \
             data_off += cur_batch->length[row_id];                                                 \
         }                                                                                          \
     } else {                                                                                       \
@@ -376,15 +370,15 @@ void VOrcWriterWrapper::close() {
             } else {                                                                    \
                 cur_batch->notNull[row_id] = 1;                                         \
                 const auto& ele = col->get_data_at(row_id);                             \
-                cur_batch->data[row_id] = const_cast<char*>(ele.data);                  \
-                cur_batch->length[row_id] = ele.size;                                   \
+                cur_batch->data[row_id] = const_cast<char*>(ele.data());                \
+                cur_batch->length[row_id] = ele.size();                                 \
             }                                                                           \
         }                                                                               \
     } else if (const auto& not_null_column = check_and_get_column<const COLUMN>(col)) { \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                \
             const auto& ele = not_null_column->get_data_at(row_id);                     \
-            cur_batch->data[row_id] = const_cast<char*>(ele.data);                      \
-            cur_batch->length[row_id] = ele.size;                                       \
+            cur_batch->data[row_id] = const_cast<char*>(ele.data());                    \
+            cur_batch->length[row_id] = ele.size();                                     \
         }                                                                               \
     } else {                                                                            \
         RETURN_WRONG_TYPE                                                               \
@@ -592,7 +586,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
     _writer->add(*row_batch);
     _cur_written_rows += sz;
 
-    free(const_cast<char*>(buffer.data));
+    free(const_cast<char*>(buffer.data()));
     return Status::OK();
 }
 

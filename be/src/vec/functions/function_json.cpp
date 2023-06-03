@@ -316,7 +316,7 @@ struct GetJsonNumberType {
                               Container& res, NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
-        std::string_view path_string(rdata.data, rdata.size);
+        std::string_view path_string(rdata);
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
@@ -338,7 +338,7 @@ struct GetJsonNumberType {
                               NullMap& null_map) {
         size_t size = roffsets.size();
         res.resize(size);
-        std::string_view json_string(ldata.data, ldata.size);
+        std::string_view json_string(ldata);
         for (size_t i = 0; i < size; ++i) {
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
@@ -469,7 +469,7 @@ struct GetJsonString {
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             std::string_view json_string(l_raw, l_size);
-            std::string_view path_string(rdata.data, rdata.size);
+            std::string_view path_string(rdata);
 
             execute_impl(json_string, path_string, res_data, res_offsets, null_map, i);
         }
@@ -488,7 +488,7 @@ struct GetJsonString {
             int r_size = roffsets[i] - roffsets[i - 1];
             const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
-            std::string_view json_string(ldata.data, ldata.size);
+            std::string_view json_string(ldata);
             std::string_view path_string(r_raw, r_size);
 
             execute_impl(json_string, path_string, res_data, res_offsets, null_map, i);
@@ -529,7 +529,7 @@ struct JsonParser {
     //string
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetString(data.data, data.size, allocator);
+        value.SetString(data.data(), data.size(), allocator);
     }
 };
 
@@ -547,7 +547,7 @@ struct JsonParser<'1'> {
     // bool
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetBool((*data.data == '1') ? true : false);
+        value.SetBool((data.front() == '1') ? true : false);
     }
 };
 
@@ -556,7 +556,7 @@ struct JsonParser<'2'> {
     // int
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt(StringParser::string_to_int<int32_t>(data.data, data.size, &result));
+        value.SetInt(StringParser::string_to_int<int32_t>(data.data(), data.size(), &result));
     }
 };
 
@@ -565,7 +565,7 @@ struct JsonParser<'3'> {
     // double
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetDouble(StringParser::string_to_float<double>(data.data, data.size, &result));
+        value.SetDouble(StringParser::string_to_float<double>(data.data(), data.size(), &result));
     }
 };
 
@@ -575,7 +575,7 @@ struct JsonParser<'4'> {
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         // remove double quotes, "xxx" -> xxx
-        value.SetString(data.data + 1, data.size - 2, allocator);
+        value.SetString(data.data() + 1, data.size() - 2, allocator);
     }
 };
 
@@ -584,7 +584,7 @@ struct JsonParser<'5'> {
     // bigint
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
-        value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
+        value.SetInt64(StringParser::string_to_int<int64_t>(data.data(), data.size(), &result));
     }
 };
 
@@ -771,7 +771,7 @@ struct FunctionJsonQuoteImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             StringRef data = data_columns[0]->get_data_at(i);
-            value.SetString(data.data, data.size, allocator);
+            value.SetString(data.data(), data.size(), allocator);
 
             buf.Clear();
             value.Accept(writer);
@@ -790,9 +790,9 @@ struct FunctionJsonExtractImpl {
         rapidjson::Document document;
 
         const auto obj = json_col->get_data_at(row);
-        std::string_view json_string(obj.data, obj.size);
+        std::string_view json_string(obj);
         const auto path = path_col->get_data_at(row);
-        std::string_view path_string(path.data, path.size);
+        std::string_view path_string(path);
 
         auto root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
         if (root != nullptr) {
@@ -919,7 +919,7 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            if (parser.parse(val.data, val.size)) {
+            if (parser.parse(val.data(), val.size())) {
                 vec_to[i] = 1;
             } else {
                 vec_to[i] = 0;
@@ -978,16 +978,15 @@ public:
             }
 
             const auto& json_str = col_from_string->get_data_at(i);
-            if (json_str.size < 2 || json_str.data[0] != '"' ||
-                json_str.data[json_str.size - 1] != '"') {
+            if (json_str.size() < 2 || json_str.front() != '"' || json_str.back() != '"') {
                 // non-quoted string
-                col_to->insert_data(json_str.data, json_str.size);
+                col_to->insert_data(json_str.data(), json_str.size());
             } else {
-                document.Parse(json_str.data, json_str.size);
+                document.Parse(json_str.data(), json_str.size());
                 if (document.HasParseError() || !document.IsString()) {
                     return Status::RuntimeError(
                             fmt::format("Invalid JSON text in argument 1 to function {}: {}", name,
-                                        std::string_view(json_str.data, json_str.size)));
+                                        std::string_view(json_str)));
                 }
                 col_to->insert_data(document.GetString(), document.GetStringLength());
             }

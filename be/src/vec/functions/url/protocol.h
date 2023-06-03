@@ -52,9 +52,9 @@ struct ExtractProtocol {
         res_size = 0;
 
         StringRef scheme = get_url_scheme(data, size);
-        Pos pos = data + scheme.size;
+        Pos pos = data + scheme.size();
 
-        if (scheme.size == 0 || (data + size) - pos < 4) return;
+        if (scheme.empty() || (data + size) - pos < 4) return;
 
         if (pos[0] == ':') res_size = pos - data;
     }

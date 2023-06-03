@@ -1106,8 +1106,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
         DCHECK(num_to_read == num_read);
 
-        Slice sought_key =
-                Slice(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
+        Slice sought_key(index_column->get_data_at(0));
         Slice sought_key_without_seq =
                 Slice(sought_key.get_data(), sought_key.get_size() - seq_col_length);
 

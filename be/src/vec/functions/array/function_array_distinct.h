@@ -232,11 +232,11 @@ private:
                     set.insert(src_str_ref);
                     // copy the src data to column_string_chars
                     const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + src_str_ref.size;
+                    const size_t new_size = old_size + src_str_ref.size();
                     column_string_chars.resize(new_size);
-                    if (src_str_ref.size > 0) {
-                        memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                               src_str_ref.size);
+                    if (src_str_ref.size() > 0) {
+                        memcpy(column_string_chars.data() + old_size, src_str_ref.data(),
+                               src_str_ref.size());
                     }
                     column_string_offsets.push_back(new_size);
 

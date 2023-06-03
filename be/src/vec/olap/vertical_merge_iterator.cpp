@@ -196,7 +196,7 @@ Status RowSourcesBuffer::_serialize() {
     }
     // write data
     StringRef ref = _buffer->get_raw_data();
-    bytes_written = ::write(_fd, ref.data, ref.size * sizeof(UInt16));
+    bytes_written = ::write(_fd, ref.data(), ref.size() * sizeof(UInt16));
     if (bytes_written != _buffer->byte_size()) {
         LOG(WARNING) << "failed to write buffer data to file, bytes_written=" << bytes_written
                      << " buffer size=" << _buffer->byte_size();

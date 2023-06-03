@@ -79,8 +79,8 @@ Status VExplodeNumbersTableFunction::process_row(size_t row_idx) {
     }
 
     StringRef value = _value_column->get_data_at(row_idx);
-    if (value.data != nullptr) {
-        _cur_size = std::max(0, *reinterpret_cast<const int*>(value.data));
+    if (value.data() != nullptr) {
+        _cur_size = std::max(0, *reinterpret_cast<const int*>(value.data()));
     }
     return Status::OK();
 }

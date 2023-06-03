@@ -780,7 +780,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const ColumnConst* const_column =
                     check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
+            constant_val = const_cast<char*>(const_column->get_data_at(0).data());
             if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
@@ -797,7 +797,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
-                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+                constant_val = const_cast<char*>(bool_column->get_data_at(0).data());
                 if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
@@ -888,16 +888,16 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         DCHECK(slot_ref_child >= 0);
         // where A = nullptr should return empty result set
         auto fn_name = std::string("");
-        if (value.data != nullptr) {
+        if (value.data() != nullptr) {
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringRef(value.data, value.size);
+                auto val = StringRef(value);
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(&val),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             } else {
                 RETURN_IF_ERROR(_change_value_range<true>(
-                        temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                        temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data())),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
@@ -970,11 +970,11 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
 
         DCHECK(slot_ref_child >= 0);
         // where A = nullptr should return empty result set
-        if (value.data != nullptr) {
+        if (value.data() != nullptr) {
             auto fn_name = std::string("");
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringRef(value.data, value.size);
+                auto val = StringRef(value);
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
                             range, reinterpret_cast<void*>(&val),
@@ -987,11 +987,11 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
             } else {
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data())),
                             ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data())),
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
@@ -1060,16 +1060,16 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
                     reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
 
             // where A = nullptr should return empty result set
-            if (value.data != nullptr) {
+            if (value.data() != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringRef(value.data, value.size);
+                    auto val = StringRef(value);
                     RETURN_IF_ERROR(_change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                                ColumnValueRange<T>::add_value_range,
                                                                fn_name, slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data())),
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;
@@ -1183,17 +1183,17 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
                 reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name;
         if (eq_pdt == PushDownType::ACCEPTABLE || ne_pdt == PushDownType::ACCEPTABLE ||
             noneq_pdt == PushDownType::ACCEPTABLE) {
-            if (value.data != nullptr) {
+            if (value.data() != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringRef(value.data, value.size);
+                    auto val = StringRef(value);
                     RETURN_IF_ERROR(_change_value_range<false>(
                             range, reinterpret_cast<void*>(&val),
                             ColumnValueRange<T>::add_compound_value_range, fn_name,
                             slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<void*>(const_cast<char*>(value.data())),
                             ColumnValueRange<T>::add_compound_value_range, fn_name,
                             slot_ref_child));
                 }
@@ -1239,18 +1239,18 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 match_checker, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
-            if (value.data != nullptr) {
+            if (value.data() != nullptr) {
                 using CppType = typename PrimitiveTypeTraits<T>::CppType;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringRef(value.data, value.size);
+                    auto val = StringRef(value);
                     ColumnValueRange<T>::add_match_value_range(temp_range,
                                                                to_match_type(expr->op()),
                                                                reinterpret_cast<CppType*>(&val));
                 } else {
                     ColumnValueRange<T>::add_match_value_range(
                             temp_range, to_match_type(expr->op()),
-                            reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
+                            reinterpret_cast<CppType*>(const_cast<char*>(value.data())));
                 }
                 range.intersection(temp_range);
             }

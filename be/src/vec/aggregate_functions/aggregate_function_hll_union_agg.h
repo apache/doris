@@ -66,7 +66,7 @@ struct AggregateFunctionHLLData {
     void read(BufferReadable& buf) {
         StringRef ref;
         read_binary(ref, buf);
-        dst_hll.deserialize(Slice(ref.data, ref.size));
+        dst_hll.deserialize(Slice(ref));
     }
 
     Int64 get_cardinality() const { return dst_hll.estimate_cardinality(); }

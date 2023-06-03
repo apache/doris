@@ -406,19 +406,25 @@ public:
         if (arguments.size() > 1) {
             auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) upper = *string_ref.data;
+            if (string_ref.size() > 0) {
+                upper = string_ref.front();
+            }
         }
 
         if (arguments.size() > 2) {
             auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) lower = *string_ref.data;
+            if (string_ref.size() > 0) {
+                lower = string_ref.front();
+            }
         }
 
         if (arguments.size() > 3) {
             auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) number = *string_ref.data;
+            if (string_ref.size() > 0) {
+                number = string_ref.front();
+            }
         }
 
         if (arguments.size() > 4) {
@@ -815,8 +821,8 @@ public:
                     *block.get_by_position(arguments[0]).column)) {
             auto data = const_column->get_data_at(0);
             // return NULL, pos is null or pos < 0 or pos > num_children
-            auto is_null = data.data == nullptr;
-            auto pos = is_null ? 0 : *(Int32*)data.data;
+            auto is_null = data.data() == nullptr;
+            auto pos = is_null ? 0 : *(Int32*)data.data();
             is_null = pos <= 0 || pos > num_children;
 
             auto null_map = ColumnUInt8::create(input_rows_count, is_null);
@@ -826,11 +832,12 @@ public:
                 auto& target_column = block.get_by_position(arguments[pos]).column;
                 if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
                     auto target_data = target_const_column->get_data_at(0);
-                    if (target_data.data == nullptr) {
+                    if (target_data.data() == nullptr) {
                         null_map = ColumnUInt8::create(input_rows_count, is_null);
                         res->insert_many_defaults(input_rows_count);
                     } else {
-                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                        res->insert_many_data(target_data.data(), target_data.size(),
+                                              input_rows_count);
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
@@ -866,13 +873,13 @@ public:
                 auto pos = pos_column.get_element(i);
                 res_null_map[i] =
                         pos_null_map[i] || pos <= 0 || pos > num_children ||
-                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data() ==
                                 nullptr;
                 if (res_null_map[i]) {
                     res->insert_default();
                 } else {
                     auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
-                    res->insert_data(insert_data.data, insert_data.size);
+                    res->insert_data(insert_data.data(), insert_data.size());
                 }
             }
             block.get_by_position(result).column =
@@ -887,13 +894,13 @@ public:
                 auto pos = pos_column.get_element(i);
                 res_null_map[i] =
                         pos <= 0 || pos > num_children ||
-                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data() ==
                                 nullptr;
                 if (res_null_map[i]) {
                     res->insert_default();
                 } else {
                     auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
-                    res->insert_data(insert_data.data, insert_data.size);
+                    res->insert_data(insert_data.data(), insert_data.size());
                 }
             }
             block.get_by_position(result).column =
@@ -1423,27 +1430,27 @@ public:
             auto delimiter_str = delimiter_col->get_data_at(i).to_string();
             auto part_number = part_num_col_data[i];
             auto str = str_col->get_data_at(i);
-            if (delimiter.size == 0) {
+            if (delimiter.empty()) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
 
             if (part_number > 0) {
-                if (delimiter.size == 1) {
+                if (delimiter.size() == 1) {
                     // If delimiter is a char, use memchr to split
                     int32_t pre_offset = -1;
                     int32_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
-                        size_t n = str.size - offset - 1;
+                        size_t n = str.size() - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter_str[0], n));
+                                memchr(str.data() + offset + 1, delimiter_str[0], n));
                         if (pos != nullptr) {
-                            offset = pos - str.data;
+                            offset = pos - str.data();
                             num++;
                         } else {
-                            offset = str.size;
+                            offset = str.size();
                             num = (num == 0) ? 0 : num + 1;
                             break;
                         }
@@ -1451,29 +1458,28 @@ public:
 
                     if (num == part_number) {
                         StringOP::push_value_string(
-                                std::string_view {
-                                        reinterpret_cast<const char*>(str.data + pre_offset + 1),
-                                        (size_t)offset - pre_offset - 1},
+                                std::string_view {str.data() + pre_offset + 1,
+                                                  (size_t)offset - pre_offset - 1},
                                 i, res_chars, res_offsets);
                     } else {
                         StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     }
                 } else {
                     // If delimiter is a string, use memmem to split
-                    int32_t pre_offset = -delimiter.size;
-                    int32_t offset = -delimiter.size;
+                    int32_t pre_offset = -delimiter.size();
+                    int32_t offset = -delimiter.size();
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
-                        size_t n = str.size - offset - delimiter.size;
-                        char* pos =
-                                reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
-                                                               n, delimiter.data, delimiter.size));
+                        size_t n = str.size() - offset - delimiter.size();
+                        char* pos = reinterpret_cast<char*>(
+                                memmem(str.data() + offset + delimiter.size(), n, delimiter.data(),
+                                       delimiter.size()));
                         if (pos != nullptr) {
-                            offset = pos - str.data;
+                            offset = pos - str.data();
                             num++;
                         } else {
-                            offset = str.size;
+                            offset = str.size();
                             num = (num == 0) ? 0 : num + 1;
                             break;
                         }
@@ -1481,9 +1487,8 @@ public:
 
                     if (num == part_number) {
                         StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(
-                                                          str.data + pre_offset + delimiter.size),
-                                                  (size_t)offset - pre_offset - delimiter.size},
+                                std::string_view {str.data() + pre_offset + delimiter.size(),
+                                                  (size_t)offset - pre_offset - delimiter.size()},
                                 i, res_chars, res_offsets);
                     } else {
                         StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
@@ -1492,7 +1497,7 @@ public:
             } else {
                 part_number = -part_number;
                 auto str_str = str.to_string();
-                int32_t offset = str.size;
+                int32_t offset = str.size();
                 int32_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
@@ -1514,14 +1519,13 @@ public:
                 if (num == part_number) {
                     if (offset == -1) {
                         StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)pre_offset},
-                                i, res_chars, res_offsets);
+                                std::string_view {str.data(), (size_t)pre_offset}, i, res_chars,
+                                res_offsets);
                     } else {
                         StringOP::push_value_string(
                                 std::string_view {str_str.substr(
-                                        offset + delimiter.size,
-                                        (size_t)pre_offset - offset - delimiter.size)},
+                                        offset + delimiter.size(),
+                                        (size_t)pre_offset - offset - delimiter.size())},
                                 i, res_chars, res_offsets);
                     }
                 } else {
@@ -1607,27 +1611,25 @@ public:
                     int32_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
-                        size_t n = str.size - offset - 1;
+                        size_t n = str.size() - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter[0], n));
+                                memchr(str.data() + offset + 1, delimiter[0], n));
                         if (pos != nullptr) {
-                            offset = pos - str.data;
+                            offset = pos - str.data();
                             num++;
                         } else {
-                            offset = str.size;
+                            offset = str.size();
                             num = (num == 0) ? 0 : num + 1;
                             break;
                         }
                     }
 
                     if (num == part_number) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data(), (size_t)offset},
+                                                    i, res_chars, res_offsets);
                     } else {
-                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
-                                                    res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view(str), i, res_chars,
+                                                    res_offsets);
                     }
                 }
             } else {
@@ -1638,27 +1640,25 @@ public:
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
-                        size_t n = str.size - offset - delimiter_size;
+                        size_t n = str.size() - offset - delimiter_size;
                         // search first match delimter_ref index from src string among str_offset to end
-                        const char* pos = search.search(str.data + offset + delimiter_size, n);
-                        if (pos < str.data + str.size) {
-                            offset = pos - str.data;
+                        const char* pos = search.search(str.data() + offset + delimiter_size, n);
+                        if (pos < str.end()) {
+                            offset = pos - str.data();
                             num++;
                         } else {
-                            offset = str.size;
+                            offset = str.size();
                             num = (num == 0) ? 0 : num + 1;
                             break;
                         }
                     }
 
                     if (num == part_number) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data(), (size_t)offset},
+                                                    i, res_chars, res_offsets);
                     } else {
-                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
-                                                    res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view(str), i, res_chars,
+                                                    res_offsets);
                     }
                 }
             }
@@ -1668,7 +1668,7 @@ public:
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto str = str_col->get_data_at(i);
                 auto str_str = str.to_string();
-                int32_t offset = str.size;
+                int32_t offset = str.size();
                 int32_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
@@ -1689,17 +1689,16 @@ public:
 
                 if (num == part_number) {
                     if (offset == -1) {
-                        StringOP::push_value_string(std::string_view(str.data, str.size), i,
-                                                    res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view(str), i, res_chars,
+                                                    res_offsets);
                     } else {
                         StringOP::push_value_string(
-                                std::string_view {str.data + offset + delimiter_size,
-                                                  str.size - offset - delimiter_size},
+                                std::string_view {str.data() + offset + delimiter_size,
+                                                  str.size() - offset - delimiter_size},
                                 i, res_chars, res_offsets);
                     }
                 } else {
-                    StringOP::push_value_string(std::string_view(str.data, str.size), i, res_chars,
-                                                res_offsets);
+                    StringOP::push_value_string(std::string_view(str), i, res_chars, res_offsets);
                 }
             }
         }
@@ -1792,38 +1791,38 @@ private:
         for (size_t i = 0; i < src_offsets_size; i++) {
             const StringRef str_ref = src_column_string.get_data_at(i);
 
-            if (str_ref.size == 0) {
+            if (str_ref.empty()) {
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
-            if (delimiter_ref.size == 0) {
-                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+            if (delimiter_ref.empty()) {
+                for (size_t str_pos = 0; str_pos < str_ref.size();) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     str_pos++;
                     const size_t new_size = old_size + 1;
                     column_string_chars.resize(new_size);
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data() + str_offset, 1);
                     (*dest_nested_null_map).push_back(false);
                     string_pos++;
                     dest_pos++;
                     column_string_offsets.push_back(string_pos);
                 }
             } else {
-                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                for (size_t str_pos = 0; str_pos <= str_ref.size();) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     // search first match delimter_ref index from src string among str_offset to end
                     const char* result_start =
-                            search.search(str_ref.data + str_offset, str_ref.size - str_offset);
+                            search.search(str_ref.data() + str_offset, str_ref.size() - str_offset);
                     // compute split part size
-                    const size_t split_part_size = result_start - str_ref.data - str_offset;
+                    const size_t split_part_size = result_start - str_ref.data() - str_offset;
                     // save dist string split part
                     if (split_part_size > 0) {
                         const size_t new_size = old_size + split_part_size;
                         column_string_chars.resize(new_size);
                         memcpy_small_allow_read_write_overflow15(
-                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                column_string_chars.data() + old_size, str_ref.data() + str_offset,
                                 split_part_size);
                         // add dist string offset
                         string_pos += split_part_size;
@@ -1834,7 +1833,7 @@ private:
                     // array offset + 1
                     dest_pos++;
                     // add src string str_pos to next search start
-                    str_pos += split_part_size + delimiter_ref.size;
+                    str_pos += split_part_size + delimiter_ref.size();
                 }
             }
             dest_offsets.push_back(dest_pos);
@@ -1857,34 +1856,34 @@ private:
             const StringRef delimiter_ref = delimiter_column.get_data_at(i);
             const StringRef str_ref = src_column_string.get_data_at(i);
 
-            if (str_ref.size == 0) {
+            if (str_ref.empty()) {
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
-            if (delimiter_ref.size == 0) {
-                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+            if (delimiter_ref.empty()) {
+                for (size_t str_pos = 0; str_pos < str_ref.size();) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     str_pos++;
                     const size_t new_size = old_size + 1;
                     column_string_chars.resize(new_size);
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data() + str_offset, 1);
                     (*dest_nested_null_map).push_back(false);
                     string_pos++;
                     dest_pos++;
                     column_string_offsets.push_back(string_pos);
                 }
             } else {
-                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                for (size_t str_pos = 0; str_pos <= str_ref.size();) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
-                    str_pos += delimiter_ref.size;
+                    str_pos += delimiter_ref.size();
                     const size_t new_size = old_size + split_part_size;
                     column_string_chars.resize(new_size);
                     if (split_part_size > 0) {
                         memcpy_small_allow_read_write_overflow15(
-                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                column_string_chars.data() + old_size, str_ref.data() + str_offset,
                                 split_part_size);
                     }
                     (*dest_nested_null_map).push_back(false);
@@ -1899,10 +1898,10 @@ private:
 
     size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
         size_t old_size = pos;
-        size_t str_size = str_ref.size;
+        size_t str_size = str_ref.size();
         while (pos < str_size &&
-               memcmp_small_allow_overflow15(str_ref.data + pos, delimiter_ref.data,
-                                             delimiter_ref.size)) {
+               memcmp_small_allow_overflow15(str_ref.data() + pos, delimiter_ref.data(),
+                                             delimiter_ref.size())) {
             pos++;
         }
         return pos - old_size;
@@ -2012,7 +2011,7 @@ public:
             auto param = parameter_col->get_data_at(i);
             auto res = extract_url(source, param);
 
-            col_res->insert_data(res.data, res.size);
+            col_res->insert_data(res.data(), res.size());
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -2021,7 +2020,7 @@ public:
 
 private:
     StringRef extract_url(StringRef url, StringRef parameter) {
-        if (url.size == 0 || parameter.size == 0) {
+        if (url.empty() || parameter.empty()) {
             return StringRef("", 0);
         }
         return UrlParser::extract_url(url, parameter);
@@ -2078,16 +2077,16 @@ public:
             }
 
             auto part = part_col->get_data_at(i);
-            StringRef p(const_cast<char*>(part.data), part.size);
+            StringRef p(part);
             UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
             StringRef url_key;
             if (has_key) {
                 auto key = key_col->get_data_at(i);
-                url_key = StringRef(const_cast<char*>(key.data), key.size);
+                url_key = StringRef(key);
             }
 
             auto source = url_col->get_data_at(i);
-            StringRef url_val(const_cast<char*>(source.data), source.size);
+            StringRef url_val(source);
 
             StringRef parse_res;
             bool success = false;
@@ -2100,8 +2099,7 @@ public:
             if (!success) {
                 // url is malformed, or url_part is invalid.
                 if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError("Invalid URL part: {}\n{}",
-                                                std::string(part.data, part.size),
+                    return Status::RuntimeError("Invalid URL part: {}\n{}", std::string(part),
                                                 "(Valid URL parts are 'PROTOCOL', 'HOST', "
                                                 "'PATH', 'REF', 'AUTHORITY', "
                                                 "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
@@ -2111,8 +2109,7 @@ public:
                 }
             }
 
-            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
-                                        res_chars, res_offsets);
+            StringOP::push_value_string(std::string_view(parse_res), i, res_chars, res_offsets);
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
@@ -2158,7 +2155,7 @@ StringRef do_money_format(FunctionContext* context, const T int_value,
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;
     StringRef result = context->create_temp_string_val(string_val_len);
-    char* result_data = const_cast<char*>(result.data);
+    char* result_data = const_cast<char*>(result.data());
     memcpy(result_data, p, string_val_len - 3);
     *(result_data + string_val_len - 3) = '.';
     *(result_data + string_val_len - 2) = '0' + (frac_value / 10);
@@ -2171,7 +2168,7 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
-    char* result_data = const_cast<char*>(result.data);
+    char* result_data = const_cast<char*>(result.data());
     if (!is_positive) {
         *result_data = '-';
     }
@@ -2200,7 +2197,7 @@ struct MoneyFormatDoubleImpl {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
             StringRef str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
-            result_column->insert_data(str.data, str.size);
+            result_column->insert_data(str.data(), str.size());
         }
     }
 };
@@ -2214,7 +2211,7 @@ struct MoneyFormatInt64Impl {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringRef str = MoneyFormat::do_money_format<Int64, 26>(context, value);
-            result_column->insert_data(str.data, str.size);
+            result_column->insert_data(str.data(), str.size());
         }
     }
 };
@@ -2228,7 +2225,7 @@ struct MoneyFormatInt128Impl {
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
             StringRef str = MoneyFormat::do_money_format<Int128, 52>(context, value);
-            result_column->insert_data(str.data, str.size);
+            result_column->insert_data(str.data(), str.size());
         }
     }
 };
@@ -2250,7 +2247,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-                result_column->insert_data(str.data, str.size);
+                result_column->insert_data(str.data(), str.size());
             }
         } else if (auto* decimal32_column =
                            check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
@@ -2269,7 +2266,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(str.data, str.size);
+                result_column->insert_data(str.data(), str.size());
             }
         } else if (auto* decimal64_column =
                            check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
@@ -2288,7 +2285,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(str.data, str.size);
+                result_column->insert_data(str.data(), str.size());
             }
         } else if (auto* decimal128_column =
                            check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
@@ -2307,7 +2304,7 @@ struct MoneyFormatDecimalImpl {
                 StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
-                result_column->insert_data(str.data, str.size);
+                result_column->insert_data(str.data(), str.size());
             }
         }
     }
@@ -2375,7 +2372,7 @@ private:
 
         auto size = posdata.size();
         res.resize(size);
-        StringRef substr(ldata.data, ldata.size);
+        StringRef substr(ldata);
         std::shared_ptr<StringSearch> search_ptr(new StringSearch(&substr));
 
         for (int i = 0; i < size; ++i) {
@@ -2422,12 +2419,12 @@ private:
 
     int locate_pos(StringRef substr, StringRef str, std::shared_ptr<StringSearch> search_ptr,
                    int start_pos) {
-        if (substr.size == 0) {
+        if (substr.empty()) {
             if (start_pos <= 0) {
                 return 0;
             } else if (start_pos == 1) {
                 return 1;
-            } else if (start_pos > str.size) {
+            } else if (start_pos > str.size()) {
                 return 0;
             } else {
                 return start_pos;
@@ -2437,20 +2434,21 @@ private:
         // but throws an exception for *start_pos > str->len.
         // Since returning 0 seems to be Hive's error condition, return 0.
         std::vector<size_t> index;
-        size_t char_len = simd::VStringFunctions::get_char_len(str.data, str.size, index);
-        if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
+        size_t char_len = simd::VStringFunctions::get_char_len(str.data(), str.size(), index);
+        if (start_pos <= 0 || start_pos > str.size() || start_pos > char_len) {
             return 0;
         }
         if (!search_ptr) {
             search_ptr.reset(new StringSearch(&substr));
         }
         // Input start_pos starts from 1.
-        StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
+        StringRef adjusted_str(str.data() + index[start_pos - 1],
+                               str.size() - index[start_pos - 1]);
         int32_t match_pos = search_ptr->search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            size_t len = std::min(adjusted_str.size, (size_t)match_pos);
-            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, len);
+            size_t len = std::min(adjusted_str.size(), (size_t)match_pos);
+            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data(), len);
         } else {
             return 0;
         }
@@ -2609,7 +2607,7 @@ private:
         for (size_t row = 0; row < input_rows_count; ++row) {
             StringRef origin_str = data_column->get_data_at(row);
             StringRef new_str = mask_column->get_data_at(row);
-            size_t origin_str_len = origin_str.size;
+            size_t origin_str_len = origin_str.size();
             //input is null, start < 0, len < 0, str_size <= start. return NULL
             if (args_null_map[row] || start[row] < 0 || length[row] < 0 ||
                 origin_str_len <= start[row]) {
@@ -3009,9 +3007,9 @@ public:
                             assert_cast<const ColumnString*>(&(const_column->get_data_column()));
                     auto data_item = str_column->get_data_at(0);
                     memcpy_small_allow_read_write_overflow15(
-                            &res_data[res_offset[i - 1]] + current_length, data_item.data,
-                            data_item.size);
-                    current_length += data_item.size;
+                            &res_data[res_offset[i - 1]] + current_length, data_item.data(),
+                            data_item.size());
+                    current_length += data_item.size();
                 } else {
                     auto& current_offsets = *offsets_list[j];
                     auto& current_chars = *chars_list[j];

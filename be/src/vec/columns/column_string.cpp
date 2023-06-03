@@ -69,7 +69,7 @@ MutableColumnPtr ColumnString::get_shrinked_column() {
     for (int i = 0; i < size(); i++) {
         StringRef str = get_data_at(i);
         reinterpret_cast<ColumnString*>(shrinked_column.get())
-                ->insert_data(str.data, strnlen(str.data, str.size));
+                ->insert_data(str.data(), strnlen(str.data(), str.size()));
     }
     return shrinked_column;
 }
@@ -126,13 +126,13 @@ void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::
     if (null_data == nullptr) {
         for (size_t i = 0; i < s; i++) {
             auto data_ref = get_data_at(i);
-            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data(), data_ref.size(), hashes[i]);
         }
     } else {
         for (size_t i = 0; i < s; i++) {
             if (null_data[i] == 0) {
                 auto data_ref = get_data_at(i);
-                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data(), data_ref.size(), hashes[i]);
             }
         }
     }
@@ -219,12 +219,10 @@ StringRef ColumnString::serialize_value_into_arena(size_t n, Arena& arena,
     uint32_t string_size(size_at(n));
     uint32_t offset(offset_at(n));
 
-    StringRef res;
-    res.size = sizeof(string_size) + string_size;
-    char* pos = arena.alloc_continue(res.size, begin);
-    memcpy(pos, &string_size, sizeof(string_size));
-    memcpy(pos + sizeof(string_size), &chars[offset], string_size);
-    res.data = pos;
+    size_t res_size = sizeof(string_size) + string_size;
+    StringRef res(arena.alloc_continue(res_size, begin), res_size);
+    memcpy(const_cast<char*>(res.data()), &string_size, sizeof(string_size));
+    memcpy(const_cast<char*>(res.data() + sizeof(string_size)), &chars[offset], string_size);
 
     return res;
 }
@@ -259,10 +257,10 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
         uint32_t offset(offset_at(i));
         uint32_t string_size(size_at(i));
 
-        auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+        auto* ptr = const_cast<char*>(keys[i].end());
         memcpy(ptr, &string_size, sizeof(string_size));
         memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-        keys[i].size += sizeof(string_size) + string_size;
+        keys[i].replace(keys[i].data(), keys[i].size() + sizeof(string_size) + string_size);
     }
 }
 
@@ -274,19 +272,18 @@ void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             uint32_t offset(offset_at(i));
             uint32_t string_size(size_at(i));
 
-            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
+            auto* ptr = const_cast<char*>(keys[i].end());
             memcpy(ptr, &string_size, sizeof(string_size));
             memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-            keys[i].size += sizeof(string_size) + string_size;
+            keys[i].replace(keys[i].data(), keys[i].size() + sizeof(string_size) + string_size);
         }
     }
 }
 
 void ColumnString::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto original_ptr = keys[i].data;
-        keys[i].data = deserialize_and_insert_from_arena(original_ptr);
-        keys[i].size -= keys[i].data - original_ptr;
+        auto new_ptr = deserialize_and_insert_from_arena(keys[i].data());
+        keys[i].replace(new_ptr, keys[i].size() - (new_ptr - keys[i].data()));
     }
 }
 
@@ -294,9 +291,8 @@ void ColumnString::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                  const size_t num_rows, const uint8_t* null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
-            auto original_ptr = keys[i].data;
-            keys[i].data = deserialize_and_insert_from_arena(original_ptr);
-            keys[i].size -= keys[i].data - original_ptr;
+            auto new_ptr = deserialize_and_insert_from_arena(keys[i].data());
+            keys[i].replace(new_ptr, keys[i].size() - (new_ptr - keys[i].data()));
         } else {
             insert_default();
         }
@@ -521,8 +517,8 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data_at(row_id);
-            int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
-                                                    cmp_base.size);
+            int res = memcmp_small_allow_overflow15(value_a.data(), value_a.size(), cmp_base.data(),
+                                                    cmp_base.size());
             if (res * direction < 0) {
                 filter[row_id] = 1;
                 cmp_res[row_id] = 1;

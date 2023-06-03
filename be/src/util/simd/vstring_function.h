@@ -54,49 +54,49 @@ public:
 #endif
 public:
     static StringRef rtrim(const StringRef& str) {
-        if (str.size == 0) {
+        if (str.empty()) {
             return str;
         }
         auto begin = 0;
-        int64_t end = str.size - 1;
+        int64_t end = str.size() - 1;
 #if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
             const auto v_haystack = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
+                    reinterpret_cast<const __m128i*>(str.data() + end + 1 - REGISTER_SIZE));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern);
             int offset = __builtin_clz(~(mask << REGISTER_SIZE));
             /// means not found
             if (offset == 0) {
-                return StringRef(str.data + begin, end - begin + 1);
+                return StringRef(str.data() + begin, end - begin + 1);
             } else {
                 end -= offset;
             }
         }
 #endif
-        while (end >= begin && str.data[end] == ' ') {
+        while (end >= begin && str[end] == ' ') {
             --end;
         }
         if (end < 0) {
             return StringRef("");
         }
-        return StringRef(str.data + begin, end - begin + 1);
+        return StringRef(str.data() + begin, end - begin + 1);
     }
 
     static StringRef ltrim(const StringRef& str) {
-        if (str.size == 0) {
+        if (str.empty()) {
             return str;
         }
         auto begin = 0;
-        auto end = str.size - 1;
+        auto end = str.size() - 1;
 #if defined(__SSE2__) || defined(__aarch64__)
         char blank = ' ';
         const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
             const auto v_haystack =
-                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data() + begin));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
             /// zero means not found
@@ -105,81 +105,81 @@ public:
             } else {
                 const auto offset = __builtin_ctz(mask);
                 begin += offset;
-                return StringRef(str.data + begin, end - begin + 1);
+                return StringRef(str.data() + begin, end - begin + 1);
             }
         }
 #endif
-        while (begin <= end && str.data[begin] == ' ') {
+        while (begin <= end && str[begin] == ' ') {
             ++begin;
         }
-        return StringRef(str.data + begin, end - begin + 1);
+        return StringRef(str.data() + begin, end - begin + 1);
     }
 
     static StringRef trim(const StringRef& str) {
-        if (str.size == 0) {
+        if (str.empty()) {
             return str;
         }
         return rtrim(ltrim(str));
     }
 
     static StringRef rtrim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
+        if (str.empty() || rhs.empty()) {
             return str;
         }
-        if (rhs.size == 1) {
+        if (rhs.size() == 1) {
             auto begin = 0;
-            int64_t end = str.size - 1;
-            const char blank = rhs.data[0];
+            int64_t end = str.size() - 1;
+            const char blank = rhs.front();
 #if defined(__SSE2__) || defined(__aarch64__)
             const auto pattern = _mm_set1_epi8(blank);
             while (end - begin + 1 >= REGISTER_SIZE) {
                 const auto v_haystack = _mm_loadu_si128(
-                        reinterpret_cast<const __m128i*>(str.data + end + 1 - REGISTER_SIZE));
+                        reinterpret_cast<const __m128i*>(str.data() + end + 1 - REGISTER_SIZE));
                 const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
                 const auto mask = _mm_movemask_epi8(v_against_pattern);
                 int offset = __builtin_clz(~(mask << REGISTER_SIZE));
                 /// means not found
                 if (offset == 0) {
-                    return StringRef(str.data + begin, end - begin + 1);
+                    return StringRef(str.data() + begin, end - begin + 1);
                 } else {
                     end -= offset;
                 }
             }
 #endif
-            while (end >= begin && str.data[end] == blank) {
+            while (end >= begin && str[end] == blank) {
                 --end;
             }
             if (end < 0) {
                 return StringRef("");
             }
-            return StringRef(str.data + begin, end - begin + 1);
+            return StringRef(str.data() + begin, end - begin + 1);
         }
         auto begin = 0;
-        auto end = str.size - 1;
-        const auto rhs_size = rhs.size;
+        auto end = str.size() - 1;
+        const auto rhs_size = rhs.size();
         while (end - begin + 1 >= rhs_size) {
-            if (memcmp(str.data + end - rhs_size + 1, rhs.data, rhs_size) == 0) {
-                end -= rhs.size;
+            if (memcmp(str.data() + end - rhs_size + 1, rhs.data(), rhs_size) == 0) {
+                end -= rhs.size();
             } else {
                 break;
             }
         }
-        return StringRef(str.data + begin, end - begin + 1);
+        return StringRef(str.data() + begin, end - begin + 1);
     }
 
     static StringRef ltrim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
+        if (str.empty() || rhs.empty()) {
             return str;
         }
-        if (str.size == 1) {
+        if (str.size() == 1) {
             auto begin = 0;
-            auto end = str.size - 1;
-            const char blank = rhs.data[0];
+            auto end = str.size() - 1;
+            const char blank = rhs.front();
 #if defined(__SSE2__) || defined(__aarch64__)
             const auto pattern = _mm_set1_epi8(blank);
             while (end - begin + 1 >= REGISTER_SIZE) {
                 const auto v_haystack =
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data + begin));
+                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.data() + begin));
                 const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
                 const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
                 /// zero means not found
@@ -188,30 +188,30 @@ public:
                 } else {
                     const auto offset = __builtin_ctz(mask);
                     begin += offset;
-                    return StringRef(str.data + begin, end - begin + 1);
+                    return StringRef(str.data() + begin, end - begin + 1);
                 }
             }
 #endif
-            while (begin <= end && str.data[begin] == blank) {
+            while (begin <= end && str[begin] == blank) {
                 ++begin;
             }
-            return StringRef(str.data + begin, end - begin + 1);
+            return StringRef(str.data() + begin, end - begin + 1);
         }
         auto begin = 0;
-        auto end = str.size - 1;
-        const auto rhs_size = rhs.size;
+        auto end = str.size() - 1;
+        const auto rhs_size = rhs.size();
         while (end - begin + 1 >= rhs_size) {
-            if (memcmp(str.data + begin, rhs.data, rhs_size) == 0) {
-                begin += rhs.size;
+            if (memcmp(str.data() + begin, rhs.data(), rhs_size) == 0) {
+                begin += rhs.size();
             } else {
                 break;
             }
         }
-        return StringRef(str.data + begin, end - begin + 1);
+        return StringRef(str.data() + begin, end - begin + 1);
     }
 
     static StringRef trim(const StringRef& str, const StringRef& rhs) {
-        if (str.size == 0 || rhs.size == 0) {
+        if (str.empty() || rhs.empty()) {
             return str;
         }
         return rtrim(ltrim(str, rhs), rhs);
@@ -220,37 +220,38 @@ public:
     // Gcc will do auto simd in this function
     static bool is_ascii(const StringRef& str) {
         char or_code = 0;
-        for (size_t i = 0; i < str.size; i++) {
-            or_code |= str.data[i];
+        for (const char& ch : str) {
+            or_code |= ch;
         }
         return !(or_code & 0x80);
     }
 
     static void reverse(const StringRef& str, StringRef dst) {
+        /// TODO: Modifying data in StringRef is confusing.
         if (is_ascii(str)) {
             int64_t begin = 0;
-            int64_t end = str.size;
-            int64_t result_end = dst.size - 1;
+            int64_t end = str.size();
+            int64_t result_end = dst.size() - 1;
 
             // auto SIMD here
-            auto* __restrict l = const_cast<char*>(dst.data);
-            auto* __restrict r = str.data;
+            auto* __restrict l = const_cast<char*>(dst.data());
+            auto* __restrict r = str.data();
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
             }
         } else {
-            char* dst_data = const_cast<char*>(dst.data);
-            for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
-                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
+            char* dst_data = const_cast<char*>(dst.data());
+            for (size_t i = 0, char_size = 0; i < str.size(); i += char_size) {
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data())[i]];
                 // there exists occasion where the last character is an illegal UTF-8 one which returns
                 // a char_size larger than the actual space, which would cause offset execeeding the buffer range
                 // for example, consider str.size=4, i = 3, then the last char returns char_size 2, then
                 // the str.data + offset would exceed the buffer range
                 size_t offset = i + char_size;
-                if (offset > str.size) {
-                    offset = str.size;
+                if (offset > str.size()) {
+                    offset = str.size();
                 }
-                std::copy(str.data + i, str.data + offset, dst_data + str.size - offset);
+                std::copy(str.data() + i, str.data() + offset, dst_data + str.size() - offset);
             }
         }
     }

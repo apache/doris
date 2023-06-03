@@ -168,7 +168,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
         auto& vec = assert_cast<ColVecType&>(to);
         vec.reserve(size());
         for (const auto& item : data_set) {
-            vec.insert_data(item.key.data, item.key.size);
+            vec.insert_data(item.key.data(), item.key.size());
         }
     }
 

@@ -101,8 +101,7 @@ private:
         }
         const ColumnString* column_string_ptr = check_and_get_column<ColumnString>(*column_ptr);
         StringRef str_ref = column_string_ptr->get_data_at(0);
-        std::string str(str_ref.data, str_ref.size);
-        return str;
+        return std::string(str_ref);
     }
 
     static void _fill_result_string(const std::string& input_str, const std::string& sep_str,
@@ -188,7 +187,7 @@ private:
                 }
 
                 StringRef src_str_ref = src_data_concrete->get_data_at(j);
-                std::string elem_str(src_str_ref.data, src_str_ref.size);
+                std::string elem_str(src_str_ref);
                 _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
             }
 

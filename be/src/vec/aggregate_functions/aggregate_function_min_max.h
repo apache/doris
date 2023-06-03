@@ -372,14 +372,14 @@ public:
 
     /// Assuming to.has()
     void change_impl(StringRef value, Arena* arena) {
-        Int32 value_size = value.size;
+        Int32 value_size = value.size();
 
         if (value_size <= MAX_SMALL_STRING_SIZE) {
             /// Don't free large_data here.
             size = value_size;
 
             if (size > 0) {
-                memcpy(small_data, value.data, size);
+                memcpy(small_data, value.data(), size);
             }
         } else {
             if (capacity < value_size) {
@@ -389,7 +389,7 @@ public:
             }
 
             size = value_size;
-            memcpy(large_data, value.data, size);
+            memcpy(large_data, value.data(), size);
         }
     }
 

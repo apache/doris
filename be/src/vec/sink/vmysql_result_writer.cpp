@@ -175,26 +175,26 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             if constexpr (type == TYPE_VARCHAR) {
                 const auto string_val = column->get_data_at(col_index);
 
-                if (string_val.data == nullptr) {
-                    if (string_val.size == 0) {
+                if (string_val.data() == nullptr) {
+                    if (string_val.empty()) {
                         // 0x01 is a magic num, not useful actually, just for present ""
                         char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = rows_buffer[i].push_string(tmp_val, string_val.size);
+                        buf_ret = rows_buffer[i].push_string(tmp_val, string_val.size());
                     } else {
                         buf_ret = rows_buffer[i].push_null();
                     }
                 } else {
-                    buf_ret = rows_buffer[i].push_string(string_val.data, string_val.size);
+                    buf_ret = rows_buffer[i].push_string(string_val.data(), string_val.size());
                 }
             }
             if constexpr (type == TYPE_JSONB) {
                 const auto jsonb_val = column->get_data_at(col_index);
                 // jsonb size == 0 is NULL
-                if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+                if (jsonb_val.data() == nullptr || jsonb_val.empty()) {
                     buf_ret = rows_buffer[i].push_null();
                 } else {
                     std::string json_str =
-                            JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
+                            JsonbToJson::jsonb_to_json_string(jsonb_val.data(), jsonb_val.size());
                     buf_ret = rows_buffer[i].push_string(json_str.c_str(), json_str.size());
                 }
             }
@@ -449,16 +449,16 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
     } else if (which.is_string()) {
         int buf_ret = 0;
         const auto string_val = column->get_data_at(row_idx);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
+        if (string_val.data() == nullptr) {
+            if (string_val.empty()) {
                 // 0x01 is a magic num, not useful actually, just for present ""
                 char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = buffer.push_string(tmp_val, string_val.size);
+                buf_ret = buffer.push_string(tmp_val, string_val.size());
             } else {
                 buf_ret = buffer.push_null();
             }
         } else {
-            buf_ret = buffer.push_string(string_val.data, string_val.size);
+            buf_ret = buffer.push_string(string_val.data(), string_val.size());
         }
         return buf_ret;
     } else if (which.is_date_or_datetime()) {

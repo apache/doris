@@ -105,13 +105,13 @@ void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
     DCHECK(null_data == nullptr);
     DCHECK(hashes.size() == size());
     auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
+    if (real_data.data() == nullptr) {
         for (auto& hash : hashes) {
             hash.update(0);
         }
     } else {
         for (auto& hash : hashes) {
-            hash.update(real_data.data, real_data.size);
+            hash.update(real_data.data(), real_data.size());
         }
     }
 }
@@ -121,13 +121,13 @@ void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::P
     DCHECK(null_data == nullptr);
     DCHECK(hashes.size() == size());
     auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
+    if (real_data.data() == nullptr) {
         for (int i = 0; i < hashes.size(); ++i) {
             hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
         }
     } else {
         for (int i = 0; i < hashes.size(); ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
+            hashes[i] = RawValue::zlib_crc32(real_data.data(), real_data.size(), type, hashes[i]);
         }
     }
 }
@@ -137,13 +137,13 @@ void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
     DCHECK(null_data == nullptr);
     auto real_data = data->get_data_at(0);
     auto real_size = size();
-    if (real_data.data == nullptr) {
+    if (real_data.data() == nullptr) {
         for (int i = 0; i < real_size; ++i) {
             hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
         }
     } else {
         for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
+            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data(), real_data.size(), hashes[i]);
         }
     }
 }

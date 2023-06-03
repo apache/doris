@@ -245,7 +245,7 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                return bf->test_bytes(_value.data, _value.size);
+                return bf->test_bytes(_value.data(), _value.size());
             } else if constexpr (Type == TYPE_DATE) {
                 return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
                                       sizeof(uint24_t));

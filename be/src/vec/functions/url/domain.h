@@ -131,15 +131,16 @@ struct ExtractDomain {
     static void execute(Pos data, size_t size, Pos& res_data, size_t& res_size) {
         StringRef host = get_url_host(data, size);
 
-        if (host.size == 0) {
+        if (host.empty()) {
             res_data = data;
             res_size = 0;
         } else {
-            if (without_www && host.size > 4 && !strncmp(host.data, "www.", 4))
-                host = {host.data + 4, host.size - 4};
+            if (without_www && host.size() > 4 && !strncmp(host.data(), "www.", 4)) {
+                host.remove_prefix(4);
+            }
 
-            res_data = host.data;
-            res_size = host.size;
+            res_data = host.data();
+            res_size = host.size();
         }
     }
 };

@@ -249,7 +249,9 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     } else {
         column = column_ptr;
     }
-    auto [item, size] = column->get_data_at(row);
+    StringRef str = column->get_data_at(row);
+    const char* item = str.data();
+    size_t size = str.size();
     switch (type.type) {
     case TYPE_BOOLEAN:
         if (table_type == TOdbcTableType::SAP_HANA) {

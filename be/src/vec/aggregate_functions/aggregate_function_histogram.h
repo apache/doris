@@ -67,7 +67,7 @@ struct AggregateFunctionHistogramData {
     void reset() { ordered_map.clear(); }
 
     void add(const StringRef& value, const UInt64& number = 1) {
-        std::string data = value.to_string();
+        std::string data(value);
         auto it = ordered_map.find(data);
         if (it != ordered_map.end()) {
             it->second = it->second + number;

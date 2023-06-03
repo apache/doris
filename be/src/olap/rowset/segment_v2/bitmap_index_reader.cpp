@@ -56,7 +56,7 @@ Status BitmapIndexIterator::seek_dictionary(const void* value, bool* exact_match
 }
 
 Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* result) {
-    DCHECK(ordinal < _reader->bitmap_nums());
+    DCHECK_LT(ordinal, _reader->bitmap_nums());
 
     size_t num_to_read = 1;
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
@@ -66,9 +66,9 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, roaring::Roaring* resul
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_bitmap_column_iter.next_batch(&num_read, column));
-    DCHECK(num_to_read == num_read);
+    DCHECK_EQ(num_to_read, num_read);
 
-    *result = roaring::Roaring::read(column->get_data_at(0).data, false);
+    *result = roaring::Roaring::read(column->get_data_at(0).data(), false);
     return Status::OK();
 }
 

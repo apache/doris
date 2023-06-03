@@ -153,9 +153,9 @@ Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
     RETURN_IF_ERROR(TableFunction::process_row(row_idx));
 
     StringRef text = _text_column->get_data_at(row_idx);
-    if (text.data != nullptr) {
+    if (text.data() != nullptr) {
         rapidjson::Document document;
-        document.Parse(text.data, text.size);
+        document.Parse(text.data(), text.size());
         if (!document.HasParseError() && document.IsArray() && document.GetArray().Size()) {
             _cur_size = _parsed_data.set_output(_type, document);
         }

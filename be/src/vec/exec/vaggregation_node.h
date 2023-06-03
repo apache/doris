@@ -139,9 +139,9 @@ struct AggregationMethodSerialized {
             }
 
             for (size_t i = 0; i < num_rows; ++i) {
-                keys[i].data =
-                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-                keys[i].size = 0;
+                keys[i].replace(
+                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size),
+                        0);
             }
 
             for (const auto& column : key_columns) {
@@ -154,7 +154,7 @@ struct AggregationMethodSerialized {
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
                                         const Sizes&) {
-        auto pos = key.data;
+        auto pos = key.data();
         for (auto& column : key_columns) {
             pos = column->deserialize_and_insert_from_arena(pos);
         }
@@ -216,7 +216,7 @@ struct AggregationMethodStringNoCache {
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
                                         const Sizes&) {
-        key_columns[0]->insert_data(key.data, key.size);
+        key_columns[0]->insert_data(key.data(), key.size());
     }
 
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
@@ -415,7 +415,7 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
         auto col = key_columns[0].get();
 
         if constexpr (std::is_same_v<Key, StringRef>) {
-            col->insert_data(key.data, key.size);
+            col->insert_data(key.data(), key.size());
         } else {
             col->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
         }

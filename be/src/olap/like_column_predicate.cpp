@@ -61,8 +61,8 @@ uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                     unsigned char flag = 0;
                     (_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                            const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                            pattern, &flag);
                     new_size += _opposite ^ flag;
                 }
             } else {
@@ -77,8 +77,8 @@ uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                     unsigned char flag = 0;
                     (_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                            const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                            pattern, &flag);
                     new_size += _opposite ^ flag;
                 }
             }
@@ -108,8 +108,8 @@ uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16
                     StringRef cell_value = str_col->get_data()[idx];
                     unsigned char flag = 0;
                     (_state->scalar_function)(
-                            const_cast<vectorized::LikeSearchState*>(&_like_state),
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                            const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                            pattern, &flag);
                     new_size += _opposite ^ flag;
                 }
             }
@@ -125,8 +125,7 @@ uint16_t LikeColumnPredicate::evaluate(const vectorized::IColumn& column, uint16
                 StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                 unsigned char flag = 0;
                 (_state->scalar_function)(const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                          StringRef(cell_value.data, cell_value.size), pattern,
-                                          &flag);
+                                          cell_value, pattern, &flag);
                 new_size += _opposite ^ flag;
             }
         } else {

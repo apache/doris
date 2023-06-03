@@ -208,14 +208,12 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
     for (size_t i = 0; i < array_size; ++i) {
         auto value_ref = get_keys().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        res.replace(value_ref.data() - res.size(), res.size() + value_ref.size());
     }
 
     for (size_t i = 0; i < array_size; ++i) {
         auto value_ref = get_values().serialize_value_into_arena(offset + i, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        res.replace(value_ref.data() - res.size(), res.size() + value_ref.size());
     }
 
     return res;

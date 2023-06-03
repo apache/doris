@@ -51,8 +51,7 @@ const StringSearch UrlParser::_s_question_search(&_s_question);
 const StringSearch UrlParser::_s_hash_search(&_s_hash);
 
 bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result) {
-    result->data = nullptr;
-    result->size = 0;
+    result->replace(nullptr, 0);
     // Remove leading and trailing spaces.
     StringRef trimmed_url = url.trim();
 
@@ -63,7 +62,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     // Positioned to first char after '://'.
-    StringRef protocol_end = trimmed_url.substring(protocol_pos + _s_protocol.size);
+    StringRef protocol_end = trimmed_url.substring(protocol_pos + _s_protocol.size());
 
     switch (part) {
     case AUTHORITY: {
@@ -112,7 +111,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             start_pos = 0;
         } else {
             // Skip '@'.
-            start_pos += _s_at.size;
+            start_pos += _s_at.size();
         }
 
         StringRef host_start = protocol_end.substring(start_pos);
@@ -142,7 +141,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef query_start = protocol_end.substring(start_pos + _s_question.size);
+        StringRef query_start = protocol_end.substring(start_pos + _s_question.size());
         // End string _s_at next '#'.
         int32_t end_pos = _s_hash_search.search(&query_start);
         *result = query_start.substring(0, end_pos);
@@ -158,7 +157,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        *result = protocol_end.substring(start_pos + _s_hash.size);
+        *result = protocol_end.substring(start_pos + _s_hash.size());
         break;
     }
 
@@ -184,7 +183,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             start_pos = 0;
         } else {
             // Skip '@'.
-            start_pos += _s_at.size;
+            start_pos += _s_at.size();
         }
 
         StringRef host_start = protocol_end.substring(start_pos);
@@ -195,7 +194,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef port_start_str = protocol_end.substring(end_pos + _s_colon.size);
+        StringRef port_start_str = protocol_end.substring(end_pos + _s_colon.size());
         int32_t port_end_pos = _s_slash_search.search(&port_start_str);
         //if '/' not found, try to find '?'
         if (port_end_pos < 0) {
@@ -225,7 +224,7 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
     // Search for the key in the url, ignoring malformed URLs for now.
     StringSearch key_search(&key);
 
-    while (trimmed_url.size > 0) {
+    while (trimmed_url.size() > 0) {
         // Search for the key in the current substring.
         int32_t key_pos = key_search.search(&trimmed_url);
         bool match = true;
@@ -236,32 +235,31 @@ bool UrlParser::parse_url_key(const StringRef& url, UrlPart part, const StringRe
 
         // Key pos must be != 0 because it must be preceded by a '?' or a '&'.
         // Check that the char before key_pos is either '?' or '&'.
-        if (key_pos == 0 ||
-            (trimmed_url.data[key_pos - 1] != '?' && trimmed_url.data[key_pos - 1] != '&')) {
+        if (key_pos == 0 || (trimmed_url[key_pos - 1] != '?' && trimmed_url[key_pos - 1] != '&')) {
             match = false;
         }
 
         // Advance substring beyond matching key.
-        trimmed_url = trimmed_url.substring(key_pos + key.size);
+        trimmed_url = trimmed_url.substring(key_pos + key.size());
 
         if (!match) {
             continue;
         }
 
-        if (trimmed_url.size <= 0) {
+        if (trimmed_url.empty()) {
             break;
         }
 
         // Next character must be '=', otherwise the match cannot be a key in the query part.
-        if (trimmed_url.data[0] != '=') {
+        if (trimmed_url.front() != '=') {
             continue;
         }
 
         int32_t pos = 1;
 
         // Find ending position of key's value by matching '#' or '&'.
-        while (pos < trimmed_url.size) {
-            switch (trimmed_url.data[pos]) {
+        while (pos < trimmed_url.size()) {
+            switch (trimmed_url[pos]) {
             case '#':
             case '&':
                 *result = trimmed_url.substring(1, pos - 1);
@@ -285,9 +283,9 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     std::string part_str = part.to_string();
     transform(part_str.begin(), part_str.end(), part_str.begin(), ::toupper);
     StringRef newPart = StringRef(part_str);
-    switch (newPart.data[0]) {
+    switch (newPart.front()) {
     case 'A': {
-        if (!newPart.eq(_s_url_authority)) {
+        if (newPart != _s_url_authority) {
             return INVALID;
         }
 
@@ -295,7 +293,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'F': {
-        if (!newPart.eq(_s_url_file)) {
+        if (newPart != _s_url_file) {
             return INVALID;
         }
 
@@ -303,7 +301,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'H': {
-        if (!newPart.eq(_s_url_host)) {
+        if (newPart != _s_url_host) {
             return INVALID;
         }
 
@@ -311,11 +309,11 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'P': {
-        if (newPart.eq(_s_url_path)) {
+        if (newPart == _s_url_path) {
             return PATH;
-        } else if (newPart.eq(_s_url_protocol)) {
+        } else if (newPart == _s_url_protocol) {
             return PROTOCOL;
-        } else if (newPart.eq(_s_url_port)) {
+        } else if (newPart == _s_url_port) {
             return PORT;
         } else {
             return INVALID;
@@ -323,7 +321,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'Q': {
-        if (!newPart.eq(_s_url_query)) {
+        if (newPart != _s_url_query) {
             return INVALID;
         }
 
@@ -331,7 +329,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'R': {
-        if (!newPart.eq(_s_url_ref)) {
+        if (newPart != _s_url_ref) {
             return INVALID;
         }
 
@@ -339,7 +337,7 @@ UrlParser::UrlPart UrlParser::get_url_part(const StringRef& part) {
     }
 
     case 'U': {
-        if (!newPart.eq(_s_url_userinfo)) {
+        if (newPart != _s_url_userinfo) {
             return INVALID;
         }
 
@@ -367,7 +365,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     int32_t hash_pos = _s_hash_search.search(&trimmed_url);
     StringRef sub_url;
     if (hash_pos < 0) {
-        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.size - question_pos - 1);
+        sub_url = trimmed_url.substring(question_pos + 1, trimmed_url.size() - question_pos - 1);
     } else {
         sub_url = trimmed_url.substring(question_pos + 1, hash_pos - question_pos - 1);
     }
@@ -375,7 +373,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     // find '&' and '=', and extract target parameter
     // Example: k1=aa&k2=bb&k3=cc&test=dd
     int64_t and_pod;
-    auto len = sub_url.size;
+    auto len = sub_url.size();
     StringRef key_url;
     while (true) {
         if (len <= 0) {
@@ -390,14 +388,14 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
             key_url = end_pos == -1 ? sub_url : sub_url.substring(0, end_pos);
             sub_url = result;
         }
-        len = sub_url.size;
+        len = sub_url.size();
 
         auto eq_pod = key_url.find_first_of('=');
         if (eq_pod == -1) {
             // invalid url. like: k1&k2=bb
             continue;
         }
-        int32_t key_len = key_url.size;
+        int32_t key_len = key_url.size();
         auto key = key_url.substring(0, eq_pod);
         if (name == key) {
             return key_url.substring(eq_pod + 1, key_len - eq_pod - 1);

@@ -49,13 +49,13 @@ struct AggregateFunctionGroupConcatData {
     void add(StringRef ref, StringRef sep) {
         if (!inited) {
             inited = true;
-            separator.assign(sep.data, sep.data + sep.size);
+            separator.assign(sep.begin(), sep.end());
         } else {
             data += separator;
         }
 
-        data.resize(data.length() + ref.size);
-        memcpy(data.data() + data.length() - ref.size, ref.data, ref.size);
+        data.resize(data.length() + ref.size());
+        memcpy(data.data() + data.length() - ref.size(), ref.data(), ref.size());
     }
 
     void merge(const AggregateFunctionGroupConcatData& rhs) {
@@ -99,7 +99,7 @@ struct AggregateFunctionGroupConcatImplStr {
     static void add(AggregateFunctionGroupConcatData& __restrict place, const IColumn** columns,
                     size_t row_num) {
         place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num),
-                  StringRef(separator.data(), separator.length()));
+                  StringRef(separator));
     }
 };
 

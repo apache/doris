@@ -93,18 +93,17 @@ private:
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size,
                                      vectorized::ColumnString* res_ptr) {
-        StringRef refs[sel_size];
+        StringRefs refs(sel_size);
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
             auto& sv = reinterpret_cast<StringRef&>(data[n]);
-            refs[i].data = sv.data;
-            refs[i].size = sv.size;
-            length += sv.size;
+            refs[i] = sv;
+            length += sv.size();
         }
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
-        res_ptr->insert_many_strings_without_reserve(refs, sel_size);
+        res_ptr->insert_many_strings_without_reserve(refs.data(), sel_size);
     }
 
     void insert_decimal_to_res_column(const uint16_t* sel, size_t sel_size,
@@ -267,7 +266,7 @@ public:
         if constexpr (std::is_same_v<T, StringRef>) {
             for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
                 int32_t codeword = data_array[start_index];
-                insert_string_value(dict[codeword].data, dict[codeword].size);
+                insert_string_value(dict[codeword].data(), dict[codeword].size());
             }
         }
     }
@@ -289,10 +288,10 @@ public:
 
             auto* data_ptr = &data[org_elem_num];
             for (size_t i = 0; i != num; ++i) {
-                data_ptr[i].data = destination + offsets[i] - offsets[0];
-                data_ptr[i].size = offsets[i + 1] - offsets[i];
+                data_ptr[i].replace(destination + offsets[i] - offsets[0],
+                                    offsets[i + 1] - offsets[i]);
             }
-            DCHECK(data_ptr[num - 1].data + data_ptr[num - 1].size == destination + total_mem_size);
+            DCHECK_EQ(data_ptr[num - 1].end(), destination + total_mem_size);
         }
     }
 
@@ -318,8 +317,7 @@ public:
             uint32_t fragment_start_offset = start_offset_array[0];
             size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
-                data[org_elem_num + i].data = destination + fragment_len;
-                data[org_elem_num + i].size = len_array[i];
+                data[org_elem_num + i].replace(destination + fragment_len, len_array[i]);
                 fragment_len += len_array[i];
                 // Compute the largest continuous memcpy block and copy them.
                 // If this is the last element in data array, then should copy the current memory block.

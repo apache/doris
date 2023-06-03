@@ -256,7 +256,7 @@ struct RegexpExtractImpl {
             re = scoped_re.get();
         }
         const auto& str = str_col->get_data_at(index_now);
-        re2::StringPiece str_sp = re2::StringPiece(str.data, str.size);
+        re2::StringPiece str_sp = re2::StringPiece(str.data(), str.size());
 
         int max_matches = 1 + re->NumberOfCapturingGroups();
         if (index_data >= max_matches) {
@@ -266,7 +266,7 @@ struct RegexpExtractImpl {
 
         std::vector<re2::StringPiece> matches(max_matches);
         bool success =
-                re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0], max_matches);
+                re->Match(str_sp, 0, str.size(), re2::RE2::UNANCHORED, &matches[0], max_matches);
         if (!success) {
             StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
@@ -339,9 +339,9 @@ struct RegexpExtractAllImpl {
         int max_matches = 1 + re->NumberOfCapturingGroups();
         std::vector<re2::StringPiece> res_matches;
         size_t pos = 0;
-        while (pos < str.size) {
-            auto str_pos = str.data + pos;
-            auto str_size = str.size - pos;
+        while (pos < str.size()) {
+            auto str_pos = str.data() + pos;
+            auto str_size = str.size() - pos;
             re2::StringPiece str_sp = re2::StringPiece(str_pos, str_size);
             std::vector<re2::StringPiece> matches(max_matches);
             bool success =
@@ -399,7 +399,7 @@ public:
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
                 const auto& pattern = pattern_col->get_data_at(0);
-                if (pattern.size == 0) {
+                if (pattern.empty()) {
                     return Status::OK();
                 }
 

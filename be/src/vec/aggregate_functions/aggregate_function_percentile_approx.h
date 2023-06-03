@@ -322,7 +322,7 @@ struct PercentileState {
         vec_counts.resize(size_num);
         for (int i = 0; i < size_num; ++i) {
             read_binary(ref, buf);
-            vec_counts[i].unserialize((uint8_t*)ref.data);
+            vec_counts[i].unserialize((uint8_t*)ref.data());
         }
     }
 

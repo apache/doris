@@ -381,8 +381,8 @@ Status VParquetWriterWrapper::parse_schema() {
             } else {                                                                             \
                 const auto& tmp = col->get_data_at(row_id);                                      \
                 parquet::ByteArray value;                                                        \
-                value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);                          \
-                value.len = tmp.size;                                                            \
+                value.ptr = reinterpret_cast<const uint8_t*>(tmp.data());                        \
+                value.len = tmp.size();                                                          \
                 col_writer->WriteBatch(1, &single_def_level, nullptr, &value);                   \
             }                                                                                    \
         }                                                                                        \
@@ -390,8 +390,8 @@ Status VParquetWriterWrapper::parse_schema() {
         for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
             const auto& tmp = not_nullable_column->get_data_at(row_id);                          \
             parquet::ByteArray value;                                                            \
-            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data);                              \
-            value.len = tmp.size;                                                                \
+            value.ptr = reinterpret_cast<const uint8_t*>(tmp.data());                            \
+            value.len = tmp.size();                                                              \
             col_writer->WriteBatch(1, nullable ? &single_def_level : nullptr, nullptr, &value);  \
         }                                                                                        \
     } else {                                                                                     \
@@ -761,9 +761,10 @@ Status VParquetWriterWrapper::write(const Block& block) {
                             col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
                             single_def_level = 1;
                         } else {
-                            const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(
-                                                                     col->get_data_at(row_id).data)
-                                                                     ->value);
+                            const DecimalV2Value decimal_val(
+                                    reinterpret_cast<const PackedInt128*>(
+                                            col->get_data_at(row_id).data())
+                                            ->value);
                             char decimal_buffer[MAX_DECIMAL_WIDTH];
                             int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
                             value.ptr = reinterpret_cast<const uint8_t*>(decimal_buffer);
@@ -776,7 +777,7 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         const DecimalV2Value decimal_val(
                                 reinterpret_cast<const PackedInt128*>(
-                                        not_nullable_column->get_data_at(row_id).data)
+                                        not_nullable_column->get_data_at(row_id).data())
                                         ->value);
                         char decimal_buffer[MAX_DECIMAL_WIDTH];
                         int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;

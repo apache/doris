@@ -112,8 +112,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 if (!ctx->root()->type().is_complex_type()) {
                     string_ref = column_ptr->get_data_at(0);
                 }
-                result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
-                                     column_ptr, column_type);
+                result = _get_result((void*)string_ref.data(), string_ref.size(),
+                                     ctx->root()->type(), column_ptr, column_type);
             }
 
             expr_result.set_content(std::move(result));

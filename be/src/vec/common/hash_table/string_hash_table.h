@@ -503,19 +503,19 @@ public:
     static auto ALWAYS_INLINE dispatch(Self& self, KeyHolder&& key_holder, Func&& func) {
         StringHashTableHash hash;
         const doris::StringRef& x = key_holder_get_key(key_holder);
-        const size_t sz = x.size;
+        const size_t sz = x.size();
         if (sz == 0) {
             key_holder_discard_key(key_holder);
             return func(self.m0, std::forward<KeyHolder>(key_holder), 0);
         }
 
-        if (x.data[sz - 1] == 0) {
+        if (x.back() == 0) {
             // Strings with trailing zeros are not representable as fixed-size
             // string keys. Put them to the generic table.
             return func(self.ms, std::forward<KeyHolder>(key_holder), hash(x));
         }
 
-        const char* p = x.data;
+        const char* p = x.data();
         // pending bits that needs to be shifted out
         const char s = (-sz & 7) * 8;
         union {
@@ -532,7 +532,7 @@ public:
                 memcpy(&n[0], p, 8);
                 n[0] &= -1ULL >> s;
             } else {
-                const char* lp = x.data + x.size - 8;
+                const char* lp = x.data() + x.size() - 8;
                 memcpy(&n[0], lp, 8);
                 n[0] >>= s;
             }
@@ -542,7 +542,7 @@ public:
         case 1: // 9..16 bytes
         {
             memcpy(&n[0], p, 8);
-            const char* lp = x.data + x.size - 8;
+            const char* lp = x.data() + x.size() - 8;
             memcpy(&n[1], lp, 8);
             n[1] >>= s;
             key_holder_discard_key(key_holder);
@@ -551,7 +551,7 @@ public:
         case 2: // 17..24 bytes
         {
             memcpy(&n[0], p, 16);
-            const char* lp = x.data + x.size - 8;
+            const char* lp = x.data() + x.size() - 8;
             memcpy(&n[2], lp, 8);
             n[2] >>= s;
             key_holder_discard_key(key_holder);

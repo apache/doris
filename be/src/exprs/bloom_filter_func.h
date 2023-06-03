@@ -372,7 +372,7 @@ struct StringFindOp {
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value) {
-            bloom_filter.add_bytes(value->data, value->size);
+            bloom_filter.add_bytes(value->data(), value->size());
         }
     }
 
@@ -380,7 +380,7 @@ struct StringFindOp {
     void insert_crc32_hash(BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value) {
-            bloom_filter.add_bytes_new_hash(value->data, value->size);
+            bloom_filter.add_bytes_new_hash(value->data(), value->size());
         }
     }
 
@@ -389,7 +389,7 @@ struct StringFindOp {
         if (value == nullptr) {
             return false;
         }
-        return bloom_filter.test(Slice(value->data, value->size));
+        return bloom_filter.test(Slice(*value));
     }
 
     //This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
@@ -398,7 +398,7 @@ struct StringFindOp {
         if (value == nullptr) {
             return false;
         }
-        return bloom_filter.test_new_hash(Slice(value->data, value->size));
+        return bloom_filter.test_new_hash(Slice(*value));
     }
 
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
@@ -414,12 +414,12 @@ struct StringFindOp {
 struct FixedStringFindOp : public StringFindOp {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* input_data) const {
         const auto* value = reinterpret_cast<const StringRef*>(input_data);
-        int64_t size = value->size;
-        const char* data = value->data;
+        const char* data = value->data();
+        int64_t size = value->size();
         while (size > 0 && data[size - 1] == '\0') {
             size--;
         }
-        return bloom_filter.test(Slice(value->data, size));
+        return bloom_filter.test(Slice(data, size));
     }
 };
 

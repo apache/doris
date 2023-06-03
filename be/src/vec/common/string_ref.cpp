@@ -27,25 +27,25 @@ namespace doris {
 
 StringRef StringRef::trim() const {
     // Remove leading and trailing spaces.
-    int32_t begin = 0;
+    size_t begin = 0;
 
-    while (begin < size && data[begin] == ' ') {
+    while (begin < _size && _data[begin] == ' ') {
         ++begin;
     }
 
-    int32_t end = size - 1;
+    size_t end = _size;
 
-    while (end > begin && data[end] == ' ') {
+    while (end > begin && _data[end - 1] == ' ') {
         --end;
     }
 
-    return StringRef(data + begin, end - begin + 1);
+    return StringRef(data() + begin, end - begin);
 }
 
 // TODO: rewrite in AVX2
 size_t StringRef::find_first_of(char c) const {
-    const char* p = static_cast<const char*>(memchr(data, c, size));
-    return p == nullptr ? -1 : p - data;
+    const char* p = static_cast<const char*>(memchr(_data, c, _size));
+    return p == nullptr ? -1 : p - _data;
 }
 
 StringRef StringRef::min_string_val() {
@@ -57,41 +57,41 @@ StringRef StringRef::max_string_val() {
 }
 
 bool StringRef::start_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
+    if (_size == 0) [[unlikely]] {
         return false;
     }
-    return data[0] == ch;
+    return front() == ch;
 }
 bool StringRef::end_with(char ch) const {
-    if (UNLIKELY(size == 0)) {
+    if (_size == 0) [[unlikely]] {
         return false;
     }
-    return data[size - 1] == ch;
+    return back() == ch;
 }
 
 bool StringRef::start_with(const StringRef& search_string) const {
-    DCHECK(size >= search_string.size);
-    if (search_string.size == 0) {
+    DCHECK_GE(size(), search_string.size());
+    if (search_string.empty()) {
         return true;
     }
 
 #if defined(__SSE2__) || defined(__aarch64__)
-    return memequalSSE2Wide(data, search_string.data, search_string.size);
+    return memequalSSE2Wide(data(), search_string.data(), search_string.size());
 #else
-    return 0 == memcmp(data, search_string.data, search_string.size);
+    return 0 == memcmp(data(), search_string.data(), search_string.size());
 #endif
 }
 bool StringRef::end_with(const StringRef& search_string) const {
-    DCHECK(size >= search_string.size);
-    if (search_string.size == 0) {
+    DCHECK_GE(size(), search_string.size());
+    if (search_string.empty()) {
         return true;
     }
 
 #if defined(__SSE2__) || defined(__aarch64__)
-    return memequalSSE2Wide(data + size - search_string.size, search_string.data,
-                            search_string.size);
+    return memequalSSE2Wide(data() + size() - search_string.size(), search_string.data(),
+                            search_string.size());
 #else
-    return 0 == memcmp(data + size - search_string.size, search_string.data, search_string.size);
+    return 0 == memcmp(end() - search_string.size(), search_string.data(), search_string.size());
 #endif
 }
 } // namespace doris

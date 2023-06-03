@@ -400,9 +400,7 @@ public:
             return;
         }
 
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(value->data, value->size);
-        _set.insert(str_value);
+        _set.insert(std::string(*reinterpret_cast<const StringRef*>(data)));
     }
 
     void insert(void* data, size_t size) override {
@@ -421,9 +419,7 @@ public:
             return false;
         }
 
-        auto* value = reinterpret_cast<const StringRef*>(data);
-        std::string str_value(const_cast<const char*>(value->data), value->size);
-        return _set.find(str_value);
+        return _set.find(std::string(*reinterpret_cast<const StringRef*>(data)));
     }
 
     bool find(const void* data, size_t size) const override {
@@ -484,8 +480,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data());
-            _value.size = _begin->length();
+            _value.replace(_begin->data(), _begin->length());
             return &_value;
         }
         void next() override { ++_begin; }
@@ -524,9 +519,7 @@ public:
             return;
         }
 
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        StringRef sv(value->data, value->size);
-        _set.insert(sv);
+        _set.insert(*reinterpret_cast<const StringRef*>(data));
     }
 
     void insert(void* data, size_t size) override {
@@ -615,8 +608,7 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.data = const_cast<char*>(_begin->data);
-            _value.size = _begin->size;
+            _value.replace(_begin->data(), _begin->size());
             return &_value;
         }
         void next() override { ++_begin; }

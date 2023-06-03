@@ -96,13 +96,13 @@ void vector_const_null(const IColumn* left, const ColumnConst* right, IColumn* r
 
     auto r_data_ptr = right->get_data_at(0);
 
-    if (r_data_ptr.data == nullptr) {
+    if (r_data_ptr.data() == nullptr) {
         for (size_t i = 0; i < rows; ++i) {
             res_nulls[i] = Op::apply_null(l_datas[i], l_nulls[i], 1, true);
             res_datas[i] = Op::apply(l_datas[i], 1);
         }
     } else {
-        UInt8 r_data = *(UInt8*)r_data_ptr.data;
+        UInt8 r_data = *(UInt8*)r_data_ptr.data();
         for (size_t i = 0; i < rows; ++i) {
             res_nulls[i] = Op::apply_null(l_datas[i], l_nulls[i], r_data, false);
             res_datas[i] = Op::apply(l_datas[i], r_data);

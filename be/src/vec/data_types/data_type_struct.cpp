@@ -98,7 +98,6 @@ std::string DataTypeStruct::do_get_name() const {
 }
 
 bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, bool& has_quota) {
-    StringRef element(rb.position(), 0);
     has_quota = false;
     is_name = false;
     if (rb.eof()) {
@@ -108,8 +107,10 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, boo
     // ltrim
     while (!rb.eof() && isspace(*rb.position())) {
         ++rb.position();
-        element.data = rb.position();
     }
+
+    // Begin of the element
+    const char* data = rb.position();
 
     // parse string
     if (*rb.position() == '"' || *rb.position() == '\'') {
@@ -126,7 +127,6 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, boo
         }
         has_quota = true;
         rb.position() += str_len + 1;
-        element.size += str_len + 1;
     }
 
     // parse element until separator ':' or ',' or end '}'
@@ -136,7 +136,6 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, boo
             return false;
         }
         ++rb.position();
-        ++element.size;
     }
     // invalid element
     if (rb.eof()) {
@@ -147,19 +146,21 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, boo
         is_name = true;
     }
 
+    // Now rb.position() is end of the element.
+    StringRef element(data, rb.position() - data);
+
     // adjust read buffer position to first char of next element
     ++rb.position();
 
     // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
+    while (element.size() > 0 && isspace(element.back())) {
+        element.remove_suffix(1);
     }
 
     // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
+    if (has_quota) {
+        element.remove_prefix(1);
+        element.remove_suffix(1);
     }
     output = element;
     return true;
@@ -207,7 +208,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
                 return Status::InvalidArgument("Cannot read struct field from text '{}'",
                                                slot.to_string());
             }
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
+            ReadBuffer field_rb(const_cast<char*>(slot.data()), slot.size());
             field_names.push_back(name);
             field_rbs.push_back(field_rb);
 
@@ -215,7 +216,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
                 is_explicit_names = true;
             }
         } else {
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
+            ReadBuffer field_rb(const_cast<char*>(slot.data()), slot.size());
             field_rbs.push_back(field_rb);
         }
     }

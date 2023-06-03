@@ -73,10 +73,10 @@ char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
 
 template <>
 char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
-    *(int32_t*)dest = v.size;
+    *(int32_t*)dest = v.size();
     dest += 4;
-    memcpy(dest, v.data, v.size);
-    dest += v.size;
+    memcpy(dest, v.data(), v.size());
+    dest += v.size();
     return dest;
 }
 
@@ -103,7 +103,7 @@ int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
 
 template <>
 int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
-    return v.size + 4;
+    return v.size() + 4;
 }
 
 template <>

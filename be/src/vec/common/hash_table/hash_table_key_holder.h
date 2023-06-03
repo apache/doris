@@ -106,8 +106,8 @@ key_holder_get_key(doris::vectorized::ArenaKeyHolder& holder) {
 
 inline void ALWAYS_INLINE key_holder_persist_key(doris::vectorized::ArenaKeyHolder& holder) {
     // Hash table shouldn't ask us to persist a zero key
-    assert(holder.key.size > 0);
-    holder.key.data = holder.pool.insert(holder.key.data, holder.key.size);
+    DCHECK_GT(holder.key.size(), 0);
+    holder.key.replace(holder.pool.insert(holder.key.data(), holder.key.size()), holder.key.size());
 }
 
 inline void ALWAYS_INLINE key_holder_discard_key(doris::vectorized::ArenaKeyHolder&) {}
@@ -134,8 +134,7 @@ key_holder_get_key(doris::vectorized::SerializedKeyHolder& holder) {
 inline void ALWAYS_INLINE key_holder_persist_key(doris::vectorized::SerializedKeyHolder&) {}
 
 inline void ALWAYS_INLINE key_holder_discard_key(doris::vectorized::SerializedKeyHolder& holder) {
-    [[maybe_unused]] void* new_head = holder.pool.rollback(holder.key.size);
-    assert(new_head == holder.key.data);
-    holder.key.data = nullptr;
-    holder.key.size = 0;
+    [[maybe_unused]] void* new_head = holder.pool.rollback(holder.key.size());
+    DCHECK_EQ(new_head, holder.key.data());
+    holder.key.replace(nullptr, 0);
 }

@@ -434,7 +434,7 @@ private:
 
             if (c0_const_string) {
                 c0_const_chars = &c0_const_string->get_chars();
-                c0_const_size = c0_const_string->get_data_at(0).size;
+                c0_const_size = c0_const_string->get_data_at(0).size();
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c0->get_name(), name);
@@ -447,7 +447,7 @@ private:
 
             if (c1_const_string) {
                 c1_const_chars = &c1_const_string->get_chars();
-                c1_const_size = c1_const_string->get_data_at(0).size;
+                c1_const_size = c1_const_string->get_data_at(0).size();
             } else {
                 return Status::NotSupported("Illegal columns {}, of argument of function {}",
                                             c1->get_name(), name);

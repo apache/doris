@@ -556,13 +556,12 @@ public:
         case TYPE_HLL:
         case TYPE_STRING: {
             // StringRef->StringRef
-            StringRef data = StringRef(value.data, value.size);
-            insert(reinterpret_cast<const void*>(&data));
+            insert(reinterpret_cast<const void*>(&value));
             break;
         }
 
         default:
-            insert(reinterpret_cast<const void*>(value.data));
+            insert(reinterpret_cast<const void*>(value.data()));
             break;
         }
     }
@@ -571,7 +570,7 @@ public:
         if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
             bitmap_filter_insert_batch(column, rows);
         } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)) {
-            insert_fixed_len(column->get_raw_data().data, rows.data(), rows.size());
+            insert_fixed_len(column->get_raw_data().data(), rows.data(), rows.size());
         } else {
             for (int index : rows) {
                 insert(column->get_data_at(index));
@@ -1026,8 +1025,8 @@ public:
             case TYPE_STRING: {
                 StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
                 StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->data));
-                auto max_val_ptr = _pool->add(new std::string(max_value->data));
+                auto min_val_ptr = _pool->add(new std::string(min_value->data()));
+                auto max_val_ptr = _pool->add(new std::string(max_value->data()));
                 StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
                 StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
                 _context.minmax_func->assign(&min_val, &max_val);
@@ -1704,7 +1703,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_VARCHAR:
     case TYPE_STRING: {
         batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
-            column->set_stringval(std::string(value->data, value->size));
+            column->set_stringval(std::string(*value));
         });
         return;
     }
@@ -1813,11 +1812,9 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_VARCHAR:
     case TYPE_STRING: {
         const StringRef* min_string_value = reinterpret_cast<const StringRef*>(min_data);
-        filter->mutable_min_val()->set_stringval(
-                std::string(min_string_value->data, min_string_value->size));
+        filter->mutable_min_val()->set_stringval(std::string(*min_string_value));
         const StringRef* max_string_value = reinterpret_cast<const StringRef*>(max_data);
-        filter->mutable_max_val()->set_stringval(
-                std::string(max_string_value->data, max_string_value->size));
+        filter->mutable_max_val()->set_stringval(std::string(*max_string_value));
         break;
     }
     default: {

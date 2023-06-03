@@ -93,15 +93,13 @@ public:
 
             if (other_minmax->_min < _min) {
                 auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.data, other_min.size));
-                _min.data = str->data();
-                _min.size = str->length();
+                auto str = pool->add(new std::string(other_min));
+                _min.replace(str->data(), str->length());
             }
             if (other_minmax->_max > _max) {
                 auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.data, other_max.size));
-                _max.data = str->data();
-                _max.size = str->length();
+                auto str = pool->add(new std::string(other_max));
+                _max.replace(str->data(), str->length());
             }
         } else {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);

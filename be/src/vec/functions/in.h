@@ -112,10 +112,10 @@ public:
             const auto& const_column_ptr = context->get_constant_col(i);
             if (const_column_ptr != nullptr) {
                 auto const_data = const_column_ptr->column_ptr->get_data_at(0);
-                if (const_data.data == nullptr) {
+                if (const_data.data() == nullptr) {
                     state->null_in_set = true;
                 } else {
-                    state->hybrid_set->insert((void*)const_data.data, const_data.size);
+                    state->hybrid_set->insert((void*)const_data.data(), const_data.size());
                 }
             } else {
                 state->use_set = false;
@@ -249,7 +249,7 @@ private:
                                  const ColumnPtr& materialized_column) {
         for (size_t i = 0; i < input_rows_count; ++i) {
             const auto& ref_data = materialized_column->get_data_at(index_check_const(i, Const));
-            if (ref_data.data == nullptr) {
+            if (ref_data.data() == nullptr) {
                 vec_null_map_to[i] = true;
                 continue;
             }
@@ -260,13 +260,14 @@ private:
 
             for (const auto& set_column : set_columns) {
                 auto set_data = set_column->get_data_at(i);
-                if (set_data.data == nullptr) {
+                if (set_data.data() == nullptr) {
                     null_in_set = true;
                 } else {
-                    hybrid_set->insert((void*)(set_data.data), set_data.size);
+                    hybrid_set->insert((void*)set_data.data(), set_data.size());
                 }
             }
-            vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
+            vec_res[i] = negative ^ hybrid_set->find(reinterpret_cast<const void*>(ref_data.data()),
+                                                     ref_data.size());
             if (null_in_set) {
                 vec_null_map_to[i] = negative == vec_res[i];
             } else {

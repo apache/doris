@@ -151,11 +151,11 @@ public:
                         reinterpret_cast<int64_t>(str_col->get_offsets().data());
             } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
                 input_values_buffer_ptr.get()[arg_idx] =
-                        reinterpret_cast<int64_t>(data_col->get_raw_data().data);
+                        reinterpret_cast<int64_t>(data_col->get_raw_data().data());
             } else if (data_col->is_column_array()) {
                 const ColumnArray* array_col = assert_cast<const ColumnArray*>(data_col);
                 input_offsets_ptrs.get()[arg_idx] = reinterpret_cast<int64_t>(
-                        array_col->get_offsets_column().get_raw_data().data);
+                        array_col->get_offsets_column().get_raw_data().data());
                 const ColumnNullable& array_nested_nullable =
                         assert_cast<const ColumnNullable&>(array_col->get_data());
                 auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();
@@ -174,7 +174,7 @@ public:
                             reinterpret_cast<int64_t>(col->get_offsets().data());
                 } else {
                     input_values_buffer_ptr.get()[arg_idx] =
-                            reinterpret_cast<int64_t>(data_column->get_raw_data().data);
+                            reinterpret_cast<int64_t>(data_column->get_raw_data().data());
                 }
             } else {
                 return Status::InvalidArgument(
@@ -243,7 +243,7 @@ public:
         if (result_type->is_nullable()) {
             auto& nullable = assert_cast<ColumnNullable&>(to);
             *output_null_value =
-                    reinterpret_cast<int64_t>(nullable.get_null_map_column().get_raw_data().data);
+                    reinterpret_cast<int64_t>(nullable.get_null_map_column().get_raw_data().data());
             auto& data_col = nullable.get_nested_column();
 
 #ifndef EVALUATE_JAVA_UDAF
@@ -279,7 +279,7 @@ public:
                                                    to.size() - 1, place);                          \
         }                                                                                          \
     } else if (data_col.is_numeric() || data_col.is_column_decimal()) {                            \
-        *output_value_buffer = reinterpret_cast<int64_t>(data_col.get_raw_data().data);            \
+        *output_value_buffer = reinterpret_cast<int64_t>(data_col.get_raw_data().data());          \
         env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,            \
                                          to.size() - 1, place);                                    \
     } else if (data_col.is_column_array()) {                                                       \
@@ -291,7 +291,7 @@ public:
         auto& offset_column = array_col.get_offsets_column();                                      \
         int increase_buffer_size = 0;                                                              \
         int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
-        *output_offsets_ptr = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);        \
+        *output_offsets_ptr = reinterpret_cast<int64_t>(offset_column.get_raw_data().data());      \
         data_column_null_map->resize(buffer_size);                                                 \
         auto& null_map_data =                                                                      \
                 assert_cast<ColumnVector<UInt8>*>(data_column_null_map.get())->get_data();         \
@@ -331,7 +331,7 @@ public:
             }                                                                                      \
         } else {                                                                                   \
             data_column->resize(buffer_size);                                                      \
-            *output_value_buffer = reinterpret_cast<int64_t>(data_column->get_raw_data().data);    \
+            *output_value_buffer = reinterpret_cast<int64_t>(data_column->get_raw_data().data());  \
             jboolean res = env->CallNonvirtualBooleanMethod(                                       \
                     executor_obj, executor_cl, executor_result_id, to.size() - 1, place);          \
             while (res != JNI_TRUE) {                                                              \
@@ -349,7 +349,7 @@ public:
                 }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer =                                                             \
-                        reinterpret_cast<int64_t>(data_column->get_raw_data().data);               \
+                        reinterpret_cast<int64_t>(data_column->get_raw_data().data());             \
                 *output_intermediate_state_ptr = buffer_size;                                      \
                 res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                  \
                                                        executor_result_id, to.size() - 1, place);  \

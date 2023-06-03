@@ -42,9 +42,9 @@ TEST(ColumnComplexTest, BasicTest) {
     column->insert_data(reinterpret_cast<const char*>(&val1), sizeof(val1));
 
     StringRef ref = column->get_data_at(0);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
+    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data())), "");
     ref = column->get_data_at(1);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
+    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data())), val1);
 }
 
 // Test the compile failed

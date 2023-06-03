@@ -52,7 +52,7 @@ void DataTypeString::to_string(const class doris::vectorized::IColumn& column, s
     row_num = result.second;
 
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    ostr.write(value.data, value.size);
+    ostr.write(value.data(), value.size());
 }
 
 Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
@@ -109,8 +109,8 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
         // values
         for (int i = 0; i < column.size(); i++) {
             auto data = data_column.get_data_at(i);
-            memcpy(buf, data.data, data.size);
-            buf += data.size;
+            memcpy(buf, data.data(), data.size());
+            buf += data.size();
             *buf = '\0';
             buf++;
         }

@@ -71,7 +71,7 @@ struct AggregateFunctionTopNData {
     }
 
     void add(const StringRef& value, const UInt64& increment = 1) {
-        std::string data = value.to_string();
+        std::string data(value);
         auto it = counter_map.find(data);
         if (it != counter_map.end()) {
             it->second = it->second + increment;

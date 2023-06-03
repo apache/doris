@@ -165,8 +165,8 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         RETURN_IF_ERROR(iter.next_batch(&num_read, column));
         DCHECK(num_to_read == num_read);
 
-        if (!_page_zone_maps[i].ParseFromArray(column->get_data_at(0).data,
-                                               column->get_data_at(0).size)) {
+        if (!_page_zone_maps[i].ParseFromArray(column->get_data_at(0).data(),
+                                               column->get_data_at(0).size())) {
             return Status::Corruption("Failed to parse zone map");
         }
     }

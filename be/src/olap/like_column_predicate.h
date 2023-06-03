@@ -67,9 +67,7 @@ public:
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
-    std::string get_search_str() const override {
-        return std::string(reinterpret_cast<const char*>(pattern.data), pattern.size);
-    }
+    std::string get_search_str() const override { return std::string(pattern); }
     bool is_opposite() const { return _opposite; }
 
     void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
@@ -109,14 +107,14 @@ private:
                     if constexpr (is_and) {
                         unsigned char flag = 0;
                         (_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                                pattern, &flag);
                         flags[i] &= _opposite ^ flag;
                     } else {
                         unsigned char flag = 0;
                         (_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                                pattern, &flag);
                         flags[i] = _opposite ^ flag;
                     }
                 }
@@ -133,14 +131,14 @@ private:
                     if constexpr (is_and) {
                         unsigned char flag = 0;
                         (_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                                pattern, &flag);
                         flags[i] &= _opposite ^ flag;
                     } else {
                         unsigned char flag = 0;
                         (_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                const_cast<vectorized::LikeSearchState*>(&_like_state), cell_value,
+                                pattern, &flag);
                         flags[i] = _opposite ^ flag;
                     }
                 }

@@ -106,7 +106,7 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     read_string_binary(ref, buf);
-    value.deserialize(ref.data);
+    value.deserialize(ref.data());
 }
 
 void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {

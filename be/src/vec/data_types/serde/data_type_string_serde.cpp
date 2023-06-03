@@ -58,7 +58,7 @@ void DataTypeStringSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     result.writeKey(col_id);
     const auto& data_ref = column.get_data_at(row_num);
     result.writeStartBinary();
-    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeBinary(reinterpret_cast<const char*>(data_ref.data()), data_ref.size());
     result.writeEndBinary();
 }
 void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
@@ -135,16 +135,16 @@ Status DataTypeStringSerDe::_write_column_to_mysql(
         }
         const auto col_index = index_check_const(i, col_const);
         const auto string_val = col.get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
+        if (string_val.data() == nullptr) {
+            if (string_val.empty()) {
                 // 0x01 is a magic num, not useful actually, just for present ""
                 char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = result[row_idx].push_string(tmp_val, string_val.size);
+                buf_ret = result[row_idx].push_string(tmp_val, string_val.size());
             } else {
                 buf_ret = result[row_idx].push_null();
             }
         } else {
-            buf_ret = result[row_idx].push_string(string_val.data, string_val.size);
+            buf_ret = result[row_idx].push_string(string_val.data(), string_val.size());
         }
         ++row_idx;
     }

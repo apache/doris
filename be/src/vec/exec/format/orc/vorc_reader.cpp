@@ -386,7 +386,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
             [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             StringRef* string_value = (StringRef*)value;
-            return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
+            return std::make_tuple(true, orc::Literal(string_value->data(), string_value->size()));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;

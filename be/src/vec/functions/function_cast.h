@@ -528,7 +528,7 @@ struct ConvertImplGenericFromString {
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 // Note: here we should handle the null element
-                if (val.size == 0) {
+                if (val.empty()) {
                     col_to->insert_default();
                     // empty string('') is an invalid format for complex type, set null_map to 1
                     if (is_complex_type(data_type_to)) {
@@ -536,7 +536,7 @@ struct ConvertImplGenericFromString {
                     }
                     continue;
                 }
-                ReadBuffer read_buffer((char*)(val.data), val.size);
+                ReadBuffer read_buffer(const_cast<char*>(val.data()), val.size());
                 Status st = data_type_to->from_string(read_buffer, col_to);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
@@ -617,7 +617,7 @@ struct ConvertImplGenericToJsonb {
             writer.reset();
             writer.writeStartString();
             auto str_ref = tmp_col->get_data_at(0);
-            writer.writeString(str_ref.data, str_ref.size);
+            writer.writeString(str_ref.data(), str_ref.size());
             writer.writeEndString();
             column_string->insert_data(writer.getOutput()->getBuffer(),
                                        writer.getOutput()->getSize());
@@ -653,14 +653,14 @@ struct ConvertImplFromJsonb {
                 // ReadBuffer read_buffer((char*)(val.data), val.size);
                 // RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
 
-                if (val.size == 0) {
+                if (val.empty()) {
                     null_map[i] = 1;
                     res[i] = 0;
                     continue;
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::createDocument(val.data(), val.size());
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     null_map[i] = 1;
                     res[i] = 0;

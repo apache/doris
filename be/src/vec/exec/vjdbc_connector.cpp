@@ -415,56 +415,56 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
     }
     switch (slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_boolean_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_TINYINT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_tinyint_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_SMALLINT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_smallint_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_INT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_int_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_BIGINT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_bigint_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_LARGEINT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_largeint_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_FLOAT: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_float_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_DOUBLE: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_double_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
@@ -495,56 +495,56 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
         break;
     }
     case TYPE_DATE: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_date_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_DATEV2: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_datev2_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_DATETIME: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_datetime_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1]);
         break;
     }
     case TYPE_DATETIMEV2: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz,
                                       _executor_get_datetimev2_result, jcolumn_data,
                                       column_is_nullable, num_rows, address[0], address[1]);
         break;
     }
     case TYPE_DECIMALV2: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz,
                                       _executor_get_decimalv2_result, jcolumn_data,
                                       column_is_nullable, num_rows, address[0], address[1]);
         break;
     }
     case TYPE_DECIMAL32: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(
                 _executor_obj, _executor_clazz, _executor_get_decimal32_result, jcolumn_data,
                 column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
         break;
     }
     case TYPE_DECIMAL64: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(
                 _executor_obj, _executor_clazz, _executor_get_decimal64_result, jcolumn_data,
                 column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);
         break;
     }
     case TYPE_DECIMAL128I: {
-        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
+        address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data());
         env->CallNonvirtualVoidMethod(
                 _executor_obj, _executor_clazz, _executor_get_decimal128_result, jcolumn_data,
                 column_is_nullable, num_rows, address[0], address[1], slot_desc->type().scale);

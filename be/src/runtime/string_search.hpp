@@ -36,42 +36,35 @@ public:
 
     void set_pattern(const StringRef* pattern) {
         _pattern = pattern;
-        _str_searcher.reset(new ASCIICaseSensitiveStringSearcher(pattern->data, pattern->size));
+        _str_searcher.reset(new ASCIICaseSensitiveStringSearcher(pattern->data(), pattern->size()));
     }
 
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns -1 if the pattern is not found
-    int search(const StringRef* str) const {
-        auto it = search(str->data, str->size);
-        if (it == str->data + str->size) {
+    int search(const StringRef& str) const {
+        auto it = search(str.data(), str.size());
+        if (it == str.end()) {
             return -1;
         } else {
-            return it - str->data;
+            return it - str.data();
         }
     }
 
-    int search(const StringRef& str) const {
-        auto it = search(str.data, str.size);
-        if (it == str.data + str.size) {
-            return -1;
-        } else {
-            return it - str.data;
-        }
-    }
+    int search(const StringRef* str) const { return search(*str); }
 
     // search for this pattern in str.
     //   Returns the offset into str if the pattern exists
     //   Returns str+len if the pattern is not found
     const char* search(const char* str, size_t len) const {
-        if (!str || !_pattern || _pattern->size == 0) {
+        if (!str || !_pattern || _pattern->empty()) {
             return str + len;
         }
 
         return _str_searcher->search(str, len);
     }
 
-    inline size_t get_pattern_length() { return _pattern ? _pattern->size : 0; }
+    inline size_t get_pattern_length() { return _pattern ? _pattern->size() : 0; }
 
 private:
     const StringRef* _pattern;

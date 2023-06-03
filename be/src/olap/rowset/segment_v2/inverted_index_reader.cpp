@@ -347,8 +347,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
-    auto act_len = strnlen(search_query->data, search_query->size);
-    std::string search_str(search_query->data, act_len);
+    auto act_len = strnlen(search_query->data(), search_query->size());
+    std::string search_str(search_query->data(), act_len);
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;

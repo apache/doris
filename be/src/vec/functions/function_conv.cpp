@@ -193,7 +193,7 @@ struct ConvInt64Impl {
             }
         }
         StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+        result_column->insert_data(str.data(), str.size());
     }
 };
 
@@ -207,7 +207,7 @@ struct ConvStringImpl {
         StringRef str = data_column->get_data_at(index);
         StringParser::ParseResult parse_res;
         int64_t decimal_num =
-                StringParser::string_to_int<int64_t>(str.data, str.size, src_base, &parse_res);
+                StringParser::string_to_int<int64_t>(str.data(), str.size(), src_base, &parse_res);
         if (src_base < 0 && decimal_num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();
@@ -218,7 +218,7 @@ struct ConvStringImpl {
             result_column->insert_data("0", 1);
         } else {
             StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+            result_column->insert_data(str.data(), str.size());
         }
     }
 };

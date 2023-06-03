@@ -74,7 +74,7 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
                                         Block& dst) {
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst);
+        jsonb_to_block(serdes, jsonb_data.data(), jsonb_data.size(), col_id_to_idx, dst);
     }
 }
 

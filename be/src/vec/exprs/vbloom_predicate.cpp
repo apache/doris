@@ -98,14 +98,12 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
             for (size_t i = 0; i < sz; i++) {
                 /// TODO: remove virtual function call in get_data_at to improve performance
                 auto ele = argument_column->get_data_at(i);
-                const StringRef v(ele.data, ele.size);
-                ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&v));
+                ptr[i] = _filter->find_crc32_hash(reinterpret_cast<const void*>(&ele));
             }
         } else {
             for (size_t i = 0; i < sz; i++) {
                 auto ele = argument_column->get_data_at(i);
-                const StringRef v(ele.data, ele.size);
-                ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
+                ptr[i] = _filter->find(reinterpret_cast<const void*>(&ele));
             }
         }
     } else if (_be_exec_version > 0 && (type.is_int_or_uint() || type.is_float())) {
@@ -114,15 +112,15 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
                                          ->get_nested_column_ptr();
             auto column_nullmap = reinterpret_cast<const ColumnNullable*>(argument_column.get())
                                           ->get_null_map_column_ptr();
-            _filter->find_fixed_len(column_nested->get_raw_data().data,
-                                    (uint8*)column_nullmap->get_raw_data().data, sz, ptr);
+            _filter->find_fixed_len(column_nested->get_raw_data().data(),
+                                    (uint8*)column_nullmap->get_raw_data().data(), sz, ptr);
         } else {
-            _filter->find_fixed_len(argument_column->get_raw_data().data, nullptr, sz, ptr);
+            _filter->find_fixed_len(argument_column->get_raw_data().data(), nullptr, sz, ptr);
         }
     } else {
         for (size_t i = 0; i < sz; i++) {
             ptr[i] = _filter->find(
-                    reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
+                    reinterpret_cast<const void*>(argument_column->get_data_at(i).data()));
         }
     }
 

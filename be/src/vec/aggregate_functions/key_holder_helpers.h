@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include "vec/columns/column.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 
@@ -32,7 +34,7 @@ auto get_key_holder(const IColumn& column, size_t row_num, Arena& arena) {
     } else {
         const char* begin = nullptr;
         StringRef serialized = column.serialize_value_into_arena(row_num, arena, begin);
-        assert(serialized.data != nullptr);
+        DCHECK_NE(serialized.data(), nullptr);
         return SerializedKeyHolder {serialized, arena};
     }
 }
@@ -40,9 +42,9 @@ auto get_key_holder(const IColumn& column, size_t row_num, Arena& arena) {
 template <bool is_plain_column>
 void deserialize_and_insert(StringRef str, IColumn& data_to) {
     if constexpr (is_plain_column) {
-        data_to.insert_data(str.data, str.size);
+        data_to.insert_data(str.data(), str.size());
     } else {
-        data_to.deserialize_and_insert_from_arena(str.data);
+        data_to.deserialize_and_insert_from_arena(str.data());
     }
 }
 

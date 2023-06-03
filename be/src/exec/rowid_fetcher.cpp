@@ -91,7 +91,7 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
         StringRef row_id_rep = row_locs.get_data_at(i);
         // TODO: When transferring data between machines with different byte orders (endianness),
         // not performing proper handling may lead to issues in parsing and exchanging the data.
-        auto location = reinterpret_cast<const GlobalRowLoacation*>(row_id_rep.data);
+        auto location = reinterpret_cast<const GlobalRowLoacation*>(row_id_rep.data());
         row_loc.set_tablet_id(location->tablet_id);
         row_loc.set_rowset_id(location->row_location.rowset_id.to_string());
         row_loc.set_segment_id(location->row_location.segment_id);
@@ -221,7 +221,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     permutation.reserve(column_row_ids->size());
     for (size_t i = 0; i < column_row_ids->size(); ++i) {
         auto location =
-                reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data);
+                reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data());
         permutation.push_back(positions[*location]);
     }
     size_t num_rows = res_block->rows();

@@ -85,7 +85,7 @@ private:
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
 
     void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+        if (total_length > MAX_STRING_SIZE) [[unlikely]] {
             throw doris::Exception(
                     ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                     "string column length is too large: total_length={}, element_number={}",
@@ -212,25 +212,25 @@ public:
         size_t offset = chars.size();
         size_t length = 0;
 
-        const char* ptr = strings[0].data;
+        const char* ptr = strings[0].data();
         for (size_t i = 0; i != num; i++) {
-            uint32_t len = strings[i].size;
+            uint32_t len = strings[i].size();
             length += len;
             offset += len;
             offsets.push_back(offset);
 
-            if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
+            if (i != num - 1 && strings[i].data() + len == strings[i + 1].data()) {
                 continue;
             }
 
             if (length != 0) {
-                DCHECK(ptr != nullptr);
+                DCHECK_NE(ptr, nullptr);
                 memcpy(data, ptr, length);
                 data += length;
             }
 
-            if (LIKELY(i != num - 1)) {
-                ptr = strings[i + 1].data;
+            if (i != num - 1) [[likely]] {
+                ptr = strings[i + 1].data();
                 length = 0;
             }
         }
@@ -241,13 +241,13 @@ public:
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
                                             const size_t num) override {
         static_assert(sizeof(offsets_[0]) == sizeof(*offsets.data()));
-        if (UNLIKELY(num == 0)) {
+        if (num == 0) [[unlikely]] {
             return;
         }
         const auto old_size = chars.size();
         const auto begin_offset = offsets_[0];
         const size_t total_mem_size = offsets_[num] - begin_offset;
-        if (LIKELY(total_mem_size > 0)) {
+        if (total_mem_size > 0) [[likely]] {
             check_chars_length(total_mem_size + old_size, offsets.size() + num);
             chars.resize(total_mem_size + old_size);
             memcpy(chars.data() + old_size, data + begin_offset, total_mem_size);
@@ -290,7 +290,7 @@ public:
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
-            new_size += strings[i].size;
+            new_size += strings[i].size();
         }
 
         const size_t old_size = chars.size();
@@ -300,9 +300,9 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            uint32_t len = strings[i].size();
             if (len) {
-                memcpy(data + offset, strings[i].data, len);
+                memcpy(data + offset, strings[i].data(), len);
                 offset += len;
             }
             offsets.push_back(offset);
@@ -317,7 +317,7 @@ public:
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
-            new_size += strings[i].size;
+            new_size += strings[i].size();
         }
 
         const size_t old_size = chars.size();
@@ -327,9 +327,9 @@ public:
         Char* data = chars.data();
         size_t offset = old_size;
         for (size_t i = 0; i < num; i++) {
-            uint32_t len = strings[i].size;
+            uint32_t len = strings[i].size();
             if (len) {
-                memcpy(data + offset, strings[i].data, copy_length);
+                memcpy(data + offset, strings[i].data(), copy_length);
                 offset += len;
             }
             offsets.push_back(offset);
@@ -363,7 +363,7 @@ public:
 
         for (size_t i = 0; i < num; i++) {
             int32_t codeword = data_array[i + start_index];
-            new_size += dict[codeword].size;
+            new_size += dict[codeword].size();
             offsets[offset_size + i] = new_size;
         }
 
@@ -373,8 +373,8 @@ public:
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
             auto& src = dict[codeword];
-            memcpy(chars.data() + old_size, src.data, src.size);
-            old_size += src.size;
+            memcpy(chars.data() + old_size, src.data(), src.size());
+            old_size += src.size();
         }
     }
 
@@ -523,13 +523,13 @@ public:
 
         if (!self_row) {
             chars.clear();
-            offsets[self_row] = data.size;
+            offsets[self_row] = data.size();
         } else {
-            offsets[self_row] = offsets[self_row - 1] + data.size;
+            offsets[self_row] = offsets[self_row - 1] + data.size();
             check_chars_length(offsets[self_row], self_row);
         }
 
-        chars.insert(data.data, data.data + data.size);
+        chars.insert(data.begin(), data.end());
     }
 
     // should replace according to 0,1,2... ,size,0,1,2...
@@ -552,7 +552,7 @@ public:
         for (int i = 0; i < size(); i++) {
             StringRef str = get_data_at(i);
             reinterpret_cast<ColumnString*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
+                    ->insert_data(str.data(), strnlen(str.data(), str.size()));
         }
         return shrinked_column;
     }

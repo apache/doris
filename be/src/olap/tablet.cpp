@@ -2536,7 +2536,7 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     values = value.to_string();
     if (write_to_cache) {
         StringRef value = string_column->get_data_at(0);
-        RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
+        RowCache::instance()->insert({tablet_id(), encoded_key}, Slice(value));
     }
     return Status::OK();
 }
@@ -2709,8 +2709,7 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                 num_read -= 1;
             }
             for (size_t i = 0; i < num_read; i++) {
-                Slice key =
-                        Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
+                Slice key(index_column->get_data_at(i));
                 RowLocation loc;
                 // first check if exist in pre segment
                 // same rowset can ignore partial update, every load must update same columns

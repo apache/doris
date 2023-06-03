@@ -181,8 +181,8 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         case TYPE_CHAR:
         case TYPE_STRING: {
             StringRef* str_slot = reinterpret_cast<StringRef*>(data);
-            reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
-                                                                              str_slot->size);
+            reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data(),
+                                                                              str_slot->size());
             break;
         }
 

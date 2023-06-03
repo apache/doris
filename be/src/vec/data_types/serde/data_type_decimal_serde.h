@@ -126,7 +126,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     result.mutable_bytes_value()->Reserve(row_count);
     for (size_t row_num = start; row_num < end; ++row_num) {
         StringRef single_data = col->get_data_at(row_num);
-        result.add_bytes_value(single_data.data, single_data.size);
+        result.add_bytes_value(single_data.data(), single_data.size());
     }
     return Status::OK();
 }
@@ -154,17 +154,19 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     result.writeKey(col_id);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         Decimal128::NativeType val =
-                *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
+                *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data());
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
         Decimal128I::NativeType val =
-                *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
+                *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data());
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
-        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
+        Decimal32::NativeType val =
+                *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data());
         result.writeInt32(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
-        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
+        Decimal64::NativeType val =
+                *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data());
         result.writeInt64(val);
     } else {
         LOG(FATAL) << "unknown Column " << column.get_name() << " for writing to jsonb";

@@ -256,8 +256,8 @@ Status VOlapTablePartitionParam::init() {
                 auto slot_desc = _slots[_distributed_slot_locs[i]];
                 auto& column = key->first->get_by_position(_distributed_slot_locs[i]).column;
                 auto val = column->get_data_at(key->second);
-                if (val.data != nullptr) {
-                    hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
+                if (val.data() != nullptr) {
+                    hash_val = RawValue::zlib_crc32(val.data(), val.size(), slot_desc->type().type,
                                                     hash_val);
                 } else {
                     hash_val = HashUtil::zlib_crc_hash_null(hash_val);

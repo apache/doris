@@ -427,8 +427,10 @@ private:
                                                        : (a.inline_value < b.inline_value ? -1 : 0);
             } else {
                 return memcmp_small_allow_overflow15(
-                        reinterpret_cast<const UInt8*>(a.inline_value.data), a.inline_value.size,
-                        reinterpret_cast<const UInt8*>(b.inline_value.data), b.inline_value.size);
+                        reinterpret_cast<const UInt8*>(a.inline_value.data()),
+                        a.inline_value.size(),
+                        reinterpret_cast<const UInt8*>(b.inline_value.data()),
+                        b.inline_value.size());
             }
         };
 

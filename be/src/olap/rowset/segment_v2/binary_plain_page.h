@@ -263,9 +263,10 @@ public:
             read_count++;
         }
 
-        if (LIKELY(read_count > 0))
+        if (read_count > 0) [[likely]] {
             dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
                                          read_count);
+        }
 
         *n = read_count;
         return Status::OK();
@@ -288,25 +289,25 @@ public:
     }
 
     void get_dict_word_info(StringRef* dict_word_info) {
-        if (UNLIKELY(_num_elems <= 0)) {
+        if (_num_elems <= 0) [[unlikely]] {
             return;
         }
 
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
 
-        for (uint32_t i = 0; i < _num_elems; ++i) {
-            dict_word_info[i].data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+        // _num_elems > 0 now
+
+        const char* data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+
+        for (uint32_t i = 0; i < _num_elems - 1; ++i) {
             offset_ptr += sizeof(uint32_t);
+            const char* next_data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+            dict_word_info[i] = StringRef(data, next_data - data);
+            data = next_data;
         }
 
-        for (int i = 0; i < (int)_num_elems - 1; ++i) {
-            dict_word_info[i].size =
-                    (char*)dict_word_info[i + 1].data - (char*)dict_word_info[i].data;
-        }
-
-        dict_word_info[_num_elems - 1].size =
-                (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+        dict_word_info[_num_elems - 1] = StringRef(data, data_begin + _offsets_pos - data);
     }
 
 private:

@@ -144,8 +144,7 @@ struct AggregateFunctionDistinctMultipleGenericData : public AggregateFunctionDi
         StringRef value(begin, 0);
         for (size_t i = 0; i < columns_num; ++i) {
             auto cur_ref = columns[i]->serialize_value_into_arena(row_num, *arena, begin);
-            value.data = cur_ref.data - value.size;
-            value.size += cur_ref.size;
+            value.replace(cur_ref.data() - value.size(), value.size() + cur_ref.size());
         }
 
         Set::LookupResult it;
@@ -161,7 +160,7 @@ struct AggregateFunctionDistinctMultipleGenericData : public AggregateFunctionDi
         }
 
         for (const auto& elem : set) {
-            const char* begin = elem.get_value().data;
+            const char* begin = elem.get_value().data();
             for (auto& column : argument_columns) {
                 begin = column->deserialize_and_insert_from_arena(begin);
             }

@@ -67,7 +67,7 @@ public:
         if constexpr (std::is_same_v<T, std::string_view>) {
             // TODO: rethink here we really need to do a virtual function call
             auto sr = data_col.get_data_at(row_num);
-            bitmap.update(std::string_view {sr.data, sr.size}, bitmap_value);
+            bitmap.update(std::string_view(sr), bitmap_value);
         }
     }
 
@@ -81,7 +81,7 @@ public:
                 }
                 if constexpr (std::is_same_v<T, std::string_view>) {
                     auto sr = col.get_data_at(row_num);
-                    bitmap.add_key(std::string_view {sr.data, sr.size});
+                    bitmap.add_key(std::string_view(sr));
                 }
             }
             first_init = false;

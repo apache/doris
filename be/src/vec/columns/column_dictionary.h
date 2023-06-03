@@ -207,17 +207,16 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
-        StringRef strings[sel_size];
+        StringRefs strings(sel_size);
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
             auto& value = _dict.get_value(_codes[sel[i]]);
-            strings[i].data = value.data;
-            strings[i].size = value.size;
-            length += value.size;
+            strings[i] = value;
+            length += value.size();
         }
         res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
         res_col->get_chars().reserve(length + res_col->get_chars().size());
-        res_col->insert_many_strings_without_reserve(strings, sel_size);
+        res_col->insert_many_strings_without_reserve(strings.data(), sel_size);
         return Status::OK();
     }
 
@@ -235,8 +234,7 @@ public:
     void insert_many_dict_data(const StringRef* dict_array, uint32_t dict_num) {
         _dict.reserve(_dict.size() + dict_num);
         for (uint32_t i = 0; i < dict_num; ++i) {
-            auto value = StringRef(dict_array[i].data, dict_array[i].size);
-            _dict.insert_value(value);
+            _dict.insert_value(dict_array[i]);
         }
     }
 
@@ -246,8 +244,7 @@ public:
         if (_dict.empty()) {
             _dict.reserve(dict_num);
             for (uint32_t i = 0; i < dict_num; ++i) {
-                auto value = StringRef(dict_array[i].data, dict_array[i].size);
-                _dict.insert_value(value);
+                _dict.insert_value(dict_array[i]);
             }
         }
 
@@ -319,7 +316,7 @@ public:
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);
-            res->insert_data(value.data, value.size);
+            res->insert_data(value.data(), value.size());
         }
         clear();
         _dict.clear();
@@ -331,7 +328,7 @@ public:
     inline StringRef get_shrink_value(value_type code) const {
         StringRef result = _dict.get_value(code);
         if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            result.size = strnlen(result.data, result.size);
+            result.replace(result.data(), strnlen(result.data(), result.size()));
         }
         return result;
     }
@@ -348,7 +345,7 @@ public:
 
         void insert_value(const StringRef& value) {
             _dict_data->push_back_without_reserve(value);
-            _total_str_len += value.size;
+            _total_str_len += value.size();
         }
 
         int32_t find_code(const StringRef& value) const {
@@ -389,11 +386,11 @@ public:
 
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
+                int32_t len = sv.size();
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    len = strnlen(sv.data, sv.size);
+                    len = strnlen(sv.data(), sv.size());
                 }
-                uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
+                uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data(), len, 0);
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];
@@ -414,11 +411,11 @@ public:
 
                 // For dictionary data of char type, sv.size is the schema length,
                 // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
+                int32_t len = sv.size();
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    len = strnlen(sv.data, sv.size);
+                    len = strnlen(sv.data(), sv.size());
                 }
-                uint32_t hash_val = HashUtil::crc_hash(sv.data, len, 0);
+                uint32_t hash_val = HashUtil::crc_hash(sv.data(), len, 0);
                 _hash_values[code] = hash_val;
                 _compute_hash_value_flags[code] = 1;
                 return _hash_values[code];

@@ -158,8 +158,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
                 num_read -= 1;
             }
             for (size_t i = 0; i < num_read; i++) {
-                Slice key =
-                        Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
+                Slice key = Slice(index_column->get_data_at(i));
                 DCHECK_EQ(keys[i + (batch_size - 1) * num_batch], key.to_string());
             }
             num_batch++;

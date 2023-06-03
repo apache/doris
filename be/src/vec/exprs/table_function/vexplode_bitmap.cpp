@@ -93,8 +93,8 @@ Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
 
     StringRef value = _value_column->get_data_at(row_idx);
 
-    if (value.data) {
-        _cur_bitmap = reinterpret_cast<const BitmapValue*>(value.data);
+    if (value.data()) {
+        _cur_bitmap = reinterpret_cast<const BitmapValue*>(value.data());
 
         _cur_size = _cur_bitmap->cardinality();
         if (!current_empty()) {

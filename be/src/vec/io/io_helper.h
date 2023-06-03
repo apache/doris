@@ -114,8 +114,8 @@ inline void write_string_binary(const std::string& s, BufferWritable& buf) {
 }
 
 inline void write_string_binary(const StringRef& s, BufferWritable& buf) {
-    write_var_uint(s.size, buf);
-    buf.write(s.data, s.size);
+    write_var_uint(s.size(), buf);
+    buf.write(s.data(), s.size());
 }
 
 inline void write_string_binary(const char* s, BufferWritable& buf) {

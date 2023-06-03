@@ -38,7 +38,6 @@
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 #include "util/sse_util.hpp"
-#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/types.h"
 
@@ -184,45 +183,53 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
 /// User should make sure data source is const.
 /// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
 struct StringRef {
-    // FIXME: opening member accessing really damages.
-    const char* data = nullptr;
-    size_t size = 0;
+private:
+    const char* _data = nullptr;
+    size_t _size = 0;
 
+public:
     StringRef() = default;
-    StringRef(const char* data_, size_t size_) : data(data_), size(size_) {}
+    StringRef(const char* data_, size_t size_) : _data(data_), _size(size_) {}
     StringRef(const unsigned char* data_, size_t size_)
             : StringRef(reinterpret_cast<const char*>(data_), size_) {}
 
-    StringRef(const std::string& s) : data(s.data()), size(s.size()) {}
-    explicit StringRef(const char* str) : data(str), size(strlen(str)) {}
+    StringRef(const std::string& s) : _data(s.data()), _size(s.size()) {}
+    explicit StringRef(const char* str) : _data(str), _size(strlen(str)) {}
 
-    std::string to_string() const { return std::string(data, size); }
+    std::string to_string() const { return std::string(_data, _size); }
     std::string debug_string() const { return to_string(); }
-    std::string_view to_string_view() const { return std::string_view(data, size); }
-    Slice to_slice() const { return doris::Slice(data, size); }
+    std::string_view to_string_view() const { return std::string_view(_data, _size); }
+    Slice to_slice() const { return Slice(_data, _size); }
 
     // this is just for show, e.g. print data to error log, to avoid print large string.
-    std::string to_prefix(size_t length) const { return std::string(data, std::min(length, size)); }
-
-    explicit operator std::string() const { return to_string(); }
-    operator std::string_view() const { return std::string_view {data, size}; }
-
-    StringRef substring(int start_pos, int new_len) const {
-        return StringRef(data + start_pos, (new_len < 0) ? (size - start_pos) : new_len);
+    std::string to_prefix(size_t length) const {
+        return std::string(_data, std::min(length, _size));
     }
 
-    StringRef substring(int start_pos) const { return substring(start_pos, size - start_pos); }
+    explicit operator std::string() const { return to_string(); }
+    operator std::string_view() const { return to_string_view(); }
+    explicit operator Slice() const { return to_slice(); }
 
-    const char* begin() const { return data; }
-    const char* end() const { return data + size; }
+    StringRef substring(int start_pos, int new_len) const {
+        DCHECK_LE(start_pos, _size);
+        return StringRef(_data + start_pos, (new_len < 0) ? (_size - start_pos) : new_len);
+    }
+
+    StringRef substring(int start_pos) const { return substring(start_pos, _size - start_pos); }
+
+    const char* data() const { return _data; }
+    const char* begin() const { return _data; }
+    const char* end() const { return _data + _size; }
     // there's no border check in functions below. That's same with STL.
-    char front() const { return *data; }
-    char back() const { return *(data + size - 1); }
+    const char& operator[](size_t pos) const { return _data[pos]; }
+    const char& front() const { return *_data; }
+    const char& back() const { return *(_data + _size - 1); }
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
 
-    bool empty() const { return size == 0; }
+    size_t size() const { return _size; }
+    bool empty() const { return _size == 0; }
 
     // support for type_limit
     static constexpr char MIN_CHAR = 0;
@@ -241,42 +248,55 @@ struct StringRef {
     // this == other: 0
     // this > other: 1
     int compare(const StringRef& other) const {
-        int l = std::min(size, other.size);
+        size_t l = std::min(size(), other.size());
 
         if (l == 0) {
-            if (size == other.size) {
+            if (size() == other.size()) {
                 return 0;
-            } else if (size == 0) {
+            } else if (size() == 0) {
                 return -1;
             } else {
-                DCHECK_EQ(other.size, 0);
+                DCHECK_EQ(other.size(), 0);
                 return 1;
             }
         }
 
-        return string_compare(this->data, this->size, other.data, other.size, l);
+        return string_compare(this->data(), this->size(), other.data(), other.size(), l);
     }
 
-    void replace(const char* ptr, int len) {
-        this->data = ptr;
-        this->size = len;
+    void replace(const char* ptr, size_t len) {
+        this->_data = ptr;
+        this->_size = len;
     }
 
     // Find the first position char of appear, return -1 if not found
     size_t find_first_of(char c) const;
 
+    // Moves the start of the ref forward by move_len characters.
+    // Same as std::string_view::remove_prefix
+    void remove_prefix(size_t move_len) {
+        DCHECK_LE(move_len, _size);
+        _data += move_len;
+        _size -= move_len;
+    }
+    // Moves the end of the ref back by move_len characters.
+    // Same as std::string_view::remove_suffix
+    void remove_suffix(size_t move_len) {
+        DCHECK_LE(move_len, _size);
+        _size -= move_len;
+    }
+
     // ==
     bool eq(const StringRef& other) const {
-        if (this->size != other.size) {
+        if (this->size() != other.size()) {
             return false;
         }
 #if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(this->data, other.data, this->size);
+        return memequalSSE2Wide(this->data(), other.data(), this->size());
 #endif
-        return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
+        return string_compare(this->data(), this->size(), other.data(), other.size(),
+                              this->size()) == 0;
     }
-
-    bool operator==(const StringRef& other) const { return eq(other); }
     // !=
     bool ne(const StringRef& other) const { return !eq(other); }
     // <=
@@ -287,6 +307,8 @@ struct StringRef {
     bool lt(const StringRef& other) const { return compare(other) < 0; }
     // >
     bool gt(const StringRef& other) const { return compare(other) > 0; }
+
+    bool operator==(const StringRef& other) const { return eq(other); }
 
     bool operator!=(const StringRef& other) const { return ne(other); }
 
@@ -301,11 +323,11 @@ struct StringRef {
     struct Comparator {
         bool operator()(const StringRef& a, const StringRef& b) const { return a.compare(b) < 0; }
     };
-}; // class StringRef
+}; // struct StringRef
 
 // This function must be called 'hash_value' to be picked up by boost.
 inline std::size_t hash_value(const StringRef& v) {
-    return HashUtil::hash(v.data, v.size, 0);
+    return HashUtil::hash(v.data(), v.size(), 0);
 }
 
 using StringRefs = std::vector<StringRef>;
@@ -319,7 +341,7 @@ using StringRefs = std::vector<StringRef>;
   */
 
 struct StringRefHash64 {
-    size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data, x.size); }
+    size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data(), x.size()); }
 };
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
@@ -372,18 +394,18 @@ inline size_t hash_less_than16(const char* data, size_t size) {
 
 struct CRC32Hash {
     size_t operator()(const StringRef& x) const {
-        const char* pos = x.data;
-        size_t size = x.size;
+        const char* pos = x.data();
+        size_t size = x.size();
 
         if (size == 0) {
             return 0;
         }
 
         if (size < 8) {
-            return hash_less_than8(x.data, x.size);
+            return hash_less_than8(x.data(), x.size());
         }
 
-        const char* end = pos + size;
+        const char* end = x.end();
         size_t res = -1ULL;
 
         do {
@@ -406,7 +428,7 @@ struct StringRefHash : CRC32Hash {};
 #else
 
 struct CRC32Hash {
-    size_t operator()(StringRef /* x */) const {
+    [[noreturn]] size_t operator()(StringRef /* x */) const {
         throw std::logic_error {"Not implemented CRC32Hash without SSE"};
     }
 };
@@ -422,10 +444,10 @@ inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
 
 namespace ZeroTraits {
 inline bool check(const doris::StringRef& x) {
-    return 0 == x.size;
+    return x.empty();
 }
 inline void set(doris::StringRef& x) {
-    x.size = 0;
+    x.remove_suffix(x.size());
 }
 } // namespace ZeroTraits
 

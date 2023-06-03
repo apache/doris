@@ -74,7 +74,7 @@ struct AggregateFunctionUniqExactData {
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
         UInt128 key;
         SipHash hash;
-        hash.update(value.data, value.size);
+        hash.update(value.data(), value.size());
         hash.get128(key.low, key.high);
         return key;
     }

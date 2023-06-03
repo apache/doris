@@ -89,7 +89,7 @@ public:
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
                     // string_length(4) + string
-                    len += 4 + s->size;
+                    len += 4 + s->size();
                 }
             } else {
                 int type_len = sizeof(CppType);
@@ -132,10 +132,10 @@ public:
             char_ptr += 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
-                    *reinterpret_cast<int*>(char_ptr) = s->size;
+                    *reinterpret_cast<int*>(char_ptr) = s->size();
                     char_ptr += 4;
-                    memcpy(char_ptr, s->data, s->size);
-                    char_ptr += s->size;
+                    memcpy(char_ptr, s->data(), s->size());
+                    char_ptr += s->size();
                 }
             } else {
                 for (const CppType* v : values) {

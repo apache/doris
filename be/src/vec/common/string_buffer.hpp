@@ -69,8 +69,7 @@ public:
 
 class VectorBufferReader final : public BufferReadable {
 public:
-    explicit VectorBufferReader(StringRef& ref) : _data(ref.data) {}
-    explicit VectorBufferReader(StringRef&& ref) : _data(ref.data) {}
+    explicit VectorBufferReader(const StringRef& ref) : _data(ref.data()) {}
 
     StringRef read(int len) override {
         StringRef ref(_data, len);

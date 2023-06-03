@@ -53,11 +53,11 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, column));
-    DCHECK(num_to_read == num_read);
+    DCHECK_EQ(num_to_read, num_read);
     // construct bloom filter
     StringRef value = column->get_data_at(0);
-    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size);
-    RETURN_IF_ERROR((*bf)->init(value.data, value.size,
+    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size());
+    RETURN_IF_ERROR((*bf)->init(value.data(), value.size(),
                                 _reader->_bloom_filter_index_meta->hash_strategy()));
     return Status::OK();
 }

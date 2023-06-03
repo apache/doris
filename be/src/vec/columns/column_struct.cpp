@@ -170,8 +170,7 @@ StringRef ColumnStruct::serialize_value_into_arena(size_t n, Arena& arena,
     StringRef res(begin, 0);
     for (const auto& column : columns) {
         auto value_ref = column->serialize_value_into_arena(n, arena, begin);
-        res.data = value_ref.data - res.size;
-        res.size += value_ref.size;
+        res.replace(value_ref.data() - res.size(), res.size() + value_ref.size());
     }
 
     return res;

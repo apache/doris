@@ -282,7 +282,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     } else {
         if (is_string) {
             auto sv = (StringRef*)max_value->cell_ptr();
-            dst->insert_data(sv->data, sv->size);
+            dst->insert_data(sv->data(), sv->size());
         } else {
             dst->insert_many_fix_len_data(static_cast<const char*>(max_value->cell_ptr()), 1);
         }
@@ -294,7 +294,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     } else {
         if (is_string) {
             auto sv = (StringRef*)min_value->cell_ptr();
-            dst->insert_many_data(sv->data, sv->size, size);
+            dst->insert_many_data(sv->data(), sv->size(), size);
         } else {
             // TODO: the work may cause performance problem, opt latter
             for (int i = 0; i < size; ++i) {

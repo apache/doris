@@ -98,7 +98,7 @@ struct StAsText {
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
             auto shape_value = input->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            shape.reset(GeoShape::from_encoded(shape_value.data(), shape_value.size()));
 
             if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
@@ -130,7 +130,7 @@ struct StX {
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
-            auto pt = point.decode_from(point_value.data, point_value.size);
+            auto pt = point.decode_from(point_value.data(), point_value.size());
 
             if (!pt) {
                 res->insert_data(nullptr, 0);
@@ -162,7 +162,7 @@ struct StY {
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
             auto point_value = input->get_data_at(row);
-            auto pt = point.decode_from(point_value.data, point_value.size);
+            auto pt = point.decode_from(point_value.data(), point_value.size());
 
             if (!pt) {
                 res->insert_data(nullptr, 0);
@@ -265,20 +265,20 @@ struct StAngle {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value1 = p1->get_data_at(row);
-            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+            auto pt1 = point1.decode_from(shape_value1.data(), shape_value1.size());
             if (!pt1) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
 
             auto shape_value2 = p2->get_data_at(row);
-            auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+            auto pt2 = point2.decode_from(shape_value2.data(), shape_value2.size());
             if (!pt2) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
             auto shape_value3 = p3->get_data_at(row);
-            auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
+            auto pt3 = point3.decode_from(shape_value3.data(), shape_value3.size());
             if (!pt3) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -314,14 +314,14 @@ struct StAzimuth {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value1 = p1->get_data_at(row);
-            auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
+            auto pt1 = point1.decode_from(shape_value1.data(), shape_value1.size());
             if (!pt1) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
 
             auto shape_value2 = p2->get_data_at(row);
-            auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
+            auto pt2 = point2.decode_from(shape_value2.data(), shape_value2.size());
             if (!pt2) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -355,7 +355,7 @@ struct StAreaSquareMeters {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            shape.reset(GeoShape::from_encoded(shape_value.data(), shape_value.size()));
             if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -390,7 +390,7 @@ struct StAreaSquareKm {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            shape.reset(GeoShape::from_encoded(shape_value.data(), shape_value.size()));
             if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -478,7 +478,7 @@ struct StContains {
             StringRef* strs[2] = {&lhs_value, &rhs_value};
             for (i = 0; i < 2; ++i) {
                 shapes[i] = std::shared_ptr<GeoShape>(
-                        GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+                        GeoShape::from_encoded(strs[i]->data(), strs[i]->size()));
                 if (shapes[i] == nullptr) {
                     res->insert_data(nullptr, 0);
                     break;
@@ -556,7 +556,8 @@ struct StGeoFromText {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(value.data, value.size, &status));
+            std::unique_ptr<GeoShape> shape(
+                    GeoShape::from_wkt(value.data(), value.size(), &status));
             if (shape == nullptr || status != GEO_PARSE_OK ||
                 (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                 res->insert_data(nullptr, 0);
@@ -607,7 +608,8 @@ struct StGeoFromWkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
+            std::unique_ptr<GeoShape> shape(
+                    GeoShape::from_wkb(value.data(), value.size(), &status));
             if (shape == nullptr || status != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -646,7 +648,7 @@ struct StAsBinary {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            shape.reset(GeoShape::from_encoded(shape_value.data(), shape_value.size()));
             if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;

@@ -57,11 +57,11 @@ private:
             const auto col_index = index_check_const(i, col_const);
             const auto jsonb_val = data.get_data_at(col_index);
             // jsonb size == 0 is NULL
-            if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+            if (jsonb_val.data() == nullptr || jsonb_val.empty()) {
                 buf_ret = result[row_idx].push_null();
             } else {
                 std::string json_str =
-                        JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
+                        JsonbToJson::jsonb_to_json_string(jsonb_val.data(), jsonb_val.size());
                 buf_ret = result[row_idx].push_string(json_str.c_str(), json_str.size());
             }
             ++row_idx;

@@ -264,11 +264,11 @@ public:
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
                 StringRef value = _data_value.get_value();
-                col.insert_data(value.data, value.size);
+                col.insert_data(value.data(), value.size());
             }
         } else {
             StringRef value = _data_value.get_value();
-            to.insert_data(value.data, value.size);
+            to.insert_data(value.data(), value.size());
         }
     }
 

@@ -1597,24 +1597,24 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             }
             if (need_to_validate(j, row)) {
                 auto str_val = column_string->get_data_at(j);
-                bool invalid = str_val.size > limit;
+                bool invalid = str_val.size() > limit;
                 if (invalid) {
                     last_invalid_row = row;
-                    if (str_val.size > type.len) {
+                    if (str_val.size() > type.len) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input is too long than schema. ");
                         fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
                                        str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
-                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                    } else if (str_val.size > limit) {
+                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size());
+                    } else if (str_val.size() > limit) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input string is too long than vec schema. ");
                         fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
                                        str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "limit length: {}; ", limit);
-                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size());
                     }
                     RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
                 }
@@ -1631,7 +1631,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                     continue;
                 }
                 auto str_val = column_string->get_data_at(j);
-                bool invalid = str_val.size == 0;
+                bool invalid = str_val.empty();
                 if (invalid) {
                     error_msg.clear();
                     fmt::format_to(error_msg, "{}", "jsonb with size 0 is invalid");

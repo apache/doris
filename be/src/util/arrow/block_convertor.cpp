@@ -115,51 +115,51 @@ public:
             case vectorized::TypeIndex::String:
             case vectorized::TypeIndex::FixedString:
             case vectorized::TypeIndex::HLL: {
-                if (data_ref.size == 0) {
+                if (data_ref.empty()) {
                     // 0x01 is a magic num, not useful actually, just for present ""
                     //char* tmp_val = reinterpret_cast<char*>(0x01);
                     ARROW_RETURN_NOT_OK(builder.Append(""));
                 } else {
-                    ARROW_RETURN_NOT_OK(builder.Append(data_ref.data, data_ref.size));
+                    ARROW_RETURN_NOT_OK(builder.Append(data_ref.data(), data_ref.size()));
                 }
                 break;
             }
             case vectorized::TypeIndex::Date:
             case vectorized::TypeIndex::DateTime: {
                 char buf[64];
-                const vectorized::VecDateTimeValue* time_val =
-                        (const vectorized::VecDateTimeValue*)(data_ref.data);
+                const auto* time_val =
+                        reinterpret_cast<const vectorized::VecDateTimeValue*>(data_ref.data());
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case vectorized::TypeIndex::DateV2: {
                 char buf[64];
-                const vectorized::DateV2Value<vectorized::DateV2ValueType>* time_val =
-                        (const vectorized::DateV2Value<
-                                vectorized::DateV2ValueType>*)(data_ref.data);
+                const auto* time_val = reinterpret_cast<
+                        const vectorized::DateV2Value<vectorized::DateV2ValueType>*>(
+                        data_ref.data());
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case vectorized::TypeIndex::DateTimeV2: {
                 char buf[64];
-                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
-                        (const vectorized::DateV2Value<
-                                vectorized::DateTimeV2ValueType>*)(data_ref.data);
+                const auto* time_val = reinterpret_cast<
+                        const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
+                        data_ref.data());
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case vectorized::TypeIndex::Int128: {
                 auto string_temp = LargeIntValue::to_string(
-                        reinterpret_cast<const PackedInt128*>(data_ref.data)->value);
+                        reinterpret_cast<const PackedInt128*>(data_ref.data())->value);
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
             case vectorized::TypeIndex::JSONB: {
                 std::string string_temp =
-                        JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+                        JsonbToJson::jsonb_to_json_string(data_ref.data(), data_ref.size());
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
@@ -191,7 +191,8 @@ public:
                     continue;
                 }
                 const auto& data_ref = decimalv2_column->get_data_at(i);
-                const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+                const PackedInt128* p_value =
+                        reinterpret_cast<const PackedInt128*>(data_ref.data());
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
                 arrow::Decimal128 value(high, low);
@@ -211,7 +212,8 @@ public:
                     continue;
                 }
                 const auto& data_ref = decimal128_column->get_data_at(i);
-                const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
+                const PackedInt128* p_value =
+                        reinterpret_cast<const PackedInt128*>(data_ref.data());
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
                 arrow::Decimal128 value(high, low);
@@ -231,7 +233,7 @@ public:
                     continue;
                 }
                 const auto& data_ref = decimal32_column->get_data_at(i);
-                const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data);
+                const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data());
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
                 arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
@@ -250,7 +252,7 @@ public:
                     continue;
                 }
                 const auto& data_ref = decimal64_column->get_data_at(i);
-                const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data);
+                const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data());
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
                 arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
@@ -273,7 +275,7 @@ public:
                 continue;
             }
             const auto& data_ref = _cur_col->get_data_at(i);
-            ARROW_RETURN_NOT_OK(builder.Append(*(const bool*)data_ref.data));
+            ARROW_RETURN_NOT_OK(builder.Append(*reinterpret_cast<const bool*>(data_ref.data())));
         }
         return arrow::Status::OK();
     }
@@ -344,11 +346,13 @@ private:
                     continue;
                 }
                 const auto& data_ref = _cur_col->get_data_at(i);
-                ARROW_RETURN_NOT_OK(builder.Append(*(const typename T::c_type*)data_ref.data));
+                ARROW_RETURN_NOT_OK(builder.Append(
+                        *reinterpret_cast<const typename T::c_type*>(data_ref.data())));
             }
         } else {
-            ARROW_RETURN_NOT_OK(builder.AppendValues(
-                    (const typename T::c_type*)_cur_col->get_data_at(start).data, num_rows));
+            ARROW_RETURN_NOT_OK(builder.AppendValues(reinterpret_cast<const typename T::c_type*>(
+                                                             _cur_col->get_data_at(start).data()),
+                                                     num_rows));
         }
         return arrow::Status::OK();
     }
