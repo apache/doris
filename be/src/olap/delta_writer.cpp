@@ -616,12 +616,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     std::vector<int64_t> indices_ids;
     auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
-    for (auto& column : tablet_schema->columns()) {
-        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
-        if (index_meta) {
-            indices_ids.emplace_back(index_meta->index_id());
+    if (!tablet_schema->skip_write_index_on_load()) {
+        for (auto& column : tablet_schema->columns()) {
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                indices_ids.emplace_back(index_meta->index_id());
+            }
         }
     }
+
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);

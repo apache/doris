@@ -386,6 +386,15 @@ distribution_desc
 
         `"enable_duplicate_without_keys_by_default" = "false"`
 
+    * `skip_write_index_on_load`
+
+        是否对这个表开启数据导入时不写索引.
+
+        如果这个属性设置成 `true`, 数据导入的时候不写索引（目前仅对倒排索引生效），而是在compaction的时候延迟写索引。这样可以避免首次写入和compaction
+        重复写索引的CPU和IO资源消耗，提升高吞吐导入的性能。
+
+        `"skip_write_index_on_load" = "false"`
+
     * 动态分区相关
     
         动态分区相关参数如下：
