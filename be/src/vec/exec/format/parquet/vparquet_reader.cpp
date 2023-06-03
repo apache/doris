@@ -569,15 +569,21 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    size_t avg_io_size = 0;
-    const std::vector<io::PrefetchRange> io_ranges =
-            _generate_random_access_ranges(row_group_index, &avg_io_size);
-    // The underlying page reader will prefetch data in column.
-    // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-    io::FileReaderSPtr group_file_reader =
-            avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                    ? std::make_shared<io::MergeRangeFileReader>(_profile, _file_reader, io_ranges)
-                    : _file_reader;
+    io::FileReaderSPtr group_file_reader;
+    if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get())) {
+        // InMemoryFileReader has the ability to merge small IO
+        group_file_reader = _file_reader;
+    } else {
+        size_t avg_io_size = 0;
+        const std::vector<io::PrefetchRange> io_ranges =
+                _generate_random_access_ranges(row_group_index, &avg_io_size);
+        // The underlying page reader will prefetch data in column.
+        // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
+        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                                    ? std::make_shared<io::MergeRangeFileReader>(
+                                              _profile, _file_reader, io_ranges)
+                                    : _file_reader;
+    }
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));

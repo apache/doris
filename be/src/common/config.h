@@ -884,6 +884,8 @@ DECLARE_mInt32(parquet_header_max_size_mb);
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
 DECLARE_mInt32(parquet_column_max_buffer_mb);
+// Merge small IO, the max amplified read ratio
+DECLARE_mDouble(max_amplified_read_ratio);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
