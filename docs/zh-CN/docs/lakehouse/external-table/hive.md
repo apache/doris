@@ -157,7 +157,7 @@ PROPERTIES (
     - `table`：挂载 Hive 对应的表名
     - `hadoop.username`: 访问hdfs用户名,当认证为simple时需要
     - `dfs.nameservices`：name service名称，与hdfs-site.xml保持一致
-    - `dfs.ha.namenodes.[nameservice ID]：namenode的id列表,与hdfs-site.xml保持一致
+    - `dfs.ha.namenodes.[nameservice ID]`：namenode的id列表,与hdfs-site.xml保持一致
     - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保持一致
     - `dfs.client.failover.proxy.provider.[nameservice ID] `：HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 
