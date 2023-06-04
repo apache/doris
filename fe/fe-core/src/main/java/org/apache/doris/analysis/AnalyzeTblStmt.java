@@ -160,6 +160,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     private void checkColumn() throws AnalysisException {
+        boolean containsUnsupportedTytpe = false;
         for (String colName : columnNames) {
             Column column = table.getColumn(colName);
             if (column == null) {
@@ -167,19 +168,21 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                         colName, FeNameFormat.getColumnNameRegex());
             }
             if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
-                if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
-                    columnNames = columnNames.stream()
-                            .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
-                                    table.getColumn(colName).getType()))
-                            .collect(Collectors.toList());
-                } else {
-                    throw new AnalysisException(
-                            String.format("Column[%s] with type[%s] is not supported to analyze,"
-                                            + "if you want ignore them and analyze rest"
-                                            + "columns, please set session variable "
-                                            + "`ignore_column_with_complex_type` to true",
-                                    colName, column.getType().toString()));
-                }
+                containsUnsupportedTytpe = true;
+            }
+        }
+        if (containsUnsupportedTytpe) {
+            if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
+                columnNames = columnNames.stream()
+                        .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
+                                table.getColumn(c).getType()))
+                        .collect(Collectors.toList());
+            } else {
+                throw new AnalysisException(
+                        "Contains unsupported column type"
+                                + "if you want to ignore them and analyze rest"
+                                + "columns, please set session variable "
+                                + "`ignore_column_with_complex_type` to true");
             }
         }
     }
