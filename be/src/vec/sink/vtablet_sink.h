@@ -230,6 +230,8 @@ public:
 
     Status open_wait();
 
+    void open_partition_wait();
+
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
@@ -302,6 +304,7 @@ protected:
     int _rpc_timeout_ms = 60000;
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
+    MonotonicStopWatch _lazy_open_timeout_watch;
 
     // the timestamp when this node channel be marked closed and finished closed
     uint64_t _close_time_ms = 0;

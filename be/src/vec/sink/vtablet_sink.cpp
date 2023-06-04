@@ -320,6 +320,9 @@ Status VNodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->execution_timeout() * 1000;
     _timeout_watch.start();
+    if (config::enable_lazy_open_partition) {
+        _lazy_open_timeout_watch.start();
+    }
 
     // Initialize _cur_add_block_request
     _cur_add_block_request.set_allocated_id(&_parent->_load_id);
@@ -516,7 +519,7 @@ Status VNodeChannel::open_wait() {
 }
 
 void VNodeChannel::open_partition(int64_t partition_id) {
-    _timeout_watch.reset();
+    _lazy_open_timeout_watch.reset();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     OpenPartitionRequest request;
     auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
@@ -533,7 +536,7 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     auto open_partition_closure =
             std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    int remain_ms = _rpc_timeout_ms - _lazy_open_timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
@@ -544,6 +547,12 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     _open_partition_closures.insert(std::move(open_partition_closure));
 
     request.release_id();
+}
+
+void VNodeChannel::open_partition_wait() {
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+    }
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -884,9 +893,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    for (auto& open_partition_closure : _open_partition_closures) {
-        open_partition_closure->join();
-    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -1407,6 +1413,15 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 num_node_channels = 0;
         VNodeChannelStat channel_stat;
         {
+            if (config::enable_lazy_open_partition) {
+                for (auto index_channel : _channels) {
+                    index_channel->for_each_node_channel(
+                            [](const std::shared_ptr<VNodeChannel>& ch) {
+                                ch->open_partition_wait();
+                            });
+                }
+            }
+
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
                         [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });
