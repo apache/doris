@@ -68,7 +68,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
-    public static final String ENABLE_PP_FUZZY = "enable_pp_fuzzy";
+    public static final String DRY_RUN_FE = "dry_run_fe";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
@@ -399,8 +399,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableProfile = false;
 
     // if true，coordinator do not send planfragment to be, and just ends the query.
-    @VariableMgr.VarAttr(name = ENABLE_PP_FUZZY, needForward = true)
-    public boolean enablePpFuzzy = false;
+    @VariableMgr.VarAttr(name = DRY_RUN_FE, needForward = true)
+    public boolean dryRunFe = false;
 
     // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
