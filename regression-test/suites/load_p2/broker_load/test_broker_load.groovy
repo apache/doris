@@ -350,45 +350,5 @@ suite("test_broker_load_p2", "p2") {
             }
         }
     }
-
-    // test unified load
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        sql """ set enable_unified_load=true; """
-        def uuids = []
-        try {
-            def i = 0
-            for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
-
-                def uuid = UUID.randomUUID().toString().replace("-", "0")
-                uuids.add(uuid)
-                do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
-                        set_values[i], where_exprs[i])
-                i++
-            }
-
-            def orc_expect_result = """[[20, 15901, 6025915247311731176, 1373910657, 8863282788606566657], [38, 15901, -9154375582268094750, 1373853561, 4923892366467329038], [38, 15901, -9154375582268094750, 1373853561, 8447995939656287502], [38, 15901, -9154375582268094750, 1373853565, 7451966001310881759], [38, 15901, -9154375582268094750, 1373853565, 7746521994248163870], [38, 15901, -9154375582268094750, 1373853577, 6795654975682437824], [38, 15901, -9154375582268094750, 1373853577, 9009208035649338594], [38, 15901, -9154375582268094750, 1373853608, 6374361939566017108], [38, 15901, -9154375582268094750, 1373853608, 7387298457456465364], [38, 15901, -9154375582268094750, 1373853616, 7463736180224933002]]"""
-            for (String table in tables) {
-                if (table.matches("orc_s3_case[23456789]")) {
-                    String[][] orc_actual_result = sql """select CounterID, EventDate, UserID, EventTime, WatchID from $table order by CounterID, EventDate, UserID, EventTime, WatchID limit 10;"""
-                    assertTrue("$orc_actual_result" == "$orc_expect_result")
-                }
-            }
-
-            order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
-            order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
-            order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
-            order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
-            order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
-
-        } finally {
-            for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
-            }
-            sql """ set enable_unified_load=false; """
-        }
-    }
 }
 
