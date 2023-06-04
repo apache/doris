@@ -1908,7 +1908,11 @@ public class Config extends ConfigBase {
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
-    @ConfField(mutable = false)
+    @ConfField(mutable = false, description = {
+            "当设置为 true 时，用户可以在重启 FE 后, 从而无密码在本机通过localhost登陆 Doris, " 
+                    + "由于 Doris 禁止原先从 localhost 免密码登录，这个参数主要用于忘记密码的场景。",
+            "When set to true, user can restart FE so that logging to Doris without a password in localhost. "
+                    + "This is to avoid that you forget your password and cannot log in to Doris."})
     public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
@@ -1926,10 +1930,16 @@ public class Config extends ConfigBase {
      * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
      * to determine whether these two types take effect.
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "当设置为 false 时，用户可以创建含有字段类型为 `decimalv2` 的表, 这个参数主要用于必须使用 `decimalv2` 类型的场。",
+            "When set to false, the user can create tables containing fields of type `decimalv2`. "
+                    + "This is mainly used in scenarios where the `decimalv2` type must be used."})
     public static boolean disable_decimalv2  = true;
 
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = {
+            "当设置为 false 时，用户可以创建含有字段类型为 `date` 的表。, 这个参数主要用于必须使用 `date` 类型的场景。",
+            "When set to false, the user can create tables containing fields of type `date`. "
+                    + "This is mainly used in scenarios where the `date` type must be used."})
     public static boolean disable_datev1  = true;
 
     /**
