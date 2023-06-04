@@ -87,6 +87,7 @@ set(OLAP_TEST_FILES
     olap/cumulative_compaction_policy_test.cpp
     #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
+    olap/memtable_sort_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/storage_types_test.cpp
