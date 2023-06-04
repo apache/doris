@@ -261,7 +261,7 @@ size_t MemTable::_sort() {
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
             return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
         };
-        _inc_sort(_row_in_blocks, tie, cmp);
+        _sort_one_column(_row_in_blocks, tie, cmp);
     }
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
     // sort extra round by _row_pos to make the sort stable
@@ -292,8 +292,8 @@ size_t MemTable::_sort() {
     return same_keys_num;
 }
 
-void MemTable::_inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
-                         std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
+void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                                std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
         pdqsort(std::next(row_in_blocks.begin(), iter.left()),
