@@ -928,6 +928,10 @@ public class OlapScanNode extends ScanNode {
      * Check Parent sort node can push down to child olap scan.
      */
     public boolean checkPushSort(SortNode sortNode) {
+        if (!olapTable.isDupKeysOrMergeOnWrite()) {
+            return false;
+        }
+
         // Ensure limit is less then threshold
         if (sortNode.getLimit() <= 0
                 || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
