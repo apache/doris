@@ -368,29 +368,6 @@ suite("test_broker_load_p2", "p2") {
                 i++
             }
 
-            i = 0
-            for (String label in uuids) {
-                def max_try_milli_secs = 600000
-                while (max_try_milli_secs > 0) {
-                    String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
-                    if (result[0][2].equals("FINISHED")) {
-                        logger.info("Load FINISHED " + label)
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
-                        break;
-                    }
-                    if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(result[0][7].contains(error_msg[i]))
-                        break;
-                    }
-                    Thread.sleep(1000)
-                    max_try_milli_secs -= 1000
-                    if(max_try_milli_secs <= 0) {
-                        assertTrue(1 == 2, "load Timeout: $label")
-                    }
-                }
-                i++
-            }
-
             def orc_expect_result = """[[20, 15901, 6025915247311731176, 1373910657, 8863282788606566657], [38, 15901, -9154375582268094750, 1373853561, 4923892366467329038], [38, 15901, -9154375582268094750, 1373853561, 8447995939656287502], [38, 15901, -9154375582268094750, 1373853565, 7451966001310881759], [38, 15901, -9154375582268094750, 1373853565, 7746521994248163870], [38, 15901, -9154375582268094750, 1373853577, 6795654975682437824], [38, 15901, -9154375582268094750, 1373853577, 9009208035649338594], [38, 15901, -9154375582268094750, 1373853608, 6374361939566017108], [38, 15901, -9154375582268094750, 1373853608, 7387298457456465364], [38, 15901, -9154375582268094750, 1373853616, 7463736180224933002]]"""
             for (String table in tables) {
                 if (table.matches("orc_s3_case[23456789]")) {
