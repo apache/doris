@@ -65,15 +65,15 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendTag() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        List<Backend> backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
 
         // modify backend tag
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('tag.location' = 'zone1')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = infoService.getAllBackends();
         Assert.assertEquals(1, backends.size());
 
         // create table
@@ -165,13 +165,13 @@ public class ModifyBackendTest {
     @Test
     public void testModifyBackendAvailableProperty() throws Exception {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        List<Backend> backends = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
-        String beHostPort = backends.get(0).getIp() + ":" + backends.get(0).getHeartbeatPort();
+        List<Backend> backends = infoService.getAllBackends();
+        String beHostPort = backends.get(0).getHost() + ":" + backends.get(0).getHeartbeatPort();
         // modify backend available property
         String stmtStr = "alter system modify backend \"" + beHostPort + "\" set ('disable_query' = 'true', 'disable_load' = 'true')";
         AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
-        Backend backend = infoService.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER).get(0);
+        Backend backend = infoService.getAllBackends().get(0);
         Assert.assertFalse(backend.isQueryAvailable());
         Assert.assertFalse(backend.isLoadAvailable());
 

@@ -148,35 +148,6 @@ const std::string ROWSET_ID_PREFIX = "s_";
 const std::string REMOTE_ROWSET_GC_PREFIX = "gc_";
 const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
 
-#if defined(__GNUC__)
-#define OLAP_LIKELY(x) __builtin_expect((x), 1)
-#define OLAP_UNLIKELY(x) __builtin_expect((x), 0)
-#else
-#define OLAP_LIKELY(x)
-#define OLAP_UNLIKELY(x)
-#endif
-
-#ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s)               \
-    do {                               \
-        Status _s = (s);               \
-        if (OLAP_UNLIKELY(!_s.ok())) { \
-            return _s;                 \
-        }                              \
-    } while (0);
-#endif
-
-#ifndef RETURN_NOT_OK_LOG
-#define RETURN_NOT_OK_LOG(s, msg)                          \
-    do {                                                   \
-        Status _s = (s);                                   \
-        if (OLAP_UNLIKELY(!_s)) {                          \
-            LOG(WARNING) << (msg) << "[res=" << _s << "]"; \
-            return _s;                                     \
-        }                                                  \
-    } while (0);
-#endif
-
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(type_t) \

@@ -39,7 +39,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +69,7 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
+        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -95,6 +95,20 @@ public class JdbcTable extends Table {
 
     public JdbcTable(long id, String name, List<Column> schema, TableType type) {
         super(id, name, type, schema);
+    }
+
+    public String getInsertSql() {
+        StringBuilder sb = new StringBuilder("INSERT INTO ");
+        sb.append(OdbcTable.databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append(" VALUES (");
+        for (int i = 0; i < getFullSchema().size(); ++i) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append("?");
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getCheckSum() {
@@ -272,10 +286,7 @@ public class JdbcTable extends Table {
             throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
 
-        Map<String, TOdbcTableType> tableTypeMapWithoutOceanbaseOracle = new HashMap<>(TABLE_TYPE_MAP);
-        tableTypeMapWithoutOceanbaseOracle.remove("oceanbase_oracle");
-
-        if (!tableTypeMapWithoutOceanbaseOracle.containsKey(jdbcTypeName.toLowerCase())) {
+        if (!TABLE_TYPE_MAP.containsKey(jdbcTypeName.toLowerCase())) {
             throw new DdlException("Unknown jdbc table type: " + jdbcTypeName);
         }
 
@@ -295,21 +306,10 @@ public class JdbcTable extends Table {
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
 
-        if (!jdbcTypeName.equalsIgnoreCase(jdbcUrl.split(":")[1])) {
-            throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
-        }
-
-        // get oceanbase_mode
-        String oceanbaseMode = jdbcResource.getProperty("oceanbase_mode");
-
-        // by oceanbase_mode set jdbcTypeName
-        if ("oceanbase".equalsIgnoreCase(jdbcTypeName)) {
-            if ("mysql".equalsIgnoreCase(oceanbaseMode)) {
-                jdbcTypeName = "oceanbase";
-            } else if ("oracle".equalsIgnoreCase(oceanbaseMode)) {
-                jdbcTypeName = "oceanbase_oracle";
-            } else {
-                throw new DdlException("Unknown oceanbase_mode: " + oceanbaseMode);
+        String urlType = jdbcUrl.split(":")[1];
+        if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))) {
+                throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
             }
         }
     }

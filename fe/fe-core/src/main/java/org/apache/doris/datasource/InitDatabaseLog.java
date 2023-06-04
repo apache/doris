@@ -34,8 +34,11 @@ import java.util.List;
 public class InitDatabaseLog implements Writable {
     public enum Type {
         HMS,
+        ICEBERG,
         ES,
         JDBC,
+        MAX_COMPUTE,
+        HUDI,
         TEST,
         UNKNOWN;
     }

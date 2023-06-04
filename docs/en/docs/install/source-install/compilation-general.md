@@ -98,9 +98,20 @@ This topic is about how to compile Doris from source.
     It is recommended to run the image by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because of the exit of the image.
 
     Meanwhile, it is recommended to mount the maven `.m2` directory in the image to the host directory to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
+    
+    In addition, when running image compilation, it is necessary to download some files, and the image can be started in host mode. The host mode does not require the addition of - p for port mapping, as it shares network IP and ports with the host.
+    
+    The parameters of the docker run section are explained as follows:
+    | parameter | annotation |
+    |---|---|
+    | -v | Mount a storage volume to a container and mount it to a directory on the container |
+    | --name | Specify a container name, which can be used for container management in the future |
+    | --network | Container network settings: 1 Bridge ( using the bridge specified by the Docker daemon ), 2 Host ( the network where the container uses the host ), 3 Container: NAME_ Or_ ID ( using network resources such as IP and PORT from other containers ), 4. none ( containers using their own network are similar to - net=bridge, but not configured ) |
+    
+    The following example refers to mounting the container's/root/doris DORIS-x.x.x-release to the host/your/local/doris DORIS-x.x.x-release directory, naming mydocker, and starting the image in host mode:
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
+    $ docker run -it --network=host --name mydocker -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
     ```
 
 3. Download source code
@@ -234,6 +245,23 @@ You can compile Doris directly in your own Linux environment.
    If you encounter this error, the possible reason is not enough memory allocated to the image. (The default memory allocation for Docker is 2 GB, and the peak memory usage during the compilation might exceed that.)
 
    You can fix this by increasing the memory allocation for the image, 4 GB ~ 8 GB, for example.
+
+4. When using Clang to compile Doris, PCH files will be used by default to speed up the compilation process. The default configuration of ccache may cause PCH files to be unable to be cached, or the cache to be unable to be hit, resulting in PCH being repeatedly compiled, slowing down the compilation speed. The following configuration is required:  
+
+   To make ccache cache PCH files:
+   ```shell
+   export CCACHE_PCH_EXTSUM=true
+   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
+   ```
+   To stop ccache from caching PCH files:
+   ```shell
+   export CCACHE_NOPCH_EXTSUM=true
+   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
+   ```
+   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=0`
+   ```shell
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   ```
 
 ## Special Statement
 

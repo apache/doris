@@ -46,7 +46,7 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 
 | 软件 | 版本 |
 |---|---|
-| Java | 1.8 及以上 |
+| Java | 1.8  |
 | GCC  | 4.8.2 及以上 |
 
 #### 操作系统安装要求
@@ -318,7 +318,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
    同时，如果有数据查询，应该能看到不停滚动的日志，并且有 ```execute time is xxx``` 日志，表示 BE 启动成功，并且查询正常。
 
    也可以通过如下连接查看是否启动成功：  
-   `http://be_host:be_http_port/api/health`
+   `http://be_host:webserver_port/api/health`
 
    如果返回：  
    `{"status": "OK","msg": "To Be Added"}`

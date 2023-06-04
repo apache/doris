@@ -18,6 +18,7 @@
 package org.apache.doris.udf;
 
 import org.apache.doris.jni.vec.ColumnType;
+import org.apache.doris.jni.vec.VectorColumn;
 import org.apache.doris.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
@@ -29,6 +30,7 @@ import com.clickhouse.data.value.UnsignedInteger;
 import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
+import com.vesoft.nebula.client.graph.data.ValueWrapper;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -45,11 +47,14 @@ import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Date;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -64,6 +69,7 @@ public class JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(JdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private Connection conn = null;
+    private PreparedStatement preparedStatement = null;
     private Statement stmt = null;
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
@@ -77,6 +83,7 @@ public class JdbcExecutor {
     private int maxPoolSize;
     private int minIdleSize;
     private int maxIdelTime;
+    private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -86,6 +93,7 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
+        tableType = request.table_type;
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
@@ -96,6 +104,10 @@ public class JdbcExecutor {
                 + ", minIdleSize = " + minIdleSize);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
+    }
+
+    public boolean isNebula() {
+        return tableType == TOdbcTableType.NEBULA;
     }
 
     public void close() throws Exception {
@@ -127,7 +139,9 @@ public class JdbcExecutor {
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
             for (int i = 0; i < columnCount; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                if (!isNebula()) {
+                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                }
                 block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
             }
             return columnCount;
@@ -144,12 +158,11 @@ public class JdbcExecutor {
         }
     }
 
-    public int write(Map<String, String> params) {
+    public int write(Map<String, String> params) throws UdfRuntimeException {
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
         long metaAddress = Long.parseLong(params.get("meta_address"));
         // Get sql string from configuration map
-        // String sql = params.get("write_sql");
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
@@ -157,7 +170,128 @@ public class JdbcExecutor {
         VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
         // todo: insert the batch table by PreparedStatement
         // Can't release or close batchTable, it's released by c++
+        try {
+            insert(batchTable);
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
         return batchTable.getNumRows();
+    }
+
+    private int insert(VectorTable data) throws SQLException {
+        for (int i = 0; i < data.getNumRows(); ++i) {
+            for (int j = 0; j < data.getColumns().length; ++j) {
+                insertColumn(i, j, data.getColumns()[j]);
+            }
+            preparedStatement.addBatch();
+        }
+        preparedStatement.executeBatch();
+        preparedStatement.clearBatch();
+        return data.getNumRows();
+    }
+
+    private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
+        int parameterIndex = colIdx + 1;
+        ColumnType.Type dorisType = column.getColumnTyp();
+        if (column.isNullAt(rowIdx)) {
+            insertNullColumn(parameterIndex, dorisType);
+            return;
+        }
+        switch (dorisType) {
+            case BOOLEAN:
+                preparedStatement.setBoolean(parameterIndex, column.getBoolean(rowIdx));
+                break;
+            case TINYINT:
+                preparedStatement.setByte(parameterIndex, column.getByte(rowIdx));
+                break;
+            case SMALLINT:
+                preparedStatement.setShort(parameterIndex, column.getShort(rowIdx));
+                break;
+            case INT:
+                preparedStatement.setInt(parameterIndex, column.getInt(rowIdx));
+                break;
+            case BIGINT:
+                preparedStatement.setLong(parameterIndex, column.getLong(rowIdx));
+                break;
+            case LARGEINT:
+                preparedStatement.setObject(parameterIndex, column.getBigInteger(rowIdx));
+                break;
+            case FLOAT:
+                preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
+                break;
+            case DOUBLE:
+                preparedStatement.setDouble(parameterIndex, column.getDouble(rowIdx));
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                preparedStatement.setBigDecimal(parameterIndex, column.getDecimal(rowIdx));
+                break;
+            case DATEV2:
+                preparedStatement.setDate(parameterIndex, Date.valueOf(column.getDate(rowIdx)));
+                break;
+            case DATETIMEV2:
+                preparedStatement.setTimestamp(parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+            case BINARY:
+                preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
+                break;
+            default:
+                throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    private void insertNullColumn(int parameterIndex, ColumnType.Type dorisType) throws SQLException {
+        switch (dorisType) {
+            case BOOLEAN:
+                preparedStatement.setNull(parameterIndex, Types.BOOLEAN);
+                break;
+            case TINYINT:
+                preparedStatement.setNull(parameterIndex, Types.TINYINT);
+                break;
+            case SMALLINT:
+                preparedStatement.setNull(parameterIndex, Types.SMALLINT);
+                break;
+            case INT:
+                preparedStatement.setNull(parameterIndex, Types.INTEGER);
+                break;
+            case BIGINT:
+                preparedStatement.setNull(parameterIndex, Types.BIGINT);
+                break;
+            case LARGEINT:
+                preparedStatement.setNull(parameterIndex, Types.JAVA_OBJECT);
+                break;
+            case FLOAT:
+                preparedStatement.setNull(parameterIndex, Types.FLOAT);
+                break;
+            case DOUBLE:
+                preparedStatement.setNull(parameterIndex, Types.DOUBLE);
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                preparedStatement.setNull(parameterIndex, Types.DECIMAL);
+                break;
+            case DATEV2:
+                preparedStatement.setNull(parameterIndex, Types.DATE);
+                break;
+            case DATETIMEV2:
+                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+            case BINARY:
+                preparedStatement.setNull(parameterIndex, Types.VARCHAR);
+                break;
+            default:
+                throw new RuntimeException("Unknown type value: " + dorisType);
+        }
     }
 
     public List<String> getResultColumnTypeNames() {
@@ -200,7 +334,11 @@ public class JdbcExecutor {
             curBlockRows = 0;
             do {
                 for (int i = 0; i < columnCount; ++i) {
-                    block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
+                    if (isNebula()) {
+                        block.get(i)[curBlockRows] = UdfUtils.convertObject((ValueWrapper) resultSet.getObject(i + 1));
+                    } else {
+                        block.get(i)[curBlockRows] = resultSet.getObject(i + 1);
+                    }
                 }
                 curBlockRows++;
             } while (curBlockRows < batchSize && resultSet.next());
@@ -254,45 +392,53 @@ public class JdbcExecutor {
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
         try {
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
-            if (druidDataSource == null) {
-                DruidDataSource ds = new DruidDataSource();
-                ds.setDriverClassLoader(classLoader);
-                ds.setDriverClassName(driverClass);
-                ds.setUrl(jdbcUrl);
-                ds.setUsername(jdbcUser);
-                ds.setPassword(jdbcPassword);
-                ds.setMinIdle(minIdleSize);
-                ds.setInitialSize(minPoolSize);
-                ds.setMaxActive(maxPoolSize);
-                ds.setMaxWait(5000);
-                ds.setTestWhileIdle(true);
-                ds.setTestOnBorrow(false);
-                setValidationQuery(ds, tableType);
-                ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
-                ds.setMinEvictableIdleTimeMillis(maxIdelTime);
-                druidDataSource = ds;
-                // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                // jdbcPassword) as key.
-                // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
-                // time greater than 10 minutes. then connection will be retrieved.
-                JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
-            }
-            conn = druidDataSource.getConnection();
-            if (op == TJdbcOperation.READ) {
-                conn.setAutoCommit(false);
-                Preconditions.checkArgument(sql != null);
-                stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                if (tableType == TOdbcTableType.MYSQL) {
-                    stmt.setFetchSize(Integer.MIN_VALUE);
-                } else {
-                    stmt.setFetchSize(batchSize);
-                }
+            if (isNebula()) {
                 batchSizeNum = batchSize;
+                Class.forName(driverClass);
+                conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
+                stmt = conn.prepareStatement(sql);
             } else {
-                stmt = conn.createStatement();
+                ClassLoader parent = getClass().getClassLoader();
+                ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+                druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                if (druidDataSource == null) {
+                    DruidDataSource ds = new DruidDataSource();
+                    ds.setDriverClassLoader(classLoader);
+                    ds.setDriverClassName(driverClass);
+                    ds.setUrl(jdbcUrl);
+                    ds.setUsername(jdbcUser);
+                    ds.setPassword(jdbcPassword);
+                    ds.setMinIdle(minIdleSize);
+                    ds.setInitialSize(minPoolSize);
+                    ds.setMaxActive(maxPoolSize);
+                    ds.setMaxWait(5000);
+                    ds.setTestWhileIdle(true);
+                    ds.setTestOnBorrow(false);
+                    setValidationQuery(ds, tableType);
+                    ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
+                    ds.setMinEvictableIdleTimeMillis(maxIdelTime);
+                    druidDataSource = ds;
+                    // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
+                    // jdbcPassword) as key.
+                    // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
+                    // time greater than 10 minutes. then connection will be retrieved.
+                    JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                }
+                conn = druidDataSource.getConnection();
+                if (op == TJdbcOperation.READ) {
+                    conn.setAutoCommit(false);
+                    Preconditions.checkArgument(sql != null);
+                    stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                    if (tableType == TOdbcTableType.MYSQL) {
+                        stmt.setFetchSize(Integer.MIN_VALUE);
+                    } else {
+                        stmt.setFetchSize(batchSize);
+                    }
+                    batchSizeNum = batchSize;
+                } else {
+                    LOG.info("insert sql: " + sql);
+                    preparedStatement = conn.prepareStatement(sql);
+                }
             }
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
@@ -300,6 +446,8 @@ public class JdbcExecutor {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
             throw new UdfRuntimeException("FileNotFoundException failed: ", e);
+        } catch (Exception e) {
+            throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }
     }
 
@@ -667,7 +815,7 @@ public class JdbcExecutor {
 
     private void bigIntegerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
@@ -700,19 +848,49 @@ public class JdbcExecutor {
         }
     }
 
-    private void clickHouseUInt64ToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+    private void stringPutToBigInteger(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        BigInteger[] data = new BigInteger[numRows];
+        for (int i = 0; i < numRows; i++) {
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = new BigInteger((String) column[i]);
+            }
+        }
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16, startRowForNullable);
+    }
+
+    private void clickHouseUInt64ToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
         if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+                    UnsignedLong columnValue = (UnsignedLong) column[i];
+                    BigInteger bigIntValue = columnValue.bigIntegerValue();
+                    byte[] bytes = UdfUtils.convertByteOrder(bigIntValue.toByteArray());
+                    byte[] value = new byte[16];
+                    if (bigIntValue.signum() == -1) {
+                        Arrays.fill(value, (byte) -1);
+                    }
+                    System.arraycopy(bytes, 0, value, 0, Math.min(bytes.length, value.length));
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 16L), ((UnsignedLong) column[i]).longValue());
+                UnsignedLong columnValue = (UnsignedLong) column[i];
+                BigInteger bigIntValue = columnValue.bigIntegerValue();
+                byte[] bytes = UdfUtils.convertByteOrder(bigIntValue.toByteArray());
+                byte[] value = new byte[16];
+                if (bigIntValue.signum() == -1) {
+                    Arrays.fill(value, (byte) -1);
+                }
+                System.arraycopy(bytes, 0, value, 0, Math.min(bytes.length, value.length));
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
             }
         }
     }
@@ -731,8 +909,10 @@ public class JdbcExecutor {
             bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof BigInteger) {
             bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof String) {
+            stringPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedLong) {
-            clickHouseUInt64ToLong(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+            clickHouseUInt64ToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -1031,7 +1211,7 @@ public class JdbcExecutor {
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
                                     date.getDayOfMonth(), date.getHour(), date.getMinute(),
-                                    date.getSecond()));
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1040,7 +1220,7 @@ public class JdbcExecutor {
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
                                 date.getDayOfMonth(), date.getHour(), date.getMinute(),
-                                date.getSecond()));
+                                date.getSecond(), date.getNano() / 1000));
             }
         }
     }
@@ -1055,7 +1235,8 @@ public class JdbcExecutor {
                     LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
-                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1063,7 +1244,7 @@ public class JdbcExecutor {
                 LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                date.getHour(), date.getMinute(), date.getSecond()));
+                                date.getHour(), date.getMinute(), date.getSecond(), date.getNano() / 1000));
             }
         }
     }
@@ -1078,7 +1259,8 @@ public class JdbcExecutor {
                     LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
                     UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                             UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
-                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond(), date.getNano() / 1000));
                 }
             }
         } else {
@@ -1086,7 +1268,7 @@ public class JdbcExecutor {
                 LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
                 UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
                         UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
-                                date.getHour(), date.getMinute(), date.getSecond()));
+                                date.getHour(), date.getMinute(), date.getSecond(), date.getNano() / 1000));
             }
         }
     }
@@ -1138,7 +1320,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
@@ -1146,14 +1328,36 @@ public class JdbcExecutor {
                     byteRes[i] = emptyBytes;
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
+                    String result = column[i].toString();
+                    if (column[i] instanceof java.sql.Time) {
+                        // the default toString() method doesn't format the milliseconds in Time.
+                        long milliseconds = ((java.sql.Time) column[i]).getTime() % 1000L;
+                        if (milliseconds > 0) {
+                            result = String.format("%s.%03d", column[i].toString(), milliseconds);
+                        }
+                    }
+                    byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
                 }
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
         } else {
+            boolean isTime = numRows > 0 && column[0] instanceof java.sql.Time;
             for (int i = 0; i < numRows; i++) {
-                byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
+                String result = column[i].toString();
+                if (isTime) {
+                    // Doc https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
+                    // shows that jdbc API use java.sql.Time to hold the TIME type,
+                    // but java.sql.Time can only have millisecond precision.
+                    // the default toString() method doesn't format the milliseconds in Time.
+                    // Doc https://dev.mysql.com/doc/refman/8.0/en/time.html shows that MySQL supports time[0~6],
+                    // so time[4~6] will lose precision
+                    long milliseconds = ((java.sql.Time) column[i]).getTime() % 1000L;
+                    if (milliseconds > 0) {
+                        result = String.format("%s.%03d", column[i].toString(), milliseconds);
+                    }
+                }
+                byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
@@ -1175,7 +1379,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     byteRes[i] = emptyBytes;
@@ -1333,7 +1537,7 @@ public class JdbcExecutor {
 
     private void copyBatchDecimalResult(BigInteger[] column, boolean isNullable, int numRows,
             long columnAddr, int typeLen, int startRowForNullable) {
-        if (isNullable == true) {
+        if (isNullable) {
             for (int i = startRowForNullable; i < numRows; i++) {
                 if (column[i] != null) {
                     byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
@@ -1369,7 +1573,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {
@@ -1406,7 +1610,7 @@ public class JdbcExecutor {
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
-        if (isNullable == true) {
+        if (isNullable) {
             // Here can not loop from startRowForNullable,
             // because byteRes will be used later
             for (int i = 0; i < numRows; i++) {

@@ -26,6 +26,7 @@ add_subdirectory(rowset)
 add_library(Olap STATIC
     base_compaction.cpp
     base_tablet.cpp
+    binlog_config.cpp
     bloom_filter.hpp
     block_column_predicate.cpp
     cold_data_compaction.cpp
@@ -33,6 +34,7 @@ add_library(Olap STATIC
     compaction_permit_limiter.cpp   
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
+    delete_bitmap_calculator.cpp
     delete_handler.cpp
     delta_writer.cpp
     hll.cpp
@@ -48,6 +50,7 @@ add_library(Olap STATIC
     null_predicate.cpp
     olap_meta.cpp
     olap_server.cpp
+    schema_cache.cpp
     options.cpp
     page_cache.cpp
     push_handler.cpp
@@ -59,12 +62,14 @@ add_library(Olap STATIC
     storage_engine.cpp
     data_dir.cpp
     short_key_index.cpp
+    single_replica_compaction.cpp
     snapshot_manager.cpp
     tablet.cpp
     tablet_manager.cpp
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
+    tablet_schema_cache.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp
@@ -107,6 +112,8 @@ add_library(Olap STATIC
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
+    task/engine_index_change_task.cpp
+    task/index_builder.cpp
     segment_loader.cpp
     storage_policy.cpp
 )
@@ -114,3 +121,5 @@ add_library(Olap STATIC
 if (NOT USE_MEM_TRACKER)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
 endif()
+
+pch_reuse(Olap)

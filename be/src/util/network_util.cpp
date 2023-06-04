@@ -104,6 +104,33 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     return Status::OK();
 }
 
+bool is_valid_ip(const std::string& ip) {
+    unsigned char buf[sizeof(struct in6_addr)];
+    return (inet_pton(AF_INET6, ip.data(), buf) > 0) || (inet_pton(AF_INET, ip.data(), buf) > 0);
+}
+
+Status hostname_to_ip(const std::string& host, std::string& ip) {
+    std::vector<std::string> addresses;
+    Status status = hostname_to_ip_addrs(host, &addresses);
+    if (!status.ok()) {
+        LOG(WARNING) << "status of hostname_to_ip_addrs was not ok, err is " << status.to_string();
+        return status;
+    }
+    if (addresses.size() != 1) {
+        std::stringstream ss;
+        std::copy(addresses.begin(), addresses.end(), std::ostream_iterator<std::string>(ss, ","));
+        LOG(WARNING)
+                << "the number of addresses could only be equal to 1, failed to get ip from host:"
+                << host << ", addresses:" << ss.str();
+        return Status::InternalError(
+                "the number of addresses could only be equal to 1, failed to get ip from host: "
+                "{}, addresses:{}",
+                host, ss.str());
+    }
+    ip = addresses[0];
+    return Status::OK();
+}
+
 bool find_first_non_localhost(const std::vector<std::string>& addresses, std::string* addr) {
     for (const std::string& candidate : addresses) {
         if (candidate != LOCALHOST) {

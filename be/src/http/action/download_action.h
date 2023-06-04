@@ -65,7 +65,7 @@ private:
 
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
-    bool _is_async;
+    int32_t _num_workers;
     std::unique_ptr<ThreadPool> _download_workers;
 }; // end class DownloadAction
 

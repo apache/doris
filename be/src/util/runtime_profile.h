@@ -62,9 +62,6 @@ class TRuntimeProfileTree;
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
-#define CANCEL_SAFE_SCOPED_TIMER_ATOMIC(c, is_cancelled)                                       \
-    ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)( \
-            c, is_cancelled)
 #define SCOPED_RAW_TIMER(c)                                                                  \
     doris::ScopedRawTimer<doris::MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, \
                                                                            __COUNTER__)(c)
@@ -324,7 +321,7 @@ public:
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
 
-    void add_to_span();
+    void add_to_span(OpentelemetrySpan span);
 
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.
@@ -510,12 +507,9 @@ private:
                                            const CounterMap& counter_map,
                                            const ChildCounterMap& child_counter_map);
 
-    static std::string print_json_counter(const std::string& profile_name, Counter* counter) {
-        return print_json_info(profile_name,
-                               PrettyPrinter::print(counter->value(), counter->type()));
+    static std::string print_counter(Counter* counter) {
+        return PrettyPrinter::print(counter->value(), counter->type());
     }
-
-    static std::string print_json_info(const std::string& profile_name, std::string value);
 };
 
 // Utility class to update the counter at object construction and destruction.

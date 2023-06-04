@@ -79,7 +79,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@15'
+            'llvm@16'
           )
           brew install "${cellars[@]}"
 
@@ -96,4 +96,3 @@ jobs:
           popd
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
-

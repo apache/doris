@@ -26,7 +26,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     protected HMSExternalTable table;
 
-    public HMSAnalysisTask(AnalysisTaskInfo info) {
+    public HMSAnalysisTask(AnalysisInfo info) {
         super(info);
         table = (HMSExternalTable) tbl;
     }
@@ -34,7 +34,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     /**
      * Collect the column level stats for external table through metadata.
      */
-    protected void getColumnStatsByMeta() throws Exception {
+    protected void getStatsByMeta() throws Exception {
         throw new NotImplementedException("Code is not implemented");
     }
 
@@ -42,16 +42,16 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Collect the stats for external table through sql.
      * @return ColumnStatistics
      */
-    protected void getColumnStatsBySql() {
+    protected void getStatsBySql() throws Exception {
         throw new NotImplementedException("getColumnStatsBySql is not implemented");
     }
 
     @Override
     public void execute() throws Exception {
         if (Config.collect_external_table_stats_by_sql) {
-            getColumnStatsBySql();
+            getStatsBySql();
         } else {
-            getColumnStatsByMeta();
+            getStatsByMeta();
         }
     }
 }

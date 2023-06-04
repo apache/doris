@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -36,6 +38,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Histogram;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -47,9 +51,11 @@ import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -144,6 +150,8 @@ public class ConnectContext {
 
     private String sqlHash;
 
+    private JSONObject minidump = null;
+
     // The FE ip current connected
     private String currentConnectedFEIp = "";
 
@@ -172,6 +180,28 @@ public class ConnectContext {
 
     private StatementContext statementContext;
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    private List<Table> tables = null;
+
+    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+
+    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
+        return totalColumnStatisticMap;
+    }
+
+    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
+        this.totalColumnStatisticMap = totalColumnStatisticMap;
+    }
+
+    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+
+    public Map<String, Histogram> getTotalHistogramMap() {
+        return totalHistogramMap;
+    }
+
+    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
+        this.totalHistogramMap = totalHistogramMap;
+    }
 
     public SessionContext getSessionContext() {
         return sessionContext;
@@ -257,6 +287,14 @@ public class ConnectContext {
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public List<Table> getTables() {
+        return tables;
+    }
+
+    public void setTables(List<Table> tables) {
+        this.tables = tables;
     }
 
     public void closeTxn() {
@@ -461,6 +499,13 @@ public class ConnectContext {
         return env.getCatalogMgr().getCatalog(realCatalogName);
     }
 
+    public FunctionRegistry getFunctionRegistry() {
+        if (env == null) {
+            return Env.getCurrentEnv().getFunctionRegistry();
+        }
+        return env.getFunctionRegistry();
+    }
+
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
         currentDb = "";
@@ -535,6 +580,14 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
+    }
+
+    public JSONObject getMinidump() {
+        return minidump;
+    }
+
+    public void setMinidump(JSONObject minidump) {
+        this.minidump = minidump;
     }
 
     public Tracer getTracer() {

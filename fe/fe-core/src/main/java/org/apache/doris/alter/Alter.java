@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -61,6 +62,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -120,7 +122,7 @@ public class Alter {
         String dbName = stmt.getDBName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // check cluster capacity
-        Env.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+        Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
         db.checkQuota();
 
@@ -169,7 +171,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                         final String clusterName, Database db) throws UserException {
+                                          final String clusterName, Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -183,7 +185,7 @@ public class Alter {
 
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
-            Env.getCurrentSystemInfo().checkClusterCapacity(clusterName);
+            Env.getCurrentSystemInfo().checkAvailableCapacity();
             db.checkQuota();
         }
 
@@ -214,6 +216,15 @@ public class Alter {
 
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkCcrEnable(alterClauses)) {
+            olapTable.setCcrEnable(currentAlterOps.isCcrEnable(alterClauses));
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
+            if (!Config.enable_feature_binlog) {
+                throw new DdlException("Binlog feature is not enabled");
+            }
+            // TODO(Drogon): check error
+            ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
             schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
@@ -244,7 +255,7 @@ public class Alter {
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                         boolean isInMemory =
-                                        Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                                Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
                         if (isInMemory == true) {
                             throw new UserException("Not support set 'in_memory'='true' now!");
                         }
@@ -260,7 +271,7 @@ public class Alter {
                     }
                 } else if (alterClause instanceof DropPartitionFromIndexClause) {
                     // do nothing
-                } else if (alterClause instanceof AddPartitionClause) {
+                } else if (alterClause instanceof AddPartitionClause || alterClause instanceof AddPartitionLikeClause) {
                     needProcessOutsideTableLock = true;
                 } else {
                     throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -412,7 +423,7 @@ public class Alter {
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
-            Map<String, String> prop, boolean isReplay) {
+                                             Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -484,6 +495,12 @@ public class Alter {
                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause);
+            } else if (alterClause instanceof AddPartitionLikeClause) {
+                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed(
+                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
+                }
+                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
@@ -504,7 +521,8 @@ public class Alter {
                 Map<String, String> properties = alterClause.getProperties();
                 // currently, only in memory and storage policy property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -522,7 +540,7 @@ public class Alter {
             olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             // 2. drop old job and kill the associated tasks
-            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl(), isReplay);
 
             // 3. overwrite the refresh info in the memory of fe.
             olapTable.writeLock();
@@ -654,7 +672,7 @@ public class Alter {
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
-            List<Column> newFullSchema) throws DdlException {
+                               List<Column> newFullSchema) throws DdlException {
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
@@ -782,7 +800,7 @@ public class Alter {
         // get value from properties here
         // 1. replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        Env.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+        Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
         // 2. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, false);

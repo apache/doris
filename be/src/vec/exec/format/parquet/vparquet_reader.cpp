@@ -69,7 +69,8 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache)
+                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache,
+                             bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -79,19 +80,21 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _kv_cache(kv_cache) {
+          _kv_cache(kv_cache),
+          _enable_lazy_mat(enable_lazy_mat) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             io::IOContext* io_ctx, RuntimeState* state)
+                             io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
           _io_ctx(io_ctx),
-          _state(state) {
+          _state(state),
+          _enable_lazy_mat(enable_lazy_mat) {
     _init_system_properties();
     _init_file_description();
 }
@@ -206,6 +209,8 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        reader_options.modification_time =
+                _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader,
                 io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
@@ -278,11 +283,11 @@ Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        VExprContext* vconjunct_ctx, const TupleDescriptor* tuple_descriptor,
+        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const std::vector<VExprContext*>* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, std::vector<VExprContext*>>* slot_id_to_filter_conjuncts,
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         bool filter_groups) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
@@ -320,7 +325,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
-    _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
+    _lazy_read_ctx.conjuncts = conjuncts;
     RETURN_IF_ERROR(_init_row_groups(filter_groups));
     return Status::OK();
 }
@@ -328,7 +333,7 @@ Status ParquetReader::init_reader(
 Status ParquetReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -347,28 +352,30 @@ Status ParquetReader::set_fill_columns(
             return;
         } else if (VRuntimeFilterWrapper* runtime_filter =
                            typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl());
+            VExpr* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
             if (VBloomPredicate* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (VExpr* child : bloom_predicate->children()) {
-                    visit_slot(child);
+                for (auto& child : bloom_predicate->children()) {
+                    visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
                 if (in_predicate->children().size() > 0) {
-                    visit_slot(in_predicate->children()[0]);
+                    visit_slot(in_predicate->children()[0].get());
                 }
             } else {
-                for (VExpr* child : filter_impl->children()) {
-                    visit_slot(child);
+                for (auto& child : filter_impl->children()) {
+                    visit_slot(child.get());
                 }
             }
         } else {
-            for (VExpr* child : expr->children()) {
-                visit_slot(child);
+            for (auto& child : expr->children()) {
+                visit_slot(child.get());
             }
         }
     };
-    if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
-        visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
+    if (!_lazy_read_ctx.conjuncts.empty()) {
+        for (auto& conjunct : _lazy_read_ctx.conjuncts) {
+            visit_slot(conjunct->root().get());
+        }
     }
 
     const FieldDescriptor& schema = _file_metadata->schema();
@@ -410,7 +417,8 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (!_has_complex_type && _enable_lazy_mat &&
+        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -561,15 +569,21 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    size_t avg_io_size = 0;
-    const std::vector<io::PrefetchRange> io_ranges =
-            _generate_random_access_ranges(row_group_index, &avg_io_size);
-    // The underlying page reader will prefetch data in column.
-    // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-    io::FileReaderSPtr group_file_reader =
-            avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                    ? std::make_shared<io::MergeRangeFileReader>(_profile, _file_reader, io_ranges)
-                    : _file_reader;
+    io::FileReaderSPtr group_file_reader;
+    if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get())) {
+        // InMemoryFileReader has the ability to merge small IO
+        group_file_reader = _file_reader;
+    } else {
+        size_t avg_io_size = 0;
+        const std::vector<io::PrefetchRange> io_ranges =
+                _generate_random_access_ranges(row_group_index, &avg_io_size);
+        // The underlying page reader will prefetch data in column.
+        // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
+        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                                    ? std::make_shared<io::MergeRangeFileReader>(
+                                              _profile, _file_reader, io_ranges)
+                                    : _file_reader;
+    }
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
@@ -694,7 +708,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_has_complex_type || _lazy_read_ctx.vconjunct_ctx == nullptr ||
+    if (_has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
         _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();

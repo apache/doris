@@ -52,8 +52,7 @@ mysql> desc function backends();
 +-------------------------+--------+------+-------+---------+-------+
 | BackendId               | BIGINT | No   | false | NULL    | NONE  |
 | Cluster                 | TEXT   | No   | false | NULL    | NONE  |
-| IP                      | TEXT   | No   | false | NULL    | NONE  |
-| HostName                | TEXT   | No   | false | NULL    | NONE  |
+| Host                    | TEXT   | No   | false | NULL    | NONE  |
 | HeartbeatPort           | INT    | No   | false | NULL    | NONE  |
 | BePort                  | INT    | No   | false | NULL    | NONE  |
 | HttpPort                | INT    | No   | false | NULL    | NONE  |
@@ -77,10 +76,12 @@ mysql> desc function backends();
 | HeartbeatFailureCounter | INT    | No   | false | NULL    | NONE  |
 | NodeRole                | TEXT   | No   | false | NULL    | NONE  |
 +-------------------------+--------+------+-------+---------+-------+
-26 rows in set (0.04 sec)
+25 rows in set (0.04 sec)
 ```
 
 The information displayed by the `backends` tvf is basically consistent with the information displayed by the `show backends` statement. However, the types of each field in the `backends` tvf are more specific, and you can use the `backends` tvf to perform operations such as filtering and joining.
+
+The information displayed by the `backends` tvf is authenticated, which is consistent with the behavior of `show backends`, user must have ADMIN/OPERATOR privelege.
 
 ### example
 ```
@@ -88,8 +89,7 @@ mysql> select * from backends()\G
 *************************** 1. row ***************************
               BackendId: 10022
                 Cluster: default_cluster
-                     IP: 10.16.10.14
-               HostName: 10.16.10.14
+                   Host: 10.16.10.14
           HeartbeatPort: 9159
                  BePort: 9169
                HttpPort: 8149

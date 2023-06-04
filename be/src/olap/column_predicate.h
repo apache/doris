@@ -214,6 +214,13 @@ public:
 
     virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
 
+    virtual int get_filter_id() const { return -1; }
+
+    PredicateFilterInfo get_filtered_info() const {
+        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
+                                    _evaluated_rows - 1 - _passed_rows};
+    }
+
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 
     const std::string pred_type_string(PredicateType type) {
@@ -262,6 +269,8 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     std::shared_ptr<PredicateParams> _predicate_params;
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
 };
 
 } //namespace doris

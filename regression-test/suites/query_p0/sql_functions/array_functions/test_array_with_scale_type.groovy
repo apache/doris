@@ -26,7 +26,8 @@ suite("test_array_with_scale_type") {
             `c_decimal` decimal(8,3) NULL COMMENT "",
             `c_decimalv3` decimalv3(8,3) NULL COMMENT "",
             `c_array_datetimev2` ARRAY<datetimev2(3)> NULL COMMENT "",
-            `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT ""
+            `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT "",
+            `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT ""
             ) ENGINE=OLAP
         DUPLICATE KEY(`uid`)
         DISTRIBUTED BY HASH(`uid`) BUCKETS 1
@@ -37,8 +38,8 @@ suite("test_array_with_scale_type") {
         """
 
         sql """INSERT INTO ${tableName} values
-        (1,"2022-12-01 22:23:24.999999",22.678,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.678,33.6789]),
-        (2,"2022-12-02 22:23:24.999999",23.678,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.678,34.6789])
+        (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
+        (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789])
         """
         qt_select  "select array_min(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(6))))"
         qt_select  "select array_min(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3))))"
@@ -51,10 +52,12 @@ suite("test_array_with_scale_type") {
         qt_select  "select array_min(array(cast (22.99 as decimalv3(10,3))))"
         qt_select  "select array_min(array(cast (22.99 as decimalv3(10,6))))"
         qt_select  "select array_min(c_array_decimal) from ${tableName}"
+        qt_select  "select array_min(c_array_decimalv3) from ${tableName}"
         qt_select  "select array_max(array(cast (22.99 as decimalv3)))"
         qt_select  "select array_max(array(cast (22.99 as decimalv3(10,3))))"
         qt_select  "select array_max(array(cast (22.99 as decimalv3(10,6))))"
         qt_select  "select array_max(c_array_decimal) from ${tableName}"
+        qt_select  "select array_max(c_array_decimalv3) from ${tableName}"
 
         qt_select  "select array(c_decimal) from ${tableName}"
         qt_select  "select array(cast (24.99 as decimalv3(10,3)),cast (25.99 as decimalv3(10,3))) from ${tableName}"
@@ -71,7 +74,7 @@ suite("test_array_with_scale_type") {
         qt_select """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from ${tableName}"""
         qt_select """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from ${tableName}"""
         qt_select """select array_apply(c_array_datetimev2, ">", null) from ${tableName}"""
-        qt_select """select array_apply(c_array_decimal, "=", 22.678) from ${tableName}"""
+        qt_select """select array_apply(c_array_decimal, "=", 22.679) from ${tableName}"""
         qt_select """select array_apply(c_array_decimal, ">=", 22.1) from ${tableName}"""
         qt_select """select array_apply(c_array_decimal, ">=", null) from ${tableName}"""
 
@@ -80,6 +83,7 @@ suite("test_array_with_scale_type") {
         qt_select """select array_concat(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
         qt_select """select array_concat(c_array_decimal, c_array_decimal, c_array_decimal) from ${tableName}"""
         qt_select """select array_zip(c_array_decimal, c_array_decimal, c_array_datetimev2, c_array_decimal) from ${tableName}"""
+
         qt_select """select array_zip(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
         qt_select """select array_zip(c_array_datetimev2) from ${tableName}"""
         qt_select """select array_zip(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""

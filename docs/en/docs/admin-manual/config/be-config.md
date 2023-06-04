@@ -419,12 +419,6 @@ There are two ways to configure BE configuration items:
 * Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
 * Default value: 5
 
-#### `serialize_batch`
-
-* Type: bool
-* Description: Whether the rpc communication between BEs serializes RowBatch for data transmission between query layers
-* Default value: false
-
 #### `doris_scan_range_max_mb`
 
 * Type: int32
@@ -448,21 +442,21 @@ There are two ways to configure BE configuration items:
 
 #### `vertical_compaction_num_columns_per_group`
 
-* Type: bool
+* Type: int32
 * Description: In vertical compaction, column number for every group
-* Default value: true
+* Default value: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* Type: bool
-* Description: In vertical compaction, max memory usage for row_source_buffer
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max memory usage for row_source_buffer,The unit is MB.
+* Default value: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* Type: bool
-* Description: In vertical compaction, max dest segment file size
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max dest segment file size, The unit is m bytes.
+* Default value: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -472,9 +466,9 @@ There are two ways to configure BE configuration items:
 
 #### `ordered_data_compaction_min_segment_size`
 
-* Type: bool
-* Description: In ordered data compaction, min segment size for input rowset
-* Default value: true
+* Type: int32
+* Description: In ordered data compaction, min segment size for input rowset, The unit is m bytes.
+* Default value: 10485760
 
 #### `max_base_compaction_threads`
 
@@ -637,6 +631,23 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: disable the trace log of compaction
   - If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 * Default value: true
+
+#### `pick_rowset_to_compact_interval_sec`
+
+* Type: int64
+* Description: select the time interval in seconds for rowset to be compacted.
+* Default value: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in single replica compaction thread pool.
+* Default value: 10
+
+#### `update_replica_infos_interval_seconds`
+
+* Description: Minimal interval (s) to update peer replica infos
+* Default value: 10 (s)
 
 
 ### Load
@@ -1215,6 +1226,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
 
+#### `enable_lazy_open_partition`
+
+* Type: bool
+* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
+* Default value: false
+
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * Description: The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted.
@@ -1405,3 +1422,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Default value: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true

@@ -45,7 +45,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -430,9 +429,6 @@ public abstract class JoinNodeBase extends PlanNode {
         // 4. replace other conjuncts and conjuncts
         computeOtherConjuncts(analyzer, originToIntermediateSmap);
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
-        if (vconjunct != null) {
-            vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
-        }
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
     }

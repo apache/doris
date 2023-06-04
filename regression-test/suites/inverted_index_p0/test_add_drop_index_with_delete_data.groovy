@@ -37,6 +37,29 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            expected_finished_num = alter_res.size();
+            finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            } else {
+                finished_num = 0;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+    }
+
     def indexTbName1 = "test_add_drop_inverted_index3"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -92,18 +115,26 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     assertEquals(select_result[4][2], "desc world")
 
     // query rows where description match 'desc', should fail without index
-    def success = false
-    try {
-        sql "select * from ${indexTbName1} where description match 'desc'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
+    assertEquals(select_result.size(), 4)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc test hello")
+    assertEquals(select_result[1][0], 2)
+    assertEquals(select_result[1][1], "name2")
+    assertEquals(select_result[1][2], "desc hello ok")
+    assertEquals(select_result[2][0], 4)
+    assertEquals(select_result[2][1], "name4")
+    assertEquals(select_result[2][2], "desc ok world test")
+    assertEquals(select_result[3][0], 5)
+    assertEquals(select_result[3][1], "name5")
+    assertEquals(select_result[3][2], "desc world")
 
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    sql "build index idx_desc on ${indexTbName1}"
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
 
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"
@@ -167,15 +198,21 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     // drop index
     sql "drop index idx_desc on ${indexTbName1}"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
-    // query rows where description match 'desc', should fail without index
-    success = false
-    try {
-        sql "select * from ${indexTbName1} where description match 'desc'"
-        success = true
-    } catch(Exception ex) {
-        logger.info("sql exception: " + ex)
-    }
-    assertEquals(success, false)
+    // query rows where description match 'desc' without index
+    select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
+    assertEquals(select_result.size(), 4)
+    assertEquals(select_result[0][0], 1)
+    assertEquals(select_result[0][1], "name1")
+    assertEquals(select_result[0][2], "desc test hello")
+    assertEquals(select_result[1][0], 2)
+    assertEquals(select_result[1][1], "name2")
+    assertEquals(select_result[1][2], "desc hello ok")
+    assertEquals(select_result[2][0], 4)
+    assertEquals(select_result[2][1], "name4")
+    assertEquals(select_result[2][2], "desc ok world test")
+    assertEquals(select_result[3][0], 5)
+    assertEquals(select_result[3][1], "name5")
+    assertEquals(select_result[3][2], "desc world")
 
     show_result = sql "show index from ${indexTbName1}"
     logger.info("show index from " + indexTbName1 + " result: " + show_result)
@@ -202,6 +239,8 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    sql "build index idx_desc on ${indexTbName1}"
+    wait_for_build_index_on_partition_finish(indexTbName1, timeout)
 
     // show index after add index
     show_result = sql "show index from ${indexTbName1}"

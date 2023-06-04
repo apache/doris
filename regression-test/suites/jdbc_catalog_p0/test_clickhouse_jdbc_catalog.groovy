@@ -18,7 +18,6 @@
 suite("test_clickhouse_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String resource_name = "clickhouse_catalog_resource";
         String catalog_name = "clickhouse_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -27,9 +26,8 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         String inDorisTable = "doris_in_tb";
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
-        sql """ create resource if not exists ${resource_name} properties(
+        sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="default",
                     "password"="123456",
@@ -37,8 +35,6 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
                     "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
         );"""
-
-        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -54,11 +50,11 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         sql """ use ${ex_db_name} """
 
         order_qt_type  """ select * from type order by k1; """
+        order_qt_number  """ select * from number order by k6; """
         order_qt_arr  """ select * from arr order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
     }
 }

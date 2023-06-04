@@ -21,12 +21,14 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <memory>
 #include <string>
 
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris {
@@ -50,12 +52,19 @@ public:
         return TPrimitiveType::AGG_STATE;
     }
 
-    const DataTypes& get_sub_types() { return sub_types; }
+    const DataTypes& get_sub_types() const { return sub_types; }
 
-    void add_sub_type(DataTypePtr type) { sub_types.push_back(type); }
+    void add_sub_type(DataTypePtr type) const { sub_types.push_back(type); }
+
+    void to_pb_column_meta(PColumnMeta* col_meta) const override {
+        IDataType::to_pb_column_meta(col_meta);
+        for (auto type : sub_types) {
+            type->to_pb_column_meta(col_meta->add_children());
+        }
+    }
 
 private:
-    DataTypes sub_types;
+    mutable DataTypes sub_types;
 };
 
 } // namespace doris::vectorized

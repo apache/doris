@@ -102,6 +102,7 @@ public class BrokerUtil {
             if (r.isFile()) {
                 TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
+                status.setModificationTime(r.getModificationTime());
                 fileStatuses.add(status);
             }
         }
@@ -440,7 +441,7 @@ public class BrokerUtil {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        return new TNetworkAddress(broker.ip, broker.port);
+        return new TNetworkAddress(broker.host, broker.port);
     }
 
     public static TPaloBrokerService.Client borrowClient(TNetworkAddress address) throws UserException {

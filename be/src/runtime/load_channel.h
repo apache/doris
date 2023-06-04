@@ -41,21 +41,26 @@
 #include "util/spinlock.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+//#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 
 class PTabletWriterOpenRequest;
+class OpenPartitionRequest;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip, int64_t backend_id);
+                bool is_high_priority, const std::string& sender_ip, int64_t backend_id,
+                bool enable_profile);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
+
+    Status open_partition(const OpenPartitionRequest& params);
 
     // this batch must belong to a index in one transaction
     Status add_batch(const PTabletWriterAddBlockRequest& request,
@@ -113,6 +118,9 @@ public:
         }
     }
 
+    RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
+    RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
+
 protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
@@ -120,6 +128,7 @@ protected:
     Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
                        const PTabletWriterAddBlockRequest& request,
                        PTabletWriterAddBlockResult* response) {
+        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(
@@ -151,6 +160,11 @@ private:
     RuntimeProfile* _self_profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_times = nullptr;
+    RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
+    RuntimeProfile::Counter* _handle_eos_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -175,6 +189,8 @@ private:
     std::string _sender_ip;
 
     int64_t _backend_id;
+
+    bool _enable_profile;
 };
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {

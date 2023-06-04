@@ -105,8 +105,10 @@ under the License.
 
 ## 常见问题
 
-### 启动BE失败，日志显示错误`fail to open StorageEngine, res=file descriptors limit is too small`
-参考前面提到的设置`file descriptors`。
+1. 启动BE失败，日志显示错误`fail to open StorageEngine, res=file descriptors limit is too small`
 
-### Java版本
-推荐使用Java 8。
+   参考前面提到的设置`file descriptors`。
+
+2. Java版本
+
+   推荐使用Java 8。

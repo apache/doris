@@ -96,9 +96,21 @@ under the License.
    建议以挂载本地 Doris 源码目录的方式运行镜像，这样编译的产出二进制文件会存储在宿主机中，不会因为镜像退出而消失。
 
    同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
+   
+   此外，运行镜像编译时需要 download 部分文件，可以采用 host 模式启动镜像。 host 模式不需要加 -p 进行端口映射，因为和宿主机共享网络IP和端口。
+   
+   docker run 部分参数说明如下：
+   
+    | 参数 | 注释 |
+    |---|---|
+    | -v | 给容器挂载存储卷，挂载到容器的某个目录 |
+    | --name | 指定容器名字，后续可以通过名字进行容器管理 |
+    | --network | 容器网络设置: bridge 使用 docker daemon 指定的网桥，host 容器使用主机的网络， container:NAME_or_ID 使用其他容器的网路，共享IP和PORT等网络资源， none 容器使用自己的网络（类似--net=bridge），但是不进行配置 |
+    
+    如下示例，是指将容器的 /root/doris-DORIS-x.x.x-release 挂载至宿主机 /your/local/doris-DORIS-x.x.x-release 目录，且命名 mydocker 后用 host 模式 启动镜像：
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
+    $ docker run -it --network=host --name mydocker -v /your/local/.m2:/root/.m2 -v /your/local/doris-DORIS-x.x.x-release/:/root/doris-DORIS-x.x.x-release/ apache/doris:build-env-ldb-toolchain-latest
     ```
 
 3. 下载源码
@@ -227,6 +239,23 @@ under the License.
    使用 Docker 镜像编译时如遇到上述报错，可能是分配给镜像的内存不足（Docker 默认分配的内存大小为 2GB，编译过程中内存占用的峰值大于 2GB）。
 
    尝试适当调大镜像的分配内存，推荐 4GB ~ 8GB。
+
+4. 在使用Clang编译Doris时会默认使用PCH文件来加速编译过程，ccache的默认配置可能会导致PCH文件无法被缓存，或者缓存无法被命中，进而导致PCH被重复编译，拖慢编译速度，需要进行如下配置：  
+
+   如需让ccache缓存PCH文件：
+   ```shell
+   export CCACHE_PCH_EXTSUM=true
+   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
+   ```
+   不再让ccache缓存PCH文件：
+   ```shell
+   export CCACHE_NOPCH_EXTSUM=true
+   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
+   ```
+   使用Clang编译，但不想使用PCH文件来加速编译过程，则需要加上参数`ENABLE_PCH=0`
+   ```shell
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   ```
 
 ## 特别声明
 

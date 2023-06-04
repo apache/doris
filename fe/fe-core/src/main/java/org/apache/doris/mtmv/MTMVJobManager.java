@@ -367,11 +367,11 @@ public class MTMVJobManager {
         LOG.info("change job:{}", changeJob.getJobId());
     }
 
-    public void dropJobByName(String dbName, String mvName) {
+    public void dropJobByName(String dbName, String mvName, boolean isReplay) {
         for (String jobName : nameToJobMap.keySet()) {
             MTMVJob job = nameToJobMap.get(jobName);
             if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                dropJobs(Collections.singletonList(job.getId()), false);
+                dropJobs(Collections.singletonList(job.getId()), isReplay);
                 return;
             }
         }

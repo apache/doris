@@ -54,12 +54,6 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
-#clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.12.tar.gz"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.12.tar.gz"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.12"
-CLUCENE_MD5SUM="171035c1d4c9fe3d7307f04dd76ab3e3"
-
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -203,10 +197,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
-BRPC_NAME="brpc-1.4.0.tar.gz"
-BRPC_SOURCE="brpc-1.4.0"
-BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.5.0.tar.gz"
+BRPC_NAME="brpc-1.5.0.tar.gz"
+BRPC_SOURCE="brpc-1.5.0"
+BRPC_MD5SUM="d1b6d9b615292dfa5cefa227822c5996"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -332,10 +326,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.211.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.211.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.211"
-AWS_SDK_MD5SUM="667b8e08baf0b9967c19224198e33160"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
+AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -417,16 +411,16 @@ NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
 # opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
-OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.19.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.19.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.19.0
+OPENTELEMETRY_PROTO_MD5SUM="8a5fb1ba721341994a5e7cae8b38bcc6"
 
 # opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
-OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
-OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.8.3.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.8.3.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.8.3
+OPENTELEMETRY_MD5SUM="a051dbbced2b7eb7a7227bdf5b3b9a10"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -459,14 +453,13 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
-HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.4-for-doris"
+HADOOP_LIBS_MD5SUM="00f0042dd3900ba016f079ee9c550efb"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
-    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -531,7 +524,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS_X86'
+    'HADOOP_LIBS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

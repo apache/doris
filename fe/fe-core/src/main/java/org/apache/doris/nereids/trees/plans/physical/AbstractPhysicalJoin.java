@@ -33,6 +33,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
+import org.json.JSONObject;
 
 import java.util.Collection;
 import java.util.List;
@@ -52,6 +53,7 @@ public abstract class AbstractPhysicalJoin<
     protected final List<Expression> otherJoinConjuncts;
     protected final JoinHint hint;
     protected final Optional<MarkJoinSlotReference> markJoinSlotReference;
+    protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
 
     // use for translate only
     protected final List<Expression> filterConjuncts = Lists.newArrayList();
@@ -182,5 +184,26 @@ public abstract class AbstractPhysicalJoin<
 
     public void addFilterConjuncts(Collection<Expression> conjuncts) {
         filterConjuncts.addAll(conjuncts);
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject physicalJoin = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("JoinType", joinType.toString());
+        properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
+        properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
+        properties.put("JoinHint", hint.toString());
+        properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
+        physicalJoin.put("Properties", properties);
+        return physicalJoin;
+    }
+
+    public void addRuntimeFilter(RuntimeFilter rf) {
+        runtimeFilters.add(rf);
+    }
+
+    public List<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
     }
 }

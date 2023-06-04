@@ -215,6 +215,14 @@ struct TQueryOptions {
 
   // Specify base path for file cache
   70: optional string file_cache_base_path
+
+  71: optional bool enable_parquet_lazy_mat = true
+
+  72: optional bool enable_orc_lazy_mat = true
+
+  73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; 
 }
     
 
@@ -222,16 +230,6 @@ struct TQueryOptions {
 struct TScanRangeParams {
   1: required PlanNodes.TScanRange scan_range
   2: optional i32 volume_id = -1
-}
-
-// Specification of one output destination of a plan fragment
-struct TPlanFragmentDestination {
-  // the globally unique fragment instance id
-  1: required Types.TUniqueId fragment_instance_id
-
-  // ... which is being executed on this server
-  2: required Types.TNetworkAddress server
-  3: optional Types.TNetworkAddress brpc_server
 }
 
 struct TRuntimeFilterTargetParams {
@@ -284,7 +282,7 @@ struct TPlanFragmentExecParams {
   // The partitioning of the output is specified by
   // TPlanFragment.output_sink.output_partition.
   // The number of output partitions is destinations.size().
-  5: list<TPlanFragmentDestination> destinations
+  5: list<DataSinks.TPlanFragmentDestination> destinations
 
   // Debug options: perform some action in a particular phase of a particular node
   // 6: optional Types.TPlanNodeId debug_node_id // Never used
@@ -593,7 +591,7 @@ struct TPipelineInstanceParams {
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
 }
 
-struct TPipelineResourceGroup {
+struct TPipelineWorkloadGroup {
   1: optional i64 id
   2: optional string name
   3: optional map<string, string> properties
@@ -609,7 +607,7 @@ struct TPipelineFragmentParams {
   5: optional Descriptors.TDescriptorTable desc_tbl
   // Deprecated
   6: optional Types.TResourceInfo resource_info
-  7: list<TPlanFragmentDestination> destinations
+  7: list<DataSinks.TPlanFragmentDestination> destinations
   8: optional i32 num_senders
   9: optional bool send_query_statistics_with_every_batch
   10: optional Types.TNetworkAddress coord
@@ -628,7 +626,8 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
-  26: optional list<TPipelineResourceGroup> resource_groups
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
 }
 
 struct TPipelineFragmentParamsList {

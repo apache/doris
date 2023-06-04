@@ -20,8 +20,9 @@ package org.apache.doris.system;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 /**
@@ -29,10 +30,13 @@ import java.io.IOException;
  * (http port is supposed to the same, so no need to be carried on heartbeat response)
  */
 public class FrontendHbResponse extends HeartbeatResponse implements Writable {
-
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "queryPort")
     private int queryPort;
+    @SerializedName(value = "rpcPort")
     private int rpcPort;
+    @SerializedName(value = "replayedJournalId")
     private long replayedJournalId;
     private String version;
 
@@ -77,21 +81,6 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public String getVersion() {
         return version;
-    }
-
-    public static FrontendHbResponse read(DataInput in) throws IOException {
-        FrontendHbResponse result = new FrontendHbResponse();
-        result.readFields(in);
-        return result;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, name);
-        out.writeInt(queryPort);
-        out.writeInt(rpcPort);
-        out.writeLong(replayedJournalId);
     }
 
     @Override

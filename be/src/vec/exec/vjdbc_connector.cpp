@@ -202,7 +202,9 @@ Status JdbcConnector::query() {
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
-    RETURN_IF_ERROR(_check_column_type());
+    if (_conn_param.table_type != TOdbcTableType::NEBULA) {
+        RETURN_IF_ERROR(_check_column_type());
+    }
     return Status::OK();
 }
 
@@ -277,7 +279,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_BIGINT:
     case TYPE_LARGEINT: {
         if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
-            type_str != "java.math.BigInteger" &&
+            type_str != "java.math.BigInteger" && type_str != "java.lang.String" &&
             type_str != "com.clickhouse.data.value.UnsignedInteger" &&
             type_str != "com.clickhouse.data.value.UnsignedLong") {
             return Status::InternalError(error_msg);
@@ -670,13 +672,8 @@ Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Blo
                                             int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
-    DataTypePtr _cast_param_data_type = std::make_shared<DataTypeInt16>();
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(
-            1, static_cast<int16_t>(_target_data_type->is_nullable()
-                                            ? ((DataTypeNullable*)(_target_data_type.get()))
-                                                      ->get_nested_type()
-                                                      ->get_type_id()
-                                            : _target_data_type->get_type_id()));
+    DataTypePtr _cast_param_data_type = _target_data_type;
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
@@ -706,20 +703,8 @@ Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Blo
     return Status::OK();
 }
 
-Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
-                                     const fmt::memory_buffer& insert_stmt_buffer) {
-    SCOPED_TIMER(_result_send_timer);
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
-    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_write_id, query_sql);
-    env->DeleteLocalRef(query_sql);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    return Status::OK();
-}
-
-Status JdbcConnector::exec_stmt_write(
-        Block* block, const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs) {
+Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
+                                      uint32_t* num_rows_sent) {
     SCOPED_TIMER(_result_send_timer);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -770,6 +755,7 @@ Status JdbcConnector::exec_stmt_write(
                                  hashmap_object);
     env->DeleteLocalRef(hashmap_object);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    *num_rows_sent = block->rows();
     return Status::OK();
 }
 

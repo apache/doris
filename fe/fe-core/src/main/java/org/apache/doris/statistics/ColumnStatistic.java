@@ -26,6 +26,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -51,14 +52,21 @@ public class ColumnStatistic {
             .setSelectivity(0)
             .build();
 
-    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.STRUCT);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.HLL);
+        UNSUPPORTED_TYPE.add(Type.BITMAP);
+        UNSUPPORTED_TYPE.add(Type.ARRAY);
+        UNSUPPORTED_TYPE.add(Type.STRUCT);
+        UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.QUANTILE_STATE);
+        UNSUPPORTED_TYPE.add(Type.AGG_STATE);
+        UNSUPPORTED_TYPE.add(Type.JSONB);
+        UNSUPPORTED_TYPE.add(Type.VARIANT);
+        UNSUPPORTED_TYPE.add(Type.TIME);
+        UNSUPPORTED_TYPE.add(Type.TIMEV2);
+        UNSUPPORTED_TYPE.add(Type.LAMBDA_FUNCTION);
     }
 
     public final double count;
@@ -102,6 +110,7 @@ public class ColumnStatistic {
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
         this.ndv = ndv;
+        this.originalNdv = originalNdv;
         this.avgSizeByte = avgSizeByte;
         this.numNulls = numNulls;
         this.dataSize = dataSize;
@@ -112,7 +121,6 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
-        this.originalNdv = originalNdv;
     }
 
     // TODO: use thrift
@@ -138,20 +146,23 @@ public class ColumnStatistic {
             String colName = resultRow.getColumnValue("col_id");
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
-                                + "tblId: {} column: {} not exists",
-                        catalogId, dbID, tblId, colName);
-                return ColumnStatistic.UNKNOWN;
+                // Col is null indicates this information is external table level info,
+                // which doesn't have a column.
+                return columnStatisticBuilder.build();
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
-            if (!StatisticsUtil.isNullOrEmpty(min)) {
+            if (min != null) {
                 columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                 columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            } else {
+                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
             }
-            if (!StatisticsUtil.isNullOrEmpty(max)) {
+            if (max != null) {
                 columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                 columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+            } else {
+                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
             columnStatisticBuilder.setOriginalNdv(ndv);
@@ -266,6 +277,88 @@ public class ColumnStatistic {
     public String toString() {
         return isUnKnown ? "unKnown" : String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
                 ndv, minValue, maxValue, selectivity, count);
+    }
+
+    public JSONObject toJson() {
+        JSONObject statistic = new JSONObject();
+        statistic.put("Ndv", ndv);
+        if (Double.isInfinite(minValue)) {
+            statistic.put("MinValueType", "Infinite");
+        } else if (Double.isNaN(minValue)) {
+            statistic.put("MinValueType", "Invalid");
+        } else {
+            statistic.put("MinValueType", "Normal");
+            statistic.put("MinValue", minValue);
+        }
+        if (Double.isInfinite(maxValue)) {
+            statistic.put("MaxValueType", "Infinite");
+        } else if (Double.isNaN(maxValue)) {
+            statistic.put("MaxValueType", "Invalid");
+        } else {
+            statistic.put("MaxValueType", "Normal");
+            statistic.put("MaxValue", maxValue);
+        }
+        statistic.put("Selectivity", selectivity);
+        statistic.put("Count", count);
+        statistic.put("AvgSizeByte", avgSizeByte);
+        statistic.put("NumNulls", numNulls);
+        statistic.put("DataSize", dataSize);
+        statistic.put("Selectivity", selectivity);
+        statistic.put("MinExpr", minExpr);
+        statistic.put("MaxExpr", maxExpr);
+        statistic.put("IsUnKnown", isUnKnown);
+        statistic.put("Histogram", Histogram.serializeToJson(histogram));
+        statistic.put("OriginalNdv", originalNdv);
+        return statistic;
+    }
+
+    // MinExpr and MaxExpr serialize and deserialize is not complete
+    // Histogram is got by other place
+    public static ColumnStatistic fromJson(String statJson) {
+        JSONObject stat = new JSONObject(statJson);
+        Double minValue;
+        switch (stat.getString("MinValueType")) {
+            case "Infinite":
+                minValue = Double.NEGATIVE_INFINITY;
+                break;
+            case "Invalid":
+                minValue = Double.NaN;
+                break;
+            case "Normal":
+                minValue = stat.getDouble("MinValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
+        Double maxValue;
+        switch (stat.getString("MaxValueType")) {
+            case "Infinite":
+                maxValue = Double.POSITIVE_INFINITY;
+                break;
+            case "Invalid":
+                maxValue = Double.NaN;
+                break;
+            case "Normal":
+                maxValue = stat.getDouble("MaxValue");
+                break;
+            default:
+                throw new RuntimeException(String.format("Min value does not get anytype"));
+        }
+        return new ColumnStatistic(
+            stat.getDouble("Count"),
+            stat.getDouble("Ndv"),
+            stat.getDouble("OriginalNdv"),
+            stat.getDouble("AvgSizeByte"),
+            stat.getDouble("NumNulls"),
+            stat.getDouble("DataSize"),
+            minValue,
+            maxValue,
+            stat.getDouble("Selectivity"),
+            null,
+            null,
+            stat.getBoolean("IsUnKnown"),
+            Histogram.deserializeFromJson(stat.getString("Histogram"))
+        );
     }
 
     public boolean minOrMaxIsInf() {

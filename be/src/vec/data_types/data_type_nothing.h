@@ -78,13 +78,16 @@ public:
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for Nothing";
+    }
+
     void insert_default_into(IColumn&) const override {
         LOG(FATAL) << "Method insert_default_into() is not implemented for data type "
                    << get_name();
     }
 
     bool have_subtypes() const override { return false; }
-    bool cannot_be_stored_in_tables() const override { return true; }
     DataTypeSerDeSPtr get_serde() const override {
         LOG(FATAL) << get_name() << " not support serde";
     };

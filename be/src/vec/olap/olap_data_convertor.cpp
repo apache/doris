@@ -75,6 +75,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
     }
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(false);
+    }
     case FieldType::OLAP_FIELD_TYPE_HLL: {
         return std::make_unique<OlapColumnDataConvertorHLL>();
     }
@@ -813,7 +816,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
         DataTypePtr sub_type = data_type_struct->get_element(i);
         ColumnWithTypeAndName sub_typed_column = {sub_column, sub_type, ""};
         _sub_convertors[i]->set_source_column(sub_typed_column, _row_pos, _num_rows);
-        _sub_convertors[i]->convert_to_olap();
+        RETURN_IF_ERROR(_sub_convertors[i]->convert_to_olap());
         _results[data_cursor] = _sub_convertors[i]->get_data();
         _results[null_map_cursor] = _sub_convertors[i]->get_nullmap();
         data_cursor++;
@@ -864,7 +867,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
     ColumnWithTypeAndName item_typed_column = {
             item_data, remove_nullable(data_type_array->get_nested_type()), ""};
     _item_convertor->set_source_column(item_typed_column, start, size);
-    _item_convertor->convert_to_olap();
+    RETURN_IF_ERROR(_item_convertor->convert_to_olap());
 
     CollectionValue* collection_value = _values.data();
     for (size_t i = 0; i < _num_rows; ++i, ++collection_value) {
@@ -951,12 +954,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _base_offset += elem_size;
     ColumnWithTypeAndName key_typed_column = {key_data, data_type_map->get_key_type(), "map.key"};
     _key_convertor->set_source_column(key_typed_column, start_offset, elem_size);
-    _key_convertor->convert_to_olap();
+    RETURN_IF_ERROR(_key_convertor->convert_to_olap());
 
     ColumnWithTypeAndName value_typed_column = {value_data, data_type_map->get_value_type(),
                                                 "map.value"};
     _value_convertor->set_source_column(value_typed_column, start_offset, elem_size);
-    _value_convertor->convert_to_olap();
+    RETURN_IF_ERROR(_value_convertor->convert_to_olap());
 
     // todo (Amory). put this value into MapValue
     _results[0] = (void*)elem_size;

@@ -103,9 +103,15 @@ FE 是 Java 进程。这里只列举一下简单常用的 java 调试命令。
 
 对于内存的调试一般分为两个方面。一个是内存使用的总量是否合理，内存使用量过大一方面可能是由于系统存在内存泄露，另一方面可能是因为程序内存使用不当。其次就是是否存在内存越界、非法访问的问题，比如程序访问一个非法地址的内存，使用了未初始化内存等。对于内存方面的调试我们一般使用如下几种方式来进行问题追踪。
 
+Doris 1.2.1 及之前版本使用 TCMalloc，Doris 1.2.2 版本开始默认使用 Jemalloc，根据使用的 Doris 版本选择内存调试方法，如需切换 TCMalloc 可以这样编译 `USE_JEMALLOC=OFF sh build.sh --be`。
+
 #### 查看日志
 
-当发现内存使用量过大的时候，我们可以先查看be.out日志，看看是否有大内存申请。由于Doris当前使用的TCMalloc管理内存，那么遇到大内存申请时，都会将申请的堆栈打印到be.out文件中，一般的表现形式如下：
+当发现内存使用量过大的时候，我们可以先查看 BE 日志，看看是否有大内存申请。
+
+###### TCMalloc
+
+当使用 TCMalloc 时，遇到大内存申请会将申请的堆栈打印到be.out文件中，一般的表现形式如下：
 
 ```
 tcmalloc: large alloc 1396277248 bytes == 0x3f3488000 @  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
@@ -125,7 +131,23 @@ $ addr2line -e lib/doris_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0
 thread.cpp:?
 ```
 
+##### JEMALLOC
+
+Doris绝大多数的大内存申请都使用 Allocator，比如 HashTable、数据序列化，这部分内存申请是预期中的，会被有效管理起来，除此之外的大内存申请不被预期，会将申请的堆栈打印到 be.INFO 文件中，这通常用于调试，一般的表现形式如下：
+```
+MemHook alloc large memory: 8.2GB, stacktrace:
+Alloc Stacktrace:
+    @     0x55a6a5cf6b4d  doris::ThreadMemTrackerMgr::consume()
+    @     0x55a6a5cf99bf  malloc
+    @     0x55a6ae0caf98  operator new()
+    @     0x55a6a57cb013  doris::segment_v2::PageIO::read_and_decompress_page()
+    @     0x55a6a57719c0  doris::segment_v2::ColumnReader::read_page()
+    ……
+```
+
 #### HEAP PROFILE
+
+##### TCMalloc
 
 有时内存的申请并不是大内存的申请导致，而是通过小内存不断的堆积导致的。那么就没有办法通过查看日志定位到具体的申请信息，那么就需要通过其他方式来获得信息。
 
@@ -172,7 +194,7 @@ pprof --svg lib/doris_be /tmp/doris_be.hprof.0012.heap > heap.svg
 
 **注意：开启这个选项是要影响程序的执行性能的，请慎重对线上的实例开启**
 
-#### pprof remote server
+###### pprof remote server
 
 HEAP PROFILE虽然能够获得全部的内存使用信息，但是也有比较受限的地方。1. 需要重启BE进行。2. 需要一直开启这个命令，导致对整个进程的性能造成影响。
 
@@ -199,9 +221,9 @@ Total: 1296.4 MB
 
 这个命令的输出与HEAP PROFILE的输出及查看方式一样，这里就不再详细说明。这个命令只有在执行的过程中才会开启统计，相比HEAP PROFILE对于进程性能的影响有限。
 
-#### JEMALLOC HEAP PROFILE
+##### JEMALLOC
 
-##### 1. runtime heap dump by http 
+###### 1. runtime heap dump by http
 在`start_be.sh` 中`JEMALLOC_CONF` 增加 `,prof:true,lg_prof_sample:10` 并重启BE，然后使用jemalloc heap dump http接口，在对应的BE机器上生成heap dump文件。
 
 heap dump文件所在目录可以在 ``be.conf`` 中通过``jeprofile_dir``变量进行配置，默认为``${DORIS_HOME}/log``
@@ -215,7 +237,7 @@ curl http://be_host:be_webport/jeheap/dump
 
 详细参数说明参考 https://linux.die.net/man/3/jemalloc。
 
-#### 2. jemalloc heap dump profiling
+##### 2. jemalloc heap dump profiling
 
 1.  单个heap dump文件生成纯文本分析结果
 ```shell
@@ -245,8 +267,8 @@ curl http://be_host:be_webport/jeheap/dump
    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
    ```
 
-##### 3. heap dump by JEMALLOC_CONF
-通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动BE 来进行heap dump
+###### 3. heap dump by JEMALLOC_CONF
+也可通过更改`start_be.sh` 中`JEMALLOC_CONF` 变量后重新启动 BE 来进行定期 heap dump
 
 1. 每1MB dump一次:
 

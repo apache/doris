@@ -32,6 +32,10 @@ public class ParseException extends AnalysisException {
     private final Origin start;
     private final Optional<String> command;
 
+    public ParseException(String message) {
+        this(message, new Origin(0, 0), Optional.empty());
+    }
+
     public ParseException(String message, Origin start, Optional<String> command) {
         super(message, start.line, start.startPosition, Optional.empty());
         this.message = message;

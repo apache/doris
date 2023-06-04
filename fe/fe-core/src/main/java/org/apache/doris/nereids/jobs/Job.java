@@ -31,14 +31,17 @@ import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -56,6 +59,8 @@ public abstract class Job implements TracerSupplier {
     protected JobContext context;
     protected boolean once;
     protected final Set<String> disableRules;
+
+    protected Map<CTEId, Statistics> cteIdToStats;
 
     public Job(JobType type, JobContext context) {
         this(type, context, true);

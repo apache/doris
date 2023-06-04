@@ -41,7 +41,6 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -63,6 +62,8 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     private static final String TEST_TABLE_NAME = "test_tb";
     private static final String USER_TAG_MV_NAME = "user_tags_mv";
 
+    private static final String ADVANCE_TABLE_NAME = "advance";
+
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
@@ -73,6 +74,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     protected void runBeforeAll() throws Exception {
         createDatabase(HR_DB_NAME);
         useDatabase(HR_DB_NAME);
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
 
     @BeforeEach
@@ -91,6 +93,19 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 + " (time_col date, user_id int, user_name varchar(20), tag_id int) partition by range (time_col) "
                 + " (partition p1 values less than MAXVALUE) "
                 + "distributed by hash(time_col) buckets 3 properties('replication_num' = '1');");
+
+        createTable("create table " + HR_DB_NAME + "." + ADVANCE_TABLE_NAME
+                + "(  a int, \n"
+                + "  b int, \n"
+                + "  c int\n"
+                + ")ENGINE=OLAP \n"
+                + "DISTRIBUTED BY HASH(a) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\",\n"
+                + "\"disable_auto_compaction\" = \"false\"\n"
+                + ");");
     }
 
     @AfterEach
@@ -98,6 +113,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         dropTable(EMPS_TABLE_NAME, true);
         dropTable(DEPTS_TABLE_NAME, true);
         dropTable(USER_TAG_TABLE_NAME, true);
+        dropTable(ADVANCE_TABLE_NAME, true);
     }
 
     @Test
@@ -152,7 +168,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMvWithTwoTable(union, EMPS_MV_NAME, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQueryOnAggMV1() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), "
@@ -162,7 +177,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQueryOnAggMV2() throws Exception {
         String agg = "select deptno, sum(salary) from " + EMPS_TABLE_NAME + " group by deptno";
@@ -173,7 +187,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQueryOnAggMV3() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
@@ -200,7 +213,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * There will be a compensating Project added after matching of the Aggregate.
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQuqeryOnAggMV5() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
@@ -214,7 +226,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * There will be a compensating Project + Filter added after matching of the Aggregate.
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQuqeryOnAggMV6() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary)"
@@ -229,7 +240,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
      * Aggregation query with groupSets at coarser level of aggregation than
      * aggregation materialized view.
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testGroupingSetQueryOnAggMV() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -242,7 +252,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * Aggregation query at coarser level of aggregation than aggregation materialized view.
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQuqeryOnAggMV7() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
@@ -252,7 +261,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQueryOnAggMV8() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
@@ -266,7 +274,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
      * Query with cube and arithmetic expr
      * TODO: enable this when group by cube is supported.
      */
-    @Disabled
     public void testAggQueryOnAggMV9() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno, commission;";
@@ -279,7 +286,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * Query with rollup and arithmetic expr
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testAggQueryOnAggMV10() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
@@ -315,7 +321,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMvWithTwoTable(query, EMPS_TABLE_NAME, EMPS_TABLE_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testJoinOnLeftProjectToJoin() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME
@@ -330,7 +335,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, ImmutableMap.of(EMPS_TABLE_NAME, EMPS_MV_NAME, DEPTS_TABLE_NAME, DEPTS_MV_NAME));
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testJoinOnRightProjectToJoin() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
@@ -345,7 +349,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, ImmutableMap.of(EMPS_TABLE_NAME, EMPS_MV_NAME, DEPTS_TABLE_NAME, DEPTS_MV_NAME));
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testJoinOnProjectsToJoin() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), sum"
@@ -416,7 +419,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when implicit case is fully developed.
      */
-    @Disabled
     public void testJoinOnCalcToJoin4() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno from "
                 + EMPS_TABLE_NAME + ";";
@@ -433,7 +435,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when order by column not in project is supported.
      */
-    @Disabled
     public void testOrderByQueryOnProjectView() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + ";";
@@ -447,7 +448,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when order by column not in select is supported.
      */
-    @Disabled
     public void testOrderByQueryOnOrderByView() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid from "
                 + EMPS_TABLE_NAME + " order by deptno;";
@@ -456,7 +456,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVAggregateFuncs1() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -466,7 +465,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVAggregateFuncs2() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -476,7 +474,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVAggregateFuncs3() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -486,7 +483,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVAggregateFuncs4() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -496,7 +492,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVAggregateFuncs5() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
@@ -506,7 +501,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVCalcGroupByQuery1() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
@@ -517,7 +511,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVCalcGroupByQuery2() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
@@ -528,7 +521,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVCalcGroupByQuery3() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid, sum(salary) "
@@ -552,7 +544,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when estimate stats bug fixed.
      */
-    @Disabled
+    @Test
     public void testSubQuery() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, empid "
                 + "from " + EMPS_TABLE_NAME + ";";
@@ -565,7 +557,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when sum(distinct xxx) is supported.
      */
-    @Disabled
     public void testDistinctQuery() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
@@ -587,7 +578,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, ImmutableMap.of(EMPS_TABLE_NAME, EMPS_MV_NAME));
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testMultiMVMultiUsage() throws Exception {
         String createEmpsMVSql01 = "create materialized view emp_mv_01 as select deptno, empid, salary "
@@ -612,7 +602,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, ImmutableMap.of(EMPS_TABLE_NAME, EMPS_MV_NAME, DEPTS_TABLE_NAME, DEPTS_TABLE_NAME));
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testAggregateMVOnCountDistinctQuery1() throws Exception {
         String createEmpsMVsql = "create materialized view " + EMPS_MV_NAME + " as select empid, deptno, sum(salary) "
@@ -703,7 +692,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when order by aggregate function is supported.
      */
-    @Disabled
     public void testAggFunctionInOrder() throws Exception {
         String duplicateTable = "CREATE TABLE " + TEST_TABLE_NAME + " ( k1 int(11) NOT NULL ,  k2  int(11) NOT NULL ,"
                 + "v1  varchar(4096) NOT NULL, v2  float NOT NULL , v3  decimal(20, 7) NOT NULL ) ENGINE=OLAP "
@@ -738,7 +726,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     @Test
     public void testUniqueTableInQuery() throws Exception {
         String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
-                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');";
         createTable(uniqueTable);
         String createK1MV = "create materialized view only_k1 as select k2 from " + TEST_TABLE_NAME + " group by "
                 + "k2;";
@@ -750,7 +738,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * bitmap_union_count(to_bitmap()) -> bitmap_union_count without having
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testBitmapUnionRewrite() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
@@ -763,9 +750,22 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     }
 
     /**
+     * bitmap_union_count(bitmap_hash()) -> bitmap_union_count without having
+     */
+    @Test
+    public void testBitmapUnionBitmapHashRewrite() throws Exception {
+        String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
+                + " as select user_id, bitmap_union(bitmap_hash(tag_id)) from "
+                + USER_TAG_TABLE_NAME + " group by user_id;";
+        createMv(createUserTagMVSql);
+        String query = "select user_id, bitmap_union_count(bitmap_hash(tag_id)) a from " + USER_TAG_TABLE_NAME
+                + " group by user_id";
+        singleTableTest(query, USER_TAG_MV_NAME, true);
+    }
+
+    /**
      * bitmap_union_count(to_bitmap()) -> bitmap_union_count with having
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testBitmapUnionInQuery() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME
@@ -777,7 +777,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         singleTableTest(query, USER_TAG_MV_NAME, true);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testBitmapUnionInSubquery() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -817,7 +816,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, ImmutableMap.of("user_tags", "user_tags"));
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testTwoTupleInQuery() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -830,8 +828,8 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 .analyze(query)
                 .rewrite()
                 .matches(logicalJoin(
-                        logicalAggregate(
-                                logicalProject(
+                        logicalProject(
+                                logicalAggregate(
                                         logicalOlapScan().when(scan -> "user_tags_mv".equals(
                                                 scan.getSelectedMaterializedIndexName().get())))),
                         logicalAggregate(
@@ -889,7 +887,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * count distinct to bitmap_union_count in mv
      */
-    @Disabled //ISSUE #18263
     @Test
     public void testCountDistinctToBitmap() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -922,7 +919,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, USER_TAG_TABLE_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testNDVToHll() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -936,7 +932,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     /**
      * TODO: enable this when hll is supported.
      */
-    @Disabled
     public void testApproxCountDistinctToHll() throws Exception {
         // String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
         //         + "`" + FunctionSet.HLL_UNION + "`(" + FunctionSet.HLL_HASH + "(tag_id)) from " + USER_TAG_TABLE_NAME
@@ -946,7 +941,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         // dorisAssert.query(query).explainContains(USER_TAG_MV_NAME, "hll_union_agg");
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testHLLUnionFamilyRewrite() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -995,7 +989,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, EMPS_TABLE_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testCountFieldInQuery() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -1012,7 +1005,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, USER_TAG_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testCreateMVBaseBitmapAggTable() throws Exception {
         String createTableSQL = "create table " + HR_DB_NAME + ".agg_table "
@@ -1031,7 +1023,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         dropTable("agg_table", true);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void testSelectMVWithTableAlias() throws Exception {
         String createUserTagMVSql = "create materialized view " + USER_TAG_MV_NAME + " as select user_id, "
@@ -1048,7 +1039,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query, USER_TAG_MV_NAME);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void selectBitmapMvWithProjectTest1() throws Exception {
         createTable("create table t(\n"
@@ -1070,7 +1060,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         dropTable("t", true);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void selectBitmapMvWithProjectTest2() throws Exception {
         createTable("create table t(\n"
@@ -1092,10 +1081,9 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         dropTable("t", true);
     }
 
-    @Disabled //ISSUE #18263
     @Test
     public void selectBitmapMvWithProjectMultiMv() throws Exception {
-        createTable("create table t(\n"
+        createTable("create table selectBitmapMvWithProjectMultiMv(\n"
                 + "  a int, \n"
                 + "  b int, \n"
                 + "  c int\n"
@@ -1108,14 +1096,60 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");");
         createMv("create materialized view mv as"
-                + "  select a, bitmap_union(to_bitmap(b)) from t group by a;");
+                + "  select a, bitmap_union(to_bitmap(b)) from selectBitmapMvWithProjectMultiMv group by a;");
         createMv("create materialized view mv1 as"
-                + "  select c, bitmap_union(to_bitmap(b)) from t group by c;");
+                + "  select c, bitmap_union(to_bitmap(b)) from selectBitmapMvWithProjectMultiMv group by c;");
         createMv("create materialized view mv2 as"
-                + "  select a, c, bitmap_union(to_bitmap(b)) from t group by a, c;");
+                + "  select a, c, bitmap_union(to_bitmap(b)) from selectBitmapMvWithProjectMultiMv group by a, c;");
 
-        testMv("select a, bitmap_union_count(to_bitmap(b)) as cnt from t group by a", "mv");
-        dropTable("t", true);
+        testMv("select a, bitmap_union_count(to_bitmap(b)) as cnt from selectBitmapMvWithProjectMultiMv group by a", "mv");
+        dropTable("selectBitmapMvWithProjectMultiMv", true);
+    }
+
+    @Test
+    public void advanceMvAggWithExprTest() throws Exception {
+        createMv("create materialized view mv1 as"
+                + "  select abs(a)+1 tmp, sum(abs(b+2)) from " + ADVANCE_TABLE_NAME + " group by tmp;");
+
+        testMv("select abs(a)+1 tmp, sum(abs(b+2)) from " + ADVANCE_TABLE_NAME + " group by tmp", "mv1");
+    }
+
+    @Test
+    public void advanceMvDupColTest() throws Exception {
+        createMv("create materialized view mv2 as"
+                + "  select a, sum(b), max(b) from " + ADVANCE_TABLE_NAME + " group by a;");
+
+        testMv("select a, sum(b), max(b) as cnt from " + ADVANCE_TABLE_NAME + " group by a", "mv2");
+        testMv("select a, sum(b) as cnt from " + ADVANCE_TABLE_NAME + " group by a", "mv2");
+        testMv("select a, max(b) as cnt from " + ADVANCE_TABLE_NAME + " group by a", "mv2");
+        testMv("select unix_timestamp(a) tmp, max(b) as cnt from " + ADVANCE_TABLE_NAME + " group by tmp", "mv2");
+    }
+
+    @Test
+    public void advanceMvDupColTest1() throws Exception {
+        createMv("create materialized view mv2 as"
+                + "  select b, sum(a), max(a) from " + ADVANCE_TABLE_NAME + " group by b;");
+
+        testMv("select b, sum(a), max(a) as cnt from " + ADVANCE_TABLE_NAME + " group by b", "mv2");
+        testMv("select b, sum(a) as cnt from " + ADVANCE_TABLE_NAME + " group by b", "mv2");
+        testMv("select b, max(a) as cnt from " + ADVANCE_TABLE_NAME + " group by b", "mv2");
+        testMv("select unix_timestamp(b) tmp, max(a) as cnt from " + ADVANCE_TABLE_NAME + " group by tmp", "mv2");
+    }
+
+    @Test
+    public void advanceMvMultiSlotTest() throws Exception {
+        createMv("create materialized view mv3 as"
+                + "  select abs(a)+b+1,abs(b+2)+c+3 from " + ADVANCE_TABLE_NAME);
+
+        testMv("select abs(a)+b+1,abs(b+2)+c+3 from " + ADVANCE_TABLE_NAME, "mv3");
+    }
+
+    @Test
+    public void advanceMvMultiSlotWithAggTest() throws Exception {
+        createMv("create materialized view mv4 as"
+                + "  select abs(a)+b+1 tmp, sum(abs(b+2)+c+3) from " + ADVANCE_TABLE_NAME + " group by tmp");
+
+        testMv("select abs(a)+b+1 tmp, sum(abs(b+2)+c+3) from " + ADVANCE_TABLE_NAME + " group by tmp", "mv4");
     }
 
     private void testMv(String sql, Map<String, String> tableToIndex) {

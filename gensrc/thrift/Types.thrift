@@ -391,7 +391,8 @@ enum TOdbcTableType {
     TRINO,
     PRESTO,
     OCEANBASE,
-    OCEANBASE_ORACLE
+    OCEANBASE_ORACLE,
+    NEBULA
 }
 
 struct TJdbcExecutorCtorParams {
@@ -595,6 +596,7 @@ enum TTableType {
     HUDI_TABLE,
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
+    MAX_COMPUTE_TABLE,
 }
 
 enum TKeysType {
@@ -613,6 +615,14 @@ struct TBackend {
     1: required string host
     2: required TPort be_port
     3: required TPort http_port
+}
+
+struct TReplicaInfo {
+    1: required string host
+    2: required TPort  be_port
+    3: required TPort  http_port
+    4: required TPort  brpc_port
+    5: required TReplicaId replica_id
 }
 
 struct TResourceInfo {
@@ -673,7 +683,7 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  RESOURCE_GROUPS
+  WORKLOAD_GROUPS
 }
 
 enum TIcebergQueryType {

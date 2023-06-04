@@ -165,14 +165,14 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
                   std::vector<int>& rows, Arena*) const override {
         if constexpr (std::is_same_v<Op, AggregateFunctionBitmapUnionOp>) {
-            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
             for (int i = 0; i < rows.size(); ++i) {
                 values.push_back(&(column.get_data()[rows[i]]));
@@ -197,7 +197,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(
                 const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
     }
@@ -229,11 +229,11 @@ public:
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
                 const auto& column =
-                        static_cast<const ColVecType&>(nullable_column.get_nested_column());
+                        assert_cast<const ColVecType&>(nullable_column.get_nested_column());
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }
@@ -243,7 +243,7 @@ public:
         if constexpr (arg_is_nullable && std::is_same_v<ColVecType, ColumnBitmap>) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             const auto& column =
-                    static_cast<const ColVecType&>(nullable_column.get_nested_column());
+                    assert_cast<const ColVecType&>(nullable_column.get_nested_column());
             std::vector<const BitmapValue*> values;
             for (int i = 0; i < rows.size(); ++i) {
                 if (!nullable_column.is_null_at(rows[i])) {
@@ -252,7 +252,7 @@ public:
             }
             this->data(place).add_batch(values);
         } else if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
-            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             std::vector<const BitmapValue*> values;
             for (int i = 0; i < rows.size(); ++i) {
                 values.push_back(&(column.get_data()[rows[i]]));
@@ -277,7 +277,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& value_data = const_cast<AggFunctionData&>(this->data(place)).get();
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(value_data.cardinality());
     }
 

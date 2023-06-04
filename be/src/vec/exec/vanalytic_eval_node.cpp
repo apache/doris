@@ -28,6 +28,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
@@ -137,10 +138,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _agg_intput_columns[i].resize(desc.nodes[0].num_children);
         for (int j = 0; j < desc.nodes[0].num_children; ++j) {
             ++node_idx;
-            VExpr* expr = nullptr;
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(
-                    VExpr::create_tree_from_thrift(_pool, desc.nodes, &node_idx, &expr, &ctx));
+            VExprSPtr expr;
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
 
@@ -153,10 +153,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         }
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.partition_exprs,
-                                             &_partition_by_eq_expr_ctxs));
     RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, analytic_node.order_by_exprs, &_order_by_eq_expr_ctxs));
+            VExpr::create_expr_trees(analytic_node.partition_exprs, _partition_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs, _order_by_eq_expr_ctxs));
     _partition_by_column_idxs.resize(_partition_by_eq_expr_ctxs.size());
     _ordey_by_column_idxs.resize(_order_by_eq_expr_ctxs.size());
     _agg_functions_size = _agg_functions.size();
@@ -207,7 +206,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    _create_agg_status();
+    RETURN_IF_CATCH_EXCEPTION(_create_agg_status());
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =
@@ -248,7 +247,6 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
     {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_CANCELLED(state);
@@ -286,8 +284,7 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
         }
     }
     RETURN_IF_ERROR(_output_current_block(output_block));
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -296,7 +293,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::close");
 
     VExpr::close(_partition_by_eq_expr_ctxs, state);
     VExpr::close(_order_by_eq_expr_ctxs, state);
@@ -326,8 +322,6 @@ bool VAnalyticEvalNode::can_read() {
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
 
@@ -348,7 +342,7 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
 }
@@ -538,14 +532,12 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, &block, &_input_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), _input_eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, &block, &_input_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
     } while (!_input_eos && block.rows() == 0);
 
     RETURN_IF_ERROR(sink(state, &block, _input_eos));
@@ -607,8 +599,9 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block, VExprContext* expr,
-                                               IColumn* dst_column, size_t length) {
+Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block,
+                                               const VExprContextSPtr& expr, IColumn* dst_column,
+                                               size_t length) {
     int result_col_id = -1;
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);

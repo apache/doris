@@ -52,7 +52,11 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
                           uint64_t shard_id, uint32_t next_unique_id,
                           const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                           TabletMetaSharedPtr* tablet_meta) {
-    tablet_meta->reset(new TabletMeta(
+    std::optional<TBinlogConfig> binlog_config;
+    if (request.__isset.binlog_config) {
+        binlog_config = request.binlog_config;
+    }
+    *tablet_meta = std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
@@ -60,7 +64,8 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.compression_type, request.storage_policy_id,
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
-                    : false));
+                    : false,
+            std::move(binlog_config));
     return Status::OK();
 }
 
@@ -75,7 +80,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, int64_t storage_policy_id,
-                       bool enable_unique_key_merge_on_write)
+                       bool enable_unique_key_merge_on_write,
+                       std::optional<TBinlogConfig> binlog_config)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -242,6 +248,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
 
+    if (tablet_schema.__isset.enable_single_replica_compaction) {
+        schema->set_enable_single_replica_compaction(
+                tablet_schema.enable_single_replica_compaction);
+    }
+
     if (tablet_schema.__isset.is_dynamic_schema) {
         schema->set_is_dynamic_schema(tablet_schema.is_dynamic_schema);
     }
@@ -252,8 +263,18 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.store_row_column) {
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
+    if (tablet_schema.__isset.skip_write_index_on_load) {
+        schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
+    }
+
+    if (binlog_config.has_value()) {
+        BinlogConfig tmp_binlog_config;
+        tmp_binlog_config = binlog_config.value();
+        tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
+    }
 
     init_from_pb(tablet_meta_pb);
+    LOG(INFO) << "init tablet meta from pb: " << tablet_meta_pb.ShortDebugString();
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
@@ -276,7 +297,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-          _delete_bitmap(b._delete_bitmap) {};
+          _delete_bitmap(b._delete_bitmap),
+          _binlog_config(b._binlog_config) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -303,9 +325,13 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     if (!tcolumn.is_key) {
         column->set_is_key(false);
-        string aggregation_type;
-        EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
-        column->set_aggregation(aggregation_type);
+        if (tcolumn.__isset.aggregation) {
+            column->set_aggregation(tcolumn.aggregation);
+        } else {
+            string aggregation_type;
+            EnumToString(TAggregationType, tcolumn.aggregation_type, aggregation_type);
+            column->set_aggregation(aggregation_type);
+        }
     } else {
         column->set_is_key(true);
         column->set_aggregation("NONE");
@@ -317,19 +343,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
-    if (tcolumn.column_type.type == TPrimitiveType::STRUCT) {
-        for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
-            ColumnPB* children_column = column->add_children_columns();
-            init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
-        }
-    } else if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+    for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
-    } else if (tcolumn.column_type.type == TPrimitiveType::MAP) {
-        ColumnPB* key_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[0], key_column);
-        ColumnPB* val_column = column->add_children_columns();
-        init_column_from_tcolumn(0, tcolumn.children_column[1], val_column);
+        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
     }
 }
 
@@ -402,7 +418,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
                    << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
-    RETURN_NOT_OK(serialize(&meta_binary));
+    RETURN_IF_ERROR(serialize(&meta_binary));
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()
@@ -532,6 +548,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
+
+    if (tablet_meta_pb.has_binlog_config()) {
+        _binlog_config = tablet_meta_pb.binlog_config();
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -605,6 +625,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
+    _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
 }
 
 uint32_t TabletMeta::mem_size() const {
@@ -964,14 +985,6 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
-}
-
-uint64_t DeleteBitmap::cardinality() {
-    uint64_t cardinality = 0;
-    for (auto entry : delete_bitmap) {
-        cardinality += entry.second.cardinality();
-    }
-    return cardinality;
 }
 
 // We cannot just copy the underlying memory to construct a string
