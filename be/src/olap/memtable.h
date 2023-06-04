@@ -285,7 +285,7 @@ private:
     //return number of same keys
     size_t _sort();
     void _inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
-                   std::function<int (const RowInBlock*, const RowInBlock*)> cmp);
+                   std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);

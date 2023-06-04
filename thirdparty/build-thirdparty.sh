@@ -1169,7 +1169,7 @@ build_parallel_hashmap() {
 build_pdqsort() {
     check_if_source_exist "${PDQSORT_FILE}"
     cd "${TP_SOURCE_DIR}"
-    cp ${PDQSORT_FILE} "${TP_INSTALL_DIR}/include/"
+    cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
 # libdivide
