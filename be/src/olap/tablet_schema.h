@@ -115,6 +115,8 @@ public:
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
+    std::string get_aggregation_name() const { return _aggregation_name; }
+    bool get_result_is_nullable() const { return _result_is_nullable; }
 
 private:
     int32_t _unique_id;
@@ -143,6 +145,8 @@ private:
     TabletColumn* _parent = nullptr;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
+
+    bool _result_is_nullable = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
