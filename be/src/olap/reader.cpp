@@ -402,12 +402,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
-    if (read_params.start_key.empty()) {
-        return Status::OK();
-    }
-
     // UNIQUE_KEYS will compare all keys as before
-    if (_tablet_schema->keys_type() == DUP_KEYS) {
+    if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                                    _tablet->enable_unique_key_merge_on_write())) {
         // find index in vector _return_columns
         //   for the read_orderby_key_num_prefix_columns orderby keys
         for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
