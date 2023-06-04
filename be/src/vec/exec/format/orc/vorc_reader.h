@@ -102,6 +102,7 @@ struct LazyReadContext {
     // be different with orc column name
     // std::pair<std::list<col_name>, std::vector<slot_id>>
     std::pair<std::list<std::string>, std::vector<int>> predicate_columns;
+    // predicate orc file column names
     std::list<std::string> predicate_orc_columns;
     std::vector<std::string> lazy_read_columns;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
