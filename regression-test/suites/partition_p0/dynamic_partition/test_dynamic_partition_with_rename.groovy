@@ -39,6 +39,7 @@ suite("test_dynamic_partition_with_rename") {
 
     // rename distributed column, then try to add too more dynamic partition
     sql "alter table ${tbl} rename column k1 renamed_k1"
+    sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
     sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
     result = sql "show partitions from ${tbl}"
     for (def retry = 0; retry < 15; retry++) {
