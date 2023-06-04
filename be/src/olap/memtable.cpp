@@ -267,10 +267,11 @@ size_t MemTable::_sort() {
     // sort extra round by _row_pos to make the sort stable
     auto iter = tie.iter();
     while (iter.next()) {
-        ::pdqsort(_row_in_blocks.begin() + iter.left(), _row_in_blocks.begin() + iter.right(),
-                  [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
-                      return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
-                  });
+        pdqsort(std::next(_row_in_blocks.begin(), iter.left()),
+                std::next(_row_in_blocks.begin(), iter.right()),
+                [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                    return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
+                });
         same_keys_num += iter.right() - iter.left();
     }
     // merge new rows and old rows
@@ -295,8 +296,9 @@ void MemTable::_inc_sort(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                          std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
-        ::pdqsort(row_in_blocks.begin() + iter.left(), row_in_blocks.begin() + iter.right(),
-                  [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
+        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
+                std::next(row_in_blocks.begin(), iter.right()),
+                [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
         tie[iter.left()] = 0;
         for (int i = iter.left() + 1; i < iter.right(); i++) {
             tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
