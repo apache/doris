@@ -82,7 +82,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
     
     sql "DROP TABLE IF EXISTS ${tbName3}"
     sql """
-            CREATE TABLE IF NOT EXISTS ${tbName4}(
+            CREATE TABLE IF NOT EXISTS ${tbName3}(
                 k1 DATE,
                 k2 DECIMAL(10, 2),
                 k3 CHAR(10),
@@ -197,12 +197,17 @@ suite("test_materialized_view_lazy_open", "rollup") {
 
     sql "insert into ${tbName1} values('2000-05-20', 1.5, 'test', 1);"
     sql "insert into ${tbName1} values('2010-05-20', 1.5, 'test', 1);"
+
     sql "insert into ${tbName2} values('2000-05-20', 1.5, 'test', 1);"
     sql "insert into ${tbName2} values('2010-05-20', 1.5, 'test', 1);"
+
     sql "insert into ${tbName3} values('2000-05-20', 1.5, 'test', 1);"
-    sql "insert into ${tbName3} values('2010-05-20', 1.5, 'test', 1);"
+    sql "ALTER table ${tbName3} ADD COLUMN new_column INT;"
+    sql "insert into ${tbName3} values('2010-05-20', 1.5, 'test', 1, 1);"
+
     sql "insert into ${tbName4} values('2000-05-20', 1.5, 'test', 1);"
-    sql "insert into ${tbName4} values('2010-05-20', 1.5, 'test', 1);"
+    sql "ALTER table ${tbName4} ADD COLUMN new_column INT;"
+    sql "insert into ${tbName4} values('2010-05-20', 1.5, 'test', 1, 1);"
 
     sql "DROP TABLE ${tbName1} FORCE;"
     sql "DROP TABLE ${tbName2} FORCE;"

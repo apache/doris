@@ -320,9 +320,6 @@ Status VNodeChannel::init(RuntimeState* state) {
 
     _rpc_timeout_ms = state->execution_timeout() * 1000;
     _timeout_watch.start();
-    if (config::enable_lazy_open_partition) {
-        _lazy_open_timeout_watch.start();
-    }
 
     // Initialize _cur_add_block_request
     _cur_add_block_request.set_allocated_id(&_parent->_load_id);
@@ -519,7 +516,8 @@ Status VNodeChannel::open_wait() {
 }
 
 void VNodeChannel::open_partition(int64_t partition_id) {
-    _lazy_open_timeout_watch.reset();
+    MonotonicStopWatch lazy_open_timeout_watch;
+    lazy_open_timeout_watch.start();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     OpenPartitionRequest request;
     auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
@@ -536,7 +534,7 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     auto open_partition_closure =
             std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
 
-    int remain_ms = _rpc_timeout_ms - _lazy_open_timeout_watch.elapsed_time();
+    int remain_ms = _rpc_timeout_ms - lazy_open_timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
