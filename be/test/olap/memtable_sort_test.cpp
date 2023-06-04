@@ -24,7 +24,7 @@ namespace doris {
 class MemTableSortTest : public ::testing::Test {};
 
 TEST_F(MemTableSortTest, Tie) {
-    auto t0 = Tie{0, 0};
+    auto t0 = Tie {0, 0};
     EXPECT_FALSE(t0.iter().next());
 
     auto tie = Tie {0, 1};
