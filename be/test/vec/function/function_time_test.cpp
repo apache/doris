@@ -867,7 +867,8 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
 
         DataSet data_set = {
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")}, 10.0},
+                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")},
+                 10000000.0},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
 
