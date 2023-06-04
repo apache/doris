@@ -123,6 +123,8 @@ public class Function implements Writable {
     private URI location;
     private TFunctionBinaryType binaryType;
 
+    private Function nestedFunction = null;
+
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
     protected boolean vectorized = true;
@@ -190,6 +192,14 @@ public class Function implements Writable {
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
         this.checksum = other.checksum;
+    }
+
+    public void setNestedFunction(Function nestedFunction) {
+        this.nestedFunction = nestedFunction;
+    }
+
+    public Function getNestedFunction() {
+        return nestedFunction;
     }
 
     public Function clone() {
@@ -532,7 +542,8 @@ public class Function implements Writable {
         }
 
         if (realReturnType.isAggStateType()) {
-            realReturnType = new ScalarType(Arrays.asList(realArgTypes), Arrays.asList(realArgTypeNullables));
+            realReturnType = Expr.createAggStateType(((AggStateType) realReturnType), Arrays.asList(realArgTypes),
+                    Arrays.asList(realArgTypeNullables));
         }
 
         // For types with different precisions and scales, return type only indicates a
@@ -835,14 +846,30 @@ public class Function implements Writable {
     public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
         List<Type> arguments = Arrays.asList(aggFunction.getArgs());
-        ScalarFunction fn = new org.apache.doris.catalog.ScalarFunction(
-                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX),
-                arguments,
-                new ScalarType(arguments, fnCall.getChildren().stream().map(expr -> {
-                    return expr.isNullable();
-                }).collect(Collectors.toList())), aggFunction.hasVarArgs(), aggFunction.isUserVisible());
+        ScalarFunction fn = new ScalarFunction(
+                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX), arguments,
+                Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                        fnCall.getChildren().stream().map(expr -> {
+                            return expr.getType();
+                        }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
+                            return expr.isNullable();
+                        }).collect(Collectors.toList())),
+                aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
         return new FunctionCallExpr(fn, fnCall.getParams());
+    }
+
+    public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_MERGE_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                fnCall.getChildren().stream().map(expr -> {
+                    return expr.getType();
+                }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
+                    return expr.isNullable();
+                }).collect(Collectors.toList()))));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
     }
 }
