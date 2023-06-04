@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <pdqsort.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -32,7 +33,6 @@
 #include "common/consts.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
-#include "olap/pdqsort.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
