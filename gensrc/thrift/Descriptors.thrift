@@ -38,6 +38,7 @@ struct TColumn {
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
     16: optional string aggregation
+    17: optional bool result_is_nullable
 }
 
 struct TSlotDescriptor {
