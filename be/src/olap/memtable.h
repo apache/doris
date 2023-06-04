@@ -74,7 +74,7 @@ class Tie {
 public:
     class Iter {
     public:
-        Iter(Tie& tie) : _tie(tie), _next(tie._begin) {}
+        Iter(Tie& tie) : _tie(tie), _next(tie._begin + 1) {}
         size_t left() { return _left; }
         size_t right() { return _right; }
 
@@ -83,15 +83,11 @@ public:
             if (_next >= _tie._end) {
                 return false;
             }
-            if (_next == _tie._begin && _tie[_next] == 1) {
-                _left = _tie._begin;
-            } else {
-                _next = _find(1, _next);
-                _left = _next - 1;
-            }
+            _next = _find(1, _next);
             if (_next >= _tie._end) {
                 return false;
             }
+            _left = _next - 1;
             _next = _find(0, _next);
             _right = _next;
             return true;
