@@ -380,10 +380,10 @@ LIBDIVIDE_SOURCE="libdivide-5.0"
 LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
 
 #pdqsort
-PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
-PDQSORT_NAME="pdqsort.tar.gz"
-PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
-PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
+PDQSORT_DOWNLOAD="https://raw.githubusercontent.com/orlp/pdqsort/b1ef26a55cdb60d236a5cb199c4234c704f46726/pdqsort.h"
+PDQSORT_NAME="pdqsort.h"
+PDQSORT_FILE="pdqsort.h"
+PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"

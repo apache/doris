@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -67,6 +68,64 @@ struct RowInBlock {
     inline bool has_init_agg() const { return _has_init_agg; }
 
     inline void remove_init_agg() { _has_init_agg = false; }
+};
+
+class Tie {
+public:
+    class Iter {
+    public:
+        Iter(Tie& tie) : _tie(tie), _next(tie._begin + 1) {}
+        size_t left() { return _left; }
+        size_t right() { return _right; }
+
+        // return false means no more ranges
+        bool next() {
+            if (_next >= _tie._end) {
+                return false;
+            }
+            _next = _find(1, _next);
+            if (_next >= _tie._end) {
+                return false;
+            }
+            _left = _next - 1;
+            _next = _find(0, _next);
+            _right = _next;
+            return true;
+        }
+
+    private:
+        size_t _find(uint8_t value, size_t start) {
+            if (start >= _tie._end) {
+                return start;
+            }
+            size_t offset = start - _tie._begin;
+            size_t size = _tie._end - start;
+            void* p = std::memchr(_tie._bits.data() + offset, value, size);
+            if (p == nullptr) {
+                return _tie._end;
+            }
+            return static_cast<uint8_t*>(p) - _tie._bits.data() + _tie._begin;
+        }
+
+    private:
+        Tie& _tie;
+        size_t _left;
+        size_t _right;
+        size_t _next;
+    };
+
+public:
+    Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
+        _bits = std::vector<uint8_t>(_end - _begin, 1);
+    }
+    uint8_t operator[](int i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    Iter iter() { return Iter(*this); }
+
+private:
+    const size_t _begin;
+    const size_t _end;
+    std::vector<uint8_t> _bits;
 };
 
 class RowInBlockComparator {
@@ -220,7 +279,9 @@ private:
     size_t _last_sorted_pos = 0;
 
     //return number of same keys
-    int _sort();
+    size_t _sort();
+    void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                          std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
