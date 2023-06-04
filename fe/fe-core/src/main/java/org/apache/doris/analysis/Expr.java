@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
@@ -444,8 +445,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             setSelectivity();
         }
         analysisDone();
-        if (type.isAggStateType() && !(this instanceof SlotRef) && ((ScalarType) type).getSubTypes() == null) {
-            type = new ScalarType(Arrays.asList(collectChildReturnTypes()),
+        if (type.isAggStateType() && !(this instanceof SlotRef) && ((AggStateType) type).getSubTypes() == null) {
+            type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
                     Arrays.asList(collectChildReturnNullables()));
         }
     }
@@ -1004,8 +1005,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
         TExprNode msg = new TExprNode();
-        if (type.isAggStateType() && ((ScalarType) type).getSubTypes() == null) {
-            type = new ScalarType(Arrays.asList(collectChildReturnTypes()),
+        if (type.isAggStateType() && ((AggStateType) type).getSubTypes() == null) {
+            type = createAggStateType(((AggStateType) type), Arrays.asList(collectChildReturnTypes()),
                     Arrays.asList(collectChildReturnNullables()));
         }
         msg.type = type.toThrift();
@@ -1482,7 +1483,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         if (this.type.isAggStateType()) {
-            List<Type> subTypes = ((ScalarType) targetType).getSubTypes();
+            List<Type> subTypes = ((AggStateType) targetType).getSubTypes();
 
             if (this instanceof FunctionCallExpr) {
                 if (subTypes.size() != getChildren().size()) {
@@ -1493,7 +1494,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
                 type = targetType;
             } else {
-                List<Type> selfSubTypes = ((ScalarType) type).getSubTypes();
+                List<Type> selfSubTypes = ((AggStateType) type).getSubTypes();
                 if (subTypes.size() != selfSubTypes.size()) {
                     throw new AnalysisException("AggState's subTypes size did not match");
                 }
@@ -1879,7 +1880,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 if (argList.size() != 1 || !argList.get(0).isAggStateType()) {
                     throw new AnalysisException("merge/union function must input one agg_state");
                 }
-                ScalarType aggState = (ScalarType) argList.get(0);
+                AggStateType aggState = (AggStateType) argList.get(0);
                 if (aggState.getSubTypes() == null) {
                     throw new AnalysisException("agg_state's subTypes is null");
                 }
@@ -1895,9 +1896,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
             if (isState) {
                 f = new ScalarFunction(new FunctionName(name + AGG_STATE_SUFFIX), Arrays.asList(f.getArgs()),
-                        Type.AGG_STATE, f.hasVarArgs(), f.isUserVisible());
+                        Expr.createAggStateType(name, null, null), f.hasVarArgs(), f.isUserVisible());
                 f.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
             } else {
+                Function original = f;
                 f = ((AggregateFunction) f).clone();
                 f.setArgs(argList);
                 if (isUnion) {
@@ -1907,6 +1909,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
                 if (isMerge) {
                     f.setName(new FunctionName(name + AGG_MERGE_SUFFIX));
+                    f.setNullableMode(NullableMode.CUSTOM);
+                    f.setNestedFunction(original);
                 }
             }
             f.setBinaryType(TFunctionBinaryType.AGG_STATE);
@@ -2221,6 +2225,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     protected boolean hasNullableChild() {
+        return hasNullableChild(children);
+    }
+
+    protected static boolean hasNullableChild(List<Expr> children) {
         for (Expr expr : children) {
             if (expr.isNullable()) {
                 return true;
@@ -2244,24 +2252,34 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * overwrite this method to plan correct
      */
     public boolean isNullable() {
+        return isNullable(fn, children);
+    }
+
+    public static boolean isNullable(Function fn, List<Expr> children) {
         if (fn == null) {
             return true;
         }
         switch (fn.getNullableMode()) {
             case DEPEND_ON_ARGUMENT:
-                return hasNullableChild();
+                return hasNullableChild(children);
             case ALWAYS_NOT_NULLABLE:
                 return false;
             case CUSTOM:
-                return customNullableAlgorithm();
+                return customNullableAlgorithm(fn, children);
             case ALWAYS_NULLABLE:
             default:
                 return true;
         }
     }
 
-    private boolean customNullableAlgorithm() {
+    private static boolean customNullableAlgorithm(Function fn, List<Expr> children) {
         Preconditions.checkState(fn.getNullableMode() == Function.NullableMode.CUSTOM);
+
+        if (fn.functionName().endsWith(AGG_MERGE_SUFFIX)) {
+            AggStateType type = (AggStateType) fn.getArgs()[0];
+            return isNullable(fn.getNestedFunction(), getMockedExprs(type));
+        }
+
         if (fn.functionName().equalsIgnoreCase("if")) {
             Preconditions.checkState(children.size() == 3);
             for (int i = 1; i < children.size(); i++) {
@@ -2295,7 +2313,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
                 return true;
             } else {
-                return hasNullableChild();
+                return hasNullableChild(children);
             }
         }
         if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
@@ -2305,7 +2323,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
                 return true;
             } else {
-                return hasNullableChild();
+                return hasNullableChild(children);
             }
         }
         if (fn.functionName().equalsIgnoreCase("group_concat")) {
@@ -2321,6 +2339,38 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return children.get(0).isNullable();
         }
         return true;
+    }
+
+    public static Boolean getResultIsNullable(String name, List<Type> typeList, List<Boolean> nullableList) {
+        if (name == null || typeList == null || nullableList == null) {
+            return false;
+        }
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
+        List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
+        return isNullable(f, mockedExprs);
+    }
+
+    public static AggStateType createAggStateType(String name, List<Type> typeList, List<Boolean> nullableList) {
+        return new AggStateType(name, Expr.getResultIsNullable(name, typeList, nullableList), typeList, nullableList);
+    }
+
+    public static AggStateType createAggStateType(AggStateType type, List<Type> typeList, List<Boolean> nullableList) {
+        return new AggStateType(type.getFunctionName(),
+                Expr.getResultIsNullable(type.getFunctionName(), typeList, nullableList), typeList, nullableList);
+    }
+
+    public static List<Expr> getMockedExprs(List<Type> typeList, List<Boolean> nullableList) {
+        List<Expr> mockedExprs = Lists.newArrayList();
+        for (int i = 0; i < typeList.size(); i++) {
+            mockedExprs.add(new SlotRef(typeList.get(i), nullableList.get(i)));
+        }
+        return mockedExprs;
+    }
+
+    public static List<Expr> getMockedExprs(AggStateType type) {
+        return getMockedExprs(type.getSubTypes(), type.getSubTypeNullables());
     }
 
     public void materializeSrcExpr() {

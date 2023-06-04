@@ -315,6 +315,11 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_index_length(length);
     column->set_precision(tcolumn.column_type.precision);
     column->set_frac(tcolumn.column_type.scale);
+
+    if (tcolumn.__isset.result_is_nullable) {
+        column->set_result_is_nullable(tcolumn.result_is_nullable);
+    }
+
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
         tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {

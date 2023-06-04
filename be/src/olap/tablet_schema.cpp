@@ -427,6 +427,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
     }
+    if (column.has_result_is_nullable()) {
+        _result_is_nullable = column.result_is_nullable();
+    }
     if (column.has_visible()) {
         _visible = column.visible();
     }
@@ -464,6 +467,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_aggregation_name.empty()) {
         column->set_aggregation(_aggregation_name);
     }
+    column->set_result_is_nullable(_result_is_nullable);
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -494,19 +498,8 @@ bool TabletColumn::is_row_store_column() const {
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type) const {
-    auto state_type = dynamic_cast<const vectorized::DataTypeAggState*>(type.get());
-    if (!state_type) {
-        return nullptr;
-    }
-    vectorized::DataTypes argument_types;
-    for (auto col : _sub_columns) {
-        auto sub_type = vectorized::DataTypeFactory::instance().create_data_type(col);
-        state_type->add_sub_type(sub_type);
-    }
-    auto agg_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-            _aggregation_name, state_type->get_sub_types(), false);
-
-    return vectorized::AggregateStateUnion::create(agg_function, {type}, type);
+    auto state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
