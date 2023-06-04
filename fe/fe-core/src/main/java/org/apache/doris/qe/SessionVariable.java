@@ -343,6 +343,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
 
+    public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -951,6 +953,11 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_CTE_MATERIALIZE
     )
     public boolean enableCTEMaterialize = true;
+
+    @VariableMgr.VarAttr(
+            name = IGNORE_COMPLEX_TYPE_COLUMN
+    )
+    public boolean ignoreColumnWithComplexType = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
