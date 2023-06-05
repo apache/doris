@@ -327,11 +327,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withTableAlias(query, ctx.tableAlias());
         }
         if (ctx.fromClause() != null) {
-            query = new LogicalJoin<>(
-                    JoinType.INNER_JOIN,
-                    query,
-                    visitFromClause(ctx.fromClause())
-            );
+            query = withRelations(query, ctx.fromClause());
         }
         query = withFilter(query, Optional.of(ctx.whereClause()));
         if (ctx.explain() != null) {
@@ -1294,25 +1290,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan left = null;
-            for (RelationContext relation : ctx.relation()) {
-                // build left deep join tree
-                LogicalPlan right = visitRelation(relation);
-                left = (left == null) ? right :
-                        new LogicalJoin<>(
-                                JoinType.CROSS_JOIN,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                JoinHint.NONE,
-                                Optional.empty(),
-                                left,
-                                right);
-                left = withJoinRelations(left, relation);
-                // TODO: pivot and lateral view
-            }
-            return left;
-        });
+        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx));
     }
 
     /* ********************************************************************************************
@@ -1663,6 +1641,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
         });
+    }
+
+    private LogicalPlan withRelations(LogicalPlan inputPlan, FromClauseContext ctx) {
+        LogicalPlan left = inputPlan;
+        for (RelationContext relation : ctx.relation()) {
+            // build left deep join tree
+            LogicalPlan right = visitRelation(relation);
+            left = (left == null) ? right :
+                    new LogicalJoin<>(
+                            JoinType.CROSS_JOIN,
+                            ExpressionUtils.EMPTY_CONDITION,
+                            ExpressionUtils.EMPTY_CONDITION,
+                            JoinHint.NONE,
+                            Optional.empty(),
+                            left,
+                            right);
+            left = withJoinRelations(left, relation);
+            // TODO: pivot and lateral view
+        }
+        return left;
     }
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
