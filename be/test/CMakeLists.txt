@@ -202,7 +202,6 @@ set(UTIL_TEST_FILES
     util/thread_test.cpp
     util/threadpool_test.cpp
     util/mysql_row_buffer_test.cpp
-    util/trace_test.cpp
     util/easy_json-test.cpp
     util/http_channel_test.cpp
     util/histogram_test.cpp
