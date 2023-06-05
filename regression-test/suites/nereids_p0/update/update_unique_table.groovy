@@ -22,6 +22,8 @@ suite('update_unique_table') {
     sql 'set enable_nereids_dml=true'
     sql 'set parallel_fragment_exec_instance_num=13'
 
+    sql 'update a set c1 = 5 where id = 3'
+    
     qt_sql 'select * from t1 order by id'
 
     sql 'update t1 set c1 = c1 + 1, c3 = c2 * 2 where id = 1'
