@@ -74,7 +74,7 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.getQueryPlan(connectContext);
+        command.completeQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
                 .rewrite()
@@ -96,7 +96,7 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.getQueryPlan(connectContext);
+        command.completeQueryPlan(connectContext);
         PlanChecker.from(connectContext, command.getLogicalQuery())
                 .analyze(command.getLogicalQuery())
                 .rewrite()

@@ -104,7 +104,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
  * @param <R> Return type of each visit method.
  * @param <C> Context type.
  */
-public abstract class PlanVisitor<R, C> {
+public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C> {
 
     public abstract R visit(Plan plan, C context);
 
@@ -114,23 +114,6 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitCommand(Command command, C context) {
         return visit(command, context);
-    }
-
-    public R visitExplainCommand(ExplainCommand explain, C context) {
-        return visitCommand(explain, context);
-    }
-
-    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
-        return visitCommand(createPolicy, context);
-    }
-
-    public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
-            C context) {
-        return visit(insertIntoSelectCommand, context);
-    }
-
-    public R visitUpdateCommand(UpdateCommand updateCommand, C context) {
-        return visit(updateCommand, context);
     }
 
     // *******************************

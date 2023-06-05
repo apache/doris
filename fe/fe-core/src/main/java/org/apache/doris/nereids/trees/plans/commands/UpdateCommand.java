@@ -68,6 +68,9 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     private OlapTable targetTable;
     private ExplainLevel explainLevel = null;
 
+    /**
+     * constructor
+     */
     public UpdateCommand(List<String> nameParts, List<Pair<List<String>, Expression>> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
@@ -80,7 +83,7 @@ public class UpdateCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        getQueryPlan(ctx);
+        completeQueryPlan(ctx);
 
         if (explainLevel != null) {
             new ExplainCommand(explainLevel, logicalQuery).run(ctx, executor);
@@ -92,7 +95,7 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     /**
      * public for test
      */
-    public void getQueryPlan(ConnectContext ctx) throws AnalysisException {
+    public void completeQueryPlan(ConnectContext ctx) throws AnalysisException {
         checkTable(ctx);
 
         if (logicalQuery instanceof ExplainCommand) {
@@ -104,22 +107,22 @@ public class UpdateCommand extends Command implements ForwardWithSync {
         for (Pair<List<String>, Expression> pair : assignments) {
             colNameToExpression.put(pair.first.get(pair.first.size() - 1), pair.second);
         }
-        List<NamedExpression> selectLists = Lists.newArrayList();
+        List<NamedExpression> selectItems = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
             if (!column.isVisible()) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
-                selectLists.add(expr instanceof UnboundSlot
+                selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
                         : new Alias(expr, expr.toSql()));
             } else {
-                selectLists.add(new UnboundSlot(targetTable.getName(), column.getName()));
+                selectItems.add(new UnboundSlot(targetTable.getName(), column.getName()));
             }
         }
 
-        logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
+        logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
 
         // make UnboundTableSink
         logicalQuery = new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
