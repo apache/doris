@@ -95,18 +95,25 @@ public class DeleteCommand extends Command implements ForwardWithSync {
 
         // add select and insert node.
         List<NamedExpression> selectLists = Lists.newArrayList();
+        List<String> cols = Lists.newArrayList();
+        boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equals(Column.DELETE_SIGN)) {
                 selectLists.add(new Alias(BooleanLiteral.TRUE, BooleanLiteral.TRUE.toSql()));
-            } else {
+            } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(column.getName()));
+            } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
+                selectLists.add(new UnboundSlot(column.getName()));
+            } else {
+                continue;
             }
+            cols.add(column.getName());
         }
 
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        logicalQuery = new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
+        logicalQuery = new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
