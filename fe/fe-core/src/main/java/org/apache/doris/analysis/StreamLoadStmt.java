@@ -24,7 +24,6 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.task.LoadTaskInfo.ImportColumnDescs;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -306,22 +305,22 @@ public class StreamLoadStmt implements LoadTaskInfo {
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
-        if (properties.get(Property.COLUMNS) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.COLUMNS))) {
             setColumnToColumnExpr(properties.get(Property.COLUMNS));
         }
-        if (properties.get(Property.WHERE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.WHERE))) {
             whereExpr = parseWhereExpr(properties.get(Property.WHERE));
         }
-        if (properties.get(Property.COLUMN_SEPARATOR) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.COLUMN_SEPARATOR))) {
             setColumnSeparator(properties.get(Property.COLUMN_SEPARATOR));
         }
-        if (properties.get(Property.LINE_DELIMITER) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.LINE_DELIMITER))) {
             setLineDelimiter(properties.get(Property.LINE_DELIMITER));
         }
         if (request.isSetHeaderType()) {
             headerType = request.getHeaderType();
         }
-        if (properties.get(Property.PARTITIONS) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.PARTITIONS))) {
             String[] partNames = properties.get(Property.PARTITIONS).trim().split("\\s*,\\s*");
             if (properties.get(Property.TEMP_PARTITIONS) != null) {
                 partitions = new PartitionNames(true, Lists.newArrayList(partNames));
@@ -338,19 +337,19 @@ public class StreamLoadStmt implements LoadTaskInfo {
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
         }
-        if (properties.get(Property.NEGATIVE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.NEGATIVE))) {
             negative = Boolean.parseBoolean(properties.get(Property.NEGATIVE));
         }
-        if (properties.get(Property.TIMEOUT) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.TIMEOUT))) {
             timeout = Integer.parseInt(properties.get(Property.TIMEOUT));
         }
-        if (properties.get(Property.STRICT_MODE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.STRICT_MODE))) {
             strictMode = Boolean.parseBoolean(properties.get(Property.STRICT_MODE));
         }
-        if (properties.get(Property.TIMEZONE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.TIMEZONE))) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(properties.get(Property.TIMEZONE));
         }
-        if (properties.get(Property.EXEC_MEM_LIMIT) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.EXEC_MEM_LIMIT))) {
             execMemLimit = Long.parseLong(properties.get(Property.EXEC_MEM_LIMIT));
         }
         if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
@@ -365,44 +364,44 @@ public class StreamLoadStmt implements LoadTaskInfo {
             fuzzyParse = Boolean.parseBoolean(properties.get(Property.FUZZY_PARSE));
             readJsonByLine = Boolean.parseBoolean(properties.get(Property.READ_JSON_BY_LINE));
         }
-        if (properties.get(Property.MERGE_TYPE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.MERGE_TYPE))) {
             try {
                 mergeType = LoadTask.MergeType.valueOf(properties.get(Property.MERGE_TYPE).toString());
             } catch (IllegalArgumentException e) {
                 throw new UserException("unknown merge type " + properties.get(Property.MERGE_TYPE).toString());
             }
         }
-        if (properties.get(Property.DELETE_CONDITION) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.DELETE_CONDITION))) {
             deleteCondition = parseWhereExpr(properties.get(Property.DELETE_CONDITION));
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
-        if (properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL))) {
             sequenceCol = properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL);
         }
-        if (properties.get(Property.SEND_BATCH_PARALLELISM) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.SEND_BATCH_PARALLELISM))) {
             sendBatchParallelism = Integer.parseInt(properties.get(Property.SEND_BATCH_PARALLELISM));
         }
-        if (properties.get(Property.MAX_FILTER_RATIO) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.MAX_FILTER_RATIO))) {
             maxFilterRatio = Double.parseDouble(properties.get(Property.MAX_FILTER_RATIO));
         }
-        if (properties.get(Property.LOAD_TO_SINGLE_TABLET) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.LOAD_TO_SINGLE_TABLET))) {
             loadToSingleTablet = Boolean.parseBoolean(properties.get(Property.LOAD_TO_SINGLE_TABLET));
         }
-        if (properties.get(Property.HIDDEN_COLUMNS) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.HIDDEN_COLUMNS))) {
             hiddenColumns = Arrays.asList(properties.get(Property.HIDDEN_COLUMNS).replaceAll("\\s+", "").split(","));
         }
-        if (properties.get(Property.TRIM_DOUBLE_QUOTES) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.TRIM_DOUBLE_QUOTES))) {
             trimDoubleQuotes = Boolean.parseBoolean(properties.get(Property.TRIM_DOUBLE_QUOTES));
         }
-        if (properties.get(Property.SKIP_LINES) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.SKIP_LINES))) {
             skipLines = Integer.parseInt(properties.get(Property.SKIP_LINES));
         }
-        if (properties.get(Property.ENABLE_PROFILE) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.ENABLE_PROFILE))) {
             enableProfile = Boolean.parseBoolean(properties.get(Property.ENABLE_PROFILE));
         }
-        if (properties.get(Property.PARTIAL_COLUMNS) != null) {
+        if (Strings.isNullOrEmpty(properties.get(Property.PARTIAL_COLUMNS))) {
             isPartialUpdate = Boolean.parseBoolean(properties.get(Property.PARTIAL_COLUMNS));
         }
     }
