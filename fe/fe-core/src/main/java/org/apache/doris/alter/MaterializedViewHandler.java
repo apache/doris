@@ -185,7 +185,7 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException, AnalysisException {
         olapTable.writeLockOrDdlException();
         try {
-            olapTable.checkStableAndNormal(db.getClusterName());
+            olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
@@ -244,6 +244,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Set<Long> logJobIdSet = new HashSet<>();
         olapTable.writeLockOrDdlException();
         try {
+            olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
@@ -869,6 +870,7 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException, MetaNotFoundException {
         olapTable.writeLockOrDdlException();
         try {
+            olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
             }
@@ -906,12 +908,7 @@ public class MaterializedViewHandler extends AlterHandler {
             OlapTable olapTable) throws DdlException, MetaNotFoundException {
         olapTable.writeLockOrDdlException();
         try {
-            // check table state
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL. "
-                        + "Do not allow doing DROP ops");
-            }
-
+            olapTable.checkNormalStateForAlter();
             String mvName = dropMaterializedViewStmt.getMvName();
             // Step1: check drop mv index operation
             checkDropMaterializedView(mvName, olapTable);
@@ -941,7 +938,6 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     private void checkDropMaterializedView(String mvName, OlapTable olapTable)
             throws DdlException, MetaNotFoundException {
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
         if (mvName.equals(olapTable.getName())) {
             throw new DdlException("Cannot drop base index by using DROP ROLLUP or DROP MATERIALIZED VIEW.");
         }
@@ -1270,7 +1266,6 @@ public class MaterializedViewHandler extends AlterHandler {
                     onJobDone(alterJobV2);
                 }
             }
-            return;
         }
     }
 

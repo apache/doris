@@ -52,7 +52,6 @@ import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
@@ -189,11 +188,7 @@ public class Alter {
             db.checkQuota();
         }
 
-        if (olapTable.getState() != OlapTableState.NORMAL) {
-            throw new DdlException(
-                    "Table[" + olapTable.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
-        }
-
+        olapTable.checkNormalStateForAlter();
         boolean needProcessOutsideTableLock = false;
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
@@ -256,7 +251,7 @@ public class Alter {
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                         boolean isInMemory =
                                 Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                        if (isInMemory == true) {
+                        if (isInMemory) {
                             throw new UserException("Not support set 'in_memory'='true' now!");
                         }
                         needProcessOutsideTableLock = true;
@@ -780,10 +775,7 @@ public class Alter {
             throws DdlException, AnalysisException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
-        if (olapTable.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
-        }
-
+        olapTable.checkNormalStateForAlter();
         for (String partitionName : partitionNames) {
             Partition partition = olapTable.getPartition(partitionName, isTempPartition);
             if (partition == null) {

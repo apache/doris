@@ -394,6 +394,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             olapTable.writeLockOrMetaException();
 
             try {
+                olapTable.checkNormalStateForAlter();
                 List<ColumnDef> columnDefs = new ArrayList<ColumnDef>();
 
                 // prepare columnDefs
