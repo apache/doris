@@ -363,6 +363,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // TODO: pivot and lateral view
             }
         }
+        query = withFilter(query, Optional.of(ctx.whereClause()));
         if (ctx.explain() != null) {
             query = withExplain(query, ctx.explain());
         }
