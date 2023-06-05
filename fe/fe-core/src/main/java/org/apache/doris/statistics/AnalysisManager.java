@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -57,6 +58,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -76,7 +80,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class AnalysisManager extends Daemon {
+public class AnalysisManager extends Daemon implements Writable {
 
     public AnalysisTaskScheduler taskScheduler;
 
@@ -722,12 +726,12 @@ public class AnalysisManager extends Daemon {
         }
     }
 
-    public void replayCreateAnalysisJob(AnalysisInfo taskInfo) {
-        this.analysisJobInfoMap.put(taskInfo.jobId, taskInfo);
+    public void replayCreateAnalysisJob(AnalysisInfo jobInfo) {
+        this.analysisJobInfoMap.put(jobInfo.jobId, jobInfo);
     }
 
-    public void replayCreateAnalysisTask(AnalysisInfo jobInfo) {
-        this.analysisTaskInfoMap.put(jobInfo.taskId, jobInfo);
+    public void replayCreateAnalysisTask(AnalysisInfo taskInfo) {
+        this.analysisTaskInfoMap.put(taskInfo.taskId, taskInfo);
     }
 
     public void replayDeleteAnalysisJob(AnalyzeDeletionLog log) {
@@ -826,4 +830,31 @@ public class AnalysisManager extends Daemon {
         removeAll(findTasks(jobId));
     }
 
+    public static AnalysisManager readFields(DataInput in) throws IOException {
+        AnalysisManager analysisManager = new AnalysisManager();
+        doRead(in, analysisManager.analysisJobInfoMap, true);
+        doRead(in, analysisManager.analysisTaskInfoMap, false);
+        return analysisManager;
+    }
+
+    private static void doRead(DataInput in, Map<Long, AnalysisInfo> map, boolean job) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            AnalysisInfo analysisInfo = AnalysisInfo.read(in);
+            map.put(job ? analysisInfo.jobId : analysisInfo.taskId, analysisInfo);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        doWrite(out, analysisJobInfoMap);
+        doWrite(out, analysisTaskInfoMap);
+    }
+
+    private void doWrite(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
+        out.writeInt(infoMap.size());
+        for (Entry<Long, AnalysisInfo> entry : infoMap.entrySet()) {
+            entry.getValue().write(out);
+        }
+    }
 }
