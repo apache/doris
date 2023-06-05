@@ -4290,10 +4290,24 @@ public class Env {
         // 4. modify distribution info
         DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            // modify default distribution info
             List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
+                }
+            }
+            // modify distribution info inside partitions
+            for (Partition p : table.getPartitions()) {
+                DistributionInfo partDistInfo = p.getDistributionInfo();
+                if (partDistInfo.getType() != DistributionInfoType.HASH) {
+                    continue;
+                }
+                List<Column> partDistColumns = ((HashDistributionInfo) partDistInfo).getDistributionColumns();
+                for (Column column : partDistColumns) {
+                    if (column.getName().equalsIgnoreCase(colName)) {
+                        column.setName(newColName);
+                    }
                 }
             }
         }
@@ -4546,13 +4560,10 @@ public class Env {
                 }
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
-                    List<Column> defaultDistriCols
-                            = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
-                    if (!newDistriCols.equals(defaultDistriCols)) {
-                        throw new DdlException(
-                                "Cannot assign hash distribution with different distribution cols. " + "default is: "
-                                        + defaultDistriCols);
+                    if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
+                        throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                                + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
+                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
                     }
                 }
 
