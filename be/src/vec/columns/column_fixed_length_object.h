@@ -146,7 +146,6 @@ public:
         const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
         DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
                                                  << _item_size << " " << src_col._item_size;
-        _item_size = src_col._item_size;
         size_t old_size = size();
         resize(old_size + 1);
         memcpy(&_data[old_size * _item_size], &src_col._data[n * _item_size], _item_size);
@@ -214,7 +213,6 @@ public:
         if (0 == size) {
             return res;
         }
-        // res->_item_size = _item_size;
         res->resize(offsets.back());
         typename Self::Container& res_data = res->get_data();
 
