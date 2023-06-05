@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 
 public class SetUserDefinedVar extends SetVar {
     public SetUserDefinedVar(String variable, Expr value) {
@@ -25,14 +26,14 @@ public class SetUserDefinedVar extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze(Analyzer analyzer) throws AnalysisException  {
         Expr expression = getValue();
         if (expression instanceof NullLiteral) {
             setResult(NullLiteral.create(ScalarType.NULL));
         } else if (expression instanceof LiteralExpr) {
             setResult((LiteralExpr) expression);
         } else {
-            //TODO : compute value from query statement
+            throw new AnalysisException("Unsupported to set the non-literal for user defined variables.");
         }
     }
 }
