@@ -57,8 +57,9 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
                     + "NOTE: This class must directly implements "
                     + "org.apache.hadoop.hive.metastore.IMetaStoreClient.");
 
-    public PaimonHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
+    public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
+                                    Map<String, String> props, String comment) {
+        super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
         paimonCatalogType = PAIMON_HMS;

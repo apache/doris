@@ -39,8 +39,8 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     protected String paimonCatalogType;
     protected Catalog catalog;
 
-    public PaimonExternalCatalog(long catalogId, String name) {
-        super(catalogId, name, InitCatalogLog.Type.PAIMON);
+    public PaimonExternalCatalog(long catalogId, String name, String comment) {
+        super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
         this.type = "paimon";
     }
 

@@ -124,7 +124,7 @@ public class CatalogFactory {
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
                 break;
             case "paimon":
-                catalog = new PaimonHMSExternalCatalog(catalogId, name, resource, props);
+                catalog = new PaimonHMSExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
