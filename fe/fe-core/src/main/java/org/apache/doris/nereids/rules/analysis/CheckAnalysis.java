@@ -64,7 +64,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().then(plan -> {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
-                    return plan;
+                    return null;
                 })
             ),
             RuleType.CHECK_AGGREGATE_ANALYSIS.build(
