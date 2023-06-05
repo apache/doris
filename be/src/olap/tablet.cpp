@@ -2756,10 +2756,15 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const RowsetIdUnorderedSet* specified_rowset_ids,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                   RowsetWriter* rowset_writer) {
-    OlapStopWatch watch;
-
-    Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_id = rowset->rowset_id();
+    if (specified_rowset_ids == nullptr || specified_rowset_ids->empty()) {
+        LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
+                  << " rowset: " << rowset_id;
+        return Status::OK();
+    }
+
+    OlapStopWatch watch;
+    Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_schema->is_partial_update();
     // use for partial update
@@ -3094,10 +3099,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletT
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
-    if (!rowset_ids_to_add.empty()) {
-        RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
-                                           cur_version - 1, rowset_writer));
-    }
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
+                                       cur_version - 1, rowset_writer));
 
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock
@@ -3221,6 +3224,10 @@ Status Tablet::check_rowid_conversion(
 RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
     RowsetIdUnorderedSet rowset_ids;
     for (const auto& rs_it : _rs_version_map) {
+        if (rs_it.first.second == 1) {
+            // [0-1] rowset is empty for each tablet, skip it
+            continue;
+        }
         if (rs_it.first.second <= max_version) {
             rowset_ids.insert(rs_it.second->rowset_id());
         }
