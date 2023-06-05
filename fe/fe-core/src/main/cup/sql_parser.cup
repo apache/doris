@@ -6426,6 +6426,8 @@ non_pred_expr ::=
   {: RESULT = new StringLiteral(l); :}
   | KW_TIMESTAMP STRING_LITERAL:l
   {: RESULT = new StringLiteral(l); :}
+  | KW_TIME STRING_LITERAL:l
+  {: RESULT = new StringLiteral(l); :}
   | KW_EXTRACT LPAREN function_name:fn_name KW_FROM func_arg_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, exprs); :}
   //| function_name:fn_name LPAREN RPAREN
