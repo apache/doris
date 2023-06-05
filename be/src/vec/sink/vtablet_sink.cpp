@@ -1126,7 +1126,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
     }
-    LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
+    VLOG_DEBUG << "list of open index id = " << fmt::to_string(buf);
 
     for (auto index_channel : _channels) {
         index_channel->for_each_node_channel([&index_channel](
@@ -1171,7 +1171,7 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
                 }
             }
         }
-        LOG(INFO) << "list of lazy open index id = " << fmt::to_string(buf);
+        VLOG_DEBUG << "list of lazy open index id = " << fmt::to_string(buf);
     }
 }
 
