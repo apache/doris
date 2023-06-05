@@ -17,29 +17,20 @@
 
 package org.apache.doris.planner.external.iceberg;
 
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.thrift.TFileAttributes;
-import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileScanSlotInfo;
 
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Get metadata from iceberg api (all iceberg table like hive, rest, glue...)
@@ -78,32 +69,6 @@ public class IcebergApiSource implements IcebergSource {
     @Override
     public TableIf getTargetTable() {
         return icebergExtTable;
-    }
-
-    @Override
-    public ExternalFileScanNode.ParamCreateContext createContext() throws UserException {
-        ExternalFileScanNode.ParamCreateContext context = new ExternalFileScanNode.ParamCreateContext();
-        context.params = new TFileScanRangeParams();
-        context.destTupleDescriptor = desc;
-        context.params.setDestTupleId(desc.getId().asInt());
-        context.fileGroup = new BrokerFileGroup(icebergExtTable.getId(), originTable.location(), getFileFormat());
-
-        // Hive table must extract partition value from path and hudi/iceberg table keep
-        // partition field in file.
-        List<String> partitionKeys =  originTable.spec().fields().stream()
-                .map(PartitionField::name).collect(Collectors.toList());
-        List<Column> columns = icebergExtTable.getBaseSchema(false);
-        context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
-        for (SlotDescriptor slot : desc.getSlots()) {
-            if (!slot.isMaterialized()) {
-                continue;
-            }
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
-            context.params.addToRequiredSlots(slotInfo);
-        }
-        return context;
     }
 
     @Override

@@ -24,15 +24,11 @@
 #include <endian.h>
 #endif
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "gutil/bits.h"
 #include "util/cpu_info.h"
-#ifdef __aarch64__
-#include <sse2neon.h>
-#else
-#include <emmintrin.h>
-#include <immintrin.h>
-#endif
+#include "util/sse_util.hpp"
 
 namespace doris {
 

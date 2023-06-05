@@ -17,31 +17,42 @@
 
 #include "vec/sink/vmemory_scratch_sink.h"
 
-#include <arrow/memory_pool.h>
-#include <arrow/record_batch.h>
+#include <arrow/type_fwd.h>
+#include <gen_cpp/Types_types.h>
 
 #include <sstream>
 
-#include "gen_cpp/Types_types.h"
+#include "common/object_pool.h"
 #include "runtime/exec_env.h"
-#include "runtime/primitive_type.h"
+#include "runtime/record_batch_queue.h"
 #include "runtime/runtime_state.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+
+namespace arrow {
+class RecordBatch;
+} // namespace arrow
+
+namespace doris {
+class RowDescriptor;
+class TExpr;
+class TMemoryScratchSink;
+} // namespace doris
 
 namespace doris::vectorized {
 
 MemoryScratchSink::MemoryScratchSink(const RowDescriptor& row_desc,
-                                     const std::vector<TExpr>& t_output_expr,
-                                     const TMemoryScratchSink& sink, ObjectPool* pool)
-        : _row_desc(row_desc), _t_output_expr(t_output_expr), _pool(pool) {
+                                     const std::vector<TExpr>& t_output_expr)
+        : _row_desc(row_desc), _t_output_expr(t_output_expr) {
     _name = "VMemoryScratchSink";
 }
 
 Status MemoryScratchSink::_prepare_vexpr(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, _t_output_expr, &_output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     // generate the arrow schema

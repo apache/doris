@@ -19,7 +19,11 @@
 
 #include <bzlib.h>
 #include <lz4/lz4frame.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <zlib.h>
+
+#include <string>
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1x.h>

@@ -19,7 +19,9 @@
 #include <pthread.h>
 
 #include <memory>
+#include <mutex>
 #include <ostream>
+#include <string>
 
 #include "common/logging.h"
 #include "util/errno.h"

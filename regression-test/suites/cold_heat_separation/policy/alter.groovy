@@ -31,7 +31,7 @@ suite("alter_policy") {
     // create resource
     def create_source = { resource_name ->
         sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
@@ -116,23 +116,23 @@ suite("alter_policy") {
         // [has_resouce_policy_alter, s3, type, s3]
         // [has_resouce_policy_alter, s3, version, {version}]]
         // AWS_ACCESS_KEY
-        assertEquals(show_alter_result[0][3], "6666")
+        assertEquals(show_alter_result[1][3], "6666")
         // AWS_BUCKET
-        assertEquals(show_alter_result[1][3], "9999")
-        // AWS_CONNECTION_TIMEOUT_MS
-        assertEquals(show_alter_result[2][3], "2222")
-        // AWS_ENDPOINT
-        assertEquals(show_alter_result[3][3], "11111111")
+        assertEquals(show_alter_result[2][3], "9999")
         // AWS_MAX_CONNECTIONS
-        assertEquals(show_alter_result[4][3], "1111")
-        // AWS_REGION
-        assertEquals(show_alter_result[5][3], "8888")
+        assertEquals(show_alter_result[3][3], "1111")
         // AWS_REQUEST_TIMEOUT_MS
-        assertEquals(show_alter_result[6][3], "7777")
+        assertEquals(show_alter_result[4][3], "7777")
+        // AWS_CONNECTION_TIMEOUT_MS
+        assertEquals(show_alter_result[5][3], "2222")
+        // AWS_ENDPOINT
+        assertEquals(show_alter_result[6][3], "11111111")
+        // AWS_REGION
+        assertEquals(show_alter_result[7][3], "8888")
         // s3_rootpath
-        assertEquals(show_alter_result[7][3], "10101010")
+        assertEquals(show_alter_result[8][3], "10101010")
         // AWS_SECRET_KEY
-        assertEquals(show_alter_result[8][3], "******")
+        assertEquals(show_alter_result[9][3], "******")
     }
 
     def check_alter_resource_result_with_policy = { resource_name ->
@@ -155,23 +155,23 @@ suite("alter_policy") {
         // [has_resouce_policy_alter, s3, type, s3]
         // [has_resouce_policy_alter, s3, version, {version}]]
         // AWS_ACCESS_KEY
-        assertEquals(show_alter_result[0][3], "6666")
+        assertEquals(show_alter_result[1][3], "6666")
         // AWS_BUCKET
-        assertEquals(show_alter_result[1][3], "test-bucket")
-        // AWS_CONNECTION_TIMEOUT_MS
-        assertEquals(show_alter_result[2][3], "2222")
-        // AWS_ENDPOINT
-        assertEquals(show_alter_result[3][3], "bj.s3.comaaaa")
+        assertEquals(show_alter_result[2][3], "test-bucket")
         // AWS_MAX_CONNECTIONS
-        assertEquals(show_alter_result[4][3], "1111")
-        // AWS_REGION
-        assertEquals(show_alter_result[5][3], "bj")
+        assertEquals(show_alter_result[3][3], "1111")
         // AWS_REQUEST_TIMEOUT_MS
-        assertEquals(show_alter_result[6][3], "7777")
+        assertEquals(show_alter_result[4][3], "7777")
+        // AWS_CONNECTION_TIMEOUT_MS
+        assertEquals(show_alter_result[5][3], "2222")
+        // AWS_ENDPOINT
+        assertEquals(show_alter_result[6][3], "http://bj.s3.comaaaa")
+        // AWS_REGION
+        assertEquals(show_alter_result[7][3], "bj")
         // s3_rootpath
-        assertEquals(show_alter_result[7][3], "path/to/rootaaaa")
+        assertEquals(show_alter_result[8][3], "path/to/rootaaaa")
         // AWS_SECRET_KEY
-        assertEquals(show_alter_result[8][3], "******")
+        assertEquals(show_alter_result[9][3], "******")
     }
 
 
@@ -188,7 +188,7 @@ suite("alter_policy") {
     check_resource_delete_if_exist(has_resource_policy_alter)
     create_source(has_resource_policy_alter)
     sql """
-        CREATE STORAGE POLICY has_resouce_policy_alter_policy
+        CREATE STORAGE POLICY IF NOT EXISTS has_resouce_policy_alter_policy
         PROPERTIES(
             "storage_resource" = "${has_resource_policy_alter}",
             "cooldown_ttl" = "1d"

@@ -36,7 +36,7 @@ array_size (size, cardinality)
 
 #### Syntax
 
-```
+```sql
 BIGINT size(ARRAY<T> arr)
 BIGINT array_size(ARRAY<T> arr) 
 BIGINT cardinality(ARRAY<T> arr)

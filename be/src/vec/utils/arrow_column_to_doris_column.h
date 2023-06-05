@@ -17,15 +17,21 @@
 
 #pragma once
 
-#include <arrow/type.h>
 #include <arrow/type_fwd.h>
+#include <stddef.h>
 
-#include <iostream>
-#include <memory>
+#include <string>
 
 #include "common/status.h"
-#include "runtime/types.h"
-#include "vec/core/column_with_type_and_name.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/data_types/data_type.h"
+
+namespace arrow {
+class Array;
+} // namespace arrow
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 // This files contains some utilities to convert Doris internal
 // data format from Apache Arrow format.
@@ -41,7 +47,5 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz);
-
-Status arrow_type_to_doris_type(arrow::Type::type type, TypeDescriptor* return_type);
 
 } // namespace doris::vectorized

@@ -17,9 +17,10 @@
 
 #include "testutil/function_utils.h"
 
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <vector>
 
-#include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 
@@ -30,7 +31,7 @@ FunctionUtils::FunctionUtils() {
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
-    _state = new RuntimeState(globals);
+    _state = RuntimeState::create_unique(globals).release();
     doris::TypeDescriptor return_type;
     std::vector<doris::TypeDescriptor> arg_types;
     _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
@@ -43,7 +44,7 @@ FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
-    _state = new RuntimeState(globals);
+    _state = RuntimeState::create_unique(globals).release();
     _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
 }
 

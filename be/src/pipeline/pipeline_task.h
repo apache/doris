@@ -17,9 +17,29 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "vec/core/block.h"
+
+namespace doris {
+class QueryContext;
+class RuntimeState;
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -85,6 +105,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class TaskQueue;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -124,9 +146,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
-
-    int pipeline_id() const { return _pipeline->_pipeline_id; }
-
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -152,7 +171,7 @@ public:
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
-    QueryFragmentsCtx* query_fragments_context();
+    QueryContext* query_context();
 
     int get_previous_core_id() const {
         return _previous_schedule_id != -1 ? _previous_schedule_id
@@ -171,19 +190,34 @@ public:
 
     bool has_dependency();
 
-    uint32_t index() const { return _index; }
-
     OperatorPtr get_root() { return _root; }
 
-    std::string debug_string() const;
+    std::string debug_string();
 
-    uint32_t total_schedule_time() const { return _schedule_time; }
+    taskgroup::TaskGroup* get_task_group() const;
+
+    void set_task_queue(TaskQueue* task_queue);
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
+    // 1 used for update priority queue
+    // note(wb) an ugly implementation, need refactor later
+    // 1.1 pipeline task
+    void inc_runtime_ns(uint64_t delta_time) { this->_runtime += delta_time; }
+    uint64_t get_runtime_ns() const { return this->_runtime; }
+
+    // 1.2 priority queue's queue level
+    void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
+    int get_queue_level() const { return this->_queue_level; }
+
+    // 1.3 priority queue's core id
+    void set_core_id(int core_id) { this->_core_id = core_id; }
+    int get_core_id() const { return this->_core_id; }
+
 private:
-    Status open();
+    Status _open();
     void _init_profile();
+    void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;
@@ -203,6 +237,18 @@ private:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context;
+    TaskQueue* _task_queue = nullptr;
+
+    // used for priority queue
+    // it may be visited by different thread but there is no race condition
+    // so no need to add lock
+    uint64_t _runtime = 0;
+    // it's visited in one thread, so no need to thread synchronization
+    // 1 get task, (set _queue_level/_core_id)
+    // 2 exe task
+    // 3 update task statistics(update _queue_level/_core_id)
+    int _queue_level = 0;
+    int _core_id = 0;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

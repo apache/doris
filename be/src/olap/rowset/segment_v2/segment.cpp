@@ -17,30 +17,58 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
-#include "common/config.h"
-#include "common/logging.h" // LOG
-#include "io/cache/file_cache_manager.h"
-#include "io/fs/file_reader_options.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/iterators.h"
+#include "olap/primary_key_index.h"
+#include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
+#include "olap/schema.h"
+#include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_predicate.h"
+#include "runtime/runtime_state.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+namespace io {
+class FileCacheManager;
+class FileReaderOptions;
+} // namespace io
+
 namespace segment_v2 {
+class InvertedIndexIterator;
 
 using io::FileCacheManager;
 
@@ -50,14 +78,14 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, reader_options, &file_reader,
-                                                                 nullptr));
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
     }
 #endif
 
@@ -87,7 +115,7 @@ Status Segment::_open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
+Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
@@ -104,14 +132,14 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
-            iter->reset(new EmptySegmentIterator(schema));
+            iter->reset(new EmptySegmentIterator(*schema));
             read_options.stats->filtered_segment_number++;
             return Status::OK();
         }
     }
 
     if (read_options.use_topn_opt) {
-        auto query_ctx = read_options.runtime_state->get_query_fragments_ctx();
+        auto query_ctx = read_options.runtime_state->get_query_ctx();
         auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
             int32_t uid =
@@ -121,7 +149,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             and_predicate.add_column_predicate(single_predicate);
             if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
-                iter->reset(new EmptySegmentIterator(schema));
+                iter->reset(new EmptySegmentIterator(*schema));
                 read_options.stats->filtered_segment_number++;
                 return Status::OK();
             }
@@ -131,10 +159,11 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
-        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
+        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
+
     return iter->get()->init(read_options);
 }
 
@@ -148,9 +177,10 @@ Status Segment::_parse_footer() {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    IOContext io_ctx;
+    // Block / Whole / Sub file cache will use it while read segment footer
+    io::IOContext io_ctx;
     RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), io_ctx, &bytes_read));
+            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
 
     // validate magic number
@@ -170,8 +200,8 @@ Status Segment::_parse_footer() {
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx, &bytes_read));
+    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read,
+                                          &io_ctx));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -224,6 +254,7 @@ Status Segment::load_index() {
             opts.page_pointer = PagePointer(_footer.short_key_index_page());
             opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
             OlapReaderStatistics tmp_stats;
+            opts.use_page_cache = true;
             opts.stats = &tmp_stats;
             opts.type = INDEX_PAGE;
             Slice body;
@@ -271,7 +302,8 @@ Status Segment::_create_column_readers() {
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
+Status Segment::new_column_iterator(const TabletColumn& tablet_column,
+                                    std::unique_ptr<ColumnIterator>* iter) {
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
@@ -285,18 +317,24 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
         ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
-        *iter = default_value_iter.release();
+        *iter = std::move(default_value_iter);
         return Status::OK();
     }
-    return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
+    ColumnIterator* it;
+    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    iter->reset(it);
+    return Status::OK();
 }
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
-                                          BitmapIndexIterator** iter) {
+                                          std::unique_ptr<BitmapIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 &&
         _column_readers.at(col_unique_id)->has_bitmap_index()) {
-        return _column_readers.at(col_unique_id)->new_bitmap_index_iterator(iter);
+        BitmapIndexIterator* it;
+        RETURN_IF_ERROR(_column_readers.at(col_unique_id)->new_bitmap_index_iterator(&it));
+        iter->reset(it);
+        return Status::OK();
     }
     return Status::OK();
 }
@@ -304,20 +342,23 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             OlapReaderStatistics* stats,
-                                            InvertedIndexIterator** iter) {
+                                            std::unique_ptr<InvertedIndexIterator>* iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)
-                ->new_inverted_index_iterator(index_meta, stats, iter);
+        InvertedIndexIterator* it;
+        RETURN_IF_ERROR(_column_readers.at(col_unique_id)
+                                ->new_inverted_index_iterator(index_meta, stats, &it));
+        iter->reset(it);
+        return Status::OK();
     }
     return Status::OK();
 }
 
-Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
+Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = _tablet_schema->has_sequence_col();
     size_t seq_col_length = 0;
-    if (has_seq_col) {
+    if (has_seq_col && with_seq_col) {
         seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
     }
     Slice key_without_seq = Slice(key.get_data(), key.get_size() - seq_col_length);

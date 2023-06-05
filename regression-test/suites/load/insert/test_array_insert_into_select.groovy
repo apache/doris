@@ -41,6 +41,7 @@ suite("test_array_insert_into_select", "load") {
 
     // check data in tstring
     qt_select_string "SELECT * FROM tstring ORDER BY id"
+    qt_select_string "SELECT count(data) FROM tstring"
 
 
     // create table with array
@@ -62,4 +63,5 @@ suite("test_array_insert_into_select", "load") {
 
     // check data in tarray
     qt_select_array "SELECT * FROM tarray ORDER BY id"
+    qt_select_array "SELECT count(data) FROM tarray"
 }

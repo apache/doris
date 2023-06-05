@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -56,12 +57,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
      * <p>
      * An example is tpch q15.
      */
-    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 6.0;
+    static final double HEAVY_OPERATOR_PUNISH_FACTOR = 0.0;
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
-        double cost = planCost.getValue() + childCost.getValue();
-        return new CostV1(cost);
+        CostV1 childCostV1 = (CostV1) childCost;
+        CostV1 planCostV1 = (CostV1) planCost;
+        return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
+                childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
+                childCostV1.getNetworkCost() + planCostV1.getNetworkCost(),
+                childCostV1.getPenalty() + planCostV1.getPenalty());
     }
 
     @Override
@@ -144,6 +149,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     }
 
     @Override
+    public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
+        return CostV1.of(
+            childStatistics.getRowCount(),
+            statistics.getRowCount(),
+            childStatistics.getRowCount());
+    }
+
+    @Override
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
         Statistics childStatistics = context.getChildStatistics(0);
@@ -151,14 +166,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
-                    childStatistics.getRowCount(),
+                    0,
                     0,
                     childStatistics.getRowCount());
         }
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
+            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getAllBackendIds(true).size();
+            if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
+                beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+            }
             int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
             beNumber = Math.max(1, beNumber);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
@@ -170,22 +188,20 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
-            /*
-            TODO：
-            srcBeNum and destBeNum are not available, assume destBeNum/srcBeNum = 1
-            1. cpu: row * destBeNum/srcBeNum
-            2. network: rows send = rows/srcBeNum * destBeNum.
-             */
+            // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
+            // - sender number and receiver number is not available at RBO stage now, so we use beNumber
+            // - senders and receivers work in parallel, that why we use square of beNumber
             return CostV1.of(
-                    childStatistics.getRowCount(), // TODO:should multiply by destBeNum/srcBeNum
-                    childStatistics.getRowCount(), // only consider one BE, not the whole system.
-                    childStatistics.getRowCount() * instanceNumber); // TODO: remove instanceNumber when BE updated
+                    0,
+                    0,
+                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
+
         }
 
         // gather
         if (spec instanceof DistributionSpecGather) {
             return CostV1.of(
-                    childStatistics.getRowCount(),
+                    0,
                     0,
                     childStatistics.getRowCount());
         }
@@ -252,7 +268,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PlanContext context) {
         // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
         Preconditions.checkState(context.arity() == 2);
-
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
 

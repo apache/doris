@@ -1,7 +1,9 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "zh-CN"
+    "language": "zh-CN",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
@@ -46,7 +48,7 @@ distribution_desc
 [extra_properties]
 ```
 
-* `column_definition_list`
+#### column_definition_list
 
     列定义列表：
     
@@ -147,7 +149,7 @@ distribution_desc
         v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
         ```
     
-* `index_definition_list`
+#### index_definition_list
 
     索引列表定义：
     
@@ -169,13 +171,13 @@ distribution_desc
         ...
         ```
 
-* `engine_type`
+#### engine_type
 
     表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) 文档。示例：
     
     `ENGINE=olap`
     
-* `keys_type`
+#### keys_type
 
     数据模型。
     
@@ -187,6 +189,10 @@ distribution_desc
     * AGGREGATE KEY：其后指定的列为维度列。
     * UNIQUE KEY：其后指定的列为主键列。
 
+    <version since="2.0">
+    注：当表属性`enable_duplicate_without_keys_by_default = true`时, 默认创建没有排序列的DUPLICATE表。
+    </version>
+
     示例：
     
     ```
@@ -195,7 +201,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
     
-* `table_comment`
+#### table_comment
 
     表注释。示例：
     
@@ -203,7 +209,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_info`
+#### partition_info
 
     分区信息，支持三种写法：
     
@@ -238,23 +244,33 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-    
-* `distribution_desc`
-  
+
+    4. MULTI RANGE：批量创建数字类型的RANGE分区，定义分区的左闭右开区间，设定步长。
+
+        ```
+        PARTITION BY RANGE(int_col)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
+        ```
+
+
+#### distribution_desc
+
     定义数据分桶方式。
 
     1) Hash 分桶
        语法：
-          `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+          `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num|auto]`
        说明：
           使用指定的 key 列进行哈希分桶。
     2) Random 分桶
        语法：
-          `DISTRIBUTED BY RANDOM [BUCKETS num]`
+          `DISTRIBUTED BY RANDOM [BUCKETS num|auto]`
        说明：
           使用随机数进行分桶。 
 
-* `rollup_list`
+#### rollup_list
 
     建表的同时可以创建多个物化视图（ROLLUP）。
 
@@ -273,7 +289,7 @@ distribution_desc
         )
         ```
 
-* `properties`
+#### properties
 
     设置表属性。目前支持以下属性：
 
@@ -314,11 +330,7 @@ distribution_desc
 
     * `in_memory` 
 
-        Doris 是没有内存表的概念。
-
-        这个属性设置成 `true`, Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。
-
-        `"in_memory" = "true"`
+        已弃用。只支持设置为'false'。
 
     * `compression`
 
@@ -359,13 +371,36 @@ distribution_desc
         如果这个属性设置成 `true`, 后台的自动compaction进程会跳过这个表的所有tablet。
 
         `"disable_auto_compaction" = "false"`
+    
+    * `enable_single_replica_compaction`
+
+        是否对这个表开启单副本 compaction。
+
+        如果这个属性设置成 `true`, 这个表的 tablet 的所有副本只有一个 do compaction，其他的从该副本拉取 rowset
+
+        `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        当配置为`true`时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `skip_write_index_on_load`
+
+        是否对这个表开启数据导入时不写索引.
+
+        如果这个属性设置成 `true`, 数据导入的时候不写索引（目前仅对倒排索引生效），而是在compaction的时候延迟写索引。这样可以避免首次写入和compaction
+        重复写索引的CPU和IO资源消耗，提升高吞吐导入的性能。
+
+        `"skip_write_index_on_load" = "false"`
 
     * 动态分区相关
     
         动态分区相关参数如下：
     
         * `dynamic_partition.enable`: 用于指定表级别的动态分区功能是否开启。默认为 true。
-        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），HOUR（时）。
+        * `dynamic_partition.time_unit:` 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月），YEAR（年），HOUR（时）。
         * `dynamic_partition.start`: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
         * `dynamic_partition.end`: 用于指定提前创建的分区数量。值必须大于0。
         * `dynamic_partition.prefix`: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108。
@@ -373,13 +408,7 @@ distribution_desc
         * `dynamic_partition.create_history_partition`: 是否创建历史分区。
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
         * `dynamic_partition.reserved_history_periods`: 用于指定保留的历史分区的时间段。
-    
-    * 数据排序相关
-    
-        数据排序相关参数如下:
-    
-        * `data_sort.sort_type`: 数据排序使用的方法，目前支持两种：lexical/z-order，默认是lexical
-        * `data_sort.col_num`: 数据排序使用的列数，取最前面几列，不能超过总的key 列数
+
 ### Example
 
 1. 创建一个明细模型的表
@@ -498,7 +527,7 @@ distribution_desc
     );
     ```
 
-7. 创建一个带有 bitmap 索引以及 bloom filter 索引的内存表
+7. 创建一个带有 bitmap 索引以及 bloom filter 索引的表
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -512,8 +541,7 @@ distribution_desc
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "bloom_filter_columns" = "k2",
-        "in_memory" = "true"
+        "bloom_filter_columns" = "k2"
     );
     ```
 
@@ -668,8 +696,49 @@ distribution_desc
             "replication_num" = "1"
         );
 ```
+```
+        CREATE TABLE create_table_multi_partion_integer
+        (
+            k1 BIGINT,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM (1) TO (100) INTERVAL 10
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
 
 注：批量创建分区可以和常规手动创建分区混用，使用时需要限制分区列只能有一个，批量创建分区实际创建默认最大数量为4096，这个参数可以在fe配置项 `max_multi_partition_num` 调整
+
+</version>
+
+<version since="2.0">
+
+14. 批量无排序列Duplicate表
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
+    );
+```
 
 </version>
 
@@ -701,7 +770,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加物化视图，如果表中已有数据，则物化视图的创建时间取决于当前数据量大小。
 
-关于物化视图的介绍，请参阅文档 [物化视图](../../../../advanced/materialized-view.md)。
+关于物化视图的介绍，请参阅文档 [物化视图](../../../../query-acceleration/materialized-view.md)。
 
 #### 索引
 
@@ -709,6 +778,3 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加索引，如果表中已有数据，则需要重写所有数据，因此索引的创建时间取决于当前数据量。
 
-#### in_memory 属性
-
-当建表时指定了 `"in_memory" = "true"` 属性。则 Doris 会尽量将该表的数据块缓存在存储引擎的 PageCache 中，已减少磁盘IO。但这个属性不会保证数据块常驻在内存中，仅作为一种尽力而为的标识。

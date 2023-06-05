@@ -17,18 +17,25 @@
 
 #include "vec/runtime/vsorted_run_merger.h"
 
+#include <utility>
 #include <vector>
 
-#include "runtime/descriptors.h"
-#include "util/debug_util.h"
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 using std::vector;
 
 namespace doris::vectorized {
 
-VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
+VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
                                    const std::vector<bool>& nulls_first, const size_t batch_size,
                                    int64_t limit, size_t offset, RuntimeProfile* profile)

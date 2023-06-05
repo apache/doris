@@ -102,9 +102,13 @@ Fe is a java process. Here are just a few simple and commonly used java debuggin
 
 Debugging memory is generally divided into two aspects. One is whether the total amount of memory use is reasonable. On the one hand, the excessive amount of memory use may be due to memory leak in the system, on the other hand, it may be due to improper use of program memory. The second is whether there is a problem of memory overrun and illegal access, such as program access to memory with an illegal address, use of uninitialized memory, etc. For the debugging of memory, we usually use the following ways to track the problems.
 
-#### Log
+Doris 1.2.1 and previous versions use TCMalloc. Doris 1.2.2 starts to use Jemalloc by default. Select the memory debugging method according to the Doris version used. If you need to switch TCMalloc, you can compile `USE_JEMALLOC=OFF sh build.sh --be`.
 
-When we find that the memory usage is too large, we can first check the be.out log to see if there is a large memory application. Because of the TCMalloc currently used by Doris to manage memory, when a large memory application is encountered, the stack of the application will be printed to the be.out file. The general form is as follows:
+When we find that the memory usage is too large, we can first check the BE log to see if there is a large memory application.
+
+###### TCMalloc
+
+When using TCMalloc, when a large memory application is encountered, the application stack will be printed to the be.out file, and the general expression is as follows:
 
 ```
 tcmalloc: large alloc 1396277248 bytes == 0x3f3488000 @  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0x133d1d0 0x19930ed
@@ -124,7 +128,23 @@ $ addr2line -e lib/doris_be  0x2af6f63 0x2c4095b 0x134d278 0x134bdcb 0x133d105 0
 thread.cpp:?
 ```
 
+##### JEMALLOC
+
+Most of Doris's large memory applications use Allocator, such as HashTable and data serialization. This part of the memory application is expected and will be effectively managed. Other large memory applications are not expected and will be applied The stack is printed to the be.INFO file, which is usually used for debugging, and the general expression is as follows:
+```
+MemHook alloc large memory: 8.2GB, stacktrace:
+Alloc Stacktrace:
+    @     0x55a6a5cf6b4d  doris::ThreadMemTrackerMgr::consume()
+    @     0x55a6a5cf99bf  malloc
+    @     0x55a6ae0caf98  operator new()
+    @     0x55a6a57cb013  doris::segment_v2::PageIO::read_and_decompress_page()
+    @     0x55a6a57719c0  doris::segment_v2::ColumnReader::read_page()
+    ……
+```
+
 #### HEAP PROFILE
+
+##### TCMalloc
 
 Sometimes the application of memory is not caused by the application of large memory, but by the continuous accumulation of small memory. Then there is no way to locate the specific application information by viewing the log, so you need to get the information through other ways.
 
@@ -171,7 +191,7 @@ pprof --svg lib/doris_be /tmp/doris_be.hprof.0012.heap > heap.svg
 
 **NOTE: turning on this option will affect the execution performance of the program. Please be careful to turn on the online instance.**
 
-#### pprof remote server
+###### pprof remote server
 
 Although heapprofile can get all the memory usage information, it has some limitations. 1. Restart be. 2. You need to enable this command all the time, which will affect the performance of the whole process.
 
@@ -197,6 +217,65 @@ Total: 1296.4 MB
 ```
 
 The output of this command is the same as the output and view mode of heap profile, which will not be described in detail here. Statistics will be enabled only during execution of this command, which has a limited impact on process performance compared with heap profile.
+
+##### JEMALLOC
+
+###### 1. runtime heap dump by http
+Add `,prof:true,lg_prof_sample:10` to `JEMALLOC_CONF` in `start_be.sh` and restart BE, then use the jemalloc heap dump http interface to generate a heap dump file on the corresponding BE machine.
+
+The directory where the heap dump file is located can be configured through the ``jeprofile_dir`` variable in ``be.conf``, and the default is ``${DORIS_HOME}/log``
+
+```shell
+curl http://be_host:be_webport/jeheap/dump
+```
+
+`prof`: After opening, jemalloc will generate a heap dump file according to the current memory usage. There is a small amount of performance loss in heap profile sampling, which can be turned off during performance testing.
+`lg_prof_sample`: heap profile sampling interval, the default value is 19, that is, the default sampling interval is 512K (2^19 B), which will result in only 10% of the memory recorded by the heap profile, `lg_prof_sample:10` can reduce the sampling interval to 1K (2^10 B), more frequent sampling will make the heap profile close to real memory, but this will bring greater performance loss.
+
+For detailed parameter description, refer to https://linux.die.net/man/3/jemalloc.
+
+##### 2. jemalloc heap dump profiling
+
+1. A single heap dump file generates plain text analysis results
+    ```shell
+    jeprof lib/doris_be heap_dump_file_1
+    ```
+
+2. Analyze the diff of two heap dumps
+    ```shell
+    jeprof lib/doris_be --base=heap_dump_file_1 heap_dump_file_2
+    ```
+
+3. Generate a call relationship picture
+
+    Install dependencies required for plotting
+    ```shell
+    yum install ghostscript graphviz
+    ```
+    Multiple dump files can be generated by running the above command multiple times in a short period of time, and the first dump file can be selected as the baseline for diff comparison analysis
+
+    ```shell
+    jeprof --dot lib/doris_be --base=heap_dump_file_1 heap_dump_file_2
+    ```
+    After executing the above command, the terminal will output the graph of dot syntax, and paste it to the [online dot drawing website](http://www.webgraphviz.com/), generate a memory allocation graph, and then analyze it. This method can Drawing directly through the terminal output results is more suitable for servers where file transfer is not very convenient.
+
+    You can also use the following command to directly generate the call relationship result.pdf file and transfer it to the local for viewing
+    ```shell
+    jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
+    ```
+
+###### 3. heap dump by JEMALLOC_CONF
+Periodic heap dump can also be done by changing the `JEMALLOC_CONF` variable in `start_be.sh` and restarting BE
+
+1. Dump every 1MB:
+
+    Two new variable settings `prof:true,lg_prof_interval:20` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `lg_prof_interval:20` means that a dump is generated every 1MB (2^20)
+2. Dump each time a new high is reached:
+
+    Two new variable settings `prof:true,prof_gdump:true` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `prof_gdump:true` means to generate a dump when the memory usage reaches a new high
+3. Memory leak dump when the program exits:
+
+    Added three new variable settings `prof_leak: true, lg_prof_sample: 0, prof_final: true` in the `JEMALLOC_CONF` variable.
 
 #### LSAN
 
@@ -238,7 +317,7 @@ From the above output, we can see that 1024 bytes have been leaked, and the stac
 #### JEMALLOC HEAP PROFILE
 
 ##### 1. runtime heap dump by http
-No need to restart BE, use jemalloc heap dump http interface, jemalloc generates heap dump file on the corresponding BE machine according to the current memory usage.
+Add `,prof:true,lg_prof_sample:10` to `JEMALLOC_CONF` in `start_be.sh` and restart BE, then use the jemalloc heap dump http interface to generate a heap dump file on the corresponding BE machine.
 
 The directory where the heap dump file is located can be configured through the ``jeprofile_dir`` variable in ``be.conf``, and the default is ``${DORIS_HOME}/log``
 
@@ -246,21 +325,12 @@ The directory where the heap dump file is located can be configured through the 
 curl http://be_host:be_webport/jeheap/dump
 ```
 
-##### 2. heap dump by JEMALLOC_CONF
-Perform heap dump by restarting BE after changing the `JEMALLOC_CONF` variable in `start_be.sh`
+`prof`: After opening, jemalloc will generate a heap dump file according to the current memory usage. There is a small amount of performance loss in heap profile sampling, which can be turned off during performance testing.
+`lg_prof_sample`: heap profile sampling interval, the default value is 19, that is, the default sampling interval is 512K (2^19 B), which will result in only 10% of the memory recorded by the heap profile, `lg_prof_sample:10` can reduce the sampling interval to 1K (2^10 B), more frequent sampling will make the heap profile close to real memory, but this will bring greater performance loss.
 
-1. Dump every 1MB:
+For detailed parameter description, refer to https://linux.die.net/man/3/jemalloc.
 
-   Two new variable settings `prof:true,lg_prof_interval:20` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `lg_prof_interval:20` means that a dump is generated every 1MB (2^20)
-2. Dump each time a new high is reached:
-
-   Added two variable settings `prof:true,prof_gdump:true` in the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `prof_gdump:true` means to generate a dump when the memory usage reaches a new high
-3. Memory leak dump when the program exits:
-
-   Added three new variable settings `prof_leak: true, lg_prof_sample: 0, prof_final: true` in the `JEMALLOC_CONF` variable
-
-
-#### 3. jemalloc heap dump profiling
+#### 2. jemalloc heap dump profiling
 
 3.1 Generating plain text analysis results
 ```shell
@@ -287,6 +357,18 @@ jeprof lib/doris_be --base=heap_dump_file_1 heap_dump_file_2
 
 In the above jeprof related commands, remove the `--base` option to analyze only a single heap dump file
 
+##### 3. heap dump by JEMALLOC_CONF
+Perform heap dump by restarting BE after changing the `JEMALLOC_CONF` variable in `start_be.sh`
+
+1. Dump every 1MB:
+
+   Two new variable settings `prof:true,lg_prof_interval:20` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `lg_prof_interval:20` means that a dump is generated every 1MB (2^20)
+2. Dump each time a new high is reached:
+
+   Added two variable settings `prof:true,prof_gdump:true` in the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `prof_gdump:true` means to generate a dump when the memory usage reaches a new high
+3. Memory leak dump when the program exits:
+
+   Added three new variable settings `prof_leak: true, lg_prof_sample: 0, prof_final: true` in the `JEMALLOC_CONF` variable
 
 #### ASAN
 

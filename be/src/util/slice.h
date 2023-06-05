@@ -25,7 +25,10 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "vec/common/allocator.h"
 
 namespace doris {
 
@@ -258,11 +261,11 @@ struct SliceMap {
 //     return page_data; // transfer ownership of buffer into the caller
 //   }
 //
-class OwnedSlice {
+// only receive the memory allocated by Allocator and disables mmap,
+// otherwise the memory may not be freed correctly, currently only be constructed by faststring.
+class OwnedSlice : private Allocator<false, false, false> {
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
-
-    OwnedSlice(uint8_t* _data, size_t size) : _slice(_data, size) {}
 
     OwnedSlice(OwnedSlice&& src) : _slice(src._slice) {
         src._slice.data = nullptr;
@@ -276,9 +279,15 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { delete[] _slice.data; }
+    ~OwnedSlice() { Allocator::free_no_munmap(_slice.data); }
 
     const Slice& slice() const { return _slice; }
+
+private:
+    // faststring also inherits Allocator and disables mmap.
+    friend class faststring;
+
+    OwnedSlice(uint8_t* _data, size_t size) : _slice(_data, size) {}
 
 private:
     // disable copy constructor and copy assignment

@@ -40,9 +40,16 @@ None
 
 ## Query parameters
 
-None
+* `type`
+
+    Optional parameter. Display all metrics by default, and with following values:
+    - `core` Output core metrics
+    - `json` Output metrics in json format
 
 ## Request body
 
 None
 
+## Response
+
+TO DO

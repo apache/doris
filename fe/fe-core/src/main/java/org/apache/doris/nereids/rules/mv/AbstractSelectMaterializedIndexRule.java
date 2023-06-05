@@ -17,27 +17,54 @@
 
 package org.apache.doris.nereids.rules.mv;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,7 +72,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Base class for selecting materialized index rules.
@@ -65,29 +91,66 @@ public abstract class AbstractSelectMaterializedIndexRule {
     protected boolean containAllRequiredColumns(
             MaterializedIndex index,
             LogicalOlapScan scan,
-            Set<Slot> requiredScanOutput) {
+            Set<Slot> requiredScanOutput,
+            Set<? extends Expression> requiredExpr) {
 
         OlapTable table = scan.getTable();
-        // Scan slot exprId -> slot name
-        Map<ExprId, String> exprIdToName = Stream.concat(
-                        scan.getOutput().stream(), scan.getNonUserVisibleOutput().stream())
-                .collect(Collectors.toMap(NamedExpression::getExprId, NamedExpression::getName));
 
-        // get required column names in metadata.
-        Set<String> requiredColumnNames = requiredScanOutput
-                .stream()
-                .map(slot -> exprIdToName.get(slot.getExprId()))
+        Set<String> requiredMvColumnNames = requiredScanOutput.stream()
+                    .map(s -> normalizeName(Column.getNameWithoutMvPrefix(s.getName())))
+                    .collect(Collectors.toSet());
+
+        Set<String> mvColNames = table.getSchemaByIndexId(index.getId(), true).stream()
+                .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
                 .collect(Collectors.toSet());
 
-        Set<String> nameMap = table.getSchemaByIndexId(index.getId(), true).stream()
-                .map(Column::getNameWithoutMvPrefix)
-                .collect(Collectors.toSet());
+        return mvColNames.containsAll(requiredMvColumnNames)
+                || requiredExpr.stream()
+                    .map(AbstractSelectMaterializedIndexRule::removeCastAndAlias)
+                    .filter(e -> !containsAllColumn(e, mvColNames))
+                    .collect(Collectors.toSet()).isEmpty();
+    }
 
-        table.getSchemaByIndexId(index.getId(), true).stream()
-                .forEach(column -> nameMap.add(column.getName()));
+    public static String parseMvColumnToSql(String mvName) {
+        return new NereidsParser().parseExpression(
+                    org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvName)).toSql();
+    }
 
-        return nameMap
-                .containsAll(requiredColumnNames);
+    public static String parseMvColumnToMvName(String mvName, Optional<String> aggTypeName) {
+        return CreateMaterializedViewStmt.mvColumnBuilder(aggTypeName,
+                new NereidsParser().parseExpression(
+                    org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvName)).toSql());
+    }
+
+    protected static Expression removeCastAndAlias(Expression expression) {
+        List<Expression> children = new ArrayList<>();
+        for (Expression child : expression.children()) {
+            children.add(removeCastAndAlias(child));
+        }
+        if (expression instanceof Cast) {
+            return ((Cast) expression.withChildren(children)).child();
+        }
+        if (expression instanceof Alias) {
+            return ((Alias) expression.withChildren(children)).child();
+        }
+        return children.isEmpty() ? expression : expression.withChildren(children);
+    }
+
+    protected static boolean containsAllColumn(Expression expression, Set<String> mvColumnNames) {
+        if (mvColumnNames.contains(Column.getNameWithoutMvPrefix(expression.toSql()))) {
+            return true;
+        }
+        if (expression.children().isEmpty()) {
+            return false;
+        }
+        boolean childContain = true;
+        for (Expression child : expression.children()) {
+            if (child instanceof Literal) {
+                continue;
+            }
+            childContain &= containsAllColumn(child, mvColumnNames);
+        }
+        return childContain;
     }
 
     /**
@@ -98,6 +161,10 @@ public abstract class AbstractSelectMaterializedIndexRule {
             List<MaterializedIndex> candidates,
             LogicalOlapScan scan,
             Set<Expression> predicates) {
+        if (candidates.isEmpty()) {
+            return scan.getTable().getBaseIndexId();
+        }
+
         OlapTable table = scan.getTable();
         // Scan slot exprId -> slot name
         Map<ExprId, String> exprIdToName = scan.getOutput()
@@ -285,5 +352,263 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
     protected boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
         return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
+    }
+
+    public static String normalizeName(String name) {
+        return name.replace("`", "").toLowerCase();
+    }
+
+    public static Expression slotToCaseWhen(Expression expression) {
+        return new CaseWhen(ImmutableList.of(new WhenClause(new IsNull(expression), new TinyIntLiteral((byte) 0))),
+                new TinyIntLiteral((byte) 1));
+    }
+
+    protected static String spliceScalarFunctionWithSlot(ScalarFunction scalarFunction, Slot slot) {
+        if (scalarFunction instanceof ToBitmap) {
+            return new ToBitmapWithCheck(slot).toSql();
+        }
+        return scalarFunction.withChildren(slot).toSql();
+    }
+
+    protected static String spliceAggFunctionWithSlot(AggregateFunction aggregateFunction, Slot slot) {
+        if (aggregateFunction instanceof Count && aggregateFunction.isDistinct() && aggregateFunction.arity() == 1) {
+            return new ToBitmapWithCheck(slot).toSql();
+        }
+        if (aggregateFunction instanceof Ndv) {
+            return new HllHash(slot).toSql();
+        }
+        return aggregateFunction.withChildren(slot).toSql();
+    }
+
+    protected SlotContext generateBaseScanExprToMvExpr(LogicalOlapScan mvPlan) {
+        Map<Slot, Slot> baseSlotToMvSlot = new HashMap<>();
+        Map<String, Slot> mvNameToMvSlot = new HashMap<>();
+        if (mvPlan.getSelectedIndexId() == mvPlan.getTable().getBaseIndexId()) {
+            return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot);
+        }
+        for (Slot mvSlot : mvPlan.getOutputByMvIndex(mvPlan.getSelectedIndexId())) {
+            boolean isPushed = false;
+            for (Slot baseSlot : mvPlan.getOutput()) {
+                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
+                    continue;
+                }
+                if (baseSlot.toSql().equalsIgnoreCase(
+                        org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(
+                            normalizeName(mvSlot.getName())))) {
+                    baseSlotToMvSlot.put(baseSlot, mvSlot);
+                    isPushed = true;
+                    break;
+                }
+            }
+            if (!isPushed) {
+                if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
+                    mvNameToMvSlot.put(normalizeName(
+                            org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(mvSlot.getName())),
+                            mvSlot);
+                }
+                mvNameToMvSlot.put(normalizeName(mvSlot.getName()), mvSlot);
+            }
+        }
+        return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot);
+    }
+
+    /** SlotContext */
+    protected static class SlotContext {
+        // base index Slot to selected mv Slot
+        public final Map<Slot, Slot> baseSlotToMvSlot;
+
+        // selected mv Slot name to mv Slot
+        public final Map<String, Slot> mvNameToMvSlot;
+
+        public SlotContext(Map<Slot, Slot> baseSlotToMvSlot, Map<String, Slot> mvNameToMvSlot) {
+            this.baseSlotToMvSlot = ImmutableMap.copyOf(baseSlotToMvSlot);
+            this.mvNameToMvSlot = ImmutableMap.copyOf(mvNameToMvSlot);
+        }
+    }
+
+    /**
+     * ReplaceExpressions
+     * Notes: For the sum type, the original column and the mv column may have inconsistent types,
+     *        but the be side will not check the column type, so it can work normally
+     */
+    protected static class ReplaceExpressions extends DefaultPlanVisitor<Plan, Void> {
+        private final SlotContext slotContext;
+
+        public ReplaceExpressions(SlotContext slotContext) {
+            this.slotContext = slotContext;
+        }
+
+        public Plan replace(Plan plan, LogicalOlapScan scan) {
+            if (scan.getSelectedIndexId() == scan.getTable().getBaseIndexId()) {
+                return plan;
+            }
+            return plan.accept(this, null);
+        }
+
+        @Override
+        public LogicalAggregate visitLogicalAggregate(LogicalAggregate agg, Void ctx) {
+            Plan child = agg.child(0).accept(this, ctx);
+            List<Expression> groupByExprs = agg.getGroupByExpressions();
+            List<Expression> newGroupByExprs = groupByExprs.stream()
+                    .map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                    .collect(ImmutableList.toImmutableList());
+
+            List<NamedExpression> outputExpressions = agg.getOutputExpressions();
+            List<NamedExpression> newOutputExpressions = outputExpressions.stream()
+                    .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                    .collect(ImmutableList.toImmutableList());
+
+            return agg.withNormalized(newGroupByExprs, newOutputExpressions, child);
+        }
+
+        @Override
+        public LogicalRepeat visitLogicalRepeat(LogicalRepeat repeat, Void ctx) {
+            Plan child = repeat.child(0).accept(this, ctx);
+            List<List<Expression>> groupingSets = repeat.getGroupingSets();
+            ImmutableList.Builder<List<Expression>> newGroupingExprs = ImmutableList.builder();
+            for (List<Expression> expressions : groupingSets) {
+                newGroupingExprs.add(expressions.stream()
+                        .map(expr -> new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                        .collect(ImmutableList.toImmutableList())
+                );
+            }
+
+            List<NamedExpression> outputExpressions = repeat.getOutputExpressions();
+            List<NamedExpression> newOutputExpressions = outputExpressions.stream()
+                    .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                    .collect(ImmutableList.toImmutableList());
+
+            return repeat.withNormalizedExpr(newGroupingExprs.build(), newOutputExpressions, child);
+        }
+
+        @Override
+        public LogicalFilter visitLogicalFilter(LogicalFilter filter, Void ctx) {
+            Plan child = filter.child(0).accept(this, ctx);
+            Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
+                    new ReplaceExpressionWithMvColumn(slotContext).replace(filter.getPredicate())));
+
+            return filter.withConjunctsAndChild(newConjuncts, child);
+        }
+
+        @Override
+        public LogicalProject visitLogicalProject(LogicalProject project, Void ctx) {
+            Plan child = project.child(0).accept(this, ctx);
+            List<NamedExpression> projects = project.getProjects();
+            List<NamedExpression> newProjects = projects.stream()
+                    .map(expr -> (NamedExpression) new ReplaceExpressionWithMvColumn(slotContext).replace(expr))
+                    .collect(ImmutableList.toImmutableList());
+
+            return project.withProjectsAndChild(newProjects, child);
+        }
+
+        @Override
+        public LogicalOlapScan visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
+            return scan.withLogicalProperties(Optional.empty());
+        }
+    }
+
+    /**
+     * ReplaceExpressionWithMvColumn
+     */
+    protected static class ReplaceExpressionWithMvColumn extends DefaultExpressionRewriter<Void> {
+        // base index Slot to selected mv Slot
+        private final Map<Slot, Slot> baseSlotToMvSlot;
+
+        // selected mv Slot name to mv Slot
+        private final Map<String, Slot> mvNameToMvSlot;
+
+        public ReplaceExpressionWithMvColumn(SlotContext slotContext) {
+            this.baseSlotToMvSlot = ImmutableMap.copyOf(slotContext.baseSlotToMvSlot);
+            this.mvNameToMvSlot = ImmutableMap.copyOf(slotContext.mvNameToMvSlot);
+        }
+
+        public Expression replace(Expression expression) {
+            return expression.accept(this, null);
+        }
+
+        @Override
+        public Expression visit(Expression expr, Void context) {
+            if (notUseMv() || org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumn(expr.toSql())) {
+                return expr;
+            } else if (checkExprIsMvColumn(expr)) {
+                return mvNameToMvSlot.get(
+                    org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+            } else {
+                expr = super.visit(expr, context);
+                return expr;
+            }
+        }
+
+        @Override
+        public Expression visitSlotReference(SlotReference slotReference, Void context) {
+            if (baseSlotToMvSlot.containsKey(slotReference)) {
+                return baseSlotToMvSlot.get(slotReference);
+            }
+            return slotReference;
+        }
+
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
+            String childrenName = aggregateFunction.children()
+                    .stream()
+                    .map(Expression::toSql)
+                    .collect(Collectors.joining(", "));
+            String mvName = org.apache.doris.analysis.CreateMaterializedViewStmt.mvAggregateColumnBuilder(
+                    aggregateFunction.getName(), childrenName);
+            if (mvNameToMvSlot.containsKey(mvName)) {
+                return aggregateFunction.withChildren(mvNameToMvSlot.get(mvName));
+            } else if (mvNameToMvSlot.containsKey(childrenName)) {
+                // aggRewrite eg: bitmap_union_count -> bitmap_union
+                return aggregateFunction.withChildren(mvNameToMvSlot.get(childrenName));
+            }
+            return visit(aggregateFunction, context);
+        }
+
+        @Override
+        public Expression visitAlias(Alias alias, Void context) {
+            if (mvNameToMvSlot.containsKey(alias.toSlot().toSql())) {
+                return mvNameToMvSlot.get(alias.toSlot().toSql());
+            }
+            return visit(alias, context);
+        }
+
+        @Override
+        public Expression visitScalarFunction(ScalarFunction scalarFunction, Void context) {
+            List<Expression> newChildrenWithoutCast = scalarFunction.children().stream()
+                    .map(child -> {
+                        if (child instanceof Cast) {
+                            return ((Cast) child).child();
+                        }
+                        return child;
+                    }).collect(ImmutableList.toImmutableList());
+            Expression newScalarFunction = scalarFunction.withChildren(newChildrenWithoutCast);
+            if (checkExprIsMvColumn(newScalarFunction)) {
+                return mvNameToMvSlot.get(
+                    org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBuilder(newScalarFunction.toSql()));
+            }
+            return visit(scalarFunction, context);
+        }
+
+        private boolean notUseMv() {
+            return baseSlotToMvSlot.isEmpty() && mvNameToMvSlot.isEmpty();
+        }
+
+        private boolean checkExprIsMvColumn(Expression expr) {
+            return mvNameToMvSlot.containsKey(
+                org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+        }
+    }
+
+    protected List<NamedExpression> generateProjectsAlias(
+            List<? extends NamedExpression> oldProjects, SlotContext slotContext) {
+        return oldProjects.stream().map(e -> {
+            if (slotContext.baseSlotToMvSlot.containsKey(e.toSlot())) {
+                return new Alias(e.getExprId(), slotContext.baseSlotToMvSlot.get(e.toSlot()), e.getName());
+            }
+            if (slotContext.mvNameToMvSlot.containsKey(e.toSql())) {
+                return new Alias(e.getExprId(), slotContext.mvNameToMvSlot.get(e.toSql()), e.getName());
+            }
+            return e;
+        }).collect(ImmutableList.toImmutableList());
     }
 }

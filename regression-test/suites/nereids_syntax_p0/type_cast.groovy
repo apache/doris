@@ -34,8 +34,21 @@ suite("type_cast") {
     sql """insert into test_table2 values('2020-05-25');"""
 
     def ret = sql"""explain verbose select * from test_table2 where day > CONVERT_tz('2020-05-25 00:00:00', 'Asia/Shanghai', 'Asia/Shanghai');"""
-    assertTrue(ret.toString().contains("CAST(day[#0] AS DATETIME)"))
+    assertTrue(ret.toString().contains("CAST(day[#0] AS DATETIMEV2(0))"))
 
     qt_sql """select count(*) from test_table2 where 'a' = 'a';"""
     qt_sql """select count(*) from test_table2 where cast('2020-01-01' as date) = cast('2020-01-01' as date);"""
+
+
+    test {
+        sql("""select id
+            from( select 1 id ) a
+            where case when id > 0 then 2 else 'abc' end = '2'""")
+        result([[1]])
+    }
+
+    test {
+        sql("select '12' = id from (select '1' as id)a")
+        result([[false]])
+    }
 }

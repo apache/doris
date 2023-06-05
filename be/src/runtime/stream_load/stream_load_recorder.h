@@ -15,11 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stdint.h>
+
+#include <atomic>
 #include <map>
 #include <string>
+#include <vector>
 
-#include "olap/utils.h"
-#include "rocksdb/utilities/db_ttl.h"
+#include "common/factory_creator.h"
+
+namespace rocksdb {
+class ColumnFamilyHandle;
+class DBWithTTL;
+} // namespace rocksdb
 
 #pragma once
 
@@ -28,6 +36,8 @@ namespace doris {
 class Status;
 
 class StreamLoadRecorder {
+    ENABLE_FACTORY_CREATOR(StreamLoadRecorder);
+
 public:
     StreamLoadRecorder(const std::string& root_path);
 

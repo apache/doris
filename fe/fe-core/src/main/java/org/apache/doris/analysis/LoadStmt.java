@@ -50,7 +50,6 @@ import java.util.Map.Entry;
 //      LOAD LABEL load_label
 //          (data_desc, ...)
 //          [broker_desc]
-//          [BY cluster]
 //          [resource_desc]
 //      [PROPERTIES (key1=value1, )]
 //
@@ -109,8 +108,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
     public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
     public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
-    public static final String KEY_IN_PARAM_JSONPATHS  = "jsonpaths";
-    public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
+    public static final String KEY_IN_PARAM_JSONPATHS = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT = "json_root";
     public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
     public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
@@ -127,7 +126,6 @@ public class LoadStmt extends DdlStmt {
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
-    private final String cluster;
     private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
     private String user;
@@ -217,7 +215,6 @@ public class LoadStmt extends DdlStmt {
         this.label = new LabelName();
         this.dataDescriptions = Lists.newArrayList(dataDescription);
         this.brokerDesc = null;
-        this.cluster = null;
         this.resourceDesc = null;
         this.properties = properties;
         this.user = null;
@@ -230,11 +227,10 @@ public class LoadStmt extends DdlStmt {
     }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties, String comment) {
+                    BrokerDesc brokerDesc, Map<String, String> properties, String comment) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = brokerDesc;
-        this.cluster = cluster;
         this.resourceDesc = null;
         this.properties = properties;
         this.user = null;
@@ -250,7 +246,6 @@ public class LoadStmt extends DdlStmt {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
         this.brokerDesc = null;
-        this.cluster = null;
         this.resourceDesc = resourceDesc;
         this.properties = properties;
         this.user = null;
@@ -273,10 +268,6 @@ public class LoadStmt extends DdlStmt {
         return brokerDesc;
     }
 
-    public String getCluster() {
-        return cluster;
-    }
-
     public ResourceDesc getResourceDesc() {
         return resourceDesc;
     }
@@ -285,6 +276,7 @@ public class LoadStmt extends DdlStmt {
         return properties;
     }
 
+    @Deprecated
     public String getUser() {
         return user;
     }
@@ -407,8 +399,8 @@ public class LoadStmt extends DdlStmt {
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
-                    dataDescription.getFilePaths().set(i,
-                            brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                    String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
+                    dataDescription.getFilePaths().set(i, location);
                     dataDescription.getFilePaths().set(i,
                             ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
                 }
@@ -504,11 +496,6 @@ public class LoadStmt extends DdlStmt {
         })).append(")");
         if (brokerDesc != null) {
             sb.append("\n").append(brokerDesc.toSql());
-        }
-        if (cluster != null) {
-            sb.append("\nBY '");
-            sb.append(cluster);
-            sb.append("'");
         }
         if (resourceDesc != null) {
             sb.append("\n").append(resourceDesc.toSql());

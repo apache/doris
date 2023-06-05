@@ -17,7 +17,14 @@
 
 #include "vec/exec/scan/vscanner.h"
 
+#include <glog/logging.h>
+
+#include "common/config.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -33,11 +40,14 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    if (!conjuncts.empty()) {
+        _conjuncts.resize(conjuncts.size());
+        for (size_t i = 0; i != conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(conjuncts[i]->clone(state, _conjuncts[i]));
+        }
     }
+
     return Status::OK();
 }
 
@@ -100,7 +110,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
 Status VScanner::_filter_output_block(Block* block) {
     auto old_rows = block->rows();
-    Status st = VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
+    Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
     return st;
 }
@@ -120,13 +130,13 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     }
 
     // There are newly arrived runtime filters,
-    // renew the vconjunct_ctx_ptr
-    if (_vconjunct_ctx) {
+    // renew the _conjuncts
+    if (!_conjuncts.empty()) {
         _discard_conjuncts();
     }
     // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
-    RETURN_IF_ERROR(_parent->clone_vconjunct_ctx(&_vconjunct_ctx));
+    RETURN_IF_ERROR(_parent->clone_conjunct_ctxs(_conjuncts));
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
@@ -135,14 +145,16 @@ Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    for (auto& ctx : _stale_vexpr_ctxs) {
+    for (auto& ctx : _stale_expr_ctxs) {
         ctx->close(state);
     }
-    if (_vconjunct_ctx) {
-        _vconjunct_ctx->close(state);
+
+    for (auto& conjunct : _conjuncts) {
+        conjunct->close(state);
     }
-    if (_common_vexpr_ctxs_pushdown) {
-        _common_vexpr_ctxs_pushdown->close(state);
+
+    for (auto& ctx : _common_expr_ctxs_push_down) {
+        ctx->close(state);
     }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);

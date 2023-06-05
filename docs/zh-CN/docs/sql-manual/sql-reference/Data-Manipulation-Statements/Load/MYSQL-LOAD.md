@@ -76,6 +76,8 @@ INTO TABLE tbl_name
 
 5. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
+6. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉导入文件每个字段最外层的双引号。
+
 ### Example
 
 1. 将客户端本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表。指定超时时间为 100 秒

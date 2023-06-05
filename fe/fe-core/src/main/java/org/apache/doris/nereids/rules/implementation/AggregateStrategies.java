@@ -29,9 +29,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -40,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -63,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -71,6 +71,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -215,6 +216,25 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
+        // TODO: refactor this to process slot reference or expression together
+        boolean onlyContainsSlotOrNumericCastSlot = aggregateFunctions.stream()
+                .map(ExpressionTrait::getArguments)
+                .flatMap(List::stream)
+                .allMatch(argument -> {
+                    if (argument instanceof SlotReference) {
+                        return true;
+                    }
+                    if (argument instanceof Cast) {
+                        return argument.child(0) instanceof SlotReference
+                                && argument.getDataType().isNumericType()
+                                && argument.child(0).getDataType().isNumericType();
+                    }
+                    return false;
+                });
+        if (!onlyContainsSlotOrNumericCastSlot) {
+            return canNotPush;
+        }
+
         // we already normalize the arguments to slotReference
         List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
@@ -228,7 +248,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .collect(ImmutableList.toImmutableList());
         }
 
-        boolean onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
+        onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
                 .stream()
                 .allMatch(argument -> {
                     if (argument instanceof SlotReference) {
@@ -395,8 +415,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithCountDistinctMulti(
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-
-        Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
+        Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(ImmutableSet.<Expression>builder()
                 .addAll(logicalAgg.getGroupByExpressions())
@@ -513,7 +532,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
-        Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
+        Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(ImmutableSet.<Expression>builder()
                 .addAll(logicalAgg.getGroupByExpressions())
@@ -738,7 +757,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                     PhysicalDistribute(distributionSpec=GATHER)
      *                                          |
@@ -748,7 +767,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      *     PhysicalHashAggregate(groupBy=[name], output=[name, count(distinct(id)], mode=BUFFER_TO_RESULT)
      *                                          |
-     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_RESULT)
+     *     PhysicalHashAggregate(groupBy=[name, id], output=[name, id], mode=INPUT_TO_BUFFER)
      *                                          |
      *                 PhysicalDistribute(distributionSpec=HASH(name))
      *                                          |
@@ -769,7 +788,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(distinctArguments)
                 .build();
 
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
@@ -981,7 +1000,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
-                    .add(anyLocalGatherGlobalGatherDistinctAgg)
+                    // TODO: this plan pattern is not good usually, we remove it temporary.
+                    // .add(anyLocalGatherGlobalGatherDistinctAgg)
                     .add(anyLocalHashGlobalGatherDistinctAgg)
                     .build();
         } else {
@@ -1134,7 +1154,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 RequireProperties.of(PhysicalProperties.GATHER), anyLocalAgg);
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
-            Set<Expression> distinctArguments = logicalAgg.getDistinctArguments();
+            Collection<Expression> distinctArguments = logicalAgg.getDistinctArguments();
             RequireProperties requireDistinctHash = RequireProperties.of(PhysicalProperties.createHash(
                     distinctArguments, ShuffleType.AGGREGATE));
             PhysicalHashAggregate<? extends Plan> hashLocalGatherGlobalAgg = anyLocalGatherGlobalAgg
@@ -1229,8 +1249,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     // don't invoke the ExpressionNormalization, because the expression maybe simplified and get rid of some slots
     private If assignNullType(If ifExpr, CascadesContext cascadesContext) {
-        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        If ifWithCoercion = (If) TypeCoercion.INSTANCE.rewrite(ifExpr, context);
+        If ifWithCoercion = (If) TypeCoercionUtils.processBoundFunction(ifExpr);
         Expression trueValue = ifWithCoercion.getArgument(1);
         if (trueValue instanceof Cast && trueValue.child(0) instanceof NullLiteral) {
             List<Expression> newArgs = Lists.newArrayList(ifWithCoercion.getArguments());
@@ -1276,7 +1295,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(distinctArguments)
                 .build();
 
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())

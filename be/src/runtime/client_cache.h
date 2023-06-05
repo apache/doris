@@ -17,19 +17,31 @@
 
 #pragma once
 
-#include <list>
-#include <mutex>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include <gen_cpp/BackendService.h>     // IWYU pragma: keep
+#include <gen_cpp/FrontendService.h>    // IWYU pragma: keep
+#include <gen_cpp/TPaloBrokerService.h> // IWYU pragma: keep
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
+#include <unistd.h>
 
+#include <functional>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <string>
+#include <typeinfo>
+#include <unordered_map>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thrift_client.h"
+#include "util/thrift_server.h"
 
 namespace doris {
-
 // Helper class which implements the majority of the caching
 // functionality without using templates (i.e. pointers to the
 // superclass of all ThriftClients and a void* for the key).
@@ -75,13 +87,7 @@ public:
     // Return a client to the cache, without closing it, and set *client_key to nullptr.
     void release_client(void** client_key);
 
-    // Close all connections to a host (e.g., in case of failure) so that on their
-    // next use they will have to be Reopen'ed.
-    void close_connections(const TNetworkAddress& address);
-
     std::string debug_string();
-
-    void test_shutdown();
 
     void init_metrics(const std::string& name);
 
@@ -161,6 +167,7 @@ public:
                 DCHECK(_client != nullptr);
                 break;
             }
+            DCHECK(_client == nullptr);
             if (num_retries++ < max_retries) {
                 // exponential backoff retry with starting delay of 500ms
                 usleep(500000 * (1 << num_retries));
@@ -194,7 +201,7 @@ class ClientCache {
 public:
     using Client = ThriftClient<T>;
 
-    ClientCache() : _client_cache_helper() {
+    ClientCache() {
         _client_factory =
                 std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
                                              std::placeholders::_1, std::placeholders::_2);
@@ -206,18 +213,8 @@ public:
                                              std::placeholders::_1, std::placeholders::_2);
     }
 
-    // Close all clients connected to the supplied address, (e.g., in
-    // case of failure) so that on their next use they will have to be
-    // Reopen'ed.
-    void close_connections(const TNetworkAddress& hostport) {
-        return _client_cache_helper.close_connections(hostport);
-    }
-
     // Helper method which returns a debug string
     std::string debug_string() { return _client_cache_helper.debug_string(); }
-
-    // For testing only: shutdown all clients
-    void test_shutdown() { return _client_cache_helper.test_shutdown(); }
 
     // Adds metrics for this cache.
     // The metrics have an identification by the 'name' argument
@@ -283,13 +280,12 @@ private:
 
 // Doris backend client cache, used by a backend to send requests
 // to any other backend.
-class BackendServiceClient;
 using BackendServiceClientCache = ClientCache<BackendServiceClient>;
 using BackendServiceConnection = ClientConnection<BackendServiceClient>;
-class FrontendServiceClient;
+
 using FrontendServiceClientCache = ClientCache<FrontendServiceClient>;
 using FrontendServiceConnection = ClientConnection<FrontendServiceClient>;
-class TPaloBrokerServiceClient;
+
 using BrokerServiceClientCache = ClientCache<TPaloBrokerServiceClient>;
 using BrokerServiceConnection = ClientConnection<TPaloBrokerServiceClient>;
 

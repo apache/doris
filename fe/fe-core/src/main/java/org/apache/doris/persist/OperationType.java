@@ -75,10 +75,11 @@ public class OperationType {
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     //schema change for add and drop columns
-    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    public static final short OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE = 128;
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+    public static final short OP_INVERTED_INDEX_JOB = 221;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -131,6 +132,8 @@ public class OperationType {
     // replaced by OP_GLOBAL_VARIABLE_V2
     public static final short OP_GLOBAL_VARIABLE = 73;
 
+    @Deprecated
+    // remove be removed in 3.0
     public static final short OP_CREATE_CLUSTER = 74;
     public static final short OP_DROP_CLUSTER = 75;
     public static final short OP_EXPAND_CLUSTER = 76;
@@ -180,6 +183,8 @@ public class OperationType {
     // UDF 130-140
     public static final short OP_ADD_FUNCTION = 130;
     public static final short OP_DROP_FUNCTION = 131;
+    public static final short OP_ADD_GLOBAL_FUNCTION = 132;
+    public static final short OP_DROP_GLOBAL_FUNCTION = 133;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
@@ -277,6 +282,27 @@ public class OperationType {
     // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
     public static final short OP_COOLDOWN_DELETE = 402;
+    public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
+
+    // workload group 410 ~ 419
+    public static final short OP_CREATE_WORKLOAD_GROUP = 410;
+    public static final short OP_DROP_WORKLOAD_GROUP = 411;
+    public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+
+    // query stats 440 ~ 424
+    public static final short OP_CLEAN_QUERY_STATS = 420;
+
+    // update binlog config
+    public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
+
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
+
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
+
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
 
     /**
      * Get opcode name by op code.

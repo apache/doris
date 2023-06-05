@@ -9,10 +9,10 @@ k	INT	Yes	true	\N
 int_value	INT	Yes	false	\N	NONE
 char_value	CHAR(10)	Yes	false	\N	NONE
 date_value	DATE	Yes	false	\N	NONE
-date_value2	DATEV2	Yes	false	\N	NONE
-date_value3	DATETIMEV2(0)	Yes	false	\N	NONE
-date_value4	DATETIMEV2(3)	Yes	false	\N	NONE
-date_value5	DATETIMEV2(6)	Yes	false	\N	NONE
+date_value2	DATE	Yes	false	\N	NONE
+date_value3	DATETIME	Yes	false	\N	NONE
+date_value4	DATETIME	Yes	false	\N	NONE
+date_value5	DATETIME	Yes	false	\N	NONE
 
 -- !select_dup_table --
 0	1	2	3

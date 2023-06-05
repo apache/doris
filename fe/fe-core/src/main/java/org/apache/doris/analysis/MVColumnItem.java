@@ -19,9 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -154,6 +156,16 @@ public class MVColumnItem {
         return baseTableName;
     }
 
+    public Column toMVColumn(Table table) throws DdlException {
+        if (table instanceof OlapTable) {
+            return toMVColumn((OlapTable) table);
+        } else if (table instanceof InlineView) {
+            return toMVColumn((InlineView) table);
+        } else {
+            throw new DdlException("Failed to convert to a materialized view column, column=" + getName() + ".");
+        }
+    }
+
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
         Column baseColumn = olapTable.getBaseColumn(name);
         Column result;
@@ -186,7 +198,11 @@ public class MVColumnItem {
         return result;
     }
 
-    public void setBaseTableName(String baseTableName) {
-        this.baseTableName = baseTableName;
+    public Column toMVColumn(InlineView view) throws DdlException {
+        Column baseColumn = view.getColumn(name);
+        if (baseColumn == null) {
+            throw new DdlException("Failed to get the column (" + name + ") in a view (" + view + ").");
+        }
+        return new Column(baseColumn);
     }
 }

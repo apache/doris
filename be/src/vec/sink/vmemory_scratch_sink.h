@@ -17,17 +17,16 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
 #include "exec/data_sink.h"
-#include "gen_cpp/DorisExternalService_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/result_queue_mgr.h"
-#include "util/blocking_queue.hpp"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace arrow {
 
-class MemoryPool;
-class RecordBatch;
 class Schema;
 
 } // namespace arrow
@@ -35,20 +34,19 @@ class Schema;
 namespace doris {
 
 class ObjectPool;
-class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
-class BufferControlBlock;
-class ResultWriter;
+class RowDescriptor;
+class TExpr;
+class TMemoryScratchSink;
 
 namespace vectorized {
-class VExprContext;
+class Block;
 
 // used to push data to blocking queue
 class MemoryScratchSink final : public DataSink {
 public:
-    MemoryScratchSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
-                      const TMemoryScratchSink& sink, ObjectPool* pool);
+    MemoryScratchSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
 
     ~MemoryScratchSink() override = default;
 
@@ -77,9 +75,7 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
-
-    ObjectPool* _pool;
+    VExprContextSPtrs _output_vexpr_ctxs;
 };
 } // namespace vectorized
 } // namespace doris

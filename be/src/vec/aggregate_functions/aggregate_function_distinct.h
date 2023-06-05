@@ -20,15 +20,39 @@
 
 #pragma once
 
+#include <assert.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <memory>
+#include <new>
+#include <string>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/key_holder_helpers.h"
-#include "vec/common/aggregation_common.h"
+#include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/field_visitors.h"
 #include "vec/common/hash_table/hash_set.h"
-#include "vec/common/hash_table/hash_table.h"
-#include "vec/common/sip_hash.h"
+#include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
+template <typename, typename>
+struct DefaultHash;
 
 namespace doris::vectorized {
 
@@ -195,7 +219,6 @@ public:
         this->data(place).deserialize(buf, arena);
     }
 
-    // void insert_result_into(AggregateDataPtr place, IColumn & to, Arena * arena) const override
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
         auto place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);
@@ -219,7 +242,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data;
-        nested_func->create(get_nested_place(place));
+        SAFE_CREATE(nested_func->create(get_nested_place(place)), this->data(place).~Data());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {

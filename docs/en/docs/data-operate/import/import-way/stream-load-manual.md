@@ -181,6 +181,12 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
++ enable_profile
+  <version since="1.2.4">
+  </version>
+
+  When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.
+
   Example：
 
     1. Initiate a stream load pre-commit operation

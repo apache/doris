@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -97,13 +99,13 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HMSResource.HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get(HMSProperties.HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
             throw new DdlException(String.format(
-                    PROPERTY_MISSING_MSG, HMSResource.HIVE_METASTORE_URIS, HMSResource.HIVE_METASTORE_URIS));
+                    PROPERTY_MISSING_MSG, HMSProperties.HIVE_METASTORE_URIS, HMSProperties.HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HMSResource.HIVE_METASTORE_URIS);
-        hiveProperties.put(HMSResource.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove(HMSProperties.HIVE_METASTORE_URIS);
+        hiveProperties.put(HMSProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
 
         // check auth type
         String authType = copiedProps.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);
@@ -146,7 +148,9 @@ public class HiveTable extends Table {
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 String key = entry.getKey();
-                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX) || key.startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
+                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX)
+                        || key.startsWith(S3Properties.S3_PREFIX)
+                        || key.startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }

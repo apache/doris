@@ -72,4 +72,150 @@ suite("test_delete") {
     sql """ delete from delete_regression_test where k1 = 'abcdef' """
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """ DROP TABLE IF EXISTS tb_test1 """
+    sql """  CREATE TABLE `tb_test1` (
+  	    `dt` date NULL,
+  	    `code` int(11) NULL
+	) ENGINE=OLAP
+    DUPLICATE KEY(`dt`, `code`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`dt`)
+    (PARTITION m202206 VALUES [('2022-06-01'), ('2022-07-01')),
+    PARTITION m202207 VALUES [('2022-07-01'), ('2022-08-01')),
+    PARTITION m202208 VALUES [('2022-08-01'), ('2022-09-01')),
+    PARTITION m202209 VALUES [('2022-09-01'), ('2022-10-01')),
+    PARTITION m202210 VALUES [('2022-10-01'), ('2022-11-01')),
+    PARTITION m202211 VALUES [('2022-11-01'), ('2022-12-01')),
+    PARTITION m202212 VALUES [('2022-12-01'), ('2023-01-01')),
+    PARTITION m202301 VALUES [('2023-01-01'), ('2023-02-01')),
+    PARTITION m202302 VALUES [('2023-02-01'), ('2023-03-01')),
+    PARTITION m202303 VALUES [('2023-03-01'), ('2023-04-01')),
+    PARTITION m202304 VALUES [('2023-04-01'), ('2023-05-01')))
+    DISTRIBUTED BY HASH(`dt`, `code`) BUCKETS 10
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "dynamic_partition.enable" = "true",
+        "dynamic_partition.time_unit" = "MONTH",
+        "dynamic_partition.time_zone" = "Asia/Shanghai",
+        "dynamic_partition.start" = "-2147483648",
+        "dynamic_partition.end" = "1",
+        "dynamic_partition.prefix" = "m",
+        "dynamic_partition.replication_allocation" = "tag.location.default: 1",
+        "dynamic_partition.buckets" = "10",
+        "dynamic_partition.create_history_partition" = "false",
+        "dynamic_partition.history_partition_num" = "-1",
+        "dynamic_partition.hot_partition_num" = "0",
+        "dynamic_partition.reserved_history_periods" = "NULL",
+        "dynamic_partition.storage_policy" = "",
+        "dynamic_partition.start_day_of_month" = "1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+    );
+	"""
+    sql """ insert into tb_test1 values ('2022-10-01', 123); """
+    qt_sql9 """select * from tb_test1;"""
+    sql """ delete from tb_test1 where DT = '20221001'; """
+    qt_sql10 """select * from tb_test1;"""
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb """
+    sql """
+        CREATE TABLE `delete_test_tb` (
+          `k1` varchar(30)  NULL,
+          `v1` varchar(30) NULL
+        )
+        UNIQUE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb values
+            (' ', '1'), ('  ', '2'), ('   ', '3'), ('    ', '4'),
+            ('abc', '5'), ("'d", '6'), ("'e'", '7'), ("f'", '8');
+    """
+
+    qt_check_data """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = '  ';
+    """
+    qt_check_data2 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+     sql """
+        delete from delete_test_tb where k1 = '    ';
+    """
+    qt_check_data3 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'d";
+    """
+    qt_check_data4 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'e'";
+    """
+    qt_check_data5 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "f'";
+    """
+    qt_check_data6 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb2 """
+    sql """
+        CREATE TABLE `delete_test_tb2` (
+          `k1` int  NULL,
+          `k2` decimal(9, 2) NULL,
+          `v1` double NULL
+        )
+        UNIQUE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb2 values
+            (1, 1.12, 1.1), (2, 2.23, 2.2), (3, 3.34, 3.3), (null, 4.45, 4.4),
+            (5, null, 5.5), (null, null, 6.6);
+    """
+
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 1; """
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k2 = 2.23; """
+    qt_check_numeric2 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.3; """
+    qt_check_numeric3 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.34; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is not null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
 }

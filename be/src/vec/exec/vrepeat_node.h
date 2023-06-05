@@ -17,7 +17,17 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <iosfwd>
+#include <memory>
+#include <set>
+#include <vector>
+
+#include "common/global_types.h"
 #include "exec/exec_node.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -26,9 +36,10 @@ class TPlanNode;
 class DescriptorTbl;
 class RuntimeState;
 class Status;
+class SlotDescriptor;
+class TupleDescriptor;
 
 namespace vectorized {
-class VExprContext;
 
 class VRepeatNode : public ExecNode {
 public:
@@ -68,7 +79,7 @@ private:
 
     std::vector<SlotDescriptor*> _output_slots;
 
-    std::vector<VExprContext*> _expr_ctxs;
+    VExprContextSPtrs _expr_ctxs;
     bool _child_eos;
     int _repeat_id_idx;
 };

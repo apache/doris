@@ -26,6 +26,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class FunctionContext;
 
 class MathFunctions {
 public:

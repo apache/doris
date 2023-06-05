@@ -21,11 +21,35 @@
 
 #pragma once
 
-#include "common/logging.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -179,15 +203,15 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& window =
-                static_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
+                assert_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
         // TODO: handle mode in the future.
         // be/src/olap/row_block2.cpp copy_data_to_column
         const auto& timestamp =
-                static_cast<const ColumnVector<NativeType>&>(*columns[2]).get_data()[row_num];
+                assert_cast<const ColumnVector<NativeType>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;
         for (int i = NON_EVENT_NUM; i < IAggregateFunction::get_argument_types().size(); i++) {
             const auto& is_set =
-                    static_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
+                    assert_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
             if (is_set) {
                 this->data(place).add(
                         binary_cast<NativeType, DateValueType>(timestamp), i - NON_EVENT_NUM,

@@ -20,54 +20,29 @@
 
 #include "vec/aggregate_functions/aggregate_function_window.h"
 
-#include "common/logging.h"
+#include <string>
+#include <variant>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
-AggregateFunctionPtr create_aggregate_function_dense_rank(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionDenseRank>(
-            result_is_nullable, argument_types));
-}
-
-AggregateFunctionPtr create_aggregate_function_rank(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            creator_without_type::create<WindowFunctionRank>(result_is_nullable, argument_types));
-}
-
-AggregateFunctionPtr create_aggregate_function_row_number(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    return AggregateFunctionPtr(creator_without_type::create<WindowFunctionRowNumber>(
-            result_is_nullable, argument_types));
-}
-
-AggregateFunctionPtr create_aggregate_function_ntile(const std::string& name,
-                                                     const DataTypes& argument_types,
-                                                     const bool result_is_nullable) {
-    assert_unary(name, argument_types);
-    return AggregateFunctionPtr(
-            creator_without_type::create<WindowFunctionNTile>(result_is_nullable, argument_types));
-}
-
 template <template <typename> class AggregateFunctionTemplate,
           template <typename ColVecType, bool, bool> class Data, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable>
-IAggregateFunction* create_function_lead_lag_first_last(const String& name,
-                                                        const DataTypes& argument_types) {
+AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
+                                                         const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)           \
-    if (which.idx == TypeIndex::TYPE)         \
-        return new AggregateFunctionTemplate< \
-                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>(argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                        \
+    if (which.idx == TypeIndex::TYPE)                      \
+        return std::make_shared<AggregateFunctionTemplate< \
+                Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>>>>(argument_types);
     TYPE_TO_BASIC_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
@@ -110,10 +85,10 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last,
                                           WindowFunctionLastImpl);
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("dense_rank", create_aggregate_function_dense_rank);
-    factory.register_function("rank", create_aggregate_function_rank);
-    factory.register_function("row_number", create_aggregate_function_row_number);
-    factory.register_function("ntile", create_aggregate_function_ntile);
+    factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
+    factory.register_function("rank", creator_without_type::creator<WindowFunctionRank>);
+    factory.register_function("row_number", creator_without_type::creator<WindowFunctionRowNumber>);
+    factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

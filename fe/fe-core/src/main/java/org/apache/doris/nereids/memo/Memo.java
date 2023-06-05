@@ -37,8 +37,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -46,6 +46,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +62,7 @@ import javax.annotation.Nullable;
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
+    public static final Logger LOG = LogManager.getLogger(Memo.class);
     // generate group id in memo is better for test, since we can reproduce exactly same Memo.
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
@@ -107,6 +110,38 @@ public class Memo {
         return groupExpressions;
     }
 
+    public int getGroupExpressionsSize() {
+        return groupExpressions.size();
+    }
+
+    private Plan skipProject(Plan plan, Group targetGroup) {
+        // Some top project can't be eliminated
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return skipProject(logicalProject.child(), targetGroup);
+                }
+            }
+        }
+        return plan;
+    }
+
+    private Plan skipProjectGetChild(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            Plan child = logicalProject.child();
+            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
+                return skipProjectGetChild(child);
+            }
+        }
+        return plan;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -122,7 +157,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(plan, target);
+            result = doCopyIn(skipProject(plan, target), target);
         }
         maybeAddStateId(result);
         return result;
@@ -177,10 +212,6 @@ public class Memo {
 
     public Plan copyOut() {
         return copyOut(root, false);
-    }
-
-    public Plan copyOut(boolean includeGroupExpression) {
-        return copyOut(root, includeGroupExpression);
     }
 
     /**
@@ -326,22 +357,12 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
-        // TODO: this is same with EliminateUnnecessaryProject,
-        //   we need a infra to rewrite plan after every exploration job
-        if (plan instanceof LogicalProject) {
-            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return doCopyIn(logicalProject.child(), targetGroup);
-                }
-            }
-        }
+        Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+            LOG.info("Insert a plan into targetGroup but differ in logicalproperties."
+                            + "\nPlan logicalproperties: {}\n targetGroup logicalproperties: {}",
+                    plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
@@ -350,13 +371,14 @@ public class Memo {
         }
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
-            Plan child = plan.children().get(i);
+            // skip useless project.
+            Plan child = skipProjectGetChild(plan.child(i));
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(copyIn(child, null, false).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
@@ -378,7 +400,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;
@@ -412,6 +434,9 @@ public class Memo {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
                 mergeGroup(existedGroupExpression.getOwnerGroup(), target);
             }
+            // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
+            // But if it already exists, we should remove it from ParentExpression of childGroup.
+            groupExpression.children().forEach(childGroup -> childGroup.removeParentExpression(groupExpression));
             return CopyInResult.of(false, existedGroupExpression);
         }
         if (target != null) {
@@ -433,29 +458,30 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
-     * @return merged group
      */
-    public Group mergeGroup(Group source, Group destination) {
+    public void mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
-            return source;
+            return;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression groupExpression : groupExpressions.values()) {
-            if (groupExpression.children().contains(source)) {
-                if (groupExpression.getOwnerGroup().equals(destination)) {
-                    // cycle, we should not merge
-                    return null;
-                }
-                needReplaceChild.add(groupExpression);
+        for (GroupExpression parent : source.getParentGroupExpressions()) {
+            if (parent.getOwnerGroup().equals(destination)) {
+                // cycle, we should not merge
+                return;
             }
+            // PhysicalEnforcer don't exist in memo, so we need skip them.
+            if (parent.getPlan() instanceof PhysicalDistribute) {
+                // TODO: SortEnforcer.
+                continue;
+            }
+            needReplaceChild.add(parent);
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 
-        Map<Group, Group> needMergeGroupPairs = Maps.newHashMap();
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
-            Utils.replaceList(reinsertGroupExpr.children(), source, destination);
+            reinsertGroupExpr.replaceChild(source, destination);
 
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {
@@ -472,19 +498,14 @@ public class Memo {
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
-                    needMergeGroupPairs.put(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
             }
         }
-        if (!source.equals(destination)) {
-            source.mergeTo(destination);
-            groups.remove(source.getGroupId());
-        }
-
-        needMergeGroupPairs.forEach(this::mergeGroup);
-        return destination;
+        source.mergeTo(destination);
+        groups.remove(source.getGroupId());
     }
 
     /**
@@ -510,7 +531,9 @@ public class Memo {
     }
 
     public Group newGroup(LogicalProperties logicalProperties) {
-        return new Group(groupIdGenerator.getNextId(), logicalProperties);
+        Group group = new Group(groupIdGenerator.getNextId(), logicalProperties);
+        groups.put(group.getGroupId(), group);
+        return group;
     }
 
     // This function is used to copy new group expression
@@ -703,13 +726,16 @@ public class Memo {
                 }
             }
 
-            builder.append("  lowest Plan(cost, properties, plan)");
+            builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
             group.getAllProperties().forEach(
                     prop -> {
                         Optional<Pair<Cost, GroupExpression>> costAndGroupExpression = group.getLowestCostPlan(prop);
                         if (costAndGroupExpression.isPresent()) {
-                            builder.append("\n    " + costAndGroupExpression.get().first.getValue() + " " + prop)
-                                    .append("\n     ").append(costAndGroupExpression.get().second);
+                            Cost cost = costAndGroupExpression.get().first;
+                            GroupExpression child = costAndGroupExpression.get().second;
+                            builder.append("\n    " + cost.getValue() + " " + prop)
+                                    .append("\n     ").append(child)
+                                    .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
                         }
                     }
             );
@@ -720,11 +746,11 @@ public class Memo {
 
     /**
      * rank all plan and select n-th plan, we write the algorithm according paper:
-     *      * Counting,Enumerating, and Sampling of Execution Plans in a Cost-Based Query Optimizer
+     * * Counting,Enumerating, and Sampling of Execution Plans in a Cost-Based Query Optimizer
      * Specifically each physical plan in memo is assigned a unique ID in rank(). And then we sort the
      * plan according their cost and choose the n-th plan. Note we don't generate any physical plan in rank
      * function.
-     *
+     * <p>
      * In unrank() function, we will extract the actual physical function according the unique ID
      */
     public Pair<Long, Double> rank(long n) {
@@ -798,9 +824,10 @@ public class Memo {
         return res;
     }
 
-    /** we permute all children, e.g.,
-     *      for children [1, 2] [1, 2, 3]
-     *      we can get: 0: [1,1] 1:[1, 2] 2:[1, 3] 3:[2, 1] 4:[2, 2] 5:[2, 3]
+    /**
+     * we permute all children, e.g.,
+     * for children [1, 2] [1, 2, 3]
+     * we can get: 0: [1,1] 1:[1, 2] 2:[1, 3] 3:[2, 1] 4:[2, 2] 5:[2, 3]
      */
     private void permute(List<List<Pair<Long, Double>>> children, int index,
             List<Pair<Long, List<Integer>>> result, List<Integer> current) {
@@ -818,9 +845,9 @@ public class Memo {
     /**
      * This method is used to calculate the unique ID for one combination,
      * The current is used to represent the index of the child in lists e.g.,
-     *       for children [1], [1, 2], The possible indices and IDs are:
-     *       [0, 0]: 0*1 + 0*1*2
-     *       [0, 1]: 0*1 + 1*1*2
+     * for children [1], [1, 2], The possible indices and IDs are:
+     * [0, 0]: 0*1 + 0*1*2
+     * [0, 1]: 0*1 + 1*1*2
      */
     private static long getUniqueId(List<List<Pair<Long, Double>>> lists, List<Integer> current) {
         long id = 0;

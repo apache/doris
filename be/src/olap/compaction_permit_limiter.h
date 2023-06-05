@@ -17,12 +17,11 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
-
-#include "common/config.h"
-#include "olap/utils.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -37,7 +36,7 @@ public:
     CompactionPermitLimiter();
     virtual ~CompactionPermitLimiter() {}
 
-    bool request(int64_t permits);
+    void request(int64_t permits);
 
     void release(int64_t permits);
 

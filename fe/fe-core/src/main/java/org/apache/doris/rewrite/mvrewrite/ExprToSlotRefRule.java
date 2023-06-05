@@ -20,6 +20,7 @@ package org.apache.doris.rewrite.mvrewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -50,9 +51,14 @@ import java.util.stream.Collectors;
 public class ExprToSlotRefRule implements ExprRewriteRule {
 
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
+    private ExprSubstitutionMap mvSMap;
+    private ExprSubstitutionMap aliasSMap;
 
-    public void setDisableTuplesMVRewriter(Set<TupleId> disableTuplesMVRewriter) {
+    public void setInfoMVRewriter(Set<TupleId> disableTuplesMVRewriter, ExprSubstitutionMap mvSMap,
+            ExprSubstitutionMap aliasSMap) {
         this.disableTuplesMVRewriter.addAll(disableTuplesMVRewriter);
+        this.mvSMap = mvSMap;
+        this.aliasSMap = aliasSMap;
     }
 
     private Pair<OlapTable, TableName> getTable(Expr expr) {
@@ -83,7 +89,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
     public boolean isDisableTuplesMVRewriter(Expr expr) {
         boolean result;
         try {
-            result = expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+            result = expr.isRelativedByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
         } catch (Exception e) {
             result = true;
         }
@@ -178,7 +184,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (mvColumn != null) {
             expr = expr.clone();
-            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer));
+            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer, expr.getChild(0)));
         }
 
         return expr;
@@ -196,7 +202,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (mvColumn != null) {
             expr = expr.clone();
-            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer));
+            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer, expr.getChild(0)));
         }
 
         return expr;
@@ -245,7 +251,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (mvColumn != null) {
             expr = (FunctionCallExpr) expr.clone();
-            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer));
+            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer, expr.getChild(0)));
         }
 
         return expr;
@@ -266,14 +272,18 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             }
         }
 
-        return rewriteExpr(tableName, mvColumn, analyzer);
+        return rewriteExpr(tableName, mvColumn, analyzer, expr);
     }
 
-    private Expr rewriteExpr(TableName tableName, Column mvColumn, Analyzer analyzer) {
+    private Expr rewriteExpr(TableName tableName, Column mvColumn, Analyzer analyzer, Expr originExpr)
+            throws AnalysisException {
         Preconditions.checkNotNull(mvColumn);
         Preconditions.checkNotNull(tableName);
         SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getDefineName());
         mvSlotRef.analyzeNoThrow(analyzer);
+
+        originExpr.analyze(analyzer);
+        mvSMap.put(mvSlotRef, originExpr.trySubstitute(aliasSMap, analyzer, false).clone());
         return mvSlotRef;
     }
 }

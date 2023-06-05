@@ -26,15 +26,23 @@ under the License.
 ### description
 #### Syntax
 
-`running_difference(x);`
+`T running_difference(T x)`
 计算数据块中连续行值的差值。该函数的结果取决于受影响的数据块和块中数据的顺序。
 
-计算 running_difference 期间使用的行顺序可能与返回给用户的行顺序不同。为防止您可以使用 **ORDER BY** 进行子查询并从子查询外部调用该函数。
+计算 running_difference 期间使用的行顺序可能与返回给用户的行顺序不同。所以结果是不稳定的。**此函数会在后续版本中废弃**。
+推荐使用窗口函数完成预期功能。举例如下：
+```sql
+-- running difference(x)
+SELECT running_difference(x) FROM t ORDER BY k;
+
+-- 窗口函数
+SELECT x - lag(x, 1, 0) OVER (ORDER BY k) FROM t;
+```
 
 #### Arguments
 `x` - 一列数据.数据类型可以是TINYINT,SMALLINT,INT,BIGINT,LARGEINT,FLOAT,DOUBLE,DATE,DATETIME,DECIMAL
 
-##### Returned value
+#### Returned value
 第一行返回 0，随后的每一行返回与前一行的差值。
 
 ### example
@@ -43,18 +51,18 @@ under the License.
 DROP TABLE IF EXISTS running_difference_test;
 
 CREATE TABLE running_difference_test (
-                 `id` int NOT NULL COMMENT 'id' ,
-                `day` date COMMENT 'day', 
-	`time_val` datetime COMMENT 'time_val',
- 	`doublenum` double NULL COMMENT 'doublenum'
-                )
+    `id` int NOT NULL COMMENT 'id',
+    `day` date COMMENT 'day', 
+    `time_val` datetime COMMENT 'time_val',
+    `doublenum` double NULL COMMENT 'doublenum'
+)
 DUPLICATE KEY(id) 
 DISTRIBUTED BY HASH(id) BUCKETS 3 
 PROPERTIES ( 
     "replication_num" = "1"
 ); 
                                                   
-INSERT into running_difference_test (id,day, time_val,doublenum) values ('1', '2022-10-28', '2022-03-12 10:41:00', null),
+INSERT into running_difference_test (id, day, time_val,doublenum) values ('1', '2022-10-28', '2022-03-12 10:41:00', null),
                                                    ('2','2022-10-27', '2022-03-12 10:41:02', 2.6),
                                                    ('3','2022-10-28', '2022-03-12 10:41:03', 2.5),
                                                    ('4','2022-9-29', '2022-03-12 10:41:03', null),

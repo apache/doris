@@ -48,9 +48,8 @@ public class DataGenScanNode extends ScanNode {
     private DataGenTableValuedFunction tvf;
     private boolean isFinalized = false;
 
-    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc,
-                                       String planNodeName, DataGenTableValuedFunction tvf) {
-        super(id, desc, planNodeName, StatisticalType.TABLE_VALUED_FUNCTION_NODE);
+    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
+        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE);
         this.tvf = tvf;
     }
 
@@ -99,7 +98,7 @@ public class DataGenScanNode extends ScanNode {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(task.getBackend().getId());
-            location.setServer(new TNetworkAddress(task.getBackend().getIp(), task.getBackend().getBePort()));
+            location.setServer(new TNetworkAddress(task.getBackend().getHost(), task.getBackend().getBePort()));
             locations.addToLocations(location);
             locations.setScanRange(task.getExecParams());
             result.add(locations);

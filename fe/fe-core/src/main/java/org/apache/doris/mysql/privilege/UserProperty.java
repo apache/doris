@@ -19,8 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ResourceGroup;
-import org.apache.doris.catalog.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -37,7 +35,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -47,7 +45,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /*
@@ -64,11 +61,15 @@ public class UserProperty implements Writable {
     private static final String PROP_CPU_RESOURCE_LIMIT = "cpu_resource_limit";
     private static final String PROP_EXEC_MEM_LIMIT = "exec_mem_limit";
     private static final String PROP_USER_QUERY_TIMEOUT = "query_timeout";
+
+    private static final String PROP_USER_INSERT_TIMEOUT = "insert_timeout";
     // advanced properties end
 
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
+
+    private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -79,8 +80,6 @@ public class UserProperty implements Writable {
 
     private CommonUserProperties commonProperties = new CommonUserProperties();
 
-    // Resource belong to this user.
-    private UserResource resource = new UserResource(1000);
     // load cluster
     private String defaultLoadCluster = null;
     private Map<String, DppConfig> clusterToDppConfig = Maps.newHashMap();
@@ -111,11 +110,13 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -133,8 +134,12 @@ public class UserProperty implements Writable {
         return this.commonProperties.getMaxConn();
     }
 
-    public long getQueryTimeout() {
+    public int getQueryTimeout() {
         return this.commonProperties.getQueryTimeout();
+    }
+
+    public int getInsertTimeout() {
+        return this.commonProperties.getInsertTimeout();
     }
 
     public long getMaxQueryInstances() {
@@ -147,6 +152,10 @@ public class UserProperty implements Writable {
 
     public int getCpuResourceLimit() {
         return commonProperties.getCpuResourceLimit();
+    }
+
+    public String getWorkloadGroup() {
+        return commonProperties.getWorkloadGroup();
     }
 
     @Deprecated
@@ -170,9 +179,10 @@ public class UserProperty implements Writable {
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
         long execMemLimit = this.commonProperties.getExecMemLimit();
-        long queryTimeout = this.commonProperties.getQueryTimeout();
+        int queryTimeout = this.commonProperties.getQueryTimeout();
+        int insertTimeout = this.commonProperties.getInsertTimeout();
+        String workloadGroup = this.commonProperties.getWorkloadGroup();
 
-        UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
 
@@ -197,42 +207,6 @@ public class UserProperty implements Writable {
                 if (newMaxConn <= 0 || newMaxConn > 10000) {
                     throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must between 1 and 10000");
                 }
-            } else if (keyArr[0].equalsIgnoreCase(PROP_RESOURCE)) {
-                // set property "resource.cpu_share" = "100"
-                if (keyArr.length != 2) {
-                    throw new DdlException(PROP_RESOURCE + " format error");
-                }
-
-                int resource = 0;
-                try {
-                    resource = Integer.parseInt(value);
-                } catch (NumberFormatException e) {
-                    throw new DdlException(key + " is not number");
-                }
-
-                if (resource <= 0) {
-                    throw new DdlException(key + " is not valid");
-                }
-
-                newResource.updateResource(keyArr[1], resource);
-            } else if (keyArr[0].equalsIgnoreCase(PROP_QUOTA)) {
-                // set property "quota.normal" = "100"
-                if (keyArr.length != 2) {
-                    throw new DdlException(PROP_QUOTA + " format error");
-                }
-
-                int quota = 0;
-                try {
-                    quota = Integer.parseInt(value);
-                } catch (NumberFormatException e) {
-                    throw new DdlException(key + " is not number");
-                }
-
-                if (quota <= 0) {
-                    throw new DdlException(key + " is not valid");
-                }
-
-                newResource.updateGroupShare(keyArr[1], quota);
             } else if (keyArr[0].equalsIgnoreCase(PROP_LOAD_CLUSTER)) {
                 updateLoadCluster(keyArr, value, newDppConfigs);
             } else if (keyArr[0].equalsIgnoreCase(PROP_DEFAULT_LOAD_CLUSTER)) {
@@ -311,13 +285,27 @@ public class UserProperty implements Writable {
                 execMemLimit = getLongProperty(key, value, keyArr, PROP_EXEC_MEM_LIMIT);
             } else if (keyArr[0].equalsIgnoreCase(PROP_USER_QUERY_TIMEOUT)) {
                 if (keyArr.length != 1) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " format error");
+                    throw new DdlException(PROP_USER_QUERY_TIMEOUT + " format error");
                 }
                 try {
-                    queryTimeout = Long.parseLong(value);
+                    queryTimeout = Integer.parseInt(value);
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_USER_QUERY_TIMEOUT + " is not number");
                 }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_USER_INSERT_TIMEOUT)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_USER_INSERT_TIMEOUT + " format error");
+                }
+                try {
+                    insertTimeout = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_USER_INSERT_TIMEOUT + " is not number");
+                }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_WORKLOAD_GROUP)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_WORKLOAD_GROUP + " format error");
+                }
+                workloadGroup = value;
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -331,7 +319,8 @@ public class UserProperty implements Writable {
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
         this.commonProperties.setQueryTimeout(queryTimeout);
-        resource = newResource;
+        this.commonProperties.setInsertTimeout(insertTimeout);
+        this.commonProperties.setWorkloadGroup(workloadGroup);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -412,10 +401,6 @@ public class UserProperty implements Writable {
         }
     }
 
-    public UserResource getResource() {
-        return resource;
-    }
-
     public String getDefaultLoadCluster() {
         return defaultLoadCluster;
     }
@@ -460,21 +445,13 @@ public class UserProperty implements Writable {
         // query timeout
         result.add(Lists.newArrayList(PROP_USER_QUERY_TIMEOUT, String.valueOf(commonProperties.getQueryTimeout())));
 
+        // insert timeout
+        result.add(Lists.newArrayList(PROP_USER_INSERT_TIMEOUT, String.valueOf(commonProperties.getInsertTimeout())));
+
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
 
-        // resource
-        ResourceGroup group = resource.getResource();
-        for (Map.Entry<ResourceType, Integer> entry : group.getQuotaMap().entrySet()) {
-            result.add(Lists.newArrayList(PROP_RESOURCE + dot + entry.getKey().getDesc().toLowerCase(),
-                    entry.getValue().toString()));
-        }
-
-        // quota
-        Map<String, AtomicInteger> groups = resource.getShareByGroup();
-        for (Map.Entry<String, AtomicInteger> entry : groups.entrySet()) {
-            result.add(Lists.newArrayList(PROP_QUOTA + dot + entry.getKey(), entry.getValue().toString()));
-        }
+        result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
         // load cluster
         if (defaultLoadCluster != null) {
@@ -534,8 +511,8 @@ public class UserProperty implements Writable {
         // user name
         Text.writeString(out, qualifiedUser);
 
-        // user resource
-        resource.write(out);
+        // call UserResource.write(out) to make sure that FE can rollback.
+        UserResource.write(out);
 
         // load cluster
         if (defaultLoadCluster == null) {
@@ -562,8 +539,8 @@ public class UserProperty implements Writable {
             this.commonProperties.setMaxConn(maxConn);
         }
 
-        // user resource
-        resource = UserResource.readIn(in);
+        // call UserResource.readIn(out) to make sure that FE can rollback.
+        UserResource.readIn(in);
 
         // load cluster
         if (in.readBoolean()) {

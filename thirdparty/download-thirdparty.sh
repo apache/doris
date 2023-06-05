@@ -108,7 +108,7 @@ download_func() {
             rm -f "${DESC_DIR}/${FILENAME}"
         else
             echo "Downloading ${FILENAME} from ${DOWNLOAD_URL} to ${DESC_DIR}"
-            if wget --no-check-certificate -q --show-progress "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
+            if wget --no-check-certificate -q "${DOWNLOAD_URL}" -O "${DESC_DIR}/${FILENAME}"; then
                 if md5sum_func "${FILENAME}" "${DESC_DIR}" "${MD5SUM}"; then
                     STATUS=0
                     echo "Success to download ${FILENAME}"
@@ -308,14 +308,14 @@ echo "Finished patching ${ROCKSDB_SOURCE}"
 
 # opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
 # see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.4.0" ]]; then
+if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.8.3" ]]; then
     rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
     cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
     mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
 
     cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.4.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.8.3.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
@@ -377,7 +377,7 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
     if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
-        if wget --no-check-certificate -q --show-progress https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
+        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
             tar xzf aws-crt-cpp-1.9.211.tar.gz
         else
             bash ./prefetch_crt_dependency.sh
@@ -390,21 +390,6 @@ fi
 cd -
 echo "Finished patching ${AWS_SDK_SOURCE}"
 
-cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    # Currently, there are two types of patches for BRPC in Doris:
-    # 1. brpc-fix-*.patch - These patches are not included in upstream but they can fix some bugs in some specific
-    #    scenarios.
-    # 2. brpc-{VERSION}-*.patch - These patches are included in upstream but they are not in current VERISON. We
-    #    backport some bug fixes to the current VERSION.
-    for file in "${TP_PATCH_DIR}"/brpc-*.patch; do
-        patch -p1 <"${file}"
-    done
-    touch "${PATCHED_MARK}"
-fi
-cd -
-echo "Finished patching ${BRPC_SOURCE}"
-
 # patch jemalloc, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
 if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
@@ -415,3 +400,15 @@ if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
     cd -
 fi
 echo "Finished patching ${SIMDJSON_SOURCE}"
+
+if [[ "${BRPC_SOURCE}" == 'brpc-1.5.0' ]]; then
+    cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+            patch -p1 <"${patch_file}"
+        done
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BRPC_SOURCE}"

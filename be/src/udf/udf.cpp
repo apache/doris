@@ -20,23 +20,14 @@
 
 #include "udf/udf.h"
 
-#include <assert.h>
-
 #include <iostream>
-#include <sstream>
-
-#include "common/logging.h"
-#include "gen_cpp/types.pb.h"
-#include "olap/hll.h"
-#include "runtime/decimalv2_value.h"
+#include <utility>
 
 // Be careful what this includes since this needs to be linked into the UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
 // on libhdfs.
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
-#include "util/debug_util.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {

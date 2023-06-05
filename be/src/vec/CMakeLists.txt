@@ -30,7 +30,8 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_sort.cpp
   aggregate_functions/aggregate_function_min_max.cpp
-  aggregate_functions/aggregate_function_min_max_by.cpp
+  aggregate_functions/aggregate_function_min_by.cpp
+  aggregate_functions/aggregate_function_max_by.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
   aggregate_functions/aggregate_function_bit.cpp
@@ -63,7 +64,6 @@ set(VEC_FILES
   json/path_in_data.cpp
   common/schema_util.cpp
   common/demangle.cpp
-  common/exception.cpp
   common/mremap.cpp
   common/pod_array.cpp
   common/string_ref.cpp
@@ -71,8 +71,10 @@ set(VEC_FILES
   common/sort/sorter.cpp
   common/sort/topn_sorter.cpp
   common/sort/vsort_exec_exprs.cpp
+  common/sort/partition_sorter.cpp
   common/string_utils/string_utils.cpp
   common/hex.cpp
+  common/allocator.cpp
   core/block.cpp
   core/block_spill_reader.cpp
   core/block_spill_writer.cpp
@@ -81,6 +83,24 @@ set(VEC_FILES
   core/field.cpp
   core/sort_block.cpp
   core/materialize_block.cpp
+  data_types/serde/data_type_serde.cpp
+  data_types/serde/data_type_map_serde.cpp
+  data_types/serde/data_type_array_serde.cpp
+  data_types/serde/data_type_struct_serde.cpp
+  data_types/serde/data_type_number_serde.cpp
+  data_types/serde/data_type_datev2_serde.cpp
+  data_types/serde/data_type_datetimev2_serde.cpp
+  data_types/serde/data_type_date64_serde.cpp
+  data_types/serde/data_type_string_serde.cpp
+  data_types/serde/data_type_decimal_serde.cpp
+  data_types/serde/data_type_object_serde.cpp
+  data_types/serde/data_type_fixedlengthobject_serde.cpp
+  data_types/serde/data_type_hll_serde.cpp
+  data_types/serde/data_type_bitmap_serde.cpp
+  data_types/serde/data_type_quantilestate_serde.cpp
+  data_types/serde/data_type_nullable_serde.cpp
+  data_types/serde/data_type_time_serde.cpp
+  data_types/serde/data_type_jsonb_serde.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
   data_types/data_type_struct.cpp
@@ -107,13 +127,11 @@ set(VEC_FILES
   data_types/data_type_time.cpp
   data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
-  exec/varrow_scanner.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
   exec/vselect_node.cpp
-  exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp
   exec/vempty_set_node.cpp
   exec/vanalytic_eval_node.cpp
@@ -121,7 +139,7 @@ set(VEC_FILES
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
   exec/vjdbc_connector.cpp
-  exec/vparquet_scanner.cpp
+  exec/vpartition_sort_node.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
@@ -144,6 +162,7 @@ set(VEC_FILES
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
   exprs/vmap_literal.cpp
+  exprs/vmatch_predicate.cpp
   exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
@@ -161,18 +180,22 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   exprs/lambda_function/varray_map_function.cpp
+  exprs/lambda_function/varray_filter_function.cpp  
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
   functions/array/function_array_size.cpp
   functions/array/function_array_aggregation.cpp
   functions/array/function_array_sort.cpp
+  functions/array/function_array_sortby.cpp
   functions/array/function_array_utils.cpp
+  functions/array/function_array_shuffle.cpp
   functions/array/function_arrays_overlap.cpp
   functions/array/function_array_distinct.cpp
   functions/array/function_array_remove.cpp
   functions/array/function_array_union.cpp
   functions/array/function_array_except.cpp
+  functions/array/function_array_exists.cpp
   functions/array/function_array_intersect.cpp
   functions/array/function_array_slice.cpp
   functions/array/function_array_difference.cpp
@@ -186,7 +209,13 @@ set(VEC_FILES
   functions/array/function_array_with_constant.cpp
   functions/array/function_array_apply.cpp
   functions/array/function_array_concat.cpp
+  functions/array/function_array_zip.cpp
   functions/array/function_array_pushfront.cpp
+  functions/array/function_array_first_or_last_index.cpp
+  functions/array/function_array_cum_sum.cpp
+  functions/array/function_array_count.cpp
+  functions/function_map.cpp
+  functions/function_struct.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -321,14 +350,19 @@ set(VEC_FILES
   exec/format/file_reader/new_plain_binary_line_reader.cpp
   exec/format/parquet/delta_bit_pack_decoder.cpp
   exec/format/parquet/bool_rle_decoder.cpp
+  exec/jni_connector.cpp
+  exec/scan/jni_reader.cpp
   )
 
 if (WITH_MYSQL)
     set(VEC_FILES
             ${VEC_FILES}
+            exec/vmysql_scan_node.cpp
             exec/scan/mysql_scanner.cpp)
 endif ()
 
 add_library(Vec STATIC
         ${VEC_FILES}
-        )
+)
+
+pch_reuse(Vec)

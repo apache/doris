@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`DATETIME DATE_SUB(DATETIME date,INTERVAL expr type)`
+`DATETIME DATE_SUB(DATETIME date, INTERVAL expr type)`
 
 
 从日期减去指定的时间间隔

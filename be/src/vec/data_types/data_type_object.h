@@ -19,9 +19,30 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/columns/column_object.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_object_serde.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
+
 namespace doris::vectorized {
 class DataTypeObject : public IDataType {
 private:
@@ -32,6 +53,10 @@ public:
     DataTypeObject(const String& schema_format_, bool is_nullable_);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_VARIANT; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::VARIANT;
+    }
     MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
     bool is_object() const override { return true; }
     bool equals(const IDataType& rhs) const override;
@@ -50,5 +75,13 @@ public:
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method getDefault() is not implemented for data type " << get_name();
     }
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for object";
+    }
+
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeObjectSerDe>();
+    };
 };
 } // namespace doris::vectorized

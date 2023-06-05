@@ -86,7 +86,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             )
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 5 
-            properties("replication_num" = "1", "enable_merge_on_write" = "true");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
         """
 
         //stream load src_json
@@ -123,6 +123,134 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     json_load_unique("btc_transactions.json", "test_btc_json")
     json_load_unique("ghdata_sample.json", "test_ghdata_json")
     json_load_unique("nbagames_sample.json", "test_nbagames_json")
-    // sql """insert into test_ghdata_json_unique select * from test_ghdata_json_unique"""
-    // sql """insert into test_btc_json_unique select * from test_btc_json_unique"""
+    sql """insert into test_ghdata_json_unique select * from test_ghdata_json"""
+    sql """insert into test_btc_json_unique select * from test_btc_json"""
+
+    // abnormal cases
+    table_name = "abnormal_cases" 
+    sql """
+            DROP TABLE IF EXISTS ${table_name};
+    """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                qid bigint,
+                XXXX bigint,
+		        ...
+            )
+            DUPLICATE KEY(`qid`)
+            DISTRIBUTED BY HASH(`qid`) BUCKETS 5 
+            properties("replication_num" = "1");
+    """
+    load_json_data.call(table_name, 'true', 'json', 'true', "invalid_dimension.json", 'false')
+    load_json_data.call(table_name, 'true', 'json', 'true', "invalid_format.json", 'false')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point2.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point3.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "uppercase.json", 'true')
+
+    // load more
+    table_name = "gharchive";
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+        CREATE TABLE gharchive (
+            created_at datetime NOT NULL COMMENT '',
+            id varchar(30) default 'defualt-id' COMMENT '',
+            type varchar(50) NULL COMMENT '',
+            public boolean NULL COMMENT '',
+            ...
+        )
+        ENGINE=OLAP
+        DUPLICATE KEY(created_at)
+        DISTRIBUTED BY HASH(id) BUCKETS 32
+        PROPERTIES (
+            'replication_allocation' = 'tag.location.default: 1'
+        ); 
+        """
+    def paths = [
+        """${getS3Url() + '/regression/gharchive/2015-01-01-22.json'}""",
+        """${getS3Url() + '/regression/gharchive/2015-01-01-16.json'}""",
+        """${getS3Url() + '/regression/gharchive/2016-01-01-16.json'}""",
+    ]
+    for (String path in paths) {
+        streamLoad {
+            // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
+            // db 'regression_test'
+            table "${table_name}"
+            // default column_separator is specify in doris fe config, usually is '\t'.
+            // this line change to ','
+            set 'read_json_by_line', 'true' 
+            set 'format', 'json' 
+            // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+            // also, you can stream load a http stream, e.g. http://xxx/some.csv
+            file path 
+            time 10000 // limit inflight 10s
+
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals('success', json.Status.toLowerCase())
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+        }
+    }
+
+    sql 'sync'
+    meta = sql_meta 'select * from gharchive limit 1'
+    def array_cols = [
+        "payload.commits.url",
+        "payload.commits.sha",
+        "payload.commits.author.email",
+        "payload.commits.distinct",
+        "payload.commits.author.name",
+        "payload.commits.message",
+        "payload.issue.labels.name",
+        "payload.issue.labels.color",
+        "payload.issue.labels.url",
+        "payload.pages.title",
+        "payload.pages.html_url",
+        "payload.pages.sha",
+        "payload.pages.action",
+        "payload.pages.page_name",
+        "payload.release.assets.uploader.repos_url",
+        "payload.release.assets.uploader.id",
+        "payload.release.assets.uploader.organizations_url",
+        "payload.release.assets.uploader.received_events_url",
+        "payload.release.assets.uploader.site_admin",
+        "payload.release.assets.uploader.subscriptions_url",
+        "payload.release.assets.state",
+        "payload.release.assets.size",
+        "payload.release.assets.uploader.following_url",
+        "payload.release.assets.uploader.starred_url",
+        "payload.release.assets.download_count",
+        "payload.release.assets.created_at",
+        "payload.release.assets.updated_at",
+        "payload.release.assets.browser_download_url",
+        "payload.release.assets.url",
+        "payload.release.assets.uploader.gravatar_id",
+        "payload.release.assets.uploader.gists_url",
+        "payload.release.assets.uploader.url",
+        "payload.release.assets.content_type",
+        "payload.release.assets.name",
+        "payload.release.assets.uploader.login",
+        "payload.release.assets.uploader.avatar_url",
+        "payload.release.assets.uploader.html_url",
+        "payload.release.assets.uploader.followers_url",
+        "payload.release.assets.uploader.events_url",
+        "payload.release.assets.uploader.type",
+        "payload.release.assets.id",
+        "payload.release.assets.label"
+    ]
+    for (List<String> col_meta in meta) {
+        if (col_meta[0] in array_cols) {
+            qt_sql "select sum(array_size(`${col_meta[0]}`)) from gharchive"
+        } else {
+            qt_sql "select count(`${col_meta[0]}`) from gharchive"
+        }
+    } 
 }

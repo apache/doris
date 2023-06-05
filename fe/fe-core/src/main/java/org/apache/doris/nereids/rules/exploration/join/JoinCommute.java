@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -36,29 +37,29 @@ import java.util.List;
  */
 public class JoinCommute extends OneExplorationRuleFactory {
 
-    public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP);
-    public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG);
-    public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY);
+    public static final JoinCommute LEFT_DEEP = new JoinCommute(SwapType.LEFT_DEEP, false);
+    public static final JoinCommute ZIG_ZAG = new JoinCommute(SwapType.ZIG_ZAG, false);
+    public static final JoinCommute BUSHY = new JoinCommute(SwapType.BUSHY, false);
+    public static final JoinCommute NON_INNER = new JoinCommute(SwapType.BUSHY, true);
 
     private final SwapType swapType;
+    private final boolean justNonInner;
 
-    public JoinCommute(SwapType swapType) {
+    public JoinCommute(SwapType swapType, boolean justNonInner) {
         this.swapType = swapType;
+        this.justNonInner = justNonInner;
     }
 
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
-                    LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
-                            join.getJoinType().swap(),
-                            join.getHashJoinConjuncts(),
-                            join.getOtherJoinConjuncts(),
-                            join.getHint(),
+                    LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
                             join.right(), join.left());
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);

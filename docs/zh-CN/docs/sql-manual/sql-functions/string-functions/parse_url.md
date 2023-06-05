@@ -42,5 +42,7 @@ mysql> SELECT parse_url ('https://doris.apache.org/', 'HOST');
 +------------------------------------------------+
 ```
 
+如果想获取 QUERY 中的特定参数，可使用[extract_url_parameter](./extract_url_parameter.md)。
+
 ### keywords
     PARSE URL

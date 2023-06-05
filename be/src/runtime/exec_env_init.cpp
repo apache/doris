@@ -15,16 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "agent/cgroups_mgr.h"
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
+
+#include <limits>
+#include <map>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
 #include "common/config.h"
 #include "common/logging.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
+#include "common/status.h"
+#include "olap/olap_define.h"
+#include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
-#include "olap/storage_engine.h"
+#include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
@@ -32,29 +50,32 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
-#include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/tmp_file_mgr.h"
+#include "runtime/thread_context.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
+#include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
+#include "util/cpu_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
-#include "util/priority_thread_pool.hpp"
-#include "util/priority_work_stealing_thread_pool.hpp"
+#include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -64,6 +85,8 @@
 #endif
 
 namespace doris {
+class PBackendService_Stub;
+class PFunctionService_Stub;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
@@ -102,6 +125,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     init_download_cache_required_components();
 
+    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(16)
+            .set_max_threads(64)
+            .build(&_buffered_reader_prefetch_thread_pool);
+
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
@@ -119,21 +147,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
-
-    _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
     _master_info = new TMasterInfo();
     _load_path_mgr = new LoadPathMgr(this);
-    _tmp_file_mgr = new TmpFileMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
-    _new_load_stream_mgr = new NewLoadStreamMgr();
+    _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-    _stream_load_executor = new StreamLoadExecutor(this);
+    _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
@@ -142,7 +167,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
     _result_mgr->init();
-    _cgroups_mgr->init_cgroups();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
         LOG(ERROR) << "load path mgr init failed." << status;
@@ -166,10 +190,18 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     if (executors_size <= 0) {
         executors_size = CpuInfo::num_cores();
     }
-    auto t_queue = std::make_shared<pipeline::TaskQueue>(executors_size);
+
+    // TODO pipeline task group combie two blocked schedulers.
+    auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
     _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());
+
+    auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
+    auto tg_b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(tg_queue);
+    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(this, tg_b_scheduler, tg_queue);
+    RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
+
     return Status::OK();
 }
 
@@ -181,9 +213,7 @@ Status ExecEnv::_init_mem_env() {
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-    if (doris::config::enable_tcmalloc_hook) {
-        init_hook();
-    }
+    init_hook();
 #endif
 
     // 2. init buffer pool
@@ -201,7 +231,22 @@ Status ExecEnv::_init_mem_env() {
     }
     int32_t index_percentage = config::index_page_cache_percentage;
     uint32_t num_shards = config::storage_page_cache_shard_size;
-    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
+    if ((num_shards & (num_shards - 1)) != 0) {
+        int old_num_shards = num_shards;
+        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
+        LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
+                     << ". Rounded up to " << num_shards
+                     << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
+                        "conf file to be a power of two for better performance.";
+    }
+    int64_t pk_storage_page_cache_limit =
+            ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && pk_storage_page_cache_limit > MemInfo::mem_limit() / 2) {
+        pk_storage_page_cache_limit = storage_cache_limit / 2;
+    }
+    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
+                                          pk_storage_page_cache_limit, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
@@ -235,6 +280,8 @@ Status ExecEnv::_init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
+    SchemaCache::create_global_instance(config::schema_cache_capacity);
+
     // use memory limit
     int64_t inverted_index_cache_limit =
             ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
@@ -262,7 +309,6 @@ Status ExecEnv::_init_mem_env() {
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
-    RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());
 
     // 5. init chunk allocator
@@ -290,6 +336,8 @@ void ExecEnv::init_mem_tracker() {
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
+    _page_no_cache_mem_tracker =
+            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -342,22 +390,31 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);
-    SAFE_DELETE(_tmp_file_mgr);
     SAFE_DELETE(_load_path_mgr);
-    SAFE_DELETE(_master_info);
-    SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
-    SAFE_DELETE(_cgroups_mgr);
+    SAFE_DELETE(_pipeline_task_group_scheduler);
+    SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_mgr);
     SAFE_DELETE(_result_queue_mgr);
-    SAFE_DELETE(_stream_load_executor);
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    // Master Info is a thrift object, it could be the last one to deconstruct.
+    // Master info should be deconstruct later than fragment manager, because fragment will
+    // access master_info.backend id to access some info. If there is a running query and master
+    // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
+    SAFE_DELETE(_master_info);
+
+    _send_batch_thread_pool.reset(nullptr);
+    _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _send_report_thread_pool.reset(nullptr);
+    _join_node_thread_pool.reset(nullptr);
+    _serial_download_cache_thread_token.reset(nullptr);
+    _download_cache_thread_pool.reset(nullptr);
 
     _is_init = false;
 }

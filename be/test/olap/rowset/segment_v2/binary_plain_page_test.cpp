@@ -27,7 +27,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -70,11 +69,12 @@ public:
         EXPECT_TRUE(status.ok());
 
         //test1
-        MemPool pool;
+        vectorized::Arena pool;
         size_t size = 3;
         std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR),
-                                  nullptr, &cvb);
+        ColumnVectorBatch::create(size, true,
+                                  get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR), nullptr,
+                                  &cvb);
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
@@ -89,8 +89,8 @@ public:
         EXPECT_EQ("Doris", value[2].to_string());
 
         std::unique_ptr<ColumnVectorBatch> cvb2;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), nullptr,
-                                  &cvb2);
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR),
+                                  nullptr, &cvb2);
         ColumnBlock block2(cvb2.get(), &pool);
         ColumnBlockView column_block_view2(&block2);
 
@@ -106,8 +106,8 @@ public:
 };
 
 TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
-    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>,
-                                   BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>>();
+    TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>,
+                                   BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>();
 }
 
 } // namespace segment_v2

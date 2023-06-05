@@ -117,8 +117,11 @@ public class TokenManager {
     }
 
 
-    private TNetworkAddress getMasterAddress() {
-        String masterHost = Env.getCurrentEnv().getMasterIp();
+    private TNetworkAddress getMasterAddress() throws TException {
+        if (!Env.getCurrentEnv().isReady()) {
+            throw new TException("Node catalog is not ready, please wait for a while.");
+        }
+        String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         return new TNetworkAddress(masterHost, masterRpcPort);
     }

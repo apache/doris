@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -115,6 +117,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
         JoinHint hint = hashJoin.getHint();
         switch (hint) {
@@ -144,7 +152,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
-        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
+        Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = hashJoin.getHashConjunctsExprIds();
         // shuffle join
         addRequestPropertyToChildren(
                 PhysicalProperties.createHash(
@@ -176,6 +184,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
         addRequestPropertyToChildren(PhysicalProperties.ANY);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
+        addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
         return null;
     }
 

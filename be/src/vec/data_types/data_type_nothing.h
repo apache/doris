@@ -20,10 +20,25 @@
 
 #pragma once
 
-#include <vec/common/exception.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <ostream>
+#include <string>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -37,6 +52,10 @@ public:
 
     const char* get_family_name() const override { return "Nothing"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nothing; }
+    PrimitiveType get_type_as_primitive_type() const override { return INVALID_TYPE; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::INVALID_TYPE;
+    }
 
     MutableColumnPtr create_column() const override;
 
@@ -59,13 +78,19 @@ public:
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
     }
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for Nothing";
+    }
+
     void insert_default_into(IColumn&) const override {
         LOG(FATAL) << "Method insert_default_into() is not implemented for data type "
                    << get_name();
     }
 
     bool have_subtypes() const override { return false; }
-    bool cannot_be_stored_in_tables() const override { return true; }
+    DataTypeSerDeSPtr get_serde() const override {
+        LOG(FATAL) << get_name() << " not support serde";
+    };
 };
 
 } // namespace doris::vectorized

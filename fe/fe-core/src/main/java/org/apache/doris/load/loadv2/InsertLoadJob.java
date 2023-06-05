@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -84,6 +85,7 @@ public class InsertLoadJob extends LoadJob {
         return Sets.newHashSet(name);
     }
 
+    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);

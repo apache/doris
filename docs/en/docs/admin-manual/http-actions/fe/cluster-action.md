@@ -38,6 +38,18 @@ under the License.
 
 Used to get cluster http, mysql connection information.
 
+## Path parameters
+
+None
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+
 ### Response
 
 ```
@@ -57,21 +69,21 @@ Used to get cluster http, mysql connection information.
 ```
     
 ### Examples
-    ```
-    GET /rest/v2/manager/cluster/cluster_info/conn_info
-    
-    Response:
-    {
-        "msg": "success",
-        "code": 0,
-        "data": {
-            "http": [
-                "127.0.0.1:8030"
-            ],
-            "mysql": [
-                "127.0.0.1:9030"
-            ]
-        },
-        "count": 0
-    }
-    ```
+```
+GET /rest/v2/manager/cluster/cluster_info/conn_info
+
+Response:
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "http": [
+            "127.0.0.1:8030"
+        ],
+        "mysql": [
+            "127.0.0.1:9030"
+        ]
+    },
+    "count": 0
+}
+```

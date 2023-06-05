@@ -50,7 +50,7 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
 }
 
 struct StringHashTableHash {
-#if defined(__SSE4_2__)
+#if defined(__SSE4_2__) || defined(__aarch64__)
     size_t ALWAYS_INLINE operator()(StringKey8 key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);
@@ -476,7 +476,18 @@ public:
               m3(std::move(rhs.m3)),
               ms(std::move(rhs.ms)) {}
 
+    StringHashTable& operator=(StringHashTable&& other) {
+        std::swap(m0, other.m0);
+        std::swap(m1, other.m1);
+        std::swap(m2, other.m2);
+        std::swap(m3, other.m3);
+        std::swap(ms, other.ms);
+        return *this;
+    }
+
     ~StringHashTable() = default;
+
+    size_t hash(doris::StringRef key) { return StringHashTableHash()(key); }
 
     // Dispatch is written in a way that maximizes the performance:
     // 1. Always memcpy 8 times bytes

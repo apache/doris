@@ -18,14 +18,15 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
-import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
@@ -34,9 +35,11 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
@@ -56,11 +59,26 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
 
+    private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
+    private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+    }
+
+    private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
+
+    static {
+        SUPPORTED_HUDI_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
@@ -90,12 +108,9 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     protected synchronized void makeSureInitialized() {
+        super.makeSureInitialized();
         if (!objectCreated) {
-            try {
-                getRemoteTable();
-            } catch (MetaNotFoundException e) {
-                // CHECKSTYLE IGNORE THIS LINE
-            }
+            remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
             if (remoteTable == null) {
                 dlaType = DLAType.UNKNOWN;
             } else {
@@ -133,8 +148,7 @@ public class HMSExternalTable extends ExternalTable {
             return false;
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null
-                && inputFormatName.equalsIgnoreCase("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
     }
 
     /**
@@ -142,6 +156,27 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
+        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
+        if (isTxnTbl) {
+            // Only support "insert_only" transactional table
+            // There are 2 types of parameter:
+            //  "transactional_properties" = "insert_only",
+            //  or,
+            //  "insert_only" = "true"
+            // And must check "insert_only" first, because "transactional_properties" may be "default"
+            Map<String, String> parameters = remoteTable.getParameters();
+            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
+                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
+                    return false;
+                }
+            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
+                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
@@ -151,14 +186,8 @@ public class HMSExternalTable extends ExternalTable {
     /**
      * Get the related remote hive metastore table.
      */
-    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() throws MetaNotFoundException {
-        if (remoteTable == null) {
-            synchronized (this) {
-                if (remoteTable == null) {
-                    remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
-                }
-            }
-        }
+    public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
+        makeSureInitialized();
         return remoteTable;
     }
 
@@ -172,6 +201,10 @@ public class HMSExternalTable extends ExternalTable {
         makeSureInitialized();
         getFullSchema();
         return partitionColumns;
+    }
+
+    public boolean isHiveTransactionalTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
     @Override
@@ -252,16 +285,36 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
-                return new HiveAnalysisTask(scheduler, info);
+                return new HiveAnalysisTask(info);
             case ICEBERG:
-                return new IcebergAnalysisTask(scheduler, info);
+                return new IcebergAnalysisTask(info);
             default:
                 throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
         }
+    }
+
+    public String getViewText() {
+        String viewText = getViewExpandedText();
+        if (StringUtils.isNotEmpty(viewText)) {
+            return viewText;
+        }
+        return getViewOriginalText();
+    }
+
+    public String getViewExpandedText() {
+        LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        return remoteTable.getViewExpandedText();
+    }
+
+    public String getViewOriginalText() {
+        LOG.debug("View original text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        return remoteTable.getViewOriginalText();
     }
 
     public String getMetastoreUri() {
@@ -299,6 +352,8 @@ public class HMSExternalTable extends ExternalTable {
         List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
         if (dlaType.equals(DLAType.ICEBERG)) {
             columns = getIcebergSchema(schema);
+        } else if (dlaType.equals(DLAType.HUDI)) {
+            columns = getHudiSchema(schema);
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
@@ -312,15 +367,43 @@ public class HMSExternalTable extends ExternalTable {
         return columns;
     }
 
+
+    public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
+        org.apache.avro.Schema schema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        for (FieldSchema field : hmsSchema) {
+            tmpSchema.add(new Column(field.getName(),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
+                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
+                    true, null, field.getComment(), true, null,
+                    schema.getIndexNamed(field.getName()), null));
+        }
+        return tmpSchema;
+    }
+
+    @Override
+    public long estimatedRowCount() {
+        ColumnStatistic cache = Config.enable_stats
+                ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
+                : ColumnStatistic.UNKNOWN;
+        if (cache == ColumnStatistic.UNKNOWN) {
+            return 1;
+        } else {
+            return (long) cache.count;
+        }
+    }
+
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
         Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
             tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
+                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
+                    true, null,
                     true, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
         }
         return tmpSchema;
     }

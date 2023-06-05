@@ -17,17 +17,23 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <memory>
-#include <queue>
-#include <shared_mutex>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
 
@@ -61,6 +67,11 @@ public:
     virtual int64_t get_oldest_match_time() const = 0;
 
 protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override {
+        return Status::NotSupported("dummy file cache only used for GC");
+    }
+
     Status _remove_file(const Path& file, size_t* cleaned_size);
 
     Status _remove_cache_and_done(const Path& cache_file, const Path& cache_done_file,

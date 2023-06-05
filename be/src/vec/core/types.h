@@ -45,50 +45,54 @@ namespace vectorized {
 
 struct Null {};
 
+// The identifier should be less than int16, because castexpr using the identifier
+// instead of type name as type parameter. It will using int16 as column type.
 enum class TypeIndex {
     Nothing = 0,
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
-    UInt128,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    Int128,
-    Float32,
-    Float64,
-    Date,
-    DateTime,
-    String,
-    FixedString,
-    Enum8,
-    Enum16,
-    Decimal32,
-    Decimal64,
-    Decimal128,
-    UUID,
-    Array,
-    Tuple,
-    Set,
-    Interval,
-    Nullable,
-    Function,
-    AggregateFunction,
-    LowCardinality,
-    BitMap,
-    HLL,
-    DateV2,
-    DateTimeV2,
-    TimeV2,
-    FixedLengthObject,
-    JSONB,
-    Decimal128I,
-    Map,
-    Struct,
-    VARIANT,
-    QuantileState,
+    UInt8 = 1,
+    UInt16 = 2,
+    UInt32 = 3,
+    UInt64 = 4,
+    UInt128 = 5,
+    Int8 = 6,
+    Int16 = 7,
+    Int32 = 8,
+    Int64 = 9,
+    Int128 = 10,
+    Float32 = 11,
+    Float64 = 12,
+    Date = 13,
+    DateTime = 14,
+    String = 15,
+    FixedString = 16,
+    Enum8 = 17,
+    Enum16 = 18,
+    Decimal32 = 19,
+    Decimal64 = 20,
+    Decimal128 = 21,
+    UUID = 22,
+    Array = 23,
+    Tuple = 24,
+    Set = 25,
+    Interval = 26,
+    Nullable = 27,
+    Function = 28,
+    AggregateFunction = 29,
+    LowCardinality = 30,
+    BitMap = 31,
+    HLL = 32,
+    DateV2 = 33,
+    DateTimeV2 = 34,
+    TimeV2 = 35,
+    FixedLengthObject = 36,
+    JSONB = 37,
+    Decimal128I = 38,
+    Map = 39,
+    Struct = 40,
+    VARIANT = 41,
+    QuantileState = 42,
+    Time = 43,
+    AggState
 };
 
 struct Consted {
@@ -317,9 +321,18 @@ struct Decimal {
     DECLARE_NUMERIC_CTOR(Int64)
     DECLARE_NUMERIC_CTOR(UInt32)
     DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
+
 #undef DECLARE_NUMERIC_CTOR
+    Decimal(const Float32& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
+    Decimal(const Float64& value_) : value(value_) {
+        if constexpr (std::is_integral<T>::value) {
+            value = round(value_);
+        }
+    }
 
     static Decimal double_to_decimal(double value_) {
         DecimalV2Value decimal_value;
@@ -615,6 +628,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Struct";
     case TypeIndex::QuantileState:
         return TypeName<QuantileState<double>>::get();
+    case TypeIndex::AggState:
+        return "AggState";
+    case TypeIndex::Time:
+        return "Time";
     }
 
     __builtin_unreachable();

@@ -19,23 +19,22 @@
 // https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.cc
 // and modified by Doris
 
-#ifdef __aarch64__
-#include <sse2neon.h>
-#else
-#include <emmintrin.h>
-#include <mm_malloc.h>
-#endif
-
 #include <butil/iobuf.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
 #include <algorithm>
-#include <climits>
-#include <cmath>
+#include <climits> // IWYU pragma: keep
+#include <cmath>   // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
+#include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
+// IWYU pragma: no_include <emmintrin.h>
+#include "util/sse_util.hpp"
 
 namespace doris {
 
@@ -167,18 +166,6 @@ void BlockBloomFilter::insert(const uint32_t hash) noexcept {
     bucket_insert_avx2(bucket_idx, hash);
 #else
     bucket_insert(bucket_idx, hash);
-#endif
-}
-
-bool BlockBloomFilter::find(const uint32_t hash) const noexcept {
-    if (_always_false) {
-        return false;
-    }
-    const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-#ifdef __AVX2__
-    return bucket_find_avx2(bucket_idx, hash);
-#else
-    return bucket_find(bucket_idx, hash);
 #endif
 }
 

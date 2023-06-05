@@ -5,18 +5,23 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/Status_types.h> // for TStatus
 #include <glog/logging.h>
+#include <stdint.h>
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
-#include "common/compiler_util.h"
-#include "gen_cpp/Status_types.h" // for TStatus
-#include "service/backend_options.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
+
+#include "common/expected.h"
 
 namespace doris {
 
@@ -50,6 +55,7 @@ TStatusError(UNINITIALIZED);
 TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
+TStatusError(NOT_AUTHORIZED);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -72,6 +78,7 @@ E(FILE_FORMAT_ERROR, -119);
 E(EVAL_CONJUNCTS_ERROR, -120);
 E(COPY_FILE_ERROR, -121);
 E(FILE_ALREADY_EXIST, -122);
+E(BAD_CAST, -123);
 E(CALL_SEQUENCE_ERROR, -202);
 E(BUFFER_OVERFLOW, -204);
 E(CONFIG_ERROR, -205);
@@ -206,6 +213,8 @@ E(COLUMN_READ_STREAM, -1706);
 E(COLUMN_STREAM_NOT_EXIST, -1716);
 E(COLUMN_VALUE_NULL, -1717);
 E(COLUMN_SEEK_ERROR, -1719);
+E(COLUMN_NO_MATCH_OFFSETS_SIZE, -1720);
+E(COLUMN_NO_MATCH_FILTER_SIZE, -1721);
 E(DELETE_INVALID_CONDITION, -1900);
 E(DELETE_UPDATE_HEADER_FAILED, -1901);
 E(DELETE_SAVE_HEADER_FAILED, -1902);
@@ -247,12 +256,16 @@ E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
 E(PIP_WAIT_FOR_SC, -3121);
+E(ROWSET_ADD_TO_BINLOG_FAILED, -3122);
+E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123);
 E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
+E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
+E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 #undef E
 } // namespace ErrorCode
 
@@ -281,7 +294,14 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
         && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
-        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS
+        && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
 }
 // clang-format on
 
@@ -301,7 +321,6 @@ public:
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
         }
-        _be_ip = rhs._be_ip;
         return *this;
     }
 
@@ -395,6 +414,7 @@ public:
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
 #undef ERROR_CTOR
 
     template <int code>
@@ -413,6 +433,7 @@ public:
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
 
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
+    bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -426,11 +447,6 @@ public:
     void to_thrift(TStatus* status) const;
     TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
-
-    std::string code_as_string() const {
-        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
-                               : fmt::format("E{}", (int16_t)_code);
-    }
 
     std::string to_string() const;
 
@@ -479,12 +495,15 @@ private:
 #endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::string_view _be_ip = BackendOptions::get_localhost();
+
+    std::string code_as_string() const {
+        return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
+                               : fmt::format("E{}", (int16_t)_code);
+    }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << '[' << status._be_ip << ']';
     ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
@@ -510,20 +529,7 @@ inline std::string Status::to_string() const {
     } while (false)
 
 #define RETURN_ERROR_IF_NON_VEC \
-    return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
-
-// End _get_next_span after last call to get_next method
-#define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \
-    do {                                                          \
-        Status _status_ = (stmt);                                 \
-        auto _span = (get_next_span);                             \
-        if (UNLIKELY(_span && (!_status_.ok() || done))) {        \
-            _span->End();                                         \
-        }                                                         \
-        if (UNLIKELY(!_status_.ok())) {                           \
-            return _status_;                                      \
-        }                                                         \
-    } while (false)
+    return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \
@@ -568,6 +574,18 @@ inline std::string Status::to_string() const {
             return _s;                                             \
         }                                                          \
     } while (false);
+
+template <typename T>
+using Result = expected<T, Status>;
+
+#define RETURN_IF_ERROR_RESULT(stmt)                \
+    do {                                            \
+        Status _status_ = (stmt);                   \
+        if (UNLIKELY(!_status_.ok())) {             \
+            return unexpected(std::move(_status_)); \
+        }                                           \
+    } while (false)
+
 } // namespace doris
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT

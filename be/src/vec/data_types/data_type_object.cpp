@@ -18,11 +18,28 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeObject.cpp
 // and modified by Doris
 
-#include <util/string_util.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/io/io_helper.h>
+#include "vec/data_types/data_type_object.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <gen_cpp/data.pb.h>
+#include <string.h>
+#include <util/string_util.h>
+
+#include <cassert>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "vec/columns/column_object.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/json/path_in_data.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -65,6 +82,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
     assert(column_object.is_finalized());
+#ifndef NDEBUG
+    // DCHECK size
+    column_object.check_consistency();
+#endif
 
     const auto& subcolumns = column_object.get_subcolumns();
 
@@ -123,7 +144,10 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
     }
 
     column_object->finalize();
-
+#ifndef NDEBUG
+    // DCHECK size
+    column_object->check_consistency();
+#endif
     return buf;
 }
 

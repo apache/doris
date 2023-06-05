@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -42,10 +43,14 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.StringUtils;
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,17 +60,21 @@ import java.util.Map;
 import java.util.Set;
 
 public class DescribeStmt extends ShowStmt {
+    private static final Logger LOG = LogManager.getLogger(DescribeStmt.class);
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("InternalType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Key", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Default", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("DefineExpr", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("WhereClause", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
@@ -114,7 +123,7 @@ public class DescribeStmt extends ShowStmt {
             List<Column> columns = tableValuedFunctionRef.getTable().getBaseSchema();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
-                        column.getDisplayName(),
+                        column.getName(),
                         column.getOriginType().toString(),
                         column.isAllowNull() ? "Yes" : "No",
                         ((Boolean) column.isKey()).toString(),
@@ -122,6 +131,11 @@ public class DescribeStmt extends ShowStmt {
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
+                if (column.getOriginType().isDatetimeV2()) {
+                    row.set(1, "DATETIME");
+                } else if (column.getOriginType().isDateV2()) {
+                    row.set(1, "DATE");
+                }
                 totalRows.add(row);
             }
             return;
@@ -185,7 +199,7 @@ public class DescribeStmt extends ShowStmt {
                             // Extra string (aggregation and bloom filter)
                             List<String> extras = Lists.newArrayList();
                             if (column.getAggregationType() != null) {
-                                extras.add(column.getAggregationType().name());
+                                extras.add(column.getAggregationString());
                             }
                             if (bfColumns != null && bfColumns.contains(column.getName())) {
                                 extras.add("BLOOM_FILTER");
@@ -195,19 +209,31 @@ public class DescribeStmt extends ShowStmt {
                             List<String> row = Arrays.asList(
                                     "",
                                     "",
-                                    column.getDisplayName(),
+                                    column.getName(),
+                                    column.getOriginType().toString(),
                                     column.getOriginType().toString(),
                                     column.isAllowNull() ? "Yes" : "No",
                                     ((Boolean) column.isKey()).toString(),
                                     column.getDefaultValue() == null
-                                            ? FeConstants.null_string : column.getDefaultValue(),
+                                            ? FeConstants.null_string
+                                            : column.getDefaultValue(),
                                     extraStr,
-                                    ((Boolean) column.isVisible()).toString()
-                            );
+                                    ((Boolean) column.isVisible()).toString(),
+                                    column.getDefineExpr() == null ? "" : column.getDefineExpr().toSql(),
+                                    "");
+
+                            if (column.getOriginType().isDatetimeV2()) {
+                                row.set(3, "DATETIME");
+                            } else if (column.getOriginType().isDateV2()) {
+                                row.set(3, "DATE");
+                            }
 
                             if (j == 0) {
                                 row.set(0, indexName);
                                 row.set(1, indexMeta.getKeysType().name());
+                                Expr where = indexMeta.getWhereClause();
+                                row.set(DESC_OLAP_TABLE_ALL_META_DATA.getColumns().size() - 1,
+                                        where == null ? "" : where.toSqlWithoutTbl());
                             }
 
                             totalRows.add(row);
@@ -272,7 +298,20 @@ public class DescribeStmt extends ShowStmt {
                 return totalRows;
             }
             Preconditions.checkNotNull(node);
-            return node.fetchResult().getRows();
+            List<List<String>> rows = node.fetchResult().getRows();
+            List<List<String>> res = new ArrayList<>();
+            for (List<String> row : rows) {
+                try {
+                    Env.getCurrentEnv().getAccessManager()
+                            .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
+                                    ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, getDb()),
+                                    getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
+                    res.add(row);
+                } catch (UserException e) {
+                    LOG.debug(e.getMessage());
+                }
+            }
+            return res;
         }
     }
 

@@ -31,7 +31,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.List;
 import java.util.Map;
@@ -52,6 +51,10 @@ public class MultiAction extends RestBaseController {
     public Object multi_desc(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
 
@@ -65,7 +68,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }
@@ -84,6 +87,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -92,7 +99,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }
@@ -110,6 +117,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -124,7 +135,7 @@ public class MultiAction extends RestBaseController {
             // Multi start request must redirect to master, because all following sub requests will be handled
             // on Master
 
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }
@@ -154,6 +165,10 @@ public class MultiAction extends RestBaseController {
     public Object multi_unload(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -171,7 +186,7 @@ public class MultiAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }
@@ -188,6 +203,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -202,7 +221,7 @@ public class MultiAction extends RestBaseController {
 
             // only Master has these load info
 
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }
@@ -222,6 +241,10 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -235,7 +258,7 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            RedirectView redirectView = redirectToMaster(request, response);
+            Object redirectView = redirectToMaster(request, response);
             if (redirectView != null) {
                 return redirectView;
             }

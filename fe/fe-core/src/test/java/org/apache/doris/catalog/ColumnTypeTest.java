@@ -97,10 +97,11 @@ public class ColumnTypeTest {
     public void testDecimal() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
-        Assert.assertEquals("decimal(12, 5)", type.toString());
         if (Config.enable_decimal_conversion) {
+            Assert.assertEquals("decimalv3(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMAL64, type.getType().getPrimitiveType());
         } else {
+            Assert.assertEquals("decimal(12, 5)", type.toString());
             Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
         }
         Assert.assertEquals(12, ((ScalarType) type.getType()).getScalarPrecision());

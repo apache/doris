@@ -105,28 +105,39 @@ CREATE DATABASE example_db;
 > If you don't know the full name of the command, you can use "HELP + a field of the command" for fuzzy query. For example, if you type in  `HELP CREATE`, you can find commands including `CREATE DATABASE`, `CREATE TABLE`, and `CREATE USER`.
 >
 > ```
-> mysql> HELP CREATE;
-> Many help items for your request exist.
-> To make a more specific request, please type 'help <item>',
-> where <item> is one of the following
-> topics:
->    CREATE CLUSTER
->    CREATE DATABASE
->    CREATE ENCRYPTKEY
->    CREATE FILE
->    CREATE FUNCTION
->    CREATE INDEX
->    CREATE MATERIALIZED VIEW
->    CREATE REPOSITORY
->    CREATE RESOURCE
->    CREATE ROLE
->    CREATE SYNC JOB
->    CREATE TABLE
->    CREATE USER
->    CREATE VIEW
->    ROUTINE LOAD
->    SHOW CREATE FUNCTION
->    SHOW CREATE ROUTINE LOAD
+>mysql> HELP CREATE;
+>Many help items for your request exist.
+>To make a more specific request, please type 'help <item>',
+>where <item> is one of the following
+>topics:
+>   CREATE CATALOG
+>   CREATE DATABASE
+>   CREATE ENCRYPTKEY
+>   CREATE EXTERNAL TABLE
+>   CREATE FILE
+>   CREATE FUNCTION
+>   CREATE INDEX
+>   CREATE MATERIALIZED VIEW
+>   CREATE POLICY
+>   CREATE REPOSITORY
+>   CREATE RESOURCE
+>   CREATE ROLE
+>   CREATE ROUTINE LOAD
+>   CREATE SQL BLOCK RULE
+>   CREATE SYNC JOB
+>   CREATE TABLE
+>   CREATE TABLE AS SELECT
+>   CREATE TABLE LIKE
+>   CREATE USER
+>   CREATE VIEW
+>   CREATE WORKLOAD GROUP
+>   SHOW CREATE CATALOG
+>   SHOW CREATE DATABASE
+>   SHOW CREATE FUNCTION
+>   SHOW CREATE LOAD
+>   SHOW CREATE REPOSITORY
+>   SHOW CREATE ROUTINE LOAD
+>   SHOW CREATE TABLE
 > ```
 
 After the database is created, you can view the information about the database via the [SHOW DATABASES](../sql-manual/sql-reference/Show-Statements/SHOW-DATABASES.md) command.
@@ -277,7 +288,7 @@ MySQL> DESC table2;
 > 3. You can import data into the specified Partition. See `HELP LOAD;`.
 > 4. You can dynamically change the table schema. See `HELP ALTER TABLE;`.
 > 5. You can add Rollups to Tables to improve query performance. See the Rollup-related section in "Advanced Usage".
-> 6. The default value in the Null column is true, which may affect query performance.
+> 6. The value of the column is nullable by default, which may affect query performance.
 
 ### Load data
 
@@ -579,7 +590,7 @@ Materialized views are a space-for-time data analysis acceleration technique. Do
 
 Doris can automatically ensure data consistency between materialized views and base tables, and automatically match the appropriate materialized view at query time, greatly reducing the cost of data maintenance for users and providing a consistent and transparent query acceleration experience.
 
-For more information about materialized views, see [Materialized Views](../advanced/materialized-view.md)
+For more information about materialized views, see [Materialized Views](../query-acceleration/materialized-view.md)
 
 ## Data Table Queries
 

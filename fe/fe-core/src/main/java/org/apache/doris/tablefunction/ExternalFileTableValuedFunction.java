@@ -19,19 +19,26 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
@@ -42,6 +49,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
@@ -62,6 +70,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -88,6 +97,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
     protected static final String CSV_SCHEMA = "csv_schema";
+    protected static final String COMPRESS_TYPE = "compress_type";
     // decimal(p,s)
     private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
     // datetime(p)
@@ -117,6 +127,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Map<String, String> locationProperties;
 
     private TFileFormatType fileFormatType;
+    private TFileCompressType compressionType;
     private String headerType = "";
 
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
@@ -140,6 +151,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return fileFormatType;
     }
 
+    public TFileCompressType getTFileCompressType() {
+        return compressionType;
+    }
+
     public Map<String, String> getLocationProperties() {
         return locationProperties;
     }
@@ -153,7 +168,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileType == TFileType.FILE_HDFS) {
             return locationProperties.get(HdfsTableValuedFunction.HADOOP_FS_NAME);
         } else if (fileType == TFileType.FILE_S3) {
-            return locationProperties.get(S3TableValuedFunction.S3_ENDPOINT);
+            return locationProperties.get(S3Properties.ENDPOINT);
         }
         return "";
     }
@@ -205,7 +220,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
-
+        try {
+            compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Compress type : " + validParams.get(COMPRESS_TYPE) + " is not supported.");
+        }
         if (formatString.equals("csv") || formatString.equals("csv_with_names")
                 || formatString.equals("csv_with_names_and_types")) {
             parseCsvSchema(csvSchema, validParams);
@@ -310,11 +329,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new ExternalFileScanNode(id, desc, false);
+        return new TVFScanNode(id, desc, false);
     }
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (FeConstants.runningUnitTest) {
+            return Lists.newArrayList();
+        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
@@ -324,9 +346,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get one BE address
         TNetworkAddress address = null;
         columns = Lists.newArrayList();
-        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+        for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
-                address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
             }
         }
@@ -365,6 +387,43 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return columns;
     }
 
+    /**
+     * Convert PTypeDesc into doris column type
+     * @param typeNodes list PTypeNodes in PTypeDesc
+     * @param start the start index of typeNode to parse
+     * @return column type and the number of parsed PTypeNodes
+     */
+    private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
+        PScalarType columnType = typeNodes.get(start).getScalarType();
+        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
+        Type type;
+        int parsedNodes;
+        if (tPrimitiveType == TPrimitiveType.ARRAY) {
+            Pair<Type, Integer> itemType = getColumnType(typeNodes, start + 1);
+            type =  ArrayType.create(itemType.key(), true);
+            parsedNodes = 1 + itemType.value();
+        } else if (tPrimitiveType == TPrimitiveType.MAP) {
+            Pair<Type, Integer> keyType = getColumnType(typeNodes, start + 1);
+            Pair<Type, Integer> valueType = getColumnType(typeNodes, start + 1 + keyType.value());
+            type = new MapType(keyType.key(), valueType.key());
+            parsedNodes = 1 + keyType.value() + valueType.value();
+        } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
+            parsedNodes = 1;
+            ArrayList<StructField> fields = new ArrayList<>();
+            for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
+                Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
+                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                parsedNodes += fieldType.value();
+            }
+            type = new StructType(fields);
+        } else {
+            type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
+                    columnType.getLen(), columnType.getPrecision(), columnType.getScale());
+            parsedNodes = 1;
+        }
+        return Pair.of(type, parsedNodes);
+    }
+
     private void fillColumns(InternalService.PFetchTableSchemaResult result)
                             throws AnalysisException {
         if (result.getColumnNums() == 0) {
@@ -373,12 +432,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx);
-            for (PTypeNode typeNode : type.getTypesList()) {
-                // only support ScalarType.
-                PScalarType scalarType = typeNode.getScalarType();
-                TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(scalarType.getType());
-                columns.add(new Column(colName, PrimitiveType.fromThrift(tPrimitiveType), true));
-            }
+            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
     }
 
@@ -409,11 +463,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Can not get first file, please check uri.");
         }
 
+        fileScanRangeParams.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
+        fileRangeDesc.setFileSize(firstFile.getSize());
+        fileRangeDesc.setModificationTime(firstFile.getModificationTime());
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);
@@ -422,3 +479,4 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+

@@ -187,7 +187,7 @@ This command returns the insert results and the details of the corresponding tra
 
   The timeout time of the import task (in seconds) will be cancelled by the system if the import task is not completed within the set timeout time, and will become CANCELLED.
 
-  At present, Insert Into does not support custom import timeout time. All Insert Into imports have a uniform timeout time. The default timeout time is 1 hour. If the imported source file cannot complete the import within the specified time, the parameter `insert_load_default_timeout_second` of FE needs to be adjusted.
+  At present, Insert Into does not support custom import timeout time. All Insert Into imports have a uniform timeout time. The default timeout time is 4 hours. If the imported source file cannot complete the import within the specified time, the parameter `insert_load_default_timeout_second` of FE needs to be adjusted.
 
   <version since="dev"></version>
   At the same time, the Insert Into statement receives the restriction of the Session variable `insert_timeout`. You can increase the timeout time by `SET insert_timeout = xxx;` in seconds.
@@ -198,7 +198,7 @@ This command returns the insert results and the details of the corresponding tra
 
   The Insert Into import itself cannot control the tolerable error rate of the import. Users can only use the Session parameter `enable_insert_strict`. When this parameter is set to false, it indicates that at least one data has been imported correctly, and then it returns successfully. When this parameter is set to true, the import fails if there is a data error. The default is false. It can be set by `SET enable_insert_strict = true;`.
 
-- query u timeout
+- query_timeout
 
   Insert Into itself is also an SQL command, and the Insert Into statement is restricted by the Session variable <version since="dev" type="inline">`insert_timeout`</version>. You can increase the timeout time by `SET insert_timeout = xxx;` in seconds.
 

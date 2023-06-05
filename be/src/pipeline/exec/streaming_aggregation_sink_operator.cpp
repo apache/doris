@@ -17,7 +17,20 @@
 
 #include "streaming_aggregation_sink_operator.h"
 
+#include <gen_cpp/Metrics_types.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vaggregation_node.h"
+
+namespace doris {
+class ExecNode;
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -29,8 +42,8 @@ StreamingAggSinkOperator::StreamingAggSinkOperator(OperatorBuilderBase* operator
 Status StreamingAggSinkOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(StreamingOperator::prepare(state));
     _queue_byte_size_counter =
-            ADD_COUNTER(_runtime_profile.get(), "MaxSizeInBlockQueue", TUnit::BYTES);
-    _queue_size_counter = ADD_COUNTER(_runtime_profile.get(), "MaxSizeOfBlockQueue", TUnit::UNIT);
+            ADD_COUNTER(_node->runtime_profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
+    _queue_size_counter = ADD_COUNTER(_node->runtime_profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -41,7 +54,6 @@ bool StreamingAggSinkOperator::can_write() {
 
 Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
                                       SourceState source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
         auto block_from_ctx = _data_queue->get_free_block();

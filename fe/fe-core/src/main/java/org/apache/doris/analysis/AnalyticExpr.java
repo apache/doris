@@ -686,8 +686,6 @@ public class AnalyticExpr extends Expr {
                 Preconditions.checkState(getFnCall().getChildren().size() == 3);
             }
 
-            Type type = getFnCall().getChildren().get(2).getType();
-
             try {
                 if (!Type.matchExactType(getFnCall().getChildren().get(0).getType(),
                         getFnCall().getChildren().get(2).getType())) {
@@ -700,10 +698,10 @@ public class AnalyticExpr extends Expr {
                                             + getFnCall().getChildren().get(0).getType());
             }
 
-            if (getFnCall().getChildren().get(2) instanceof CastExpr) {
-                throw new AnalysisException("Type = " + type + " can't not convert to "
-                                            + getFnCall().getChildren().get(0).getType());
-            }
+            // if (getFnCall().getChildren().get(2) instanceof CastExpr) {
+            //     throw new AnalysisException("Type = " + type + " can't not convert to "
+            //                                 + getFnCall().getChildren().get(0).getType());
+            // }
 
             // check the value whether out of range
             checkDefaultValue(analyzer);
@@ -1001,9 +999,5 @@ public class AnalyticExpr extends Expr {
             strings.add(expr.toDigest());
         }
         return Joiner.on(", ").join(strings);
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
     }
 }

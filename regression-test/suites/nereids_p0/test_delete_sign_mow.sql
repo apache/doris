@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS delete_sign_test_mow (
 UNIQUE KEY(uid)
 DISTRIBUTED BY HASH(uid) BUCKETS 3
 PROPERTIES (
-    "unique_key_merge_on_write" = "true",
+    "enable_unique_key_merge_on_write" = "true",
     "replication_num" = "1"
 );
 

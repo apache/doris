@@ -16,7 +16,6 @@
 -- under the License.
 
 SET enable_nereids_planner=true;
-SET enable_vectorized_engine=true;
 SET enable_fallback_to_original_planner=false;
 
 SELECT c_city, s_city, d_year, sum(lo_revenue)

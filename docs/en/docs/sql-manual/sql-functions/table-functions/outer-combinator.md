@@ -28,6 +28,9 @@ under the License.
 
 ### description
 
+#### syntax
+`explode_numbers(INT x)`
+
 Adding the `_outer` suffix after the function name of the table function changes the function behavior from `non-outer` to `outer`, and adds a row of `Null` data when the table function generates 0 rows of data.
 
 ### example

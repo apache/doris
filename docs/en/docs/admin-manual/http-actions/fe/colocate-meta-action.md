@@ -42,7 +42,13 @@ None
 
 ## Query parameters
 
-None
+* `db_id`
+
+    Specify database id
+
+* `group_id`
+    
+    Specify group id
 
 ## Request body
 

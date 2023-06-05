@@ -31,7 +31,7 @@ under the License.
 `INT lcase(VARCHAR str)`
 
 
-与`lower`一致
+将参数中所有的字符串都转换成小写，该函数的另一个别名为[lower](./lower.md)。
 
 ### keywords
     LCASE

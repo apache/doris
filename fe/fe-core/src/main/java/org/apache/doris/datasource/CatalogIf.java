@@ -17,12 +17,15 @@
 
 package org.apache.doris.datasource;
 
+
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,6 +52,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default boolean isInternalCatalog() {
+        return this instanceof InternalCatalog;
+    }
+
     // Will be used when querying the information_schema table
     // Unable to get db for uninitialized catalog to avoid query timeout
     default List<String> getDbNamesOrEmpty() {
@@ -74,7 +81,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return null;
     }
 
-    default void notifyPropertiesUpdated() {
+    default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
             ((ExternalCatalog) this).setUninitialized(false);
         }
@@ -140,5 +147,18 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     // Called when catalog is dropped
     default void onClose() {
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
+    }
+
+    String getComment();
+
+    default CatalogLog constructEditLog() {
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(getId());
+        log.setCatalogName(getName());
+        log.setResource(Strings.nullToEmpty(getResource()));
+        log.setComment(getComment());
+        log.setProps(getProperties());
+        return log;
     }
 }

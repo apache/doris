@@ -17,19 +17,24 @@
 
 #include "util/jni-util.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
-#include <stdlib.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
+#include <vector>
 
-#include "common/config.h"
 #include "gutil/strings/substitute.h"
-#include "jni_native_method.h"
-#include "libjvm_loader.h"
+#include "util/jni_native_method.h"
+#include "util/libjvm_loader.h"
 
 using std::string;
 
@@ -37,66 +42,96 @@ namespace doris {
 
 namespace {
 JavaVM* g_vm;
-std::once_flag g_vm_once;
+[[maybe_unused]] std::once_flag g_vm_once;
 
-const std::string GetDorisJNIClasspath() {
-    const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
+const std::string GetDorisJNIDefaultClasspath() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+    std::ostringstream out;
+    std::string path(doris_home);
+    path += "/lib";
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+        if (entry.path().extension() != ".jar") {
+            continue;
+        }
+        if (out.str().empty()) {
+            out << entry.path().string();
+        } else {
+            out << ":" << entry.path().string();
+        }
+    }
+
+    DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
+    return out.str();
+}
+
+const std::string GetDorisJNIClasspathOption() {
+    const auto* classpath = getenv("DORIS_CLASSPATH");
     if (classpath) {
         return classpath;
     } else {
-        const auto* doris_home = getenv("DORIS_HOME");
-        DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
-
-        std::ostringstream out;
-        std::string path(doris_home);
-        path += "/lib";
-        for (const auto& entry : std::filesystem::directory_iterator(path)) {
-            if (entry.path().extension() != ".jar") {
-                continue;
-            }
-            if (out.str().empty()) {
-                out << "-Djava.class.path=" << entry.path().string();
-            } else {
-                out << ":" << entry.path().string();
-            }
-        }
-
-        DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
-        return out.str();
+        return "-Djava.class.path=" + GetDorisJNIDefaultClasspath();
     }
 }
 
-void FindOrCreateJavaVM() {
-    int num_vms;
-    int rv = LibJVMLoader::JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
-    if (rv == 0) {
-        auto classpath = GetDorisJNIClasspath();
-        std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
-        std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
-        std::string jvm_name = fmt::format("-Dsun.java.command={}", "DorisBE");
+[[maybe_unused]] void SetEnvIfNecessary() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
 
-        JavaVMOption options[] = {
-                {const_cast<char*>(classpath.c_str()), nullptr},
-                {const_cast<char*>(heap_size.c_str()), nullptr},
-                {const_cast<char*>(log_path.c_str()), nullptr},
-                {const_cast<char*>(jvm_name.c_str()), nullptr},
+    // CLASSPATH
+    static const std::string classpath =
+            fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
+    setenv("CLASSPATH", classpath.c_str(), 0);
+
+    // LIBHDFS_OPTS
+    setenv("LIBHDFS_OPTS",
+           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
+                   .c_str(),
+           0);
+}
+
+// Only used on non-x86 platform
+[[maybe_unused]] void FindOrCreateJavaVM() {
+    int num_vms;
+    int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
+    if (rv == 0) {
+        std::vector<std::string> options;
+
+        char* java_opts = getenv("JAVA_OPTS");
+        if (java_opts == nullptr) {
+            options = {
+                    GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
+                    fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
+                    fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
 #ifdef __APPLE__
-                // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
-                // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
-                // and it can not pass the check performed by storage engine.
-                // The newer JDK has fixed this issue.
-                {const_cast<char*>("-XX:-MaxFDLimit"), nullptr},
+                    // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
+                    // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
+                    // and it can not pass the check performed by storage engine.
+                    // The newer JDK has fixed this issue.
+                    "-XX:-MaxFDLimit"
 #endif
-        };
+            };
+        } else {
+            std::istringstream stream(java_opts);
+            options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
+                                               std::istream_iterator<std::string>());
+            options.push_back(GetDorisJNIClasspathOption());
+        }
+        std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
+        for (int i = 0; i < options.size(); ++i) {
+            jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
+        }
+
         JNIEnv* env;
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
-        vm_args.options = options;
-        vm_args.nOptions = sizeof(options) / sizeof(JavaVMOption);
+        vm_args.options = jvm_options.get();
+        vm_args.nOptions = options.size();
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
-        jint res = LibJVMLoader::JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
+        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
@@ -152,6 +187,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
 Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
+#ifdef USE_LIBHDFS3
     std::call_once(g_vm_once, FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
@@ -160,6 +196,11 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     if (rc != 0 || tls_env_ == nullptr) {
         return Status::InternalError("Unable to get JVM: {}", rc);
     }
+#else
+    // the hadoop libhdfs will do all the stuff
+    SetEnvIfNecessary();
+    tls_env_ = getJNIEnv();
+#endif
     *env = tls_env_;
     return Status::OK();
 }
@@ -277,11 +318,20 @@ Status JniUtil::Init() {
     if (env->ExceptionOccurred()) {
         return Status::InternalError("Failed to delete local reference to JNINativeMethod class.");
     }
-    std::string function_name = "resizeColumn";
-    std::string function_sign = "(JI)J";
+    std::string resize_column_name = "resizeStringColumn";
+    std::string resize_column_sign = "(JI)J";
+    std::string memory_alloc_name = "memoryTrackerMalloc";
+    std::string memory_alloc_sign = "(J)J";
+    std::string memory_free_name = "memoryTrackerFree";
+    std::string memory_free_sign = "(J)V";
     static JNINativeMethod java_native_methods[] = {
-            {const_cast<char*>(function_name.c_str()), const_cast<char*>(function_sign.c_str()),
-             (void*)&JavaNativeMethods::resizeColumn},
+            {const_cast<char*>(resize_column_name.c_str()),
+             const_cast<char*>(resize_column_sign.c_str()),
+             (void*)&JavaNativeMethods::resizeStringColumn},
+            {const_cast<char*>(memory_alloc_name.c_str()),
+             const_cast<char*>(memory_alloc_sign.c_str()), (void*)&JavaNativeMethods::memoryMalloc},
+            {const_cast<char*>(memory_free_name.c_str()),
+             const_cast<char*>(memory_free_sign.c_str()), (void*)&JavaNativeMethods::memoryFree},
     };
 
     int res = env->RegisterNatives(jni_native_method_exc_cl_, java_native_methods,

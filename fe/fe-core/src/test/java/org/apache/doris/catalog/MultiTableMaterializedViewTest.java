@@ -24,6 +24,7 @@ import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -53,6 +54,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
         connectContext.getState().reset();
+        Config.enable_mtmv = true;
     }
 
     @AfterEach
@@ -133,7 +135,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 stmt.getColumns(),
                 0,
                 Util.generateSchemaHash(),
-                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties()),
+                Env.calcShortKeyColumnCount(stmt.getColumns(), stmt.getProperties(), true),
                 TStorageType.COLUMN,
                 stmt.getKeysDesc().getKeysType());
         return mv;
@@ -367,5 +369,169 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 result.contains("SELECT /*+ SET_VAR(exec_mem_limit=1048576, query_timeout=3600) */")
                         || result.contains("SELECT /*+ SET_VAR(query_timeout=3600, exec_mem_limit=1048576) */")
         );
+    }
+
+    @Test
+    public void testCreateWithViews() throws Exception {
+        createTable("CREATE TABLE lineorder ("
+                + "  lo_orderkey int,"
+                + "  lo_linenumber int,"
+                + "  lo_custkey int,"
+                + "  lo_partkey int,"
+                + "  lo_suppkey int,"
+                + "  lo_orderdate int,"
+                + "  lo_orderpriority int,"
+                + "  lo_shippriority int,"
+                + "  lo_quantity int,"
+                + "  lo_extendedprice int,"
+                + "  lo_ordtotalprice int,"
+                + "  lo_discount int,"
+                + "  lo_revenue int,"
+                + "  lo_supplycost int,"
+                + "  lo_tax int,"
+                + "  lo_commitdate int,"
+                + "  lo_shipmode int)"
+                + "DUPLICATE KEY (lo_orderkey)"
+                + "PARTITION BY RANGE (lo_orderdate) ("
+                + "  PARTITION p1 VALUES [(\"-2147483648\"), (\"19930101\")),"
+                + "  PARTITION p2 VALUES [(\"19930101\"), (\"19940101\")),"
+                + "  PARTITION p3 VALUES [(\"19940101\"), (\"19950101\")),"
+                + "  PARTITION p4 VALUES [(\"19950101\"), (\"19960101\")),"
+                + "  PARTITION p5 VALUES [(\"19960101\"), (\"19970101\")),"
+                + "  PARTITION p6 VALUES [(\"19970101\"), (\"19980101\")),"
+                + "  PARTITION p7 VALUES [(\"19980101\"), (\"19990101\")))"
+                + "DISTRIBUTED BY HASH(lo_orderkey) BUCKETS 48 "
+                + "PROPERTIES ('replication_num' = '1')");
+
+        createTable("CREATE TABLE customer ("
+                + "  c_custkey int,"
+                + "  c_name varchar,"
+                + "  c_address varchar,"
+                + "  c_city varchar,"
+                + "  c_nation varchar,"
+                + "  c_region varchar,"
+                + "  c_phone varchar,"
+                + "  c_mktsegment varchar)"
+                + "DUPLICATE KEY (c_custkey)"
+                + "DISTRIBUTED BY HASH (c_custkey) BUCKETS 12 "
+                + "PROPERTIES ('replication_num' = '1')");
+
+        createTable("CREATE TABLE supplier ("
+                + "  s_suppkey int,"
+                + "  s_name varchar,"
+                + "  s_address varchar,"
+                + "  s_city varchar,"
+                + "  s_nation varchar,"
+                + "  s_region varchar,"
+                + "  s_phone varchar)"
+                + "DUPLICATE KEY (s_suppkey)"
+                + "DISTRIBUTED BY HASH (s_suppkey) BUCKETS 12 "
+                + "PROPERTIES ('replication_num' = '1')");
+
+        createTable("CREATE TABLE part ("
+                + "  p_partkey int,"
+                + "  p_name varchar,"
+                + "  p_mfgr varchar,"
+                + "  p_category varchar,"
+                + "  p_brand varchar,"
+                + "  p_color varchar,"
+                + "  p_type varchar,"
+                + "  p_size int,"
+                + "  p_container varchar)"
+                + "DUPLICATE KEY (p_partkey)"
+                + "DISTRIBUTED BY HASH (p_partkey) BUCKETS 12 "
+                + "PROPERTIES ('replication_num' = '1')");
+
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW ssb_view "
+                + "BUILD IMMEDIATE REFRESH COMPLETE "
+                + "DISTRIBUTED BY HASH (LO_ORDERKEY) "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT "
+                + "  LO_ORDERDATE,"
+                + "  LO_ORDERKEY,"
+                + "  LO_LINENUMBER,"
+                + "  LO_CUSTKEY,"
+                + "  LO_PARTKEY,"
+                + "  LO_SUPPKEY,"
+                + "  LO_ORDERPRIORITY,"
+                + "  LO_SHIPPRIORITY,"
+                + "  LO_QUANTITY,"
+                + "  LO_EXTENDEDPRICE,"
+                + "  LO_ORDTOTALPRICE,"
+                + "  LO_DISCOUNT,"
+                + "  LO_REVENUE,"
+                + "  LO_SUPPLYCOST,"
+                + "  LO_TAX,"
+                + "  LO_COMMITDATE,"
+                + "  LO_SHIPMODE,"
+                + "  C_NAME,"
+                + "  C_ADDRESS,"
+                + "  C_CITY,"
+                + "  C_NATION,"
+                + "  C_REGION,"
+                + "  C_PHONE,"
+                + "  C_MKTSEGMENT,"
+                + "  S_NAME,"
+                + "  S_ADDRESS,"
+                + "  S_CITY,"
+                + "  S_NATION,"
+                + "  S_REGION,"
+                + "  S_PHONE,"
+                + "  P_NAME,"
+                + "  P_MFGR,"
+                + "  P_CATEGORY,"
+                + "  P_BRAND,"
+                + "  P_COLOR,"
+                + "  P_TYPE,"
+                + "  P_SIZE,"
+                + "  P_CONTAINER "
+                + "FROM ("
+                + "  SELECT "
+                + "    lo_orderkey,"
+                + "    lo_linenumber,"
+                + "    lo_custkey,"
+                + "    lo_partkey,"
+                + "    lo_suppkey,"
+                + "    lo_orderdate,"
+                + "    lo_orderpriority,"
+                + "    lo_shippriority,"
+                + "    lo_quantity,"
+                + "    lo_extendedprice,"
+                + "    lo_ordtotalprice,"
+                + "    lo_discount,"
+                + "    lo_revenue,"
+                + "    lo_supplycost,"
+                + "    lo_tax,"
+                + "    lo_commitdate,"
+                + "    lo_shipmode"
+                + "  FROM lineorder"
+                + "  WHERE lo_orderdate<19930101"
+                + ") l "
+                + "INNER JOIN customer c ON (c.c_custkey = l.lo_custkey) "
+                + "INNER JOIN supplier s ON (s.s_suppkey = l.lo_suppkey) "
+                + "INNER JOIN part p ON (p.p_partkey = l.lo_partkey)").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
+
+    @Test
+    void testCreateNeverRefreshMaterializedView() throws Exception {
+        createTable("create table test.t1 (pk int, v1 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
+                + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
+        new StmtExecutor(connectContext, "create materialized view mv "
+                + "build immediate never refresh key (mpk) distributed by hash (mpk) "
+                + "properties ('replication_num' = '1') "
+                + "as select test.t1.pk as mpk from test.t1, test.t2 where test.t1.pk = test.t2.pk").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+
+        ShowExecutor showExecutor = new ShowExecutor(connectContext,
+                (ShowStmt) parseAndAnalyzeStmt("show create table mv"));
+        ShowResultSet resultSet = showExecutor.execute();
+        String result = resultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(result.contains("CREATE MATERIALIZED VIEW `mv`\n"
+                + "BUILD IMMEDIATE NEVER REFRESH \n"
+                + "KEY(`mpk`)\n"
+                + "DISTRIBUTED BY HASH(`mpk`) BUCKETS 10"));
     }
 }

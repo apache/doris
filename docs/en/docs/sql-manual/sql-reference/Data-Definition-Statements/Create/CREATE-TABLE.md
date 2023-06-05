@@ -1,7 +1,9 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "en"
+    "language": "en",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
@@ -46,7 +48,7 @@ distribution_desc
 [extra_properties]
 ```
 
-* `column_definition_list`
+#### column_definition_list
 
     Column definition list:
 
@@ -146,7 +148,7 @@ distribution_desc
             v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
             ```
 
-* `index_definition_list`
+#### index_definition_list
 
     Index list definition:
 
@@ -168,13 +170,13 @@ distribution_desc
         ...
         ```
 
-* `engine_type`
+#### engine_type
 
     Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) document. Example:
 
     `ENGINE=olap`
 
-* `keys_type`
+#### keys_type
 
     Data model.
 
@@ -186,6 +188,10 @@ distribution_desc
     * AGGREGATE KEY: The specified column is the dimension column.
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
+    <version since="2.0">
+    NOTE: when set table property `"enable_duplicate_without_keys_by_default" = "true"`, will create a duplicate model without sorting columns and prefix indexes by default.
+    </version>
+
     Example:
 
     ```
@@ -194,7 +200,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
 
-* `table_comment`
+#### table_comment
 
     Table notes. Example:
 
@@ -202,7 +208,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_info`
+#### partition_info
 
     Partition information supports three writing methods:
 
@@ -241,23 +247,33 @@ distribution_desc
         ```
     
 </version>
+
+
+    4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
+
+        ```
+        PARTITION BY RANGE(int_col)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
+        ```
     
-* `distribution_desc`
+#### distribution_desc
 
     Define the data bucketing method.
 
     1) Hash
        Syntax:
-       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num|auto]`
        Explain:
        Hash bucketing using the specified key column.
     2) Random
        Syntax:
-       `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       `DISTRIBUTED BY RANDOM [BUCKETS num|auto]`
        Explain:
        Use random numbers for bucketing.
 
-* `rollup_list`
+#### rollup_list
 
     Multiple materialized views (ROLLUP) can be created at the same time as the table is built.
 
@@ -276,7 +292,7 @@ distribution_desc
         )
         ```
 
-* `properties`
+#### properties
 
     Set table properties. The following attributes are currently supported:
 
@@ -317,11 +333,7 @@ distribution_desc
 
     * `in_memory`
 
-        Doris has no concept of memory tables.
-
-        When this property is set to `true`, Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. But this property does not guarantee that the data block is resident in memory, it is only used as a best-effort identification.
-
-        `"in_memory" = "true"`
+        Deprecated.
 
     * `function_column.sequence_col`
 
@@ -362,13 +374,36 @@ distribution_desc
         If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
 
         `"disable_auto_compaction" = "false"`
+
+    * `enable_single_replica_compaction`
+
+        Whether to enable single replica compaction for this table.
+
+        If this property is set to 'true', all replicas of the tablet will only have one replica performing compaction, while the others fetch rowsets from that replica.
+
+        `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `skip_write_index_on_load`
+
+        Whether to enable skip inverted index on load for this table.
+
+        If this property is set to 'true', skip writting index (only inverted index now) on first time load and delay writting 
+        index to compaction. It can reduce CPU and IO resource usage for high throughput load.
+
+        `"skip_write_index_on_load" = "false"`
     
     * Dynamic partition related
     
         The relevant parameters of dynamic partition are as follows:
     
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
-        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), HOUR (hour).
+        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), YEAR (year), HOUR (hour).
         * `dynamic_partition.start`: Used to specify how many partitions to delete forward. The value must be less than 0. The default is Integer.MIN_VALUE.
         * `dynamic_partition.end`: Used to specify the number of partitions created in advance. The value must be greater than 0.
         * `dynamic_partition.prefix`: Used to specify the partition name prefix to be created. For example, if the partition name prefix is ​​p, the partition name will be automatically created as p20200108.
@@ -377,12 +412,6 @@ distribution_desc
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
     
-    * Data Sort Info
-    
-        The relevant parameters of data sort info are as follows:
-    
-        * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
-        * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
 ### Example
 
 1. Create a detailed model table
@@ -501,7 +530,7 @@ distribution_desc
     );
     ```
 
-7. Create a memory table with bitmap index and bloom filter index
+7. Create a table with bitmap index and bloom filter index
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -515,8 +544,7 @@ distribution_desc
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "bloom_filter_columns" = "k2",
-        "in_memory" = "true"
+        "bloom_filter_columns" = "k2"
     );
     ```
 
@@ -671,8 +699,49 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
             "replication_num" = "1"
         );
 ```
+```
+        CREATE TABLE create_table_multi_partion_integer
+        (
+            k1 BIGINT,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM (1) TO (100) INTERVAL 10
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
 
 NOTE: Multi Partition can be mixed with conventional manual creation of partitions. When using, you need to limit the partition column to only one, The default maximum number of partitions created in multi partition is 4096, This parameter can be adjusted in fe configuration `max_multi_partition_num`.
+
+</version>
+
+<version since="2.0">
+
+14. Add a duplicate without sorting column table
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
+    );
+```
 
 </version>
 
@@ -704,7 +773,7 @@ If the materialized view is created when the table is created, all subsequent da
 
 If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.md).
+For the introduction of materialized views, please refer to the document [materialized views](../../../../query-acceleration/materialized-view.md).
 
 #### Index
 
@@ -712,6 +781,3 @@ Users can create indexes on multiple columns while building a table. Indexes can
 
 If you add an index in the subsequent use process, if there is data in the table, you need to rewrite all the data, so the creation time of the index depends on the current data volume.
 
-#### in_memory property
-
-The `"in_memory" = "true"` attribute was specified when the table was created. Doris will try to cache the data blocks of the table in the PageCache of the storage engine, which has reduced disk IO. However, this attribute does not guarantee that the data block is permanently resident in memory, and is only used as a best-effort identification.

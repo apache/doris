@@ -21,7 +21,10 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     public final ConnectContext connectContext;
 
+    private final ConnectContext previousContext;
+
     public AutoCloseConnectContext(ConnectContext connectContext) {
+        this.previousContext = ConnectContext.get();
         this.connectContext = connectContext;
         connectContext.setThreadLocalInfo();
     }
@@ -29,5 +32,8 @@ public class AutoCloseConnectContext implements AutoCloseable {
     @Override
     public void close() {
         ConnectContext.remove();
+        if (previousContext != null) {
+            previousContext.setThreadLocalInfo();
+        }
     }
 }

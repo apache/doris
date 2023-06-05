@@ -20,7 +20,9 @@
 
 #include "io/cache/block/block_file_segment.h"
 
-#include <filesystem>
+#include <glog/logging.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
 #include <string>
 #include <thread>
@@ -29,19 +31,17 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/iterators.h"
-#include "vec/common/hex.h"
 
 namespace doris {
 namespace io {
 
 FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* cache_,
-                     State download_state_, bool is_persistent)
+                     State download_state_, CacheType cache_type)
         : _segment_range(offset_, offset_ + size_ - 1),
           _download_state(download_state_),
           _file_key(key_),
           _cache(cache_),
-          _is_persistent(is_persistent) {
+          _cache_type(cache_type) {
     /// On creation, file segment state can be EMPTY, DOWNLOADED, DOWNLOADING.
     switch (_download_state) {
     /// EMPTY is used when file segment is not in cache and
@@ -129,6 +129,7 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock)
         _downloaded_size = 0;
         _download_state = State::EMPTY;
         _downloader_id.clear();
+        _cache_writer.reset();
     }
 }
 
@@ -148,10 +149,14 @@ bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* segment_lock 
 
 Status FileBlock::append(Slice data) {
     DCHECK(data.size != 0) << "Writing zero size is not allowed";
-
+    Status st = Status::OK();
     if (!_cache_writer) {
         auto download_path = get_path_in_local_cache();
-        RETURN_IF_ERROR(global_local_filesystem()->create_file(download_path, &_cache_writer));
+        st = global_local_filesystem()->create_file(download_path, &_cache_writer);
+        if (!st) {
+            _cache_writer.reset();
+            return st;
+        }
     }
 
     RETURN_IF_ERROR(_cache_writer->append(data));
@@ -159,27 +164,30 @@ Status FileBlock::append(Slice data) {
     std::lock_guard download_lock(_download_mutex);
 
     _downloaded_size += data.size;
-    return Status::OK();
+    return st;
 }
 
 std::string FileBlock::get_path_in_local_cache() const {
-    return _cache->get_path_in_local_cache(key(), offset(), _is_persistent);
+    return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
 Status FileBlock::read_at(Slice buffer, size_t offset) {
+    Status st = Status::OK();
     if (!_cache_reader) {
         std::lock_guard segment_lock(_mutex);
         if (!_cache_reader) {
             auto download_path = get_path_in_local_cache();
-            RETURN_IF_ERROR(
-                    global_local_filesystem()->open_file(download_path, &_cache_reader, nullptr));
+            st = global_local_filesystem()->open_file(download_path, &_cache_reader);
+            if (!st) {
+                _cache_reader.reset();
+                return st;
+            }
         }
     }
     size_t bytes_reads = buffer.size;
-    IOContext io_ctx;
-    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, io_ctx, &bytes_reads));
+    RETURN_IF_ERROR(_cache_reader->read_at(offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
-    return Status::OK();
+    return st;
 }
 
 Status FileBlock::finalize_write() {
@@ -223,14 +231,7 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* segment_lock */
     return Status::OK();
 }
 
-void FileBlock::complete(std::lock_guard<std::mutex>& cache_lock) {
-    std::lock_guard segment_lock(_mutex);
-
-    complete_unlocked(cache_lock, segment_lock);
-}
-
-void FileBlock::complete_unlocked(std::lock_guard<std::mutex>& cache_lock,
-                                  std::lock_guard<std::mutex>& segment_lock) {
+void FileBlock::complete_unlocked(std::lock_guard<std::mutex>& segment_lock) {
     if (is_downloader_impl(segment_lock)) {
         reset_downloader(segment_lock);
         _cv.notify_all();
@@ -253,6 +254,10 @@ std::string FileBlock::get_info_for_log_impl(std::lock_guard<std::mutex>& segmen
     return info.str();
 }
 
+FileBlock::State FileBlock::state_unlock(std::lock_guard<std::mutex>&) const {
+    return _download_state;
+}
+
 std::string FileBlock::state_to_string(FileBlock::State state) {
     switch (state) {
     case FileBlock::State::DOWNLOADED:
@@ -273,10 +278,6 @@ bool FileBlock::has_finalized_state() const {
     return _download_state == State::DOWNLOADED;
 }
 
-FileBlock::~FileBlock() {
-    std::lock_guard segment_lock(_mutex);
-}
-
 FileBlocksHolder::~FileBlocksHolder() {
     /// In CacheableReadBufferFromRemoteFS file segment's downloader removes file segments from
     /// FileBlocksHolder right after calling file_segment->complete(), so on destruction here
@@ -292,11 +293,17 @@ FileBlocksHolder::~FileBlocksHolder() {
             cache = file_segment->_cache;
         }
 
-        /// File segment pointer must be reset right after calling complete() and
-        /// under the same mutex, because complete() checks for segment pointers.
-        std::lock_guard cache_lock(cache->_mutex);
-
-        file_segment->complete(cache_lock);
+        {
+            std::lock_guard cache_lock(cache->_mutex);
+            std::lock_guard segment_lock(file_segment->_mutex);
+            file_segment->complete_unlocked(segment_lock);
+            if (file_segment->state_unlock(segment_lock) == FileBlock::State::EMPTY) {
+                // one in cache, one in here
+                if (file_segment.use_count() == 2) {
+                    cache->remove(file_segment, cache_lock, segment_lock);
+                }
+            }
+        }
 
         file_segment_it = file_segments.erase(current_file_segment_it);
     }

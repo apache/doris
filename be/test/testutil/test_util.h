@@ -17,14 +17,11 @@
 
 #pragma once
 
-#include <chrono>
 #include <cstdlib>
-#include <random>
 #include <string>
 
-#include "olap/tablet_schema.h"
-
 namespace doris {
+enum class FieldType;
 
 #define LOOP_LESS_OR_MORE(less, more) (AllowSlowTests() ? more : less)
 

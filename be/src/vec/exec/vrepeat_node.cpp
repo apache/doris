@@ -17,10 +17,32 @@
 
 #include "vec/exec/vrepeat_node.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/join.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/runtime_profile.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -35,7 +57,7 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
 
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
     return Status::OK();
 }
 
@@ -59,7 +81,6 @@ Status VRepeatNode::prepare(RuntimeState* state) {
 }
 
 Status VRepeatNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     VLOG_CRITICAL << "VRepeatNode::open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -68,7 +89,6 @@ Status VRepeatNode::open(RuntimeState* state) {
 }
 
 Status VRepeatNode::alloc_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
@@ -202,9 +222,9 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     DCHECK(!_expr_ctxs.empty());
 
     if (input_block->rows() > 0) {
-        _intermediate_block.reset(new Block());
+        _intermediate_block = Block::create_unique();
 
-        for (auto expr : _expr_ctxs) {
+        for (auto& expr : _expr_ctxs) {
             int result_column_id = -1;
             RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
             DCHECK(result_column_id != -1);
@@ -227,7 +247,6 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");
     }
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VRepeatNode::get_next");
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -238,14 +257,12 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
     DCHECK(block->rows() == 0);
     while (need_more_input_data()) {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_child_block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_child_block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         push(state, &_child_block, _child_eos);
     }
@@ -262,7 +279,6 @@ Status VRepeatNode::close(RuntimeState* state) {
 }
 
 void VRepeatNode::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     VExpr::close(_expr_ctxs, state);
     ExecNode::release_resource(state);
 }

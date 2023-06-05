@@ -17,11 +17,30 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
+
 #include "common/status.h"
-#include "pipeline.h"
+#include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "task_queue.h"
-#include "util/threadpool.h"
+#include "runtime/task_group/task_group.h"
+#include "util/thread.h"
+
+namespace doris {
+class ExecEnv;
+class ThreadPool;
+
+namespace pipeline {
+class TaskQueue;
+} // namespace pipeline
+} // namespace doris
 
 namespace doris::pipeline {
 
@@ -61,7 +80,6 @@ public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
                   std::shared_ptr<TaskQueue> task_queue)
             : _task_queue(std::move(task_queue)),
-              _exec_env(exec_env),
               _blocked_task_scheduler(std::move(b_scheduler)),
               _shutdown(false) {}
 
@@ -73,17 +91,18 @@ public:
 
     void shutdown();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                             taskgroup::TaskGroupPtr task_group);
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
     std::vector<std::unique_ptr<std::atomic<bool>>> _markers;
-    ExecEnv* _exec_env;
     std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
     std::atomic<bool> _shutdown;
 
     void _do_work(size_t index);
+    // after _try_close_task, task maybe destructed.
     void _try_close_task(PipelineTask* task, PipelineTaskState state);
 };
 } // namespace doris::pipeline

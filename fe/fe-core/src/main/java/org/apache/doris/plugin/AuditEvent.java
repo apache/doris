@@ -78,6 +78,8 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "IsQuery")
     public boolean isQuery = false;
+    @AuditField(value = "isNereids")
+    public boolean isNereids = false;
     @AuditField(value = "feIp")
     public String feIp = "";
     @AuditField(value = "Stmt")
@@ -188,6 +190,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setIsQuery(boolean isQuery) {
             auditEvent.isQuery = isQuery;
+            return this;
+        }
+
+        public AuditEventBuilder setIsNereids(boolean isNereids) {
+            auditEvent.isNereids = isNereids;
             return this;
         }
 

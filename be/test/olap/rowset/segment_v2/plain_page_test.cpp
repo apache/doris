@@ -26,7 +26,6 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -46,7 +45,7 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        MemPool pool;
+        vectorized::Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -84,7 +83,7 @@ public:
 
         EXPECT_EQ(0, page_decoder.current_index());
 
-        MemPool pool;
+        vectorized::Arena pool;
 
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
@@ -173,10 +172,10 @@ TEST_F(PlainPageTest, TestInt32PlainPageRandom) {
         ints.get()[i] = random();
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                        size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(PlainPageTest, TestInt32PlainPageSeekValue) {
@@ -188,9 +187,10 @@ TEST_F(PlainPageTest, TestInt32PlainPageSeekValue) {
     int32_t small_than_smallest = 99;
     int32_t bigger_than_biggest = 1111;
 
-    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_INT,
-                                         segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
-                                         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT>>(
+    test_seek_at_or_after_value_template<
+            FieldType::OLAP_FIELD_TYPE_INT,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
             ints.get(), size, &small_than_smallest, &bigger_than_biggest);
 }
 
@@ -201,10 +201,10 @@ TEST_F(PlainPageTest, TestInt64PlainPageRandom) {
         ints.get()[i] = random();
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BIGINT>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BIGINT>>(
-            ints.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_BIGINT,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BIGINT>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BIGINT>>(ints.get(), size);
 }
 
 TEST_F(PlainPageTest, TestInt64PlainPageSeekValue) {
@@ -216,9 +216,10 @@ TEST_F(PlainPageTest, TestInt64PlainPageSeekValue) {
     int64_t small_than_smallest = 99;
     int64_t bigger_than_biggest = 1111;
 
-    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BIGINT,
-                                         segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BIGINT>,
-                                         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BIGINT>>(
+    test_seek_at_or_after_value_template<
+            FieldType::OLAP_FIELD_TYPE_BIGINT,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BIGINT>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BIGINT>>(
             ints.get(), size, &small_than_smallest, &bigger_than_biggest);
 }
 
@@ -230,10 +231,10 @@ TEST_F(PlainPageTest, TestPlainFloatBlockEncoderRandom) {
         floats.get()[i] = random() + static_cast<float>(random()) / static_cast<float>(INT_MAX);
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_FLOAT,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_FLOAT>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_FLOAT>>(
-            floats.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_FLOAT,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_FLOAT>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_FLOAT>>(floats.get(), size);
 }
 
 TEST_F(PlainPageTest, TestDoublePageEncoderRandom) {
@@ -242,10 +243,10 @@ TEST_F(PlainPageTest, TestDoublePageEncoderRandom) {
     for (int i = 0; i < size; i++) {
         doubles.get()[i] = random() + static_cast<double>(random()) / INT_MAX;
     }
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_DOUBLE,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_DOUBLE>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_DOUBLE>>(
-            doubles.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DOUBLE>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DOUBLE>>(doubles.get(), size);
 }
 
 TEST_F(PlainPageTest, TestDoublePageEncoderEqual) {
@@ -256,10 +257,10 @@ TEST_F(PlainPageTest, TestDoublePageEncoderEqual) {
         doubles.get()[i] = 19880217.19890323;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_DOUBLE,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_DOUBLE>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_DOUBLE>>(
-            doubles.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DOUBLE>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DOUBLE>>(doubles.get(), size);
 }
 
 TEST_F(PlainPageTest, TestDoublePageEncoderSequence) {
@@ -273,10 +274,10 @@ TEST_F(PlainPageTest, TestDoublePageEncoderSequence) {
         doubles.get()[i] = base;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_DOUBLE,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_DOUBLE>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_DOUBLE>>(
-            doubles.get(), size);
+    test_encode_decode_page_template<
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_DOUBLE>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_DOUBLE>>(doubles.get(), size);
 }
 
 TEST_F(PlainPageTest, TestPlainInt32PageEncoderEqual) {
@@ -287,10 +288,10 @@ TEST_F(PlainPageTest, TestPlainInt32PageEncoderEqual) {
         ints.get()[i] = 12345;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                        size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(PlainPageTest, TestInt32PageEncoderSequence) {
@@ -302,10 +303,10 @@ TEST_F(PlainPageTest, TestInt32PageEncoderSequence) {
         ints.get()[i] = ++number;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
-                                     segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
-                                     segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT>>(ints.get(),
-                                                                                        size);
+    test_encode_decode_page_template<FieldType::OLAP_FIELD_TYPE_INT,
+                                     segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(
+            ints.get(), size);
 }
 
 TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
@@ -313,22 +314,25 @@ TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
     bools.get()[0] = false;
     bools.get()[1] = true;
 
-    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL,
-                                         segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
-                                         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL>>(
-            bools.get(), 2, nullptr, nullptr);
+    test_seek_at_or_after_value_template<
+            FieldType::OLAP_FIELD_TYPE_BOOL,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(bools.get(), 2, nullptr,
+                                                                           nullptr);
 
     bool t = true;
-    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL,
-                                         segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
-                                         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL>>(
-            bools.get(), 1, nullptr, &t);
+    test_seek_at_or_after_value_template<
+            FieldType::OLAP_FIELD_TYPE_BOOL,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(bools.get(), 1, nullptr,
+                                                                           &t);
 
     t = false;
-    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL,
-                                         segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
-                                         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL>>(
-            &bools.get()[1], 1, &t, nullptr);
+    test_seek_at_or_after_value_template<
+            FieldType::OLAP_FIELD_TYPE_BOOL,
+            segment_v2::PlainPageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>,
+            segment_v2::PlainPageDecoder<FieldType::OLAP_FIELD_TYPE_BOOL>>(&bools.get()[1], 1, &t,
+                                                                           nullptr);
 }
 
 } // namespace segment_v2

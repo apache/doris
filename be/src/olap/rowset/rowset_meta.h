@@ -18,12 +18,13 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -168,13 +169,7 @@ public:
 
     int64_t start_version() const { return _rowset_meta_pb.start_version(); }
 
-    void set_start_version(int64_t start_version) {
-        _rowset_meta_pb.set_start_version(start_version);
-    }
-
     int64_t end_version() const { return _rowset_meta_pb.end_version(); }
-
-    void set_end_version(int64_t end_version) { _rowset_meta_pb.set_end_version(end_version); }
 
     int64_t num_rows() const { return _rowset_meta_pb.num_rows(); }
 
@@ -352,6 +347,11 @@ public:
             KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
             *new_key_bounds = key_bounds;
         }
+    }
+
+    void add_segment_key_bounds(const KeyBoundsPB& segments_key_bounds) {
+        *_rowset_meta_pb.add_segments_key_bounds() = segments_key_bounds;
+        set_segments_overlap(OVERLAPPING);
     }
 
     void set_newest_write_timestamp(int64_t timestamp) {

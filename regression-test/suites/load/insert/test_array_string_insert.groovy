@@ -73,6 +73,7 @@ suite("test_array_string_insert", "load") {
 
         // select the table and check whether the data is correct
         qt_select "select * from ${testTable} order by k1"
+        qt_select_count "select count(k2), count(k3), count(k4) from ${testTable}"
     }
     
     test_insert_array_string();

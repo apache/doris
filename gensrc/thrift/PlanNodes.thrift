@@ -57,6 +57,7 @@ enum TPlanNodeType {
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
+  PARTITION_SORT_NODE,
 }
 
 // phases of an execution node
@@ -127,7 +128,8 @@ enum TFileCompressType {
     LZO,
     BZ2,
     LZ4FRAME,
-    DEFLATE
+    DEFLATE,
+    LZOP,
 }
 
 struct THdfsConf {
@@ -285,9 +287,18 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct THudiFileDesc {
+    1: optional string basePath;
+    2: optional string dataFilePath;
+    3: optional list<string> deltaFilePaths;
+    // Deprecated
+    4: optional Exprs.TExpr file_select_conjunct;
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
+    3: optional THudiFileDesc hudi_params
 }
 
 struct TFileScanRangeParams {
@@ -328,6 +339,7 @@ struct TFileScanRangeParams {
     18: optional list<i32> column_idxs
     // Map of slot to its position in table schema. Only for Hive external table.
     19: optional map<string, i32> slot_name_to_schema_pos
+    20: optional list<Exprs.TExpr> pre_filter_exprs_list
 }
 
 struct TFileRangeDesc {
@@ -340,13 +352,16 @@ struct TFileRangeDesc {
     3: optional i64 start_offset;
     // Size of this range, if size = -1, this means that will read to the end of file
     4: optional i64 size;
-    5: optional i64 file_size;
+    // total size of file this range belongs to, -1 means unset
+    5: optional i64 file_size = -1;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
     // column names from file path, in the same order with columns_from_path
     7: optional list<string> columns_from_path_keys;
     // For data lake table format
     8: optional TTableFormatFileDesc table_format_params
+    // Use modification time to determine whether the file is changed
+    9: optional i64 modification_time
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -377,16 +392,22 @@ struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
-enum TIcebergMetadataType {
-  SNAPSHOTS = 0,
-}
 
 struct TIcebergMetadataParams {
-  1: optional TIcebergMetadataType metadata_type
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
+struct TBackendsMetadataParams {
+  1: optional string cluster_name
 }
 
 struct TMetaScanRange {
-  1: optional TIcebergMetadataParams iceberg_params
+  1: optional Types.TMetadataType metadata_type
+  2: optional TIcebergMetadataParams iceberg_params
+  3: optional TBackendsMetadataParams backends_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -505,13 +526,6 @@ struct TCsvScanNode {
   10:optional map<string, TMiniLoadEtlFunction> column_function_mapping
 }
 
-struct TSchemaTableStructure {
-  1: optional string column_name
-  2: optional Types.TPrimitiveType type
-  3: optional i64 len
-  4: optional bool is_null;
-}
-
 struct TSchemaScanNode {
   1: required Types.TTupleId tuple_id
 
@@ -526,15 +540,13 @@ struct TSchemaScanNode {
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
-  13: optional list<TSchemaTableStructure> table_structure
+  // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
 }
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  2: optional Types.TMetadataType metadata_type
 }
 
 struct TTestExternalScanNode {
@@ -583,6 +595,8 @@ struct TOlapScanNode {
   13: optional bool use_topn_opt
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
+  16: optional list<i32> distribute_column_ids
+  17: optional i32 schema_version
 }
 
 struct TEqJoinCondition {
@@ -662,6 +676,8 @@ struct TNestedLoopJoinNode {
   6: optional Exprs.TExpr vjoin_conjunct
 
   7: optional bool is_mark
+
+  8: optional list<Exprs.TExpr> join_conjuncts
 }
 
 struct TMergeJoinNode {
@@ -763,6 +779,19 @@ struct TSortNode {
   7: optional bool use_topn_opt
 }
 
+enum TopNAlgorithm {
+   RANK,
+   DENSE_RANK,
+   ROW_NUMBER
+ }
+
+ struct TPartitionSortNode {
+   1: optional list<Exprs.TExpr> partition_exprs
+   2: optional TSortInfo sort_info
+   3: optional bool has_global_limit
+   4: optional TopNAlgorithm top_n_algorithm
+   5: optional i64 partition_inner_limit
+ }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
   RANGE,
@@ -906,8 +935,6 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
-  // Nodes in this cluster, used for second phase fetch
-  4: optional Descriptors.TPaloNodesInfo nodes_info
 }
 
 struct TOlapRewriteNode {
@@ -1002,6 +1029,8 @@ struct TRuntimeFilterDesc {
 
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
+
+  12: optional bool opt_remote_rf;
 }
 
 struct TDataGenScanNode {
@@ -1070,6 +1099,7 @@ struct TPlanNode {
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
+  103: optional TPartitionSortNode partition_sort_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

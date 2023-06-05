@@ -17,11 +17,34 @@
 
 #include "vec/exec/join/vjoin_node_base.h"
 
-#include <sstream>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/trace/tracer.h>
+#include <stddef.h>
 
-#include "gen_cpp/PlanNodes_types.h"
+#include <sstream>
+#include <system_error>
+
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "util/telemetry/telemetry.h"
+#include "util/threadpool.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -31,9 +54,10 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
                                                            : TJoinOp::CROSS_JOIN)),
-          _have_other_join_conjunct(tnode.__isset.hash_join_node
-                                            ? tnode.hash_join_node.__isset.vother_join_conjunct
-                                            : false),
+          _have_other_join_conjunct(tnode.__isset.hash_join_node &&
+                                    ((tnode.hash_join_node.__isset.other_join_conjuncts &&
+                                      !tnode.hash_join_node.other_join_conjuncts.empty()) ||
+                                     tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
@@ -58,8 +82,9 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN)
-                << "Mark join is only supported for left semi/anti join and cross join but this is "
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
+                << "Mark join is only supported for null aware left semi/anti join and cross join "
+                   "but this is "
                 << _join_op;
     }
     if (tnode.__isset.hash_join_node) {
@@ -85,7 +110,6 @@ Status VJoinNodeBase::close(RuntimeState* state) {
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::release_resource");
     VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
@@ -160,8 +184,8 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
                                            ? tnode.hash_join_node.srcExprList
                                            : tnode.nested_loop_join_node.srcExprList;
         for (const auto& expr : output_exprs) {
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, expr, &ctx));
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
             _output_expr_ctxs.push_back(ctx);
         }
     }
@@ -174,16 +198,13 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VJoinNodeBase::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
     try {
         state->exec_env()->join_node_thread_pool()->submit_func(
-                [this, state, thread_status_p = &thread_status,
-                 parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                    OpentelemetryScope scope {parent_span};
+                [this, state, thread_status_p = &thread_status] {
                     this->_probe_side_open_thread(state, thread_status_p);
                 });
     } catch (const std::system_error& e) {
@@ -218,7 +239,6 @@ void VJoinNodeBase::_reset_tuple_is_null_column() {
 }
 
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
     status->set_value(child(0)->open(state));
 }

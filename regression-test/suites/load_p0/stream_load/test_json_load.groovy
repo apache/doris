@@ -546,6 +546,21 @@ suite("test_json_load", "p0") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
+    // case20: import json with BOM file
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table1.call(testTable)
+
+        load_json_data.call('test_json_load_case1_2', 'true', '', 'json', '', '', '', '', '', 'simple_json_bom.json')
+
+        sql "sync"
+        qt_select1 "select * from ${testTable} order by id"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    } 
+
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {

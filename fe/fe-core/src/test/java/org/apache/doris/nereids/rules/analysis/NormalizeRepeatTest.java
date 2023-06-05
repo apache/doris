@@ -18,14 +18,11 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -35,17 +32,18 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 public class NormalizeRepeatTest implements MemoPatternMatchSupported {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @Test
     public void testKeepNullableAfterNormalizeRepeat() {
-        SlotReference slot1 = new SlotReference("id", IntegerType.INSTANCE, false);
-        SlotReference slot2 = slot1.withNullable(true);
-        SlotReference slot3 = new SlotReference("name", StringType.INSTANCE, false);
-        Alias alias = new Alias(new Sum(slot3), "sum(name)");
+        Slot id = scan1.getOutput().get(0);
+        Slot idNotNull = id.withNullable(true);
+        Slot name = scan1.getOutput().get(1);
+        Alias alias = new Alias(new Sum(name), "sum(name)");
         Plan plan = new LogicalRepeat<>(
-                ImmutableList.of(ImmutableList.of(slot1)),
-                ImmutableList.of(slot2, alias),
-                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.newOlapTable(0, "t", 0))
+                ImmutableList.of(ImmutableList.of(id)),
+                ImmutableList.of(idNotNull, alias),
+                scan1
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
                 .applyTopDown(new NormalizeRepeat())

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -170,12 +171,7 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof LogicalProject);
-        Assertions.assertTrue(logicalPlan1 instanceof LogicalProject);
-        Assertions.assertNull(statementBases.get(0).getExplainOptions());
-        Assertions.assertNotNull(statementBases.get(1).getExplainOptions());
-        ExplainOptions explainOptions = statementBases.get(1).getExplainOptions();
-        Assertions.assertTrue(explainOptions.isGraph());
-        Assertions.assertFalse(explainOptions.isVerbose());
+        Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
     }
 
     @Test
@@ -262,7 +258,7 @@ public class NereidsParserTest extends ParserTestBase {
                 .stream()
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
-        Assertions.assertEquals(doubleCount, 1);
+        Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
     }
 
     @Test
@@ -273,9 +269,22 @@ public class NereidsParserTest extends ParserTestBase {
         System.out.println(logicalPlan.treeString());
 
         String union1 = "select * from t1 union (select * from t2 union all select * from t3)";
-        NereidsParser nereidsParser1 = new NereidsParser();
-        LogicalPlan logicalPlan1 = nereidsParser1.parseSingle(union1);
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle(union1);
         System.out.println(logicalPlan1.treeString());
+
+        String union2 = "(SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM test WHERE K1 > 0)"
+                + " UNION ALL (SELECT 1, 2, 3, 4, 3.14, 'HELLO', 'WORLD', 0.0, 1.1, CAST('1989-03-21' AS DATE), CAST('1989-03-21 13:00:00' AS DATETIME))"
+                + " UNION ALL (SELECT K1, K2, K3, K4, K5, K6, K7, K8, K9, K10, K11 FROM baseall WHERE K3 > 0)"
+                + " ORDER BY K1, K2, K3, K4";
+        LogicalPlan logicalPlan2 = nereidsParser.parseSingle(union2);
+        System.out.println(logicalPlan2.treeString());
+
+        String union3 = "select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3 from test a left outer join baseall b"
+                + " on a.k1 = b.k1 and a.k2 > b.k2 union (select a.k1, a.k2, a.k3, b.k1, b.k2, b.k3"
+                + " from test a right outer join baseall b on a.k1 = b.k1 and a.k2 > b.k2)"
+                + " order by isnull(a.k1), 1, 2, 3, 4, 5 limit 65535";
+        LogicalPlan logicalPlan3 = nereidsParser.parseSingle(union3);
+        System.out.println(logicalPlan3.treeString());
     }
 
     @Test
@@ -327,8 +336,14 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         Cast cast = (Cast) logicalPlan.getExpressions().get(0).child(0);
-        DecimalV2Type decimalV2Type = (DecimalV2Type) cast.getDataType();
-        Assertions.assertEquals(20, decimalV2Type.getPrecision());
-        Assertions.assertEquals(6, decimalV2Type.getScale());
+        if (Config.enable_decimal_conversion) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) cast.getDataType();
+            Assertions.assertEquals(20, decimalV3Type.getPrecision());
+            Assertions.assertEquals(6, decimalV3Type.getScale());
+        } else {
+            DecimalV2Type decimalV2Type = (DecimalV2Type) cast.getDataType();
+            Assertions.assertEquals(20, decimalV2Type.getPrecision());
+            Assertions.assertEquals(6, decimalV2Type.getScale());
+        }
     }
 }

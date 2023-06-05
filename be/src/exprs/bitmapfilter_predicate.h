@@ -43,9 +43,13 @@ public:
     void set_not_in(bool not_in) { _not_in = not_in; }
     virtual ~BitmapFilterFuncBase() = default;
 
+    void set_filter_id(int filter_id) { _filter_id = filter_id; }
+    int get_filter_id() const { return _filter_id; }
+
 protected:
     // true -> not in bitmap, false -> in bitmap
     bool _not_in {false};
+    int _filter_id = -1;
 };
 
 template <PrimitiveType type>
@@ -151,6 +155,7 @@ void BitmapFilterFunc<type>::light_copy(BitmapFilterFuncBase* bitmapfilter_func)
     BitmapFilterFuncBase::light_copy(bitmapfilter_func);
     auto other_func = reinterpret_cast<BitmapFilterFunc*>(bitmapfilter_func);
     _bitmap_value = other_func->_bitmap_value;
+    set_filter_id(bitmapfilter_func->get_filter_id());
 }
 
 } // namespace doris

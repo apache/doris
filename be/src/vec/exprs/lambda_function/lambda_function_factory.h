@@ -27,6 +27,7 @@ namespace doris::vectorized {
 class LambdaFunctionFactory;
 
 void register_function_array_map(LambdaFunctionFactory& factory);
+void register_function_array_filter(LambdaFunctionFactory& factory);
 
 class LambdaFunctionFactory {
     using Creator = std::function<LambdaFunctionPtr()>;
@@ -58,7 +59,10 @@ public:
     static LambdaFunctionFactory& instance() {
         static std::once_flag oc;
         static LambdaFunctionFactory instance;
-        std::call_once(oc, []() { register_function_array_map(instance); });
+        std::call_once(oc, []() {
+            register_function_array_map(instance);
+            register_function_array_filter(instance);
+        });
         return instance;
     }
 };

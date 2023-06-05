@@ -95,6 +95,7 @@ suite("test_map_dml", "load") {
 
         // select the table and check whether the data is correct
         qt_select "SELECT * FROM ${testTable} ORDER BY k1"
+        qt_select_count "SELECT COUNT(k1) FROM ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -107,6 +108,7 @@ suite("test_map_dml", "load") {
         create_test_table01.call(testTable)
         // select the table and check whether the data is correct
         qt_select "SELECT * FROM ${testTable01} ORDER BY k1"
+        qt_select "SELECT COUNT(k2), COUNT(k3), COUNT(k4),COUNT(k5),COUNT(k6), COUNT(k7) FROM ${testTable01}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable01}")

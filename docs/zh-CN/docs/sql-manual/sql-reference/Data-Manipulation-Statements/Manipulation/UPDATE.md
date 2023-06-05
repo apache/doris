@@ -34,10 +34,12 @@ UPDATE
 
 该语句是为进行对数据进行更新的操作，UPDATE 语句目前仅支持 UNIQUE KEY 模型。
 
+UPDATE操作目前只支持更新Value列，Key列的更新可参考[使用FlinkCDC更新Key列](../../../../ecosystem/flink-doris-connector.md#使用flinkcdc更新key列)。
+
 #### Syntax
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     WHERE condition
 
@@ -54,7 +56,7 @@ value:
 <version since="dev">
 
 ```sql
-UPDATE target_table
+UPDATE target_table [table_alias]
     SET assignment_list
     [ FROM additional_tables]
     WHERE condition
@@ -72,11 +74,10 @@ UPDATE target_table
 
 <version since="dev">
 
-UPDATE_FROM
++ table_alias: 表的别名
++ FROM additional_tables: 指定一个或多个表，用于选中更新的行，或者获取更新的值。注意，如需要在此列表中再次使用目标表，需要为其显式指定别名。
 
 </version>
-
-+ FROM additional_tables: 指定一个或多个表，用于选中更新的行，或者获取更新的值。注意，如需要在此列表中再次使用目标表，需要为其显式指定别名。
 
 #### Note
 

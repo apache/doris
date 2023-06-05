@@ -37,6 +37,8 @@ struct TColumn {
     13: optional bool has_ngram_bf_index = false
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
+    16: optional string aggregation
+    17: optional bool result_is_nullable
 }
 
 struct TSlotDescriptor {
@@ -111,7 +113,8 @@ enum TSchemaTableType {
     SCH_VIEWS,
     SCH_INVALID,
     SCH_ROWSETS,
-    SCH_BACKENDS
+    SCH_BACKENDS,
+    SCH_COLUMN_STATISTICS
 }
 
 enum THdfsCompression {
@@ -185,12 +188,22 @@ struct TOlapTablePartitionParam {
     7: optional list<string> partition_columns
 }
 
+struct TOlapTableIndex {
+  1: optional string index_name
+  2: optional list<string> columns
+  3: optional TIndexType index_type
+  4: optional string comment
+  5: optional i64 index_id
+  6: optional map<string, string> properties
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
     3: required i32 schema_hash
     4: optional list<TColumn> columns_desc
     5: optional list<TOlapTableIndex> indexes_desc
+    6: optional Exprs.TExpr where_clause
 }
 
 struct TOlapTableSchemaParam {
@@ -203,15 +216,8 @@ struct TOlapTableSchemaParam {
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
     7: optional bool is_dynamic_schema
-}
-
-struct TOlapTableIndex {
-  1: optional string index_name
-  2: optional list<string> columns
-  3: optional TIndexType index_type
-  4: optional string comment
-  5: optional i64 index_id
-  6: optional map<string, string> properties
+    8: optional bool is_partial_update
+    9: optional list<string> partial_update_input_columns
 }
 
 struct TTabletLocation {
@@ -303,6 +309,12 @@ struct TJdbcTable {
   8: optional string jdbc_driver_checksum
 }
 
+struct TMCTable {
+  1: optional string tunnel_url
+  2: optional string project
+  3: optional string table
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -325,6 +337,7 @@ struct TTableDescriptor {
   18: optional TIcebergTable icebergTable
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
+  21: optional TMCTable mcTable
 }
 
 struct TDescriptorTable {

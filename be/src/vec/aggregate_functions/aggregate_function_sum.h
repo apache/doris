@@ -20,11 +20,34 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <type_traits>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+template <typename T>
+class DataTypeNumber;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -71,7 +94,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
@@ -92,7 +115,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
     }
 
@@ -137,8 +160,8 @@ public:
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
-        auto& col = assert_cast<ColVecResult&>(*dst);
+                                         IColumn& to) const override {
+        auto& col = assert_cast<ColVecResult&>(to);
         col.resize(1);
         reinterpret_cast<Data*>(col.get_data().data())->sum = this->data(place).sum;
     }
@@ -153,8 +176,19 @@ private:
     UInt32 scale;
 };
 
-AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const bool result_is_nullable);
+template <typename T, bool level_up>
+struct SumSimple {
+    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
+    using ResultType = std::conditional_t<level_up, DisposeDecimal<T, NearestFieldType<T>>, T>;
+    using AggregateDataType = AggregateFunctionSumData<ResultType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+
+// do not level up return type for agg reader
+template <typename T>
+using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
 
 } // namespace doris::vectorized

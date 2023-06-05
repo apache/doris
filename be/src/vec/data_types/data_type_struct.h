@@ -20,15 +20,32 @@
 
 #pragma once
 
-#include <exception>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/data.pb.h"
-#include "util/stack_util.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_struct.h"
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/serde/data_type_struct_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -55,6 +72,10 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
 
     TypeIndex get_type_id() const override { return TypeIndex::Struct; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRUCT; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::STRUCT;
+    }
     std::string do_get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
 
@@ -64,6 +85,11 @@ public:
     MutableColumnPtr create_column() const override;
 
     Field get_default() const override;
+
+    Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for struct";
+    }
+
     void insert_default_into(IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
@@ -94,6 +120,13 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
+    DataTypeSerDeSPtr get_serde() const override {
+        DataTypeSerDeSPtrs ptrs;
+        for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
+            ptrs.push_back((*iter)->get_serde());
+        }
+        return std::make_shared<DataTypeStructSerDe>(ptrs);
+    };
 };
 
 } // namespace doris::vectorized

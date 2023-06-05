@@ -21,11 +21,11 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,18 +69,17 @@ class HistogramTest {
         List<Bucket> buckets = histogramUnderTest.buckets;
         Assertions.assertEquals(5, buckets.size());
 
-        double expectedLower = LiteralExpr.create("2022-09-21 17:30:29",
-                Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME))).getDoubleValue();
-        double expectedUpper = LiteralExpr.create("2022-09-21 22:30:29",
-                Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME))).getDoubleValue();
+        LiteralExpr expectedLower = LiteralExpr.create("2022-09-21 17:30:29",
+                Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
+        LiteralExpr expectedUpper = LiteralExpr.create("2022-09-21 22:30:29",
+                Objects.requireNonNull(Type.fromPrimitiveType(PrimitiveType.DATETIME)));
 
         boolean flag = false;
 
         for (Bucket bucket : buckets) {
-            double lower = bucket.getLower();
-            double upper = bucket.getUpper();
-            if (Precision.equals(expectedLower, lower, 0.01)
-                    && Precision.equals(expectedUpper, upper, 0.01)) {
+            LiteralExpr lower = bucket.lowerExpr;
+            LiteralExpr upper = bucket.upperExpr;
+            if (expectedLower.equals(lower) && expectedUpper.equals(upper)) {
                 flag = true;
                 break;
             }
@@ -96,6 +95,8 @@ class HistogramTest {
 
         String typeStr = histogramJson.get("data_type").getAsString();
         Assertions.assertEquals("DATETIME", typeStr);
+        Type datatype = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr));
+        Assertions.assertNotNull(datatype);
 
         int numBuckets = histogramJson.get("num_buckets").getAsInt();
         Assertions.assertEquals(5, numBuckets);
@@ -116,13 +117,14 @@ class HistogramTest {
 
         for (int i = 0; i < jsonArray.size(); i++) {
             JsonObject bucketJson = jsonArray.get(i).getAsJsonObject();
-            double lower = bucketJson.get("lower").getAsDouble();
-            double upper = bucketJson.get("upper").getAsDouble();
+            LiteralExpr lower = StatisticsUtil.readableValue(datatype,
+                    bucketJson.get("lower_expr").getAsString());
+            LiteralExpr upper = StatisticsUtil.readableValue(datatype,
+                    bucketJson.get("upper_expr").getAsString());
             int count = bucketJson.get("count").getAsInt();
             int preSum = bucketJson.get("pre_sum").getAsInt();
             int ndv = bucketJson.get("ndv").getAsInt();
-            if (Precision.equals(expectedLower.getDoubleValue(), lower, 0.01)
-                    && Precision.equals(expectedUpper.getDoubleValue(), upper, 0.01)
+            if (expectedLower.equals(lower) && expectedUpper.equals(upper)
                     && count == 9 && preSum == 0 && ndv == 1) {
                 flag = true;
                 break;

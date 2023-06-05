@@ -17,24 +17,41 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/exec_node.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/vdata_gen_scan_node.h"
-#include "vec/exec/vselect_node.h"
-#include "vec/exec/vunion_node.h"
 
-#define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
-    NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \
-            : OperatorBuilder(id, #NAME, exec_node) {}                                          \
-                                                                                                \
-    OperatorPtr NAME##Builder::build_operator() { return std::make_shared<NAME>(this, _node); } \
-                                                                                                \
-    NAME::NAME(OperatorBuilderBase* operator_builder, ExecNode* node)                           \
+namespace doris {
+class DataSink;
+class RowDescriptor;
+class RuntimeState;
+class TDataSink;
+} // namespace doris
+
+#define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                       \
+    NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)     \
+            : OperatorBuilder(id, #NAME, exec_node) {}                \
+                                                                      \
+    OperatorPtr NAME##Builder::build_operator() {                     \
+        return std::make_shared<NAME>(this, _node);                   \
+    }                                                                 \
+                                                                      \
+    NAME::NAME(OperatorBuilderBase* operator_builder, ExecNode* node) \
             : SUBCLASS(operator_builder, node) {};
 
 namespace doris::pipeline {
@@ -140,7 +157,7 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const { return _operator_builder->get_name(); }
+    std::string get_name() const { return _operator_builder->get_name(); }
 
     bool is_sink() const;
 
@@ -218,25 +235,16 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
     const RowDescriptor& row_desc();
 
-    RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
     virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
-    std::unique_ptr<MemTracker> _mem_tracker;
-
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
-
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
-    // TODO pipeline Account for peak memory used by this operator
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
     bool _is_closed = false;
 };
@@ -257,26 +265,19 @@ public:
 
     ~DataSinkOperator() override = default;
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(_sink->prepare(state));
-        _runtime_profile.reset(new RuntimeProfile(
-                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
-        _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker =
-                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
-        return Status::OK();
-    }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
 
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
-        return _sink->open(state);
-    }
+    Status open(RuntimeState* state) override { return _sink->open(state); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         if (in_block->rows() > 0) {
-            return _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            auto st = _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
+            if (st.template is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            return st;
         }
         return Status::OK();
     }
@@ -285,8 +286,7 @@ public:
         if (is_closed()) {
             return Status::OK();
         }
-        _fresh_exec_timer(_sink);
-        RETURN_IF_ERROR(_sink->close(state, Status::OK()));
+        RETURN_IF_ERROR(_sink->close(state, state->query_status()));
         _is_closed = true;
         return Status::OK();
     }
@@ -294,11 +294,6 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
 protected:
-    void _fresh_exec_timer(NodeType* node) {
-        node->profile()->total_time_counter()->update(
-                _runtime_profile->total_time_counter()->value());
-    }
-
     NodeType* _sink;
 };
 
@@ -317,26 +312,18 @@ public:
     ~StreamingOperator() override = default;
 
     Status prepare(RuntimeState* state) override {
-        _runtime_profile.reset(new RuntimeProfile(
-                fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
-        _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker =
-                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         _use_projection = _node->has_output_row_descriptor();
         return Status::OK();
     }
 
     Status open(RuntimeState* state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(_node->alloc_resource(state));
         return Status::OK();
     }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         return _node->sink(state, in_block, source_state == SourceState::FINISHED);
     }
 
@@ -344,7 +331,6 @@ public:
         if (is_closed()) {
             return Status::OK();
         }
-        _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
         }
@@ -354,7 +340,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         DCHECK(_child);
         auto input_block = _use_projection ? _node->get_clear_input_block() : block;
         RETURN_IF_ERROR(_child->get_block(state, input_block, source_state));
@@ -372,11 +357,6 @@ public:
     bool can_read() override { return _node->can_read(); }
 
 protected:
-    void _fresh_exec_timer(NodeType* node) {
-        node->runtime_profile()->total_time_counter()->update(
-                _runtime_profile->total_time_counter()->value());
-    }
-
     NodeType* _node;
     bool _use_projection;
 };
@@ -394,7 +374,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
@@ -422,14 +401,13 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(new vectorized::Block),
+              _child_block(vectorized::Block::create_unique()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 

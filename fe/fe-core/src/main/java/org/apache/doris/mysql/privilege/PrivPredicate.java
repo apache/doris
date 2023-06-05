@@ -29,7 +29,7 @@ public class PrivPredicate {
             Privilege.CREATE_PRIV,
             Privilege.DROP_PRIV),
             Operator.OR);
-    //show resources
+    // show resources
     public static final PrivPredicate SHOW_RESOURCES = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.USAGE_PRIV),
             Operator.OR);

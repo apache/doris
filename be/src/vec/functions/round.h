@@ -20,14 +20,18 @@
 
 #pragma once
 
-#ifdef __SSE4_1__
-#include <smmintrin.h>
+#include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
+#include "vec/functions/function.h"
+#if defined(__SSE4_1__) || defined(__aarch64__)
+#include "util/sse_util.hpp"
 #else
 #include <fenv.h>
 #endif
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -40,7 +44,7 @@ enum class ScaleMode {
 };
 
 enum class RoundingMode {
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
     Round = _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
     Floor = _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC,
     Ceil = _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC,
@@ -174,7 +178,7 @@ public:
     }
 };
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__aarch64__)
 
 template <typename T>
 class BaseFloatRoundingComputation;
@@ -457,7 +461,7 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
@@ -500,24 +504,21 @@ public:
 
     static Status get_scale_arg(const ColumnWithTypeAndName& arguments, Int16* scale) {
         const IColumn& scale_column = *arguments.column;
-        if (!is_column_const(scale_column)) {
-            return Status::InvalidArgument("2nd argument for function {} should be constant", name);
-        }
 
-        Field scale_field = assert_cast<const ColumnConst&>(scale_column).get_field();
+        Int32 scale64 = static_cast<const ColumnInt32&>(
+                                static_cast<const ColumnConst*>(&scale_column)->get_data_column())
+                                .get_element(0);
 
-        Int64 scale64 = scale_field.get<Int64>();
         if (scale64 > std::numeric_limits<Int16>::max() ||
             scale64 < std::numeric_limits<Int16>::min()) {
-            return Status::InvalidArgument("Scale argument for function {} is too large: {}", name,
-                                           scale64);
+            return Status::InvalidArgument("Scale argument for function {} is out of bound: {}",
+                                           name, scale64);
         }
 
         *scale = scale64;
         return Status::OK();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -542,7 +543,7 @@ public:
             return false;
         };
 
-#if !defined(__SSE4_1__)
+#if !defined(__SSE4_1__) && !defined(__aarch64__)
         /// In case of "nearbyint" function is used, we should ensure the expected rounding mode for the Banker's rounding.
         /// Actually it is by default. But we will set it just in case.
 

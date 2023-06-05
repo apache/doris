@@ -27,15 +27,9 @@
 #include <limits>
 #include <vector>
 
+#include "util/sse_util.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
-
-#ifdef __SSE2__
-#include <emmintrin.h>
-#endif
-
-#ifdef __SSE4_1__
-#include <smmintrin.h>
-#endif
 
 namespace doris {
 
@@ -45,13 +39,12 @@ namespace doris {
 // }
 
 /** Variants for searching a substring in a string.
-  * In most cases, performance is less than Volnitsky (see Volnitsky.h).
   */
 
 class StringSearcherBase {
 public:
     bool force_fallback = false;
-#ifdef __SSE2__
+#if defined(__SSE2__) || defined(__aarch64__)
 protected:
     static constexpr auto n = sizeof(__m128i);
     const int page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
@@ -76,9 +69,11 @@ private:
     /// first character in `needle`
     uint8_t first {};
 
-#ifdef __SSE4_1__
-    /// vector filled `first` for determining leftmost position of the first symbol
-    __m128i pattern;
+#if defined(__SSE4_1__) || defined(__aarch64__)
+    uint8_t second {};
+    /// vector filled `first` or `second` for determining leftmost position of the first and second symbols
+    __m128i first_pattern;
+    __m128i second_pattern;
     /// vector of first 16 characters of `needle`
     __m128i cache = _mm_setzero_si128();
     int cachemask {};
@@ -94,9 +89,12 @@ public:
 
         first = *needle;
 
-#ifdef __SSE4_1__
-        pattern = _mm_set1_epi8(first);
-
+#if defined(__SSE4_1__) || defined(__aarch64__)
+        first_pattern = _mm_set1_epi8(first);
+        if (needle + 1 < needle_end) {
+            second = *(needle + 1);
+            second_pattern = _mm_set1_epi8(second);
+        }
         const auto* needle_pos = needle;
 
         //for (const auto i : collections::range(0, n))
@@ -114,9 +112,37 @@ public:
 
     template <typename CharT>
     // requires (sizeof(CharT) == 1)
-    ALWAYS_INLINE bool compare(const CharT* /*haystack*/, const CharT* /*haystack_end*/,
-                               const CharT* pos) const {
-#ifdef __SSE4_1__
+    const CharT* search(const CharT* haystack, size_t haystack_size) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack), haystack_size));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    const CharT* search(const CharT* haystack, const CharT* haystack_end) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return reinterpret_cast<const CharT*>(
+                _search(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end)));
+    }
+
+    template <typename CharT>
+    // requires (sizeof(CharT) == 1)
+    ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end, CharT* pos) const {
+        // cast to unsigned int8 to be consitent with needle type
+        // ensure unsigned type compare
+        return _compare(reinterpret_cast<const uint8_t*>(haystack),
+                        reinterpret_cast<const uint8_t*>(haystack_end),
+                        reinterpret_cast<const uint8_t*>(pos));
+    }
+
+private:
+    ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
+                                uint8_t* pos) const {
+#if defined(__SSE4_1__) || defined(__aarch64__)
         if (needle_end - needle > n && page_safe(pos)) {
             const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
             const auto v_against_cache = _mm_cmpeq_epi8(v_haystack, cache);
@@ -150,21 +176,60 @@ public:
         return false;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
+    const uint8_t* _search(const uint8_t* haystack, const uint8_t* haystack_end) const {
         if (needle == needle_end) return haystack;
 
-        while (haystack < haystack_end) {
-#ifdef __SSE4_1__
-            if (haystack + n <= haystack_end && page_safe(haystack)) {
-                /// find first character
-                const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
-                const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
+        const auto needle_size = needle_end - needle;
+#if defined(__SSE4_1__) || defined(__aarch64__)
+        /// Here is the quick path when needle_size is 1.
+        if (needle_size == 1) {
+            while (haystack < haystack_end) {
+                if (haystack + n <= haystack_end && page_safe(haystack)) {
+                    const auto v_haystack =
+                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
+                    const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, first_pattern);
+                    const auto mask = _mm_movemask_epi8(v_against_pattern);
+                    if (mask == 0) {
+                        haystack += n;
+                        continue;
+                    }
 
-                const auto mask = _mm_movemask_epi8(v_against_pattern);
+                    const auto offset = __builtin_ctz(mask);
+                    haystack += offset;
 
-                /// first character not present in 16 octets starting at `haystack`
+                    return haystack;
+                }
+
+                if (haystack == haystack_end) {
+                    return haystack_end;
+                }
+
+                if (*haystack == first) {
+                    return haystack;
+                }
+                ++haystack;
+            }
+            return haystack_end;
+        }
+#endif
+
+        while (haystack < haystack_end && haystack_end - haystack >= needle_size) {
+#if defined(__SSE4_1__) || defined(__aarch64__)
+            if ((haystack + 1 + n) <= haystack_end && page_safe(haystack)) {
+                /// find first and second characters
+                const auto v_haystack_block_first =
+                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack));
+                const auto v_haystack_block_second =
+                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(haystack + 1));
+
+                const auto v_against_pattern_first =
+                        _mm_cmpeq_epi8(v_haystack_block_first, first_pattern);
+                const auto v_against_pattern_second =
+                        _mm_cmpeq_epi8(v_haystack_block_second, second_pattern);
+
+                const auto mask = _mm_movemask_epi8(
+                        _mm_and_si128(v_against_pattern_first, v_against_pattern_second));
+                /// first and second characters not present in 16 octets starting at `haystack`
                 if (mask == 0) {
                     haystack += n;
                     continue;
@@ -219,10 +284,8 @@ public:
         return haystack_end;
     }
 
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
-        return search(haystack, haystack + haystack_size);
+    const uint8_t* _search(const uint8_t* haystack, const size_t haystack_size) const {
+        return _search(haystack, haystack + haystack_size);
     }
 };
 
@@ -353,5 +416,4 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
         return search(haystack, haystack + haystack_size);
     }
 };
-
 } // namespace doris

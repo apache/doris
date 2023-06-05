@@ -185,7 +185,7 @@ public class BaseController {
         public String toString() {
             StringBuilder sb = new StringBuilder();
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
-            sb.append(", password: ").append(password).append(", cluster: ").append(cluster);
+            sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
         }
     }
@@ -296,6 +296,11 @@ public class BaseController {
     }
 
     protected String getCurrentFrontendURL() {
-        return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+        if (Config.enable_https) {
+            // this could be the result of redirection.
+            return "https://" + FrontendOptions.getLocalHostAddress() + ":" + Config.https_port;
+        } else {
+            return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+        }
     }
 }

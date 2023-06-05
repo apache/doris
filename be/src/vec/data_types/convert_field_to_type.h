@@ -19,7 +19,9 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/core/field.h>
+#include "common/status.h"
+#include "vec/core/field.h"
+
 namespace doris::vectorized {
 
 class IDataType;
@@ -31,7 +33,7 @@ class IDataType;
   * If the value does not fall into the range - returns Null.
   */
 
-Status convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* field,
-                             const IDataType* from_type_hint = nullptr);
+void convert_field_to_type(const Field& from_value, const IDataType& to_type, Field* field,
+                           const IDataType* from_type_hint = nullptr);
 
 } // namespace doris::vectorized

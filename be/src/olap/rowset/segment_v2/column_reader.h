@@ -17,48 +17,61 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <sys/types.h>
+
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "bloom_filter_index_reader.h"
+#include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"         // for Status
-#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "io/fs/file_reader.h"
-#include "olap/block_column_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/iterators.h"
-#include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
+#include "common/status.h" // for Status
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/io_common.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h" // for InvertedIndexReader
-#include "olap/rowset/segment_v2/ordinal_page_index.h"    // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/page_handle.h"           // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h"           // for ParsedPage
-#include "olap/rowset/segment_v2/row_ranges.h"            // for RowRanges
-#include "olap/rowset/segment_v2/zone_map_index.h"
-#include "olap/tablet_schema.h"
-#include "util/file_cache.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
+#include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/types.h"
+#include "olap/utils.h"
 #include "util/once.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
-class TypeInfo;
 class BlockCompressionCodec;
 class WrapperField;
+class AndBlockColumnPredicate;
+class ColumnPredicate;
+class TabletIndex;
 
-namespace fs {
-class ReadableBlock;
-}
+namespace io {
+class FileReader;
+} // namespace io
+struct Slice;
+struct StringRef;
 
 namespace segment_v2 {
 
 class EncodingInfo;
-class PageHandle;
-struct PagePointer;
 class ColumnIterator;
 class BloomFilterIndexReader;
+class BitmapIndexIterator;
+class BitmapIndexReader;
+class InvertedIndexIterator;
+class InvertedIndexReader;
+class PageDecoder;
+class RowRanges;
+class ZoneMapIndexReader;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -76,7 +89,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
-    IOContext io_ctx;
+    io::IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -136,7 +149,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
@@ -201,8 +214,11 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
+    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                   WrapperField* max_value_container) const;
+
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               std::vector<const ColumnPredicate*>* delete_predicates,
+                               const std::vector<const ColumnPredicate*>* delete_predicates,
                                std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
@@ -284,7 +300,7 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -327,7 +343,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,

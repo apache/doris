@@ -17,7 +17,18 @@
 
 #include "vmeta_scan_node.h"
 
+#include <memory>
+
+#include "common/object_pool.h"
 #include "vmeta_scanner.h"
+
+namespace doris {
+class DescriptorTbl;
+class RuntimeState;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -47,16 +58,15 @@ Status VMetaScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VMetaScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status VMetaScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
     for (auto& scan_range : _scan_ranges) {
-        VMetaScanner* scanner = new VMetaScanner(_state, this, _tuple_id, scan_range,
-                                                 _limit_per_scanner, runtime_profile());
-        _scanner_pool.add(scanner);
-        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
-        scanners->push_back(static_cast<VScanner*>(scanner));
+        std::shared_ptr<VMetaScanner> scanner = VMetaScanner::create_shared(
+                _state, this, _tuple_id, scan_range, _limit_per_scanner, runtime_profile());
+        RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
+        scanners->push_back(scanner);
     }
     return Status::OK();
 }

@@ -36,11 +36,11 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -250,7 +250,11 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 );
     }
 
+    // TODO aggregate estimation is not accurate enough.
+    //  we choose 3Phase as RBO. Re-open this case when we could compare cost between 2phase and 3phase.
     @Test
+    @Disabled
+    @Developing("reopen this case when we could choose agg phase by CBO")
     public void distinctWithNormalAggregateFunctionApply2PhaseRule() {
         Slot id = rStudent.getOutput().get(0);
         Slot name = rStudent.getOutput().get(2).toSlot();

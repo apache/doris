@@ -22,7 +22,7 @@
 
 usage() {
     echo -e "Usage:
-    env GITHUB_TOKEN=****** bash $0 <PULL_NUMBER> <OPTIONS>
+    bash $0 <PULL_NUMBER> <OPTIONS>
     note: https://github.com/apache/doris/pull/13259, PULL_NUMBER is 13259
     OPTIONS should be one of [be-ut|fe-ut|ckb|regression-p0|regression-p1|arm-regression-p0]
     " && return 1
@@ -35,7 +35,6 @@ _get_pr_changed_files() {
     OPTIONS can be one of [all|added|modified|removed], default is all
     "
     if [[ -z "$1" ]]; then echo -e "${usage_str}" && return 1; fi
-    if [[ -z "${GITHUB_TOKEN}" ]]; then echo "error: GITHUB_TOKEN required..." && return 1; fi
     if ! curl --version >/dev/null; then echo 'error: curl required...' && return 1; fi
     if ! command -v jq >/dev/null; then sudo yum install jq -y || sudo apt install -y jq; fi
 
@@ -49,7 +48,6 @@ _get_pr_changed_files() {
     while [[ ${try_times} -gt 0 ]]; do
         if curl \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
             https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?per_page="${per_page}" \
             2>/dev/null >"${file_name}"; then
             break
@@ -88,6 +86,8 @@ need_run_fe_ut() {
         if [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'bin/start_fe.sh' ]] ||
+            [[ "${af}" == 'docs/zh-CN/docs/sql-manual/'* ]] ||
+            [[ "${af}" == 'docs/en/docs/sql-manual/'* ]] ||
             [[ "${af}" == 'bin/stop_fe.sh' ]] ||
             [[ "${af}" == 'run-fe-ut.sh' ]]; then echo "fe-ut related file changed, return need" && return 0; fi
     done
@@ -142,6 +142,7 @@ need_run_arm_regression_p0() {
 }
 
 need_run_ckb() {
+    if [[ $(($1 % 2)) -eq 0 ]]; then echo "the pull request id is even, return no need" && return 1; fi
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||

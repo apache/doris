@@ -20,9 +20,6 @@
 
 #pragma once
 
-#include <sys/types.h>
-
-#include <cstddef>
 #if !defined(_MSC_VER)
 #include <sys/mman.h>
 #endif

@@ -116,4 +116,19 @@ suite("literal_view_test") {
         ) a
         where name != '1234';
     """
+
+    test {
+        sql "select * from (select null as top) t where top is not null"
+        result ([])
+    }
+
+    test {
+        sql "select * from (select null as top) t where top is null"
+        result ([[null]])
+    }
+
+    test {
+        sql "select * from (select null as top) t where top = 5"
+        result ([])
+    }
 }

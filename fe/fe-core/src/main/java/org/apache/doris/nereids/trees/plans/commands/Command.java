@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.Statistics;
 
 import org.jetbrains.annotations.Nullable;
@@ -50,6 +52,10 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
             @Nullable Statistics statistics,
             Plan... children) {
         super(type, groupExpression, optLogicalProperties, statistics, children);
+    }
+
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // all command should impl this interface.
     }
 
     @Override
@@ -100,11 +106,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     @Override
     public List<Slot> getOutput() {
         throw new RuntimeException("Command do not implement getOutput");
-    }
-
-    @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        throw new RuntimeException("Command do not implement getNonUserVisibleOutput");
     }
 
     @Override

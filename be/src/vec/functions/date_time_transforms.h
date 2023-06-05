@@ -280,12 +280,12 @@ template <typename Transform>
 struct TransformerToStringTwoArgument {
     static void vector_constant(FunctionContext* context,
                                 const PaddedPODArray<typename Transform::FromType>& ts,
-                                const std::string& format, ColumnString::Chars& res_data,
+                                const StringRef& format, ColumnString::Chars& res_data,
                                 ColumnString::Offsets& res_offsets,
                                 PaddedPODArray<UInt8>& null_map) {
         auto len = ts.size();
         res_offsets.resize(len);
-        res_data.reserve(len * format.size() + len);
+        res_data.reserve(len * format.size + len);
         null_map.resize_fill(len, false);
 
         size_t offset = 0;
@@ -294,12 +294,10 @@ struct TransformerToStringTwoArgument {
             size_t new_offset;
             bool is_null;
             if constexpr (is_specialization_of_v<Transform, FromUnixTimeImpl>) {
-                std::tie(new_offset, is_null) =
-                        Transform::execute(t, StringRef(format.c_str(), format.size()), res_data,
-                                           offset, context->state()->timezone_obj());
-            } else {
                 std::tie(new_offset, is_null) = Transform::execute(
-                        t, StringRef(format.c_str(), format.size()), res_data, offset);
+                        t, format, res_data, offset, context->state()->timezone_obj());
+            } else {
+                std::tie(new_offset, is_null) = Transform::execute(t, format, res_data, offset);
             }
             res_offsets[i] = new_offset;
             null_map[i] = is_null;

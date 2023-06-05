@@ -18,6 +18,10 @@
 
 #include "analytic_sink_operator.h"
 
+#include <string>
+
+#include "pipeline/exec/operator.h"
+
 namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)

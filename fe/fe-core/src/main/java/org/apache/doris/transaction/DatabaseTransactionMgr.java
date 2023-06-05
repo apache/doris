@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -127,7 +128,6 @@ public class DatabaseTransactionMgr {
 
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
-    private volatile int runningTxnReplicaNums = 0;
 
     // count only the number of running routine load txns of database
     private volatile int runningRoutineLoadTxnNums = 0;
@@ -143,6 +143,10 @@ public class DatabaseTransactionMgr {
     // not realtime usedQuota value to make a fast check for database data quota
     private volatile long usedQuotaDataBytes = -1;
 
+    private long lockWriteStart;
+
+    private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -153,9 +157,11 @@ public class DatabaseTransactionMgr {
 
     protected void writeLock() {
         this.transactionLock.writeLock().lock();
+        lockWriteStart = System.currentTimeMillis();
     }
 
     protected void writeUnlock() {
+        checkAndLogWriteLockDuration(lockWriteStart, System.currentTimeMillis());
         this.transactionLock.writeLock().unlock();
     }
 
@@ -560,10 +566,10 @@ public class DatabaseTransactionMgr {
                         if (successReplicaNum < quorumReplicaNum) {
                             LOG.warn("Failed to commit txn [{}]. "
                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {} error replica info {}",
+                                            + "while error backends {} error replica info {} commitBackends {}",
                                     transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
                                     quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorReplicaInfo);
+                                    errorReplicaInfo, commitBackends);
                             throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);
@@ -922,9 +928,19 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
+                                if (replica.getLastFailedVersion() >= 0) {
+                                    LOG.info("publish version failed for transaction {} on tablet {},"
+                                             + " on replica {} due to lastFailedVersion >= 0",
+                                             transactionState, tablet, replica);
+                                    continue;
+                                }
+                                if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
+                                    } else {
+                                        LOG.info("publish version failed for transaction {} on tablet {},"
+                                                 + " on replica {} due to not catchup",
+                                                 transactionState, tablet, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
@@ -932,6 +948,9 @@ public class DatabaseTransactionMgr {
                                     // TODO(cmy): actually I have no idea why we need this check
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
+                                } else {
+                                    LOG.info("publish version failed for transaction {} on tablet {},"
+                                             + " on replica {} due to version hole", transactionState, tablet, replica);
                                 }
                             }
 
@@ -1140,20 +1159,6 @@ public class DatabaseTransactionMgr {
         updateTxnLabels(transactionState);
     }
 
-    public void registerTxnReplicas(long txnId, int replicaNum) throws UserException {
-        writeLock();
-        try {
-            TransactionState transactionState = idToRunningTransactionState.get(txnId);
-            if (transactionState == null) {
-                throw new UserException("running transaction not found, txnId=" + txnId);
-            }
-            transactionState.setReplicaNum(replicaNum);
-            runningTxnReplicaNums += replicaNum;
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public int getRunningTxnNum() {
         readLock();
         try {
@@ -1163,21 +1168,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public int getRunningTxnReplicaNum() {
-        readLock();
-        try {
-            return runningTxnReplicaNums;
-        } finally {
-            readUnlock();
-        }
-    }
-
     private void updateTxnLabels(TransactionState transactionState) {
-        Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
-        if (txnIds == null) {
-            txnIds = Sets.newHashSet();
-            labelToTxnIds.put(transactionState.getLabel(), txnIds);
-        }
+        Set<Long> txnIds = labelToTxnIds.computeIfAbsent(transactionState.getLabel(), k -> Sets.newHashSet());
         txnIds.add(transactionState.getTransactionId());
     }
 
@@ -1324,7 +1316,7 @@ public class DatabaseTransactionMgr {
         Preconditions.checkState(transactionState.getTransactionStatus() == TransactionStatus.ABORTED);
         // for aborted transaction, we don't know which backends are involved, so we have to send clear task
         // to all backends.
-        List<Long> allBeIds = Env.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
         AgentBatchTask batchTask = null;
         synchronized (clearTransactionTasks) {
             for (Long beId : allBeIds) {
@@ -1870,5 +1862,35 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Check write lock holding time, if it exceeds threshold, print this hint log.
+     *
+     * @param lockStart holing lock start time.
+     * @param lockEnd release lock time.
+     */
+    private void checkAndLogWriteLockDuration(long lockStart, long lockEnd) {
+        long duration = lockEnd - lockStart;
+        if (duration > lockReportingThresholdMs) {
+            StringBuilder msgBuilder = new StringBuilder();
+            msgBuilder.append("lock is held at ")
+                    .append(lockStart)
+                    .append(".And release after ")
+                    .append(duration)
+                    .append(" ms.")
+                    .append("Call stack is :\n")
+                    .append(getStackTrace(Thread.currentThread()));
+            LOG.info(msgBuilder.toString());
+        }
+    }
+
+    private static String getStackTrace(Thread t) {
+        final StackTraceElement[] stackTrace = t.getStackTrace();
+        StringBuilder msgBuilder = new StringBuilder();
+        for (StackTraceElement e : stackTrace) {
+            msgBuilder.append(e.toString() + "\n");
+        }
+        return msgBuilder.toString();
     }
 }

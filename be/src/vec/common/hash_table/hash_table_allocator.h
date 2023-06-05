@@ -21,6 +21,7 @@
 #pragma once
 
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 /**
   * We are going to use the entire memory we allocated when resizing a hash

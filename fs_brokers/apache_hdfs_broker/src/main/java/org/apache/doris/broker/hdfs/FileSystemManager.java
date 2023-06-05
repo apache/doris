@@ -75,6 +75,7 @@ public class FileSystemManager {
     private static final String BOS_SCHEME = "bos";
     private static final String JFS_SCHEME = "jfs";
     private static final String AFS_SCHEME = "afs";
+    private static final String GFS_SCHEME = "gfs";
 
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
@@ -221,7 +222,9 @@ public class FileSystemManager {
             brokerFileSystem = getBOSFileSystem(path, properties);
         } else if (scheme.equals(JFS_SCHEME)) {
             brokerFileSystem = getJuiceFileSystem(path, properties);
-        }else {
+        } else if (scheme.equals(GFS_SCHEME)) {
+            brokerFileSystem = getGooseFSFileSystem(path, properties);
+        } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
         }
@@ -904,7 +907,7 @@ public class FileSystemManager {
                         fileOutputStream.close();
                         keytab = tmpFilePath;
                     } else {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                             "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
@@ -973,6 +976,44 @@ public class FileSystemManager {
         }
     }
 
+    /**
+     * @param path
+     * @param properties
+     * @return
+     * @throws URISyntaxException
+     * @throws Exception
+     */
+    public BrokerFileSystem getGooseFSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        // endpoint is the server host, pathUri.getUri().getHost() is the bucket
+        // we should use these two params as the host identity, because FileSystem will cache both.
+        String host = GFS_SCHEME + "://" + pathUri.getAuthority();
+
+        String username = properties.getOrDefault(USER_NAME_KEY, "");
+        String password = properties.getOrDefault(PASSWORD_KEY, "");
+        String gfsUgi = username + "," + password;
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, gfsUgi);
+        BrokerFileSystem brokerFileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        brokerFileSystem.getLock().lock();
+        try {
+            if (brokerFileSystem.getDFSFileSystem() == null) {
+                logger.info("create goosefs client: " + path);
+                Configuration conf = new Configuration();
+                for (Map.Entry<String, String> propElement : properties.entrySet()) {
+                    conf.set(propElement.getKey(), propElement.getValue());
+                }
+                FileSystem fileSystem = FileSystem.get(pathUri.getUri(), conf);
+                brokerFileSystem.setFileSystem(fileSystem);
+            }
+            return brokerFileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            brokerFileSystem.getLock().unlock();
+        }
+    }
+
     public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
         WildcardURI pathUri = new WildcardURI(path);
@@ -995,6 +1036,7 @@ public class FileSystemManager {
                     brokerFileStatus.setSize(fileStatus.getLen());
                     brokerFileStatus.setIsSplitable(true);
                 }
+                brokerFileStatus.setModificationTime(fileStatus.getModificationTime());
                 if (fileNameOnly) {
                     // return like this: file.txt
                     brokerFileStatus.setPath(fileStatus.getPath().getName());
@@ -1284,4 +1326,24 @@ public class FileSystemManager {
         }
         return brokerFileSystem;
     }
+
+    public long fileSize(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        Path filePath = new Path(pathUri.getPath());
+        try {
+            FileStatus fileStatus = fileSystem.getDFSFileSystem().getFileStatus(filePath);
+            if (fileStatus.isDirectory()) {
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                    "not a file: {}", path);
+            }
+            return fileStatus.getLen();
+        } catch (IOException e) {
+            logger.error("errors while getting file size: " + path);
+            fileSystem.closeFileSystem();
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                    e, "errors while getting file size {}", path);
+        }
+    }
 }
+

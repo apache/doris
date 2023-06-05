@@ -33,11 +33,14 @@ AES_ENCRYPT
 Encryption of data using the OpenSSL. This function is consistent with the `AES_ENCRYPT` function in MySQL. Using AES_128_ECB algorithm by default, and the padding mode is PKCS7.
 Reference: https://dev.mysql.com/doc/refman/8.0/en/encryption-functions.html#function_aes-decrypt
 
+### Compatibility
+
+1. aes_decrypt/aes_encrypt/sm4_decrypt/sm4_encrypt When the initial vector is not provided, block_encryption_mode will not take effect, and AES_128_ECB will be used for encryption and decryption in the end, which is inconsistent with the behavior of MySQL.
+2. Add aes_decrypt_v2/aes_encrypt_v2/sm4_decrypt_v2/sm4_encrypt_v2 functions to support correct behavior. When no initial vector is provided, block_encryption_mode can take effect, aes-192-ecb and aes-256-ecb will be correctly encrypted and decrypted, and other block encryption modes will report an error. If there is no need to be compatible with old data, the v2 function can be used directly.
+
 #### Syntax
 
-```
-AES_ENCRYPT(str,key_str[,init_vector])
-```
+`AES_ENCRYPT(str, key_str[, init_vector])`
 
 #### Arguments
 

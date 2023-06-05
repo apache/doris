@@ -54,5 +54,4 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
     }
-
 }

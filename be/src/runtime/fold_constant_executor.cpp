@@ -17,21 +17,47 @@
 
 #include "runtime/fold_constant_executor.h"
 
-#include <map>
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
-#include "common/object_pool.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <map>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/binary_cast.hpp"
+#include "util/defer_op.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 
 using std::string;
 using std::map;
@@ -53,15 +79,15 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
         for (const auto& n : m.second) {
-            vectorized::VExprContext* ctx = nullptr;
+            vectorized::VExprContextSPtr ctx;
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
 
             // close context expr
             Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
+            RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
             vectorized::Block tmp_block;
             tmp_block.insert({vectorized::ColumnUInt8::create(1),
@@ -82,7 +108,10 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
-                auto string_ref = column_ptr->get_data_at(0);
+                StringRef string_ref;
+                if (!ctx->root()->type().is_complex_type()) {
+                    string_ref = column_ptr->get_data_at(0);
+                }
                 result = _get_result((void*)string_ref.data, string_ref.size, ctx->root()->type(),
                                      column_ptr, column_type);
             }
@@ -109,8 +138,8 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    _runtime_state.reset(new RuntimeState(fragment_params.params, query_options, query_globals,
-                                          ExecEnv::GetInstance()));
+    _runtime_state = RuntimeState::create_unique(fragment_params.params, query_options,
+                                                 query_globals, ExecEnv::GetInstance());
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
@@ -167,12 +196,12 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        return fmt::format("{:.9g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        return fmt::format("{:.17g}", val);
+        return fmt::format("{}", val);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -208,7 +237,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         return std::string(buf, pos - buf - 1);
     }
     case TYPE_DECIMALV2: {
-        return reinterpret_cast<DecimalV2Value*>(src)->to_string();
+        return reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:

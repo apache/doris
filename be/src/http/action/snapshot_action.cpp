@@ -17,35 +17,31 @@
 
 #include "http/action/snapshot_action.h"
 
+#include <gen_cpp/AgentService_types.h>
+
 #include <boost/lexical_cast.hpp>
+#include <boost/lexical_cast/bad_lexical_cast.hpp>
 #include <sstream>
 #include <string>
 
-#include "agent/cgroups_mgr.h"
 #include "common/logging.h"
-#include "gen_cpp/AgentService_types.h"
+#include "common/status.h"
 #include "http/http_channel.h"
-#include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_status.h"
-#include "olap/olap_define.h"
 #include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction() {}
+SnapshotAction::SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                               TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void SnapshotAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
-
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);
     if (tablet_id_str.empty()) {

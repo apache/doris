@@ -43,7 +43,7 @@ suite("modify_replica_use_partition") {
             data_sizes[0] = obj.local_data_size
             data_sizes[1] = obj.remote_data_size
         }
-        fetchBeHttp(clos, meta_url)
+        fetchBeHttp(clos, meta_url.replace("header", "data_size"))
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
@@ -147,7 +147,7 @@ suite("modify_replica_use_partition") {
     }
 
     sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
@@ -164,7 +164,7 @@ suite("modify_replica_use_partition") {
     """
 
     sql """
-        CREATE STORAGE POLICY ${policy_name}
+        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "300"
@@ -265,12 +265,12 @@ suite("modify_replica_use_partition") {
     def iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][17]
+        def dst = tablets[idx][18]
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][17]
+            dst = tablets[idx + x][18]
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")
@@ -401,7 +401,7 @@ suite("modify_replica_use_partition") {
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
                 PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("replication_num" = "3"),
-                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1"),
+                PARTITION `p202302` VALUES LESS THAN ("2017-03-01") ("replication_num" = "1")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
@@ -485,12 +485,12 @@ suite("modify_replica_use_partition") {
     iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][17]
+        def dst = tablets[idx][18]
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][17]
+            dst = tablets[idx + x][18]
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")

@@ -20,6 +20,20 @@
 
 #include "vec/columns/column_map.h"
 
+#include <string.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include "vec/common/arena.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/common/unaligned.h"
+
+class SipHash;
+
 namespace doris::vectorized {
 
 /** A column of map values.
@@ -247,7 +261,7 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
     }
 
     size_t nested_offset = src_concrete.offset_at(start);
-    size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
+    size_t nested_length = src_concrete.offset_at(start + length) - nested_offset;
 
     keys_column->insert_range_from(src_concrete.get_keys(), nested_offset, nested_length);
     values_column->insert_range_from(src_concrete.get_values(), nested_offset, nested_length);
@@ -357,6 +371,12 @@ void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
     values_column->reserve(n);
+}
+
+void ColumnMap::resize(size_t n) {
+    get_offsets().resize(n);
+    keys_column->resize(n);
+    values_column->resize(n);
 }
 
 size_t ColumnMap::byte_size() const {

@@ -39,7 +39,7 @@ public enum AggPhase {
     }
 
     public boolean isLocal() {
-        return this == LOCAL;
+        return this == LOCAL || this == DISTINCT_LOCAL;
     }
 
     public boolean isGlobal() {

@@ -17,16 +17,36 @@
 
 #pragma once
 
-#include <thrift/protocol/TDebugProtocol.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "common/global_types.h"
+#include "common/status.h"
 #include "exec/exec_node.h"
+#include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
-#include "vec/exprs/vectorized_agg_fn.h"
-#include "vec/exprs/vexpr_context.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TupleDescriptor;
+
+} // namespace doris
+
 namespace doris::vectorized {
 
 struct BlockRowPos {
@@ -46,6 +66,7 @@ struct BlockRowPos {
 };
 
 class AggFnEvaluator;
+
 class VAnalyticEvalNode : public ExecNode {
 public:
     ~VAnalyticEvalNode() override = default;
@@ -79,8 +100,8 @@ private:
     Status _init_result_columns();
     Status _create_agg_status();
     Status _destroy_agg_status();
-    Status _insert_range_column(vectorized::Block* block, VExprContext* expr, IColumn* dst_column,
-                                size_t length);
+    Status _insert_range_column(vectorized::Block* block, const VExprContextSPtr& expr,
+                                IColumn* dst_column, size_t length);
 
     void _update_order_by_range();
     bool _init_next_partition(BlockRowPos found_partition_end);
@@ -117,9 +138,9 @@ private:
     std::vector<Block> _input_blocks;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<AggFnEvaluator*> _agg_functions;
-    std::vector<std::vector<VExprContext*>> _agg_expr_ctxs;
-    std::vector<VExprContext*> _partition_by_eq_expr_ctxs;
-    std::vector<VExprContext*> _order_by_eq_expr_ctxs;
+    std::vector<VExprContextSPtrs> _agg_expr_ctxs;
+    VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    VExprContextSPtrs _order_by_eq_expr_ctxs;
     std::vector<std::vector<MutableColumnPtr>> _agg_intput_columns;
     std::vector<MutableColumnPtr> _result_window_columns;
 
@@ -142,6 +163,7 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
+    bool _agg_functions_created = false;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

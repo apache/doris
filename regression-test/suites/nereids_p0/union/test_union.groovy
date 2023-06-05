@@ -205,7 +205,6 @@ suite("test_union") {
         sql "(select k1, k1 from ${tbName2}) union (select k2, 1 from ${tbName1}) order by k1"
         check{result, exception, startTime, endTime ->
             assertTrue(exception != null)
-            logger.info(exception.message)
         }
     }
     test {

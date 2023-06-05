@@ -56,7 +56,7 @@ public:
     RlePageBuilder(const PageBuilderOptions& options)
             : _options(options), _count(0), _finished(false), _bit_width(0), _rle_encoder(nullptr) {
         switch (Type) {
-        case OLAP_FIELD_TYPE_BOOL: {
+        case FieldType::OLAP_FIELD_TYPE_BOOL: {
             _bit_width = 1;
             break;
         }
@@ -167,7 +167,7 @@ public:
         _parsed = true;
 
         switch (Type) {
-        case OLAP_FIELD_TYPE_BOOL: {
+        case FieldType::OLAP_FIELD_TYPE_BOOL: {
             _bit_width = 1;
             break;
         }

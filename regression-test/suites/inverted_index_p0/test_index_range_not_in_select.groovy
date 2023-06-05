@@ -81,12 +81,37 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
                 alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
                 alter_res = alter_res.toString()
                 if(alter_res.contains("FINISHED")) {
+                    sleep(3000) // wait change table state to normal
+                    logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                     break
                 }
                 useTime = t
                 sleep(delta_time)
             }
-            assertTrue(useTime <= OpTimeout)
+            assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+        }
+
+        def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+            for(int t = delta_time; t <= OpTimeout; t += delta_time){
+                alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+                expected_finished_num = alter_res.size();
+                finished_num = 0;
+                for (int i = 0; i < expected_finished_num; i++) {
+                    logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                    if (alter_res[i][7] == "FINISHED") {
+                        ++finished_num;
+                    }
+                }
+                if (finished_num == expected_finished_num) {
+                    logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                    break
+                } else {
+                    finished_num = 0;
+                }
+                useTime = t
+                sleep(delta_time)
+            }
+            assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
         }
 
         for (int i = 0; i < 2; i++) {
@@ -94,37 +119,45 @@ suite("test_index_range_not_in_select", "inverted_index_select"){
             // case 1
             if (i > 0) {
                 logger.info("it's " + i + " times select, not first select, drop all index before select again")
-                sql """ drop index ${varchar_colume1}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${varchar_colume2}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${varchar_colume3}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${int_colume1}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${string_colume1}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${char_colume1}_idx on ${Tb_name} """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ drop index ${text_colume1}_idx on ${Tb_name} """
+                sql """
+                    ALTER TABLE ${Tb_name}
+                        drop index ${varchar_colume1}_idx,
+                        drop index ${varchar_colume2}_idx,
+                        drop index ${varchar_colume3}_idx,
+                        drop index ${int_colume1}_idx,
+                        drop index ${string_colume1}_idx,
+                        drop index ${char_colume1}_idx,
+                        drop index ${text_colume1}_idx;
+                """
                 wait_for_latest_op_on_table_finish(Tb_name, timeout)
 
                 // readd index
                 logger.info("it's " + i + " times select, readd all index before select again")
-                sql """ create index ${varchar_colume1}_idx on ${Tb_name}(`${varchar_colume1}`) USING INVERTED COMMENT '${varchar_colume1} index'"""
+                sql """
+                    ALTER TABLE ${Tb_name}
+                        add index ${varchar_colume1}_idx(`${varchar_colume1}`) USING INVERTED COMMENT '${varchar_colume1} index',
+                        add index ${varchar_colume2}_idx(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index',
+                        add index ${varchar_colume3}_idx(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index',
+                        add index ${int_colume1}_idx(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index',
+                        add index ${string_colume1}_idx(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index',
+                        add index ${char_colume1}_idx(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index',
+                        add index ${text_colume1}_idx(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index';
+                """
                 wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${varchar_colume2}_idx on ${Tb_name}(`${varchar_colume2}`) USING INVERTED PROPERTIES("parser"="none") COMMENT '${varchar_colume2} index'"""
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${varchar_colume3}_idx on ${Tb_name}(`${varchar_colume3}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' ${varchar_colume3} index'"""
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${int_colume1}_idx on ${Tb_name}(`${int_colume1}`) USING INVERTED COMMENT '${int_colume1} index' """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${string_colume1}_idx on ${Tb_name}(`${string_colume1}`) USING INVERTED PROPERTIES("parser"="english") COMMENT '${string_colume1} index' """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${char_colume1}_idx on ${Tb_name}(`${char_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${char_colume1} index' """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
-                sql """ create index ${text_colume1}_idx on ${Tb_name}(`${text_colume1}`) USING INVERTED PROPERTIES("parser"="standard") COMMENT '${text_colume1} index' """
-                wait_for_latest_op_on_table_finish(Tb_name, timeout)
+                sql """ build index ${varchar_colume1}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${varchar_colume2}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${varchar_colume3}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${int_colume1}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${string_colume1}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${char_colume1}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
+                sql """ build index ${text_colume1}_idx on ${Tb_name} """
+                wait_for_build_index_on_partition_finish(Tb_name, timeout)
             }
 
             // case1: select in

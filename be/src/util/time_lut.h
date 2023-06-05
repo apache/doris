@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <atomic>
-#include <mutex>
 
 namespace doris {
 

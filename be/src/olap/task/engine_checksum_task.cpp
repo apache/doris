@@ -17,7 +17,26 @@
 
 #include "olap/task/engine_checksum_task.h"
 
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "io/io_common.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/reader.h"
+#include "olap/rowset/rowset.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "vec/common/sip_hash.h"
+#include "vec/core/block.h"
 #include "vec/olap/block_reader.h"
 
 namespace doris {
@@ -52,21 +71,24 @@ Status EngineChecksumTask::_compute_checksum() {
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version version(0, _version);
-    Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
-    if (acquire_reader_st != Status::OK()) {
-        LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
-                     << "res=" << acquire_reader_st;
-        return acquire_reader_st;
+    vectorized::BlockReader reader;
+    TabletReader::ReaderParams reader_params;
+    vectorized::Block block;
+    {
+        std::shared_lock rdlock(tablet->get_header_lock());
+        Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
+        if (acquire_reader_st != Status::OK()) {
+            LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+                         << "res=" << acquire_reader_st;
+            return acquire_reader_st;
+        }
+        RETURN_IF_ERROR(TabletReader::init_reader_params_and_create_block(
+                tablet, ReaderType::READER_CHECKSUM, input_rowsets, &reader_params, &block));
     }
     size_t input_size = 0;
     for (const auto& rowset : input_rowsets) {
         input_size += rowset->data_disk_size();
     }
-    vectorized::BlockReader reader;
-    TabletReader::ReaderParams reader_params;
-    vectorized::Block block;
-    RETURN_NOT_OK(TabletReader::init_reader_params_and_create_block(
-            tablet, READER_CHECKSUM, input_rowsets, &reader_params, &block))
 
     auto res = reader.init(reader_params);
     if (!res.ok()) {

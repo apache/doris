@@ -94,6 +94,8 @@ suite("test_delete_where_in", "delete_p0") {
         def count_5= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_5 : ${count_5}")
 
+        sql """DELETE FROM ${tb_name} WHERE k5 BETWEEN 20000 AND 50000"""
+
         //drop table
         qt_sql """truncate table ${tb_name}"""
         qt_sql """drop table ${tb_name}"""

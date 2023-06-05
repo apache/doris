@@ -28,21 +28,9 @@ under the License.
 ### description
 #### Syntax
 
-```
-cast (input as type)
-```
+`T cast (input as Type)`
 
-#### BIGINT type 
-
-#### Syntax(BIGINT)
-
-``` cast (input as BIGINT) ```
-
-
-将 input 转成 指定的 type 
-
-
-将当前列 input 转换为 BIGINT 类型
+将 input 转成 指定的 Type类型
 
 ### example
 
@@ -77,6 +65,16 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 |                                     11 |
 +----------------------------------------+
 1 row in set (0.00 sec)
+```
+
+对于DECIMALV3类型，cast会进行四舍五入
+```
+mysql> select cast (1.115 as DECIMALV3(16, 2));
++---------------------------------+
+| cast(1.115 as DECIMALV3(16, 2)) |
++---------------------------------+
+|                            1.12 |
++---------------------------------+
 ```
 ### keywords
 CAST

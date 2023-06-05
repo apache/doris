@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
@@ -45,13 +46,19 @@ public class StatementContext {
 
     private int maxNAryInnerJoin = 0;
 
+    private boolean isDpHyp = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
 
+    private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 
+    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
+    // LogicalPlanAdapter with the logical plan in the command.
     private StatementBase parsedStatement;
 
     private Set<String> columnNames;
@@ -93,12 +100,20 @@ public class StatementContext {
         return maxNAryInnerJoin;
     }
 
-    public StatementBase getParsedStatement() {
-        return parsedStatement;
+    public boolean isDpHyp() {
+        return isDpHyp;
+    }
+
+    public void setDpHyp(boolean dpHyp) {
+        isDpHyp = dpHyp;
     }
 
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public CTEId getNextCTEId() {
+        return cteIdGenerator.getNextId();
     }
 
     public ObjectId getNextObjectId() {
@@ -135,5 +150,9 @@ public class StatementContext {
 
     public String generateColumnName() {
         return getColumnAliasGenerator().getNextAlias();
+    }
+
+    public StatementBase getParsedStatement() {
+        return parsedStatement;
     }
 }

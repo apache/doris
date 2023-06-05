@@ -26,7 +26,7 @@ import java.util.Objects;
 /**
  * Window functions, as known as analytic functions.
  */
-public abstract class WindowFunction extends BoundFunction {
+public abstract class WindowFunction extends BoundFunction implements SupportWindowAnalytic {
 
     public WindowFunction(String name, Expression... arguments) {
         super(name, arguments);

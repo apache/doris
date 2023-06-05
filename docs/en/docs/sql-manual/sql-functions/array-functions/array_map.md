@@ -26,13 +26,16 @@ under the License.
 
 ## array_map
 
-<version since="1.2.2">
+<version since="dev">
 
 array_map(lambda,array,....)
 
 </version>
 
 ### description
+
+#### Syntax
+`ARRAY<T> array_map(lambda, ARRAY<T> array1, ARRAY<T> array2)`
 
 Use a lambda expression as the input parameter to calculate the corresponding expression for the internal data of other input ARRAY parameters.
 The number of parameters entered in the lambda expression is 1 or more, which must be consistent with the number of input array columns.

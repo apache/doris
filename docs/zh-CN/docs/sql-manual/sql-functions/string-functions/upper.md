@@ -31,7 +31,7 @@ under the License.
 `VARCHAR upper(VARCHAR str)`
 
 
-将参数中所有的字符串都转换成大写
+将参数中所有的字符串都转换成大写，此函数的另一个别名为[ucase](./ucase.md)。
 
 ### example
 

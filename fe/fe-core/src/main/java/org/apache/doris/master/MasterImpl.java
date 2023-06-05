@@ -51,7 +51,6 @@ import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TPushType;
@@ -195,7 +194,7 @@ public class MasterImpl {
                     finishAlterTask(task);
                     break;
                 case ALTER_INVERTED_INDEX:
-                    finishAlterInvertedIndexTask(task);
+                    finishAlterInvertedIndexTask(task, request);
                     break;
                 case UPDATE_TABLET_META_INFO:
                     finishUpdateTabletMeta(task, request);
@@ -480,7 +479,7 @@ public class MasterImpl {
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.addErrorTablets(errorTabletIds);
-        publishVersionTask.setIsFinished(true);
+        publishVersionTask.setFinished(true);
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             // not remove the task from queue and be will retry
@@ -567,10 +566,6 @@ public class MasterImpl {
         return reportHandler.handleReport(request);
     }
 
-    public TFetchResourceResult fetchResource() {
-        return Env.getCurrentEnv().getAuth().toResourceThrift();
-    }
-
     private void finishAlterTask(AgentTask task) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
@@ -586,9 +581,19 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
     }
 
-    private void finishAlterInvertedIndexTask(AgentTask task) {
+    private void finishAlterInvertedIndexTask(AgentTask task, TFinishTaskRequest request) {
+        TStatus taskStatus = request.getTaskStatus();
+        if (taskStatus.getStatusCode() != TStatusCode.OK) {
+            LOG.warn("AlterInvertedIndexTask: {} failed, failed times: {}, remaining it in agent task queue",
+                     task.getSignature(), task.getFailedTimes());
+            return;
+        }
+
         AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-        LOG.info("beigin finish AlterInvertedIndexTask, Jobtype: {}", alterInvertedIndexTask.getJobType());
+        LOG.info("beigin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
+                alterInvertedIndexTask.getSignature(),
+                alterInvertedIndexTask.getTabletId(),
+                alterInvertedIndexTask.toString());
         // TODO: more check
         alterInvertedIndexTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());

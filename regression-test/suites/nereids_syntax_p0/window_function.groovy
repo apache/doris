@@ -20,6 +20,10 @@ suite("window_function") {
 
     sql "DROP TABLE IF EXISTS window_test"
 
+    sql "DROP TABLE IF EXISTS adj_nullable_1"
+
+    sql "DROP TABLE IF EXISTS adj_nullable_2"
+
     sql """
         CREATE TABLE `window_test` (
             `c1` int NULL,
@@ -31,6 +35,25 @@ suite("window_function") {
         "replication_allocation" = "tag.location.default: 1"
         );
     """
+
+    sql """
+        create table adj_nullable_1 (
+          c1 int,
+          c2 int,
+          c3 int
+        ) distributed by hash(c1)
+        properties('replication_num'='1');
+    """
+
+    sql """
+        create table adj_nullable_2 (
+          c4 int not null,
+          c5 int not null,
+          c6 int not null
+        ) distributed by hash(c4)
+        properties('replication_num'='1');
+    """
+
     sql """INSERT INTO window_test VALUES(1, 1, 1)"""
     sql """INSERT INTO window_test VALUES(1, 2, 1)"""
     sql """INSERT INTO window_test VALUES(1, 3, 1)"""
@@ -45,6 +68,9 @@ suite("window_function") {
     sql """INSERT INTO window_test VALUES(1, 3, null)"""
     sql """INSERT INTO window_test VALUES(1, null, 3)"""
     sql """INSERT INTO window_test VALUES(2, null, 3)"""
+
+    sql """insert into adj_nullable_1 values(1, 1, 1);"""
+    sql """insert into adj_nullable_2 values(1, 1, 1);"""
 
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -63,12 +89,12 @@ suite("window_function") {
     order_qt_sum "SELECT sum(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_avg "SELECT avg(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_count "SELECT count(c1) over(partition by c3 order by c2) FROM window_test"
-    order_qt_first_value "SELECT first_value(c1) over(partition by c3 order by c2) FROM window_test"
-    order_qt_last_value "SELECT last_value(c1) over(partition by c3 order by c2) FROM window_test"
-    order_qt_lead "SELECT lead(c1, 1, 111) over(partition by c3 order by c2) FROM window_test"
-    order_qt_lag "SELECT lag(c1, 1, 222) over(partition by c3 order by c2) FROM window_test"
-    order_qt_lead "SELECT lead(c1, 3, null) over(partition by c3 order by c2) FROM window_test"
-    order_qt_lag "SELECT lag(c1, 2, null) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT first_value(c1) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT last_value(c1) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT lead(c1, 1, 111) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT lag(c1, 1, 222) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT lead(c1, 3, null) over(partition by c3 order by c2) FROM window_test"
+    sql "SELECT lag(c1, 2, null) over(partition by c3 order by c2) FROM window_test"
     order_qt_max "SELECT max(c1) over(partition by c3 order by c2) FROM window_test"
     order_qt_min "SELECT min(c1) over(partition by c3 order by c2) FROM window_test"
 
@@ -90,7 +116,7 @@ suite("window_function") {
         GROUP BY ROLLUP (c2, c3)
     """
 
-    qt_subquery_1 """
+    order_qt_subquery_1 """
         SELECT *, row_number() over(partition by c1 order by c3, c2, c1, r1) as r2
         FROM (
             SELECT *, row_number() over(partition by c2 order by c3, c2, c1) as r1
@@ -147,5 +173,16 @@ suite("window_function") {
         select sum(c1)/sum(c1+1) over (partition by c2 order by c1)
         from window_test
         group by c1, c2
+    """
+
+    // test adjust nullable on window
+    sql """
+        select 
+          count(c1) over (partition by c4),
+          coalesce(c5, sum(c2) over (partition by c3))
+        from
+          adj_nullable_1
+          left join adj_nullable_2 on c1 = c4
+        where c6 is not null;
     """
 }

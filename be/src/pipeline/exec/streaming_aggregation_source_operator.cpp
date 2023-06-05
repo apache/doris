@@ -17,9 +17,19 @@
 
 #include "streaming_aggregation_source_operator.h"
 
+#include <utility>
+
+#include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
+class ExecNode;
+class RuntimeState;
+
 namespace pipeline {
 StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilderBase* templ, ExecNode* node,
                                                        std::shared_ptr<DataQueue> queue)
@@ -31,7 +41,6 @@ bool StreamingAggSourceOperator::can_read() {
 
 Status StreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                              SourceState& source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     bool eos = false;
     if (!_data_queue->data_exhausted()) {
         std::unique_ptr<vectorized::Block> agg_block;

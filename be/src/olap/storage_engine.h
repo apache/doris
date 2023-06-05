@@ -17,48 +17,57 @@
 
 #pragma once
 
-#include <pthread.h>
-#include <rapidjson/document.h>
+#include <butil/macros.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <ctime>
-#include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/tablet_manager.h"
-#include "olap/task/engine_task.h"
-#include "olap/txn_manager.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet.h"
+#include "olap/task/index_builder.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/countdown_latch.h"
-#include "util/thread.h"
-#include "util/threadpool.h"
 
 namespace doris {
 
 class DataDir;
 class EngineTask;
-class BlockManager;
 class MemTableFlushExecutor;
-class Tablet;
 class TaskWorkerPool;
 class BetaRowsetWriter;
+class BaseCompaction;
+class CumulativeCompaction;
+class SingleReplicaCompaction;
+class CumulativeCompactionPolicy;
+class MemTracker;
+class PriorityThreadPool;
+class StreamLoadRecorder;
+class TCloneReq;
+class TCreateTabletReq;
+class TabletManager;
+class Thread;
+class ThreadPool;
+class TxnManager;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -167,10 +176,21 @@ public:
 
     void stop();
 
+    void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
+                                    PGetTabletVersionsResponse* response);
+
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
                                       std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
+
+    void create_single_replica_compaction(
+            TabletSharedPtr best_tablet,
+            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+            CompactionType compaction_type);
+    bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
+
+    bool should_fetch_from_peer(int64_t tablet_id);
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
@@ -182,7 +202,8 @@ public:
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
-    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                  bool force);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -191,6 +212,8 @@ public:
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
+
+    Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
 private:
     // Instance should be inited from `static open()`
@@ -209,7 +232,7 @@ private:
     Status _check_all_root_path_cluster_id();
     Status _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
-    bool _delete_tablets_on_unused_root_path();
+    void _exit_if_too_many_disks_are_failed();
 
     void _clean_unused_txns();
 
@@ -253,6 +276,8 @@ private:
 
     void _compaction_tasks_producer_callback();
 
+    void _update_replica_infos_callback();
+
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
@@ -265,7 +290,11 @@ private:
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
-    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
+                                   bool force);
+
+    Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                  CompactionType compaction_type);
 
     void _adjust_compaction_thread_num();
 
@@ -277,6 +306,9 @@ private:
 
     Status _handle_seg_compaction(BetaRowsetWriter* writer,
                                   SegCompactionCandidatesSharedPtr segments);
+
+    Status _handle_index_change(IndexBuilderSharedPtr index_builder);
+    void _gc_binlogs();
 
 private:
     struct CompactionCandidate {
@@ -338,6 +370,7 @@ private:
     scoped_refptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
+    scoped_refptr<Thread> _update_replica_infos_thread;
     scoped_refptr<Thread> _fd_cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
@@ -369,6 +402,7 @@ private:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
@@ -383,6 +417,11 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+
+    std::mutex _peer_replica_infos_mutex;
+    // key: tabletId
+    std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
+    std::string _token;
 
     std::atomic<int32_t> _wakeup_producer_flag {0};
 

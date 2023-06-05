@@ -36,7 +36,7 @@ The ALTER USER command is used to modify a user's account attributes, including 
 
 >Note that.
 >
->This command give over supports modifying user roles. Please use [GRANT](./GRANT.md) and [REVOKE](./REVOKE.md) for related operations
+>This command give over supports modifying user roles from versions 2.0. Please use [GRANT](./GRANT.md) and [REVOKE](./REVOKE.md) for related operations
 
 ```sql
 ALTER USER [IF EXISTS] user_identity [IDENTIFIED BY 'password']

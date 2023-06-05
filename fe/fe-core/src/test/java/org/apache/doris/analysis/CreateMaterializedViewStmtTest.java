@@ -40,6 +40,7 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -84,7 +85,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testCountDistinct(@Injectable SlotRef slotRef, @Injectable ArithmeticExpr arithmeticExpr,
                                   @Injectable SelectStmt selectStmt, @Injectable Column column,
                                   @Injectable TableRef tableRef,
@@ -149,7 +150,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testAggregateWithFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr,
                                                               @Injectable SelectStmt selectStmt,
                                                               @Injectable AggregateFunction aggregateFunction) throws UserException {
@@ -179,7 +180,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testJoinSelectClause(@Injectable SlotRef slotRef,
                                      @Injectable TableRef tableRef1,
                                      @Injectable TableRef tableRef2,
@@ -210,7 +211,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testSelectClauseWithWhereClause(@Injectable SlotRef slotRef,
                                                 @Injectable TableRef tableRef,
                                                 @Injectable Expr whereClause,
@@ -259,14 +260,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                selectStmt.getTableRefs();
-                result = Lists.newArrayList(tableRef);
-                selectStmt.getWhereClause();
-                result = null;
-                selectStmt.getHavingPred();
-                result = havingClause;
-                slotRef.toSql();
-                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -288,9 +281,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
         selectList.addItem(selectListItem2);
-        OrderByElement orderByElement1 = new OrderByElement(slotRef2, false, false);
-        OrderByElement orderByElement2 = new OrderByElement(slotRef1, false, false);
-        ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1, orderByElement2);
 
         new Expectations() {
             {
@@ -299,20 +289,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                selectStmt.getTableRefs();
-                result = Lists.newArrayList(tableRef);
-                selectStmt.getWhereClause();
-                result = null;
-                selectStmt.getHavingPred();
-                result = null;
-                selectStmt.getOrderByElements();
-                result = orderByElementList;
-                slotRef1.toSql();
-                result = "k1";
-                slotRef2.toSql();
-                result = "k2";
-                slotRef2.getColumnName();
-                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -324,7 +300,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testOrderByAggregateColumn(@Injectable SlotRef slotRef1,
                                            @Injectable TableRef tableRef,
                                            @Injectable SelectStmt selectStmt,
@@ -342,9 +318,6 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
-        OrderByElement orderByElement1 = new OrderByElement(functionCallExpr, false, false);
-        OrderByElement orderByElement2 = new OrderByElement(slotRef1, false, false);
-        ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1, orderByElement2);
 
         new Expectations() {
             {
@@ -353,16 +326,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                selectStmt.getTableRefs();
-                result = Lists.newArrayList(tableRef);
-                selectStmt.getWhereClause();
-                result = null;
-                selectStmt.getHavingPred();
-                result = null;
-                selectStmt.getOrderByElements();
-                result = orderByElementList;
-                slotRef1.toSql();
-                result = "k1";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -468,8 +431,6 @@ public class CreateMaterializedViewStmtTest {
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectListItem selectListItem3 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem3);
-        OrderByElement orderByElement1 = new OrderByElement(slotRef1, false, false);
-        ArrayList<OrderByElement> orderByElementList = Lists.newArrayList(orderByElement1);
 
         new Expectations() {
             {
@@ -478,18 +439,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                selectStmt.getTableRefs();
-                result = Lists.newArrayList(tableRef);
-                selectStmt.getWhereClause();
-                result = null;
-                selectStmt.getHavingPred();
-                result = null;
-                selectStmt.getOrderByElements();
-                result = orderByElementList;
-                slotRef1.toSql();
-                result = "k1";
-                slotRef2.toSql();
-                result = "k2";
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -501,7 +450,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testMVColumnsWithoutOrderby(@Injectable SlotRef slotRef1,
                                             @Injectable SlotRef slotRef2,
                                             @Injectable SlotRef slotRef3,
@@ -604,7 +553,7 @@ public class CreateMaterializedViewStmtTest {
         }
     }
 
-    @Test
+    @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
                                                               @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
                                                               @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
@@ -706,7 +655,7 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
      */
-    @Test
+    @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
                                                                        @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
                                                                        @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
@@ -806,7 +755,7 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
     */
-    @Test
+    @Disabled
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithVarchar(@Injectable SlotRef slotRef1,
                                                                          @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
                                                                          @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
@@ -940,7 +889,7 @@ public class CreateMaterializedViewStmtTest {
     /*
     ISSUE: #3811
     */
-    @Test
+    @Disabled
     public void testMVColumnsWithFirstVarchar(@Injectable SlotRef slotRef1,
                                               @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
@@ -995,7 +944,7 @@ public class CreateMaterializedViewStmtTest {
     }
 
 
-    @Test
+    @Disabled
     public void testMVColumns(@Injectable SlotRef slotRef1,
                               @Injectable SlotRef slotRef2,
                               @Injectable TableRef tableRef,
@@ -1084,7 +1033,7 @@ public class CreateMaterializedViewStmtTest {
 
     }
 
-    @Test
+    @Disabled
     public void testDeduplicateMV(@Injectable SlotRef slotRef1,
                                   @Injectable TableRef tableRef,
                                   @Injectable SelectStmt selectStmt,

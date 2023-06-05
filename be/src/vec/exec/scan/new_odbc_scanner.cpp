@@ -17,10 +17,34 @@
 
 #include "vec/exec/scan/new_odbc_scanner.h"
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <sql.h>
+
+#include <algorithm>
+#include <new>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
 #include "common/status.h"
-#include "exec/text_converter.hpp"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/types.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/vscanner.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class RuntimeProfile;
+namespace vectorized {
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCANNER_TYPE = "NewOdbcScanner";
 
@@ -36,12 +60,9 @@ NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int
           _tuple_id(odbc_scan_node.tuple_id),
           _tuple_desc(nullptr) {}
 
-Status NewOdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
 
     if (_is_init) {
         return Status::OK();

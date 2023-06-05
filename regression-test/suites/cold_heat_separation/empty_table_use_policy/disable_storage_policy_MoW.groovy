@@ -33,7 +33,7 @@ suite("disable_storage_policy_MoW"){
 
     if(!storage_exist.call("${storage_policy_name}")){
         def create_s3_resource = sql """
-            CREATE RESOURCE "${s3_source_name}"
+            CREATE RESOURCE IF NOT EXISTS "${s3_source_name}"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -46,7 +46,7 @@ suite("disable_storage_policy_MoW"){
             );
         """
         def create_storage_policy = sql """
-            CREATE STORAGE POLICY ${storage_policy_name} PROPERTIES(
+            CREATE STORAGE POLICY IF NOT EXISTS ${storage_policy_name} PROPERTIES(
                 "storage_resource" = "${s3_source_name}",
                 "cooldown_ttl" = "1008611"
             );

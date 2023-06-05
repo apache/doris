@@ -34,9 +34,7 @@ array_popback
 
 #### Syntax
 
-```
-ARRAY<T> array_popback(ARRAY<T> arr)
-```
+`ARRAY<T> array_popback(ARRAY<T> arr)`
 
 Remove the last element from array.
 

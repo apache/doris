@@ -28,10 +28,10 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR trim(VARCHAR str)`
+`VARCHAR trim(VARCHAR str[, VARCHAR rhs])`
 
 
-将参数 str 中右侧和左侧开始部分连续出现的空格去掉
+当没有rhs参数时，将参数 str 中右侧和左侧开始部分连续出现的空格去掉，否则去掉rhs
 
 ### example
 
@@ -41,6 +41,13 @@ mysql> SELECT trim('   ab d   ') str;
 | str  |
 +------+
 | ab d |
++------+
+
+mysql> SELECT trim('ababccaab','ab') str;
++------+
+| str  |
++------+
+| cca  |
 +------+
 ```
 ### keywords

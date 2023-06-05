@@ -20,13 +20,33 @@
 
 #pragma once
 
-#include <ostream>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_string_serde.h"
+#include "vec/columns/column_string.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-class DataTypeString final : public IDataType {
+class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
@@ -35,6 +55,11 @@ public:
     const char* get_family_name() const override { return "String"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::String; }
+
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRING; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::STRING;
+    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -45,21 +70,28 @@ public:
 
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override {
+        DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
+        DCHECK(node.__isset.string_literal);
+        return node.string_literal.value;
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool is_comparable() const override { return true; }
-    bool can_be_compared_with_collation() const override { return true; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-    bool is_categorial() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
     bool can_be_inside_low_cardinality() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeStringSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

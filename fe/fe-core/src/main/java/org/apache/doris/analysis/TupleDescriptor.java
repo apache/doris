@@ -29,6 +29,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -376,6 +378,16 @@ public class TupleDescriptor {
                 }
             }
         }
+    }
+
+    public Set<String> getColumnNames() {
+        Map<Long, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
+        getTableIdToColumnNames(columnNamesInQueryOutput);
+        Set<String> columnNames = Sets.newHashSet();
+        for (Set<String> names : columnNamesInQueryOutput.values()) {
+            columnNames.addAll(names);
+        }
+        return columnNames;
     }
 
     @Override

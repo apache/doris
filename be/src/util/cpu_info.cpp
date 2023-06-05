@@ -21,8 +21,6 @@
 #include "util/cpu_info.h"
 
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
-/* GCC-compatible compiler, targeting x86/x86-64 */
-#include <x86intrin.h>
 #elif defined(__GNUC__) && defined(__ARM_NEON__)
 /* GCC-compatible compiler, targeting ARM with NEON */
 #include <arm_neon.h>
@@ -43,24 +41,25 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <gen_cpp/Metrics_types.h>
 #include <sched.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <sstream>
 
 #include "common/config.h"
 #include "common/env_config.h"
 #include "gflags/gflags.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "util/pretty_printer.h"
-#include "util/string_parser.hpp"
 
 using boost::algorithm::contains;
 using boost::algorithm::trim;

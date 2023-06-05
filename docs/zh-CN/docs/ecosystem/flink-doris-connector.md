@@ -56,77 +56,15 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 准备工作
 
-1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+1. 修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
 
-2.指定thrift安装目录
+2. 在源码目录下执行：
+`sh build.sh`
+根据提示输入你需要的 flink 版本进行编译。
 
-```bash
-##源文件内容
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
+编译成功后，会在 `dist` 目录生成目标jar包，如：`flink-doris-connector-1.3.0-SNAPSHOT.jar`。
+将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
-##修改如下,MacOS为例
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
- Windows: 
-    1.下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`(下载目录自己指定)
-    2.修改thrift-0.13.0.exe 为 thrift
- 
- MacOS: 
-    1. 下载：`brew install thrift@0.13.0`
-    2. 默认下载地址：/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-    
- 
- 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
- Linux:
-  ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # 下载源码包
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # 安装依赖
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # 安装完成后查看版本
-   ```
-   注：如果编译过Doris，则不需要安装thrift,可以直接使用 `$DORIS_HOME/thirdparty/installed/bin/thrift`
-
-在源码目录下执行：
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-然后按照你需要版本执行命令编译即可,例如：
-`sh build.sh --flink 1.16.0`
-
-编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
-
-**备注**
-
-1. Doris FE 要在配置中配置启用 http v2
-
-​       conf/fe.conf
-
-```
-enable_http_server_v2 = true
-```
 
 ## 使用 Maven 管理
 
@@ -399,6 +337,9 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 
 ## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
 ```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
 CREATE TABLE cdc_mysql_source (
   id int
   ,name VARCHAR
@@ -432,6 +373,16 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## 使用FlinkCDC更新Key列
+一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
+在这种场景下，使用FlinkCDC + Doris Connector同步数据，便可以自动更新Doris主键列的数据。
+### 原理
+Flink CDC底层的采集工具是Debezium，Debezium内部使用op字段来标识对应的操作：op字段的取值分别为c、u、d、r，分别对应create、update、delete和read。
+而对于主键列的更新，FlinkCDC会向下游发送DELETE和INSERT事件，同时数据同步到Doris中后，就会自动更新主键列的数据。
+
+### 使用
+Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL侧执行Update主键列的语句(`update  student set id = '1002' where id = '1001'`)，即可修改Doris中的数据。
 
 ## Java示例
 
@@ -505,3 +456,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 10. **Flink导入有脏数据，如何跳过？**
 
 Flink在数据导入时，如果有脏数据，比如字段格式、长度等问题，会导致StreamLoad报错，此时Flink会不断的重试。如果需要跳过，可以通过禁用StreamLoad的严格模式(strict_mode=false,max_filter_ratio=1)或者在Sink算子之前对数据做过滤。
+
+11. **源表和Doris表应如何对应？**
+使用Flink Connector导入数据时，要注意两个方面，第一是源表的列和类型跟flink sql中的列和类型要对应上；第二个是flink sql中的列和类型要跟doris表的列和类型对应上，具体可以参考上面的"Doris 和 Flink 列类型映射关系"
+

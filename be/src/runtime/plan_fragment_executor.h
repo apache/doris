@@ -20,32 +20,37 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/query_fragments_ctx.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
-#include "vec/core/block.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
-class QueryFragmentsCtx;
+class QueryContext;
 class ExecNode;
 class RowDescriptor;
 class DataSink;
-class DataStreamMgr;
-class RuntimeProfile;
-class RuntimeState;
-class TNetworkAddress;
-class TPlanExecRequest;
-class TPlanFragment;
-class TPlanFragmentExecParams;
-class TPlanExecParams;
+class DescriptorTbl;
+class ExecEnv;
+class ObjectPool;
+class QueryStatistics;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 // PlanFragmentExecutor handles all aspects of the execution of a single plan fragment,
 // including setup and tear-down, both in the success and error case.
@@ -74,7 +79,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(const Status&, RuntimeProfile*, bool)>;
+    using report_status_callback =
+            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool)>;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -93,9 +99,8 @@ public:
     // If request.query_options.mem_limit > 0, it is used as an approximate limit on the
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
-    // If fragments_ctx is not null, some components will be got from fragments_ctx.
-    Status prepare(const TExecPlanFragmentParams& request,
-                   QueryFragmentsCtx* fragments_ctx = nullptr);
+    // If query_ctx is not null, some components will be got from query_ctx.
+    Status prepare(const TExecPlanFragmentParams& request, QueryContext* query_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -122,6 +127,7 @@ public:
 
     // Profile information for plan and output sink.
     RuntimeProfile* profile();
+    RuntimeProfile* load_channel_profile();
 
     const Status& status() const { return _status; }
 
@@ -185,6 +191,9 @@ private:
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
 
+    // Number of blocks returned by this fragment
+    RuntimeProfile::Counter* _blocks_produced_counter;
+
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
     // It is shared with BufferControlBlock and will be called in two different
@@ -196,6 +205,8 @@ private:
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
+
+    OpentelemetrySpan _span;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 

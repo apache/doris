@@ -25,7 +25,7 @@ suite("test_autobucket") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+          "replication_allocation" = "tag.location.default: 1"
         )
         """
 
@@ -35,6 +35,7 @@ suite("test_autobucket") {
     result = sql "show partitions from autobucket_test"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
+    // 10 is the default buckets without partition size
     assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
 
     sql "drop table if exists autobucket_test"

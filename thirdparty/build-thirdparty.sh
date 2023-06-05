@@ -46,21 +46,19 @@ fi
 # Check args
 usage() {
     echo "
-Usage: $0 <options>
+Usage: $0 [options...] [packages...]
   Optional options:
-     -j                 build thirdparty parallel
-     --clean            clean the extracted data
+     -j <num>               build thirdparty parallel
+     --clean                clean the extracted data
+     --continue <package>   continue to build the remaining packages (starts from the specified package)
   "
     exit 1
 }
 
 if ! OPTS="$(getopt \
     -n "$0" \
-    -o '' \
-    -o 'h' \
-    -l 'help' \
-    -l 'clean' \
-    -o 'j:' \
+    -o 'hj:' \
+    -l 'help,clean,continue:' \
     -- "$@")"; then
     usage
 fi
@@ -75,36 +73,47 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
-if [[ "$#" -ne 1 ]]; then
-    while true; do
-        case "$1" in
-        -j)
-            PARALLEL="$2"
-            shift 2
-            ;;
-        -h)
-            HELP=1
-            shift
-            ;;
-        --help)
-            HELP=1
-            shift
-            ;;
-        --clean)
-            CLEAN=1
-            shift
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            echo "Internal error"
-            exit 1
-            ;;
-        esac
-    done
+while true; do
+    case "$1" in
+    -j)
+        PARALLEL="$2"
+        shift 2
+        ;;
+    -h)
+        HELP=1
+        shift
+        ;;
+    --help)
+        HELP=1
+        shift
+        ;;
+    --clean)
+        CLEAN=1
+        shift
+        ;;
+    --continue)
+        CONTINUE=1
+        start_package="${2}"
+        shift 2
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
+    esac
+done
+
+if [[ "${CONTINUE}" -eq 1 ]]; then
+    if [[ -z "${start_package}" ]] || [[ "${#}" -ne 0 ]]; then
+        usage
+    fi
 fi
+
+read -r -a packages <<<"${@}"
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
@@ -113,6 +122,8 @@ fi
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
+    PACKAGES            -- ${packages[*]}
+    CONTINUE            -- ${start_package}
 "
 
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
@@ -147,6 +158,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
+    warning_dangling_reference='-Wno-dangling-reference'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -172,6 +184,13 @@ mkdir -p "${TP_DIR}/installed/lib64"
 pushd "${TP_DIR}/installed"/
 ln -sf lib64 lib
 popd
+
+# Configure the search paths for pkg-config and cmake
+export PKG_CONFIG_PATH="${TP_DIR}/installed/lib64/pkgconfig"
+export CMAKE_PREFIX_PATH="${TP_DIR}/installed"
+
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
 
 check_prerequest() {
     local CMD="$1"
@@ -247,9 +266,9 @@ check_if_source_exist() {
     echo "===== begin build $1"
 }
 
-check_if_archieve_exist() {
+check_if_archive_exist() {
     if [[ -z $1 ]]; then
-        echo "archieve should specified to check if exist."
+        echo "archive should specified to check if exist."
         exit 1
     fi
 
@@ -559,7 +578,7 @@ build_zlib() {
     check_if_source_exist "${ZLIB_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ZLIB_SOURCE}"
 
-    CFLAGS="-fPIC" \
+    CFLAGS="-O3 -fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --static
@@ -683,8 +702,9 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
+    CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
 }
@@ -703,7 +723,9 @@ build_boost() {
     CXXFLAGS="${cxxflags}" \
         ./bootstrap.sh --prefix="${TP_INSTALL_DIR}" --with-toolset="${boost_toolset}"
     # -q: Fail at first error
-    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
+    ./b2 -q link=static runtime-link=static -j "${PARALLEL}" \
+        --without-mpi --without-graph --without-graph_parallel --without-python \
+        cxxflags="-std=c++17 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
 # mysql
@@ -818,7 +840,7 @@ build_rocksdb() {
 
     # -Wno-range-loop-construct gcc-11
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" \
-        CXXFLAGS="-Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
+        CXXFLAGS="-include cstdint -Wno-deprecated-copy ${warning_stringop_truncation} ${warning_shadow} ${warning_dangling_gsl} \
     ${warning_defaulted_function_deleted} ${warning_unused_but_set_variable} -Wno-pessimizing-move -Wno-range-loop-construct" \
         LDFLAGS="${ldflags}" \
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
@@ -876,13 +898,7 @@ build_libunixodbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
-    else
-        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
-    fi
-
-    CFLAGS="${cflags}" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -1151,9 +1167,9 @@ build_parallel_hashmap() {
 
 # pdqsort
 build_pdqsort() {
-    check_if_source_exist "${PDQSORT_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${PDQSORT_SOURCE}"
-    cp -r pdqsort.h "${TP_INSTALL_DIR}/include/"
+    check_if_archive_exist "${PDQSORT_FILE}"
+    cd "${TP_SOURCE_DIR}"
+    cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
 # libdivide
@@ -1243,7 +1259,8 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1340,14 +1357,8 @@ build_gsasl() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags=''
-    else
-        cflags='-Wno-implicit-function-declaration'
-    fi
-
     KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
-        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        CFLAGS="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration" \
         ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
@@ -1367,7 +1378,8 @@ build_krb5() {
     fi
 
     CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
-        ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static ${with_crypto_impl:+${with_crypto_impl}}
+        ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
+        --without-keyutils ${with_crypto_impl:+${with_crypto_impl}}
 
     make -j "${PARALLEL}"
     make install
@@ -1396,6 +1408,7 @@ build_hdfs3() {
         -DKERBEROS_LIBRARIES="${TP_INSTALL_DIR}/lib/libkrb5.a" \
         -DGSASL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DGSASL_LIBRARIES="${TP_INSTALL_DIR}/lib/libgsasl.a" \
+        -DCMAKE_CXX_FLAGS='-include cstdint' \
         ..
 
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
@@ -1558,128 +1571,94 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
-#clucene
-build_clucene() {
-    if [[ "$(uname -m)" == 'x86_64' ]]; then
-        USE_AVX2="${USE_AVX2:-1}"
-    else
-        USE_AVX2="${USE_AVX2:-0}"
-    fi
-    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
-        USE_BTHREAD_SCANNER='OFF'
-    fi
-    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
-        USE_BTHREAD=1
-    else
-        USE_BTHREAD=0
-    fi
+# hadoop_libs
+build_hadoop_libs() {
+    check_if_source_exist "${HADOOP_LIBS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
+    ./build.sh
 
-    check_if_source_exist "${CLUCENE_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-    rm -rf CMakeCache.txt CMakeFiles/
-
-    ${CMAKE_CMD} -G "${GENERATOR}" \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DBUILD_STATIC_LIBRARIES=ON \
-        -DBUILD_SHARED_LIBRARIES=OFF \
-        -DBOOST_ROOT="${TP_INSTALL_DIR}" \
-        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
-        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
-        -DUSE_STAT64=0 \
-        -DUSE_AVX2="${USE_AVX2}" \
-        -DUSE_BTHREAD="${USE_BTHREAD}" \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DBUILD_CONTRIBS_LIB=ON ..
-    ${BUILD_SYSTEM} -j "${PARALLEL}"
-    ${BUILD_SYSTEM} install
-
-    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
-    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
-        mkdir -p "${TP_INSTALL_DIR}"/share
-    fi
-    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
-}
-
-# hadoop_libs_x86
-build_hadoop_libs_x86() {
-    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
 }
 
-if [[ "$(uname -s)" == 'Darwin' ]]; then
-    echo 'build for Darwin'
-    build_binutils
-    build_gettext
+if [[ "${#packages[@]}" -eq 0 ]]; then
+    packages=(
+        libunixodbc
+        openssl
+        libevent
+        zlib
+        lz4
+        bzip
+        lzo2
+        zstd
+        boost # must before thrift
+        protobuf
+        gflags
+        gtest
+        glog
+        rapidjson
+        snappy
+        gperftools
+        curl
+        re2
+        hyperscan
+        thrift
+        leveldb
+        brpc
+        jemalloc
+        rocksdb
+        krb5 # before cyrus_sasl
+        cyrus_sasl
+        librdkafka
+        flatbuffers
+        orc
+        arrow
+        abseil
+        s2
+        bitshuffle
+        croaringbitmap
+        fmt
+        parallel_hashmap
+        pdqsort
+        libdivide
+        cctz
+        tsan_header
+        mysql
+        aws_sdk
+        js_and_css
+        lzma
+        xml2
+        idn
+        gsasl
+        hdfs3
+        benchmark
+        simdjson
+        nlohmann_json
+        opentelemetry
+        libbacktrace
+        sse2neon
+        xxhash
+        concurrentqueue
+        fast_float
+    )
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        read -r -a packages <<<"binutils gettext ${packages[*]}"
+    elif [[ "$(uname -s)" == 'Linux' ]]; then
+        read -r -a packages <<<"${packages[*]} hadoop_libs"
+    fi
 fi
 
-build_libunixodbc
-build_openssl
-build_libevent
-build_zlib
-build_lz4
-build_bzip
-build_lzo2
-build_zstd
-build_boost # must before thrift
-build_protobuf
-build_gflags
-build_gtest
-build_glog
-build_rapidjson
-build_snappy
-build_gperftools
-build_curl
-build_re2
-build_hyperscan
-build_thrift
-build_leveldb
-build_brpc
-build_jemalloc
-build_rocksdb
-build_krb5 # before cyrus_sasl
-build_cyrus_sasl
-build_librdkafka
-build_flatbuffers
-build_orc
-build_arrow
-build_abseil
-build_s2
-build_bitshuffle
-build_croaringbitmap
-build_fmt
-build_parallel_hashmap
-build_pdqsort
-build_libdivide
-build_cctz
-build_tsan_header
-build_mysql
-build_aws_sdk
-build_js_and_css
-build_lzma
-build_xml2
-build_idn
-build_gsasl
-build_hdfs3
-build_benchmark
-build_simdjson
-build_nlohmann_json
-build_opentelemetry
-build_libbacktrace
-build_sse2neon
-build_xxhash
-build_concurrentqueue
-build_fast_float
-build_clucene
-
-if [[ "$(uname -m)" == 'x86_64' ]]; then
-    build_hadoop_libs_x86
-fi
+for package in "${packages[@]}"; do
+    if [[ "${package}" == "${start_package}" ]]; then
+        PACKAGE_FOUND=1
+    fi
+    if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
+        command="build_${package}"
+        ${command}
+    fi
+done
 
 echo "Finished to build all thirdparties"

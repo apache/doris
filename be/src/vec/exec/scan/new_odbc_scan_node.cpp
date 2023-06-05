@@ -17,7 +17,22 @@
 
 #include "vec/exec/scan/new_odbc_scan_node.h"
 
+#include <fmt/format.h>
+
+#include <memory>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/object_pool.h"
+#include "runtime/runtime_state.h"
 #include "vec/exec/scan/new_odbc_scanner.h"
+
+namespace doris {
+class DescriptorTbl;
+namespace vectorized {
+class VScanner;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCAN_NODE_TYPE = "NewOdbcScanNode";
 
@@ -46,15 +61,14 @@ Status NewOdbcScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status NewOdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
+Status NewOdbcScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    NewOdbcScanner* scanner = new NewOdbcScanner(_state, this, _limit_per_scanner, _odbc_scan_node,
-                                                 _state->runtime_profile());
-    _scanner_pool.add(scanner);
-    RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
-    scanners->push_back(static_cast<VScanner*>(scanner));
+    std::shared_ptr<NewOdbcScanner> scanner = NewOdbcScanner::create_shared(
+            _state, this, _limit_per_scanner, _odbc_scan_node, _state->runtime_profile());
+    RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
+    scanners->push_back(scanner);
     return Status::OK();
 }
 } // namespace doris::vectorized

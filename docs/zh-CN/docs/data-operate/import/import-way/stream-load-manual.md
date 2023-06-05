@@ -41,7 +41,7 @@ Stream load 主要适用于导入本地文件，或通过程序导入数据流�
                          |      |
                          |   +--v-----------+
                          |   | FE           |
-5. Return result to user |   +--+-----------+
+4. Return result to user |   +--+-----------+
                          |      |
                          |      | 2. Redirect to BE
                          |      |
@@ -67,7 +67,7 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 目前 Stream Load 支持数据格式：CSV（文本）、JSON
 
-<version since="1.2"> 1.2+ 支持PARQUET 和 ORC</version> 1.2+ 支持PARQUET 和 ORC
+<version since="1.2"> 1.2+ 支持PARQUET 和 ORC</version>
 
 ## 基本操作
 
@@ -190,6 +190,12 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 - two_phase_commit
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
+
+- enable_profile
+  <version since="1.2.4">
+  </version>
+
+  当 `enable_profile` 为 true 时，Stream Load profile将会打印到日志中。否则不会打印。
 
   示例：
 

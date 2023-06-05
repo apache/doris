@@ -17,12 +17,19 @@
 
 #include "olap/row_cursor.h"
 
+#include <glog/logging.h>
+#include <stdlib.h>
+
 #include <algorithm>
-#include <unordered_set>
+#include <new>
+#include <numeric>
+#include <ostream>
 
-#include "util/stack_util.h"
+#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "util/slice.h"
 
-using std::min;
 using std::nothrow;
 using std::string;
 using std::vector;
@@ -51,7 +58,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
             return Status::Error<INIT_FAILED>();
         }
         _variable_len += column_schema(cid)->get_variable_len();
-        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING) {
+        if (_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
             ++_string_field_count;
         }
     }
@@ -69,7 +76,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
                         const std::vector<uint32_t>& columns) {
-    _schema.reset(new Schema(*shared_schema.get()));
+    _schema.reset(new Schema(*shared_schema));
     return _init(columns);
 }
 
@@ -87,17 +94,18 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
     for (auto cid : _schema->column_ids()) {
         const TabletColumn& column = schema->column(cid);
         FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
-        } else if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_ARRAY) {
+        } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                   type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             _variable_len += std::max(scan_keys[cid].length(), column.length());
-        } else if (type == OLAP_FIELD_TYPE_STRING) {
+        } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             ++_string_field_count;
         }
     }
 
     // variable_len for null bytes
-    RETURN_NOT_OK(_alloc_buf());
+    RETURN_IF_ERROR(_alloc_buf());
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     char** long_text_ptr = _long_text_buf;
@@ -105,17 +113,17 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
         const TabletColumn& column = schema->column(cid);
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
         FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+        if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = scan_keys[cid].length();
             variable_ptr += scan_keys[cid].length();
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
+        } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = std::max(scan_keys[cid].length(), column.length());
             variable_ptr += slice->size;
-        } else if (type == OLAP_FIELD_TYPE_STRING) {
+        } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = *(long_text_ptr);
@@ -148,7 +156,7 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
 
@@ -164,12 +172,12 @@ Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_co
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema, columns));
+    RETURN_IF_ERROR(_init(schema, columns));
     return Status::OK();
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
 
@@ -187,7 +195,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
 
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
 
     return _init_scan_key(schema, scan_keys);
 }
@@ -201,7 +209,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(shared_schema, columns));
+    RETURN_IF_ERROR(_init(shared_schema, columns));
 
     return _init_scan_key(schema, scan_keys);
 }
@@ -214,14 +222,14 @@ Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
         return Status::OK();
     }
     DCHECK(_variable_buf == nullptr) << "allocate memory twice";
-    RETURN_NOT_OK(_alloc_buf());
+    RETURN_IF_ERROR(_alloc_buf());
     // init slice of char, varchar, hll type
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     char** long_text_ptr = _long_text_buf;
     for (auto cid : _schema->column_ids()) {
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING) {
+        if (_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
             slice->data = *(long_text_ptr);

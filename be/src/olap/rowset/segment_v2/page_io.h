@@ -17,15 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "io/fs/file_reader.h"
-#include "olap/iterators.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/page_handle.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/slice.h"
 
@@ -34,16 +32,14 @@ namespace doris {
 class BlockCompressionCodec;
 struct OlapReaderStatistics;
 
-namespace fs {
-class ReadableBlock;
-class WritableBlock;
-} // namespace fs
-
 namespace io {
 class FileWriter;
+class FileReader;
 } // namespace io
 
 namespace segment_v2 {
+class EncodingInfo;
+class PageHandle;
 
 struct PageReadOptions {
     // block to read page
@@ -57,7 +53,7 @@ struct PageReadOptions {
     // whether to verify page checksum
     bool verify_checksum = true;
     // whether to use page cache in read path
-    bool use_page_cache = true;
+    bool use_page_cache = false;
     // if true, use DURABLE CachePriority in page cache
     // currently used for in memory olap table
     bool kept_in_memory = false;
@@ -71,7 +67,7 @@ struct PageReadOptions {
     // index_page should not be pre-decoded
     bool pre_decode = true;
 
-    IOContext io_ctx;
+    io::IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

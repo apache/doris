@@ -17,21 +17,27 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
+#include "runtime/types.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 
 class TFoldConstantParams;
-class TExpr;
 class TQueryGlobals;
+class PConstantExprResult;
+class RuntimeProfile;
+class TQueryOptions;
 
 // This class used to fold constant expr from fe
 class FoldConstantExecutor {

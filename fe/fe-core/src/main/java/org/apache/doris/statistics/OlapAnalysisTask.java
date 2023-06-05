@@ -40,8 +40,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = INSERT_PART_STATISTICS
             + "FROM `${dbName}`.`${tblName}` "
-            + "PARTITION ${partName}";
+            + "PARTITION ${partName} ${sampleExpr}";
 
+    // TODO Currently, NDV is computed for the full table; in fact,
+    //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}`) t2\n";
@@ -51,8 +53,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super();
     }
 
-    public OlapAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public OlapAnalysisTask(AnalysisInfo info) {
+        super(info);
     }
 
     public void execute() throws Exception {
@@ -62,23 +64,25 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
-        params.put("idxId", "-1");
+        params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
         params.put("dbName", info.dbName);
         params.put("colName", String.valueOf(info.colName));
         params.put("tblName", String.valueOf(info.tblName));
+        params.put("sampleExpr", getSampleExpression());
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            Set<String> partNames = info.colToPartitions.get(info.colName);
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {
                     continue;
                 }
                 params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
-                params.put("partName", String.valueOf(partName));
+                // Avoid error when get the default partition
+                params.put("partName", "`" + partName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
             }
@@ -87,11 +91,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         execSQLs(partitionAnalysisSQLs);
         params.remove("partId");
+        params.remove("sampleExpr");
         params.put("type", col.getType().toString());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -104,6 +109,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

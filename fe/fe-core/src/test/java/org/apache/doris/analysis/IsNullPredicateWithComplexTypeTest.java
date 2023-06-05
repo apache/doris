@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.Config;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class IsNullPredicateWithComplexTypeTest extends TestWithFeService {
@@ -53,8 +54,19 @@ public class IsNullPredicateWithComplexTypeTest extends TestWithFeService {
         String testStructIsNUll = "select * from test.complex where s is null";
         String testMapIsNUll = "select * from test.complex where m is null";
         String testArrayIsNUll = "select * from test.complex where a is null";
-        assertSQLPlanOrErrorMsgContains(testStructIsNUll, "");
-        assertSQLPlanOrErrorMsgContains(testMapIsNUll, "");
-        assertSQLPlanOrErrorMsgContains(testArrayIsNUll, "");
+        Assertions.assertNotNull(getSQLPlanner(testStructIsNUll));
+        Assertions.assertNotNull(getSQLPlanner(testMapIsNUll));
+        Assertions.assertNotNull(getSQLPlanner(testArrayIsNUll));
     }
+
+    @Test
+    public void testCount() throws Exception {
+        String testStructIsNUll = "select count(s) from test.complex";
+        String testMapIsNUll = "select count(m) from test.complex";
+        String testArrayIsNUll = "select count(a) from test.complex";
+        Assertions.assertNotNull(getSQLPlanner(testStructIsNUll));
+        Assertions.assertNotNull(getSQLPlanner(testMapIsNUll));
+        Assertions.assertNotNull(getSQLPlanner(testArrayIsNUll));
+    }
+
 }

@@ -15,14 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include "gen_cpp/PaloInternalService_types.h"
+#include <memory>
+#include <ostream>
+
+#include "common/config.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/buffer_control_block.h"
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/integral_types.h"
+#include "olap/olap_define.h"
 #include "runtime/cache/result_cache.h"
 #include "testutil/test_util.h"
-#include "util/cpu_info.h"
 
 namespace doris {
 

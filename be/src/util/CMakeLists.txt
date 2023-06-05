@@ -21,9 +21,10 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
+add_library(cityhash cityhash102/city.cc)
+
 set(UTIL_FILES
   arrow/row_batch.cpp
-  arrow/row_block.cpp
   arrow/utils.cpp
   arrow/block_convertor.cpp
   bfd_parser.cpp
@@ -48,11 +49,8 @@ set(UTIL_FILES
   path_builder.cpp
 # TODO: not supported on RHEL 5
   perf_counters.cpp
-  progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
-  # storage_backend_mgr.cpp
-  string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
   thrift_server.cpp
@@ -60,11 +58,8 @@ set(UTIL_FILES
   system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
-  file_utils.cpp
   mysql_row_buffer.cpp
   error_util.cc
-  filesystem_util.cc
-  broker_storage_backend.cpp
   time.cpp
   os_info.cpp
   os_util.cpp
@@ -83,7 +78,6 @@ set(UTIL_FILES
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
-  file_cache.cpp
   thread.cpp
   threadpool.cpp
   trace.cpp
@@ -95,21 +89,18 @@ set(UTIL_FILES
   zlib.cpp
   pprof_utils.cpp
   s3_uri.cpp
-  s3_storage_backend.cpp
   s3_util.cpp
-  hdfs_storage_backend.cpp
   hdfs_util.cpp
   time_lut.cpp
-  cityhash102/city.cc
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp
   telemetry/open_telemetry_scop_wrapper.hpp
   quantile_state.cpp
   jni-util.cpp
-  exception.cpp
   libjvm_loader.cpp
   jni_native_method.cpp
 )
+
 
 if (OS_MACOSX)
     list(REMOVE_ITEM UTIL_FILES perf_counters.cpp disk_info.cpp)
@@ -119,4 +110,6 @@ endif()
 add_library(Util STATIC
     ${UTIL_FILES}
 )
+target_link_libraries(Util cityhash)
 
+pch_reuse(Util)

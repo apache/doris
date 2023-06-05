@@ -37,7 +37,7 @@ This statement is used to specify the column information of the table
 grammar:
 
 ```sql
-SHOW FULL COLUMNS FROM tbl;
+SHOW [FULL] COLUMNS FROM tbl;
 ```
 
 ### Example

@@ -18,12 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -38,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -87,6 +91,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
      * This order of mvColumnItemList is meaningful.
      */
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
+    MVColumnItem whereClauseItem;
     private String baseIndexName;
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
@@ -136,6 +141,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return mvKeysType;
     }
 
+    public Column getWhereClauseItemExpr(OlapTable olapTable) throws DdlException {
+        if (whereClauseItem == null) {
+            return null;
+        }
+        return whereClauseItem.toMVColumn(olapTable);
+    }
+
+    public Expr getWhereClause() {
+        return selectStmt.getWhereClause();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -150,8 +166,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzeSelectClause(analyzer);
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
-            throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
-                    + selectStmt.getWhereClause().toSql());
+            if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
+                throw new AnalysisException(
+                        "The where clause contained aggregate column is not supported, expr:"
+                                + selectStmt.getWhereClause().toSql());
+            }
+            whereClauseItem = new MVColumnItem(selectStmt.getWhereClause());
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -188,6 +208,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
+            List<SlotRef> slots = new ArrayList<>();
+            selectListItemExpr.collect(SlotRef.class, slots);
+            if (!isReplay && slots.size() == 0) {
+                throw new AnalysisException(
+                        "The materialized view contain constant expr is disallowed, expr: "
+                                + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.haveFunction("curdate")) {
+                throw new AnalysisException(
+                        "The materialized view contain curdate is disallowed");
+            }
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -206,9 +238,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
                     }
                 }
-                // check duplicate column
-                List<SlotRef> slots = new ArrayList<>();
-                functionCallExpr.collect(SlotRef.class, slots);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -236,6 +265,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
         TableName tableName = tableRefList.get(0).getName();
+        if (tableName == null) {
+            throw new AnalysisException("table in from clause is invalid, please check if it's single table "
+                    + "and not sub-query");
+        }
         baseIndexName = tableName.getTbl();
         dbName = tableName.getDb();
     }
@@ -444,10 +477,28 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (mvAggregateType == null) {
             mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
         }
+
+        if (!isReplay && defineExpr.hasAggregateSlot()) {
+            SlotRef slot = null;
+            if (defineExpr instanceof SlotRef) {
+                slot = (SlotRef) defineExpr;
+            } else if (defineExpr instanceof CastExpr && defineExpr.getChild(0) instanceof SlotRef) {
+                slot = (SlotRef) defineExpr.getChild(0);
+            } else {
+                throw new AnalysisException("Aggregate function require single slot argument, invalid argument is: "
+                        + defineExpr.toSql());
+            }
+
+            AggregateType input = slot.getColumn().getAggregationType();
+            if (!input.equals(mvAggregateType)) {
+                throw new AnalysisException("Aggregate function require same with slot aggregate type, input: "
+                        + input.name() + ", required: " + mvAggregateType.name());
+            }
+        }
         return new MVColumnItem(type, mvAggregateType, defineExpr, mvColumnBuilder(defineExpr.toSql()));
     }
 
-    public Map<String, Expr> parseDefineExprWithoutAnalyze() throws AnalysisException {
+    public Map<String, Expr> parseDefineExpr(Analyzer analyzer) throws AnalysisException {
         Map<String, Expr> result = Maps.newHashMap();
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
@@ -463,7 +514,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     case FunctionSet.BITMAP_UNION:
                     case FunctionSet.HLL_UNION:
                     case FunctionSet.COUNT:
-                        MVColumnItem item = buildMVColumnItem(null, functionCallExpr);
+                        MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
                         expr = item.getDefineExpr();
                         name = item.getName();
                         break;
@@ -516,6 +567,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(String name) {
         return new StringBuilder().append(MATERIALIZED_VIEW_NAME_PREFIX).append(name).toString();
+    }
+
+    public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
+        return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
+                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {

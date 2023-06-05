@@ -17,24 +17,23 @@
 
 #include "olap/utils.h"
 
-#include <dirent.h>
-#include <errno.h>
-#include <lz4/lz4.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <time.h>
 #include <unistd.h>
+#include <zconf.h>
+#include <zlib.h>
 
-#include <cstdint>
+#include <cmath>
 #include <cstring>
-#include <filesystem>
+#include <memory>
 #include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
-#include "olap/file_helper.h"
-#include "util/file_utils.h"
+#include "util/sse_util.hpp"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -45,11 +44,11 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
-#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "util/errno.h"
 #include "util/string_parser.hpp"
 
 using std::string;
@@ -449,13 +448,7 @@ Status read_write_test_file(const string& test_file_path) {
             return Status::Error<IO_ERROR>();
         }
     }
-    Status res = Status::OK();
-    FileHandler file_handler;
-    if ((res = file_handler.open_with_mode(test_file_path.c_str(), O_RDWR | O_CREAT | O_SYNC,
-                                           S_IRUSR | S_IWUSR)) != Status::OK()) {
-        LOG(WARNING) << "fail to create test file. path=" << test_file_path;
-        return res;
-    }
+
     const size_t TEST_FILE_BUF_SIZE = 4096;
     const size_t DIRECT_IO_ALIGNMENT = 512;
     char* write_test_buff = nullptr;
@@ -476,45 +469,34 @@ Status read_write_test_file(const string& test_file_path) {
         int32_t tmp_value = rand_r(&rand_seed);
         write_test_buff[i] = static_cast<char>(tmp_value);
     }
-    if (!(res = file_handler.pwrite(write_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET))) {
-        LOG(WARNING) << "fail to write test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
-    if ((res = file_handler.pread(read_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != Status::OK()) {
-        LOG(WARNING) << "fail to read test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
+
+    // write file
+    io::FileWriterPtr file_writer;
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(test_file_path, &file_writer));
+    RETURN_IF_ERROR(file_writer->append({write_buff.get(), TEST_FILE_BUF_SIZE}));
+    RETURN_IF_ERROR(file_writer->close());
+    // read file
+    io::FileReaderSPtr file_reader;
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(test_file_path, &file_reader));
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
                      << test_file_path << "]";
         return Status::Error<TEST_FILE_ERROR>();
     }
-    if ((res = file_handler.close()) != Status::OK()) {
-        LOG(WARNING) << "fail to close test file. [file_name=" << test_file_path << "]";
-        return res;
-    }
-    if (remove(test_file_path.c_str()) != 0) {
-        char errmsg[64];
-        VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
-                    << "' path='" << test_file_path << "']";
-        return Status::Error<IO_ERROR>();
-    }
-    return res;
+    // delete file
+    return io::global_local_filesystem()->delete_file(test_file_path);
 }
 
-bool check_datapath_rw(const string& path) {
-    if (!FileUtils::check_exist(path)) return false;
-    string file_path = path + "/.read_write_test_file";
-    try {
-        Status res = read_write_test_file(file_path);
-        return res.ok();
-    } catch (...) {
-        // do nothing
+Status check_datapath_rw(const string& path) {
+    bool exists = true;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        return Status::IOError("path does not exist: {}", path);
     }
-    LOG(WARNING) << "error when try to read and write temp file under the data path and return "
-                    "false. [path="
-                 << path << "]";
-    return false;
+    string file_path = path + "/.read_write_test_file";
+    return read_write_test_file(file_path);
 }
 
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance

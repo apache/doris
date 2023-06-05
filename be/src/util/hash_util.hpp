@@ -20,25 +20,19 @@
 
 #pragma once
 
-#include <functional>
-
-#include "common/compiler_util.h"
-
-// For cross compiling with clang, we need to be able to generate an IR file with
-// no sse instructions.  Attempting to load a precompiled IR file that contains
-// unsupported instructions causes llvm to fail.  We need to use #defines to control
-// the code that is built and the runtime checks to control what code is run.
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#elif __aarch64__
-#include <sse2neon.h>
-#endif
+#include <gen_cpp/Types_types.h>
 #include <xxh3.h>
 #include <zlib.h>
 
-#include "gen_cpp/Types_types.h"
+#include <functional>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "gutil/hash/hash.h"      // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
+#include "util/sse_util.hpp"
 
 namespace doris {
 
@@ -336,6 +330,10 @@ public:
         seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wused-but-marked-unused"
+#endif
     // xxHash function for a byte array.  For convenience, a 64-bit seed is also
     // hashed into the result.  The mapping may change from time to time.
     static xxh_u64 xxHash64WithSeed(const char* s, size_t len, xxh_u64 seed) {
@@ -347,6 +345,9 @@ public:
         static const int INT_VALUE = 0;
         return XXH3_64bits_withSeed(reinterpret_cast<const char*>(&INT_VALUE), sizeof(int), seed);
     }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 };
 
 } // namespace doris

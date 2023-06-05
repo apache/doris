@@ -26,7 +26,7 @@ public class StatsDeriveResultTest {
     @Test
     public void testUpdateRowCountByLimit() {
         StatsDeriveResult stats = new StatsDeriveResult(100);
-        ColumnStatistic a = new ColumnStatistic(100, 10, 1, 5, 10,
+        ColumnStatistic a = new ColumnStatistic(100, 10,  10, 1, 5, 10,
                 1, 100, 0.5, null, null, false, null);
         Id id = new Id(1);
         stats.addColumnStats(id, a);
@@ -37,7 +37,7 @@ public class StatsDeriveResultTest {
         Assertions.assertEquals(0, resColStats.ndv);
         Assertions.assertEquals(1, resColStats.avgSizeByte);
         Assertions.assertEquals(0, resColStats.numNulls);
-        Assertions.assertEquals(0, resColStats.dataSize);
+        Assertions.assertEquals(1, resColStats.dataSize);
         Assertions.assertEquals(1, resColStats.minValue);
         Assertions.assertEquals(100, resColStats.maxValue);
         Assertions.assertEquals(0, resColStats.selectivity);

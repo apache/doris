@@ -68,7 +68,7 @@ public class SlotDescriptor {
     private boolean isAgg;
     private boolean isMultiRef;
     // If set to false, then such slots will be ignored during
-    // materialize them.Used to optmize to read less data and less memory usage
+    // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
@@ -81,7 +81,7 @@ public class SlotDescriptor {
         this.isMultiRef = false;
     }
 
-    SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
+    public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
         this.id = id;
         this.parent = parent;
         this.byteOffset = src.byteOffset;
@@ -343,7 +343,7 @@ public class SlotDescriptor {
                 .append("id=").append(id)
                 .append(", col=").append(column == null ? "null" : column.getName())
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
-                .append(", type=").append(type == null ? "null" : type.toString())
+                .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
                 .append("}")
                 .toString();

@@ -20,22 +20,30 @@
 
 #include "exec/data_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
+
 #include <map>
 #include <memory>
+#include <ostream>
 #include <string>
+#include <utility>
 
-#include "gen_cpp/PaloInternalService_types.h"
-#include "runtime/runtime_state.h"
+#include "common/config.h"
+#include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vjdbc_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
-#include "vec/sink/vmysql_table_sink.h"
+#include "vec/sink/vmysql_table_sink.h" // IWYU pragma: keep
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
 #include "vec/sink/vtablet_sink.h"
 
 namespace doris {
+class DescriptorTbl;
+class TExpr;
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
@@ -102,8 +110,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
-                                                     thrift_sink.memory_scratch_sink, pool);
+        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs);
         sink->reset(tmp_sink);
         break;
     }
@@ -112,8 +119,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -153,6 +160,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
+    }
+    case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
+        return Status::NotSupported("MULTI_CAST_DATA_STREAM_SINK only support in pipeline engine");
     }
 
     default: {
@@ -243,8 +253,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
-                                                     thrift_sink.memory_scratch_sink, pool);
+        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs);
         sink->reset(tmp_sink);
         break;
     }
@@ -253,8 +262,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.mysql_table_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
-        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
-                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
         sink->reset(vmysql_tbl_sink);
         break;
 #else
@@ -295,6 +304,14 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         RETURN_IF_ERROR(status);
         break;
     }
+    case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
+        DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
+        DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
+        auto multi_cast_data_streamer = std::make_shared<pipeline::MultiCastDataStreamer>(
+                row_desc, pool, thrift_sink.multi_cast_stream_sink.sinks.size());
+        sink->reset(new vectorized::MultiCastDataStreamSink(multi_cast_data_streamer));
+        break;
+    }
 
     default: {
         std::stringstream error_msg;
@@ -313,6 +330,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
+        RETURN_IF_ERROR((*sink)->prepare(state));
     }
 
     return Status::OK();

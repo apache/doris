@@ -17,22 +17,29 @@
 
 #pragma once
 
-#include <memory> // for unique_ptr
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/status.h"         // for Status
-#include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
-#include "olap/field.h"            // for Field
-#include "olap/inverted_index_parser.h"
+#include <algorithm>
+#include <memory> // for unique_ptr
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h" // for Status
+#include "olap/field.h"    // for Field
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "olap/tablet_schema.h"                  // for TabletColumn
-#include "util/bitmap.h"                         // for BitmapChange
-#include "util/slice.h"                          // for OwnedSlice
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "util/bitmap.h" // for BitmapChange
+#include "util/slice.h"  // for OwnedSlice
 
 namespace doris {
 
-class TypeInfo;
 class BlockCompressionCodec;
+class TabletColumn;
+class TabletIndex;
 
 namespace io {
 class FileWriter;
@@ -69,7 +76,6 @@ struct ColumnWriterOptions {
 };
 
 class BitmapIndexWriter;
-class InvertedIndexColumnWriter;
 class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalIndexWriter;
@@ -155,6 +161,7 @@ private:
 
 class FlushPageCallback {
 public:
+    virtual ~FlushPageCallback() = default;
     virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
 };
 

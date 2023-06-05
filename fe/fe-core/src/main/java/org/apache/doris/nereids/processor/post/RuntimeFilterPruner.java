@@ -200,7 +200,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             return true;
         }
         return buildColumnStat.selectivity < 1
-                || probeColumnStat.coverage(buildColumnStat) < 1
+                || probeColumnStat.notEnclosed(buildColumnStat)
                 || buildColumnStat.ndv < probeColumnStat.ndv * 0.95;
     }
 }

@@ -15,14 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_nullable.h>
-#include <vec/columns/columns_number.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_number.h>
-#include <vec/functions/function.h>
-#include <vec/functions/function_helpers.h>
-#include <vec/functions/simple_function_factory.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "runtime/thread_context.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -37,6 +62,7 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 3; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 2}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
@@ -63,15 +89,13 @@ public:
         auto nested_type = assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
         const std::string& condition =
                 block.get_by_position(arguments[1]).column->get_data_at(0).to_string();
-        if (!is_column_const(*block.get_by_position(arguments[2]).column)) {
-            return Status::RuntimeError(
-                    "execute failed or unsupported column, only support const column");
-        }
+
         const ColumnConst& rhs_value_column =
                 static_cast<const ColumnConst&>(*block.get_by_position(arguments[2]).column.get());
         ColumnPtr result_ptr;
-        RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
-                                 rhs_value_column, &result_ptr));
+        RETURN_IF_CATCH_EXCEPTION(
+                RETURN_IF_ERROR(_execute(*src_nested_column, nested_type, src_offsets, condition,
+                                         rhs_value_column, &result_ptr)));
         block.replace_by_position(result, std::move(result_ptr));
         return Status::OK();
     }
@@ -109,6 +133,7 @@ private:
         __builtin_unreachable();
     }
 
+    // need exception safety
     template <typename T, ApplyOp op>
     ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                               const ColumnConst& cmp) {
@@ -124,12 +149,10 @@ private:
                                           .get_raw_data()
                                           .data;
         }
-        for (size_t i = 0; i < src_column.size(); ++i) {
-            T lhs_val = *reinterpret_cast<const T*>(src_column_data_ptr);
-            if (apply<T, op>(lhs_val, rhs_val)) {
-                column_filter_data[i] = 1;
-            }
-            src_column_data_ptr += sizeof(T);
+        const T* src_column_data_t_ptr = reinterpret_cast<const T*>(src_column_data_ptr);
+        const size_t src_column_size = src_column.size();
+        for (size_t i = 0; i < src_column_size; ++i) {
+            column_filter_data[i] = apply<T, op>(src_column_data_t_ptr[i], rhs_val);
         }
         const IColumn::Filter& filter = column_filter_data;
         ColumnPtr filtered = src_column.filter(filter, src_column.size());
@@ -139,13 +162,16 @@ private:
         size_t out_pos = 0;
         for (size_t i = 0; i < src_offsets.size(); ++i) {
             for (; in_pos < src_offsets[i]; ++in_pos) {
-                if (filter[in_pos]) ++out_pos;
+                if (filter[in_pos]) {
+                    ++out_pos;
+                }
             }
             dst_offsets[i] = out_pos;
         }
         return ColumnArray::create(filtered, std::move(column_offsets));
     }
 
+// need exception safety
 #define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                     \
     do {                                                                           \
         WhichDataType which(remove_nullable(nested_type));                         \
@@ -188,6 +214,7 @@ private:
         }                                                                          \
     } while (0)
 
+    // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) {

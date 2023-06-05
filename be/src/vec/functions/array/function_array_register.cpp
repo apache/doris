@@ -22,6 +22,8 @@
 
 namespace doris::vectorized {
 
+void register_function_array_shuffle(SimpleFunctionFactory&);
+void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
 void register_function_array_index(SimpleFunctionFactory&);
 void register_function_array_size(SimpleFunctionFactory&);
@@ -29,6 +31,7 @@ void register_function_array_aggregation(SimpleFunctionFactory&);
 void register_function_array_distinct(SimpleFunctionFactory&);
 void register_function_array_remove(SimpleFunctionFactory&);
 void register_function_array_sort(SimpleFunctionFactory&);
+void register_function_array_sortby(SimpleFunctionFactory&);
 void register_function_arrays_overlap(SimpleFunctionFactory&);
 void register_function_array_union(SimpleFunctionFactory&);
 void register_function_array_except(SimpleFunctionFactory&);
@@ -45,9 +48,15 @@ void register_function_array_with_constant(SimpleFunctionFactory&);
 void register_function_array_constructor(SimpleFunctionFactory&);
 void register_function_array_apply(SimpleFunctionFactory&);
 void register_function_array_concat(SimpleFunctionFactory&);
+void register_function_array_zip(SimpleFunctionFactory&);
 void register_function_array_pushfront(SimpleFunctionFactory& factory);
+void register_function_array_first_or_last_index(SimpleFunctionFactory& factory);
+void register_function_array_cum_sum(SimpleFunctionFactory& factory);
+void register_function_array_count(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
+    register_function_array_shuffle(factory);
+    register_function_array_exists(factory);
     register_function_array_element(factory);
     register_function_array_index(factory);
     register_function_array_size(factory);
@@ -55,6 +64,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_distinct(factory);
     register_function_array_remove(factory);
     register_function_array_sort(factory);
+    register_function_array_sortby(factory);
     register_function_arrays_overlap(factory);
     register_function_array_union(factory);
     register_function_array_except(factory);
@@ -71,7 +81,11 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_constructor(factory);
     register_function_array_apply(factory);
     register_function_array_concat(factory);
+    register_function_array_zip(factory);
     register_function_array_pushfront(factory);
+    register_function_array_first_or_last_index(factory);
+    register_function_array_cum_sum(factory);
+    register_function_array_count(factory);
 }
 
 } // namespace doris::vectorized

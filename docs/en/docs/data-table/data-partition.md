@@ -36,9 +36,9 @@ In Doris, data is logically described in the form of table.
 
 A table contains rows and columns. 
 
-Row refers to a row of data about the user. Column is used to describe different fields in a row of data.
+Row refers to a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and metric columns, respectively. In the Aggregate Model, rows with the same values in Key columns will be aggregated into one row. The way how Value columns are aggregated is specified by the user when the table is built. For more information about the Aggregate Model, please see the [Data Model](./data-model.md).
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and metric columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column. In the Aggregate Model, rows with the same values in Key columns will be aggregated into one row. The way how Value columns are aggregated is specified by the user when the table is built. For more information about the Aggregate Model, please see the [Data Model](./data-model.md).
 
 ### Tablet & Partition
 
@@ -141,7 +141,7 @@ A few suggested rules for defining columns include:
 
 Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), which only supports hash partitioning.
 
-It is also possible to use one layer of data partitioning. In this case, it only supports data bucketing.
+It is also possible to use one layer of data partitioning, If you do not write the partition statement when creating the table, Doris will generate a default partition at this time, which is transparent to the user. In this case, it only supports data bucketing.
 
 1. Partition
 
@@ -294,7 +294,6 @@ Range partitioning also supports batch partitioning. For example, you can create
     ```
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
-    p_jp: ("Tokyo")
     p_uk: ("London")
     ```
 
@@ -337,6 +336,7 @@ Range partitioning also supports batch partitioning. For example, you can create
      1. If you choose to specify multiple bucketing columns, the data will be more evenly distributed. However, if the query condition does not include the equivalent conditions for all bucketing columns, the system will scan all buckets, largely increasing the query throughput and decreasing the latency of a single query. This method is suitable for high-throughput, low-concurrency query scenarios.
      2. If you choose to specify only one or a few bucketing columns, point queries might scan only one bucket. Thus, when multiple point queries are preformed concurrently, they might scan various buckets, with no interaction between the IO operations (especially when the buckets are stored on various disks). This approach is suitable for high-concurrency point query scenarios.
 
+   * AutoBucket: Calculates the number of partition buckets based on the amount of data. For partitioned tables, you can determine a bucket based on the amount of data, the number of machines, and the number of disks in the historical partition.
    * There is no theoretical limit on the number of buckets.
 
 3. Recommendations on the number and data volume for Partitions and Buckets.
@@ -403,7 +403,7 @@ In this example, the ENGINE is of OLAP type, which is the default ENGINE type. I
    1. In fe.log, find the `Failed to create partition` log of the corresponding time point. In that log, find a number pair that looks like `{10001-10010}` . The first number of the pair is the Backend ID and the second number is the Tablet ID. As for `{10001-10010}`, it means that on Backend ID 10001, the creation of Tablet ID 10010 failed.
    2. After finding the target Backend, go to the corresponding be.INFO log and find the log of the target tablet, and then check the error message.
    3. A few common tablet creation failures include but not limited to:
-      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/install-deploy/) about how to check the connectivity of FE and BE.
+      * The task is not received by BE. In this case, the tablet ID related information will be found in be.INFO, or the creation is successful in BE but it still reports a failure. To solve the above problems, see [Installation and Deployment](https://doris.apache.org/docs/dev/install/standard-deployment/) about how to check the connectivity of FE and BE.
       * Pre-allocated memory failure. It may be that the length of a row in the table exceeds 100KB.
       * `Too many open files`. The number of open file descriptors exceeds the Linux system limit. In this case, you need to change the open file descriptor limit of the Linux system.
 

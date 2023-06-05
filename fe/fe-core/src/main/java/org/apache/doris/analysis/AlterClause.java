@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
@@ -33,7 +33,7 @@ public abstract class AlterClause implements ParseNode {
     }
 
     public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+        throw new NotImplementedException("AlterClause.getProperties() is not implemented");
     }
 
     public AlterOpType getOpType() {

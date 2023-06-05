@@ -18,18 +18,28 @@
 #include "testutil/test_util.h"
 
 #ifndef __APPLE__
-#include <linux/limits.h>
 #else
 #include <mach-o/dyld.h>
 #endif
 
-#include <common/configbase.h>
+#include <common/config.h>
+#include <ctype.h>
+#include <glog/logging.h>
 #include <libgen.h>
+#include <limits.h>
+#include <stdio.h>
+#include <string.h>
 #include <strings.h>
-#include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <random>
+
+#include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
+#include "olap/olap_common.h"
 
 using strings::Substitute;
 
@@ -109,11 +119,11 @@ std::string rand_rng_string(size_t length) {
     return s;
 }
 std::string rand_rng_by_type(FieldType fieldType) {
-    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+    if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         return rand_rng_string(rand_rng_int(1, 8));
-    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         return rand_rng_string(rand_rng_int(1, 128));
-    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+    } else if (fieldType == FieldType::OLAP_FIELD_TYPE_STRING) {
         return rand_rng_string(rand_rng_int(1, 100000));
     } else {
         return std::to_string(rand_rng_int(1, 1000000));

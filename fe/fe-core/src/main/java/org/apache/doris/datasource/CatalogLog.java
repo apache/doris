@@ -59,6 +59,8 @@ public class CatalogLog implements Writable {
     @SerializedName(value = "resource")
     private String resource;
 
+    @SerializedName(value = "comment")
+    private String comment;
 
     @Override
     public void write(DataOutput out) throws IOException {

@@ -20,14 +20,30 @@
 
 #pragma once
 
-#include "gen_cpp/data.pb.h"
-#include "util/stack_util.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_map_serde.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 /** Map data type.
@@ -43,6 +59,10 @@ public:
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
+    PrimitiveType get_type_as_primitive_type() const override { return TYPE_MAP; }
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::MAP;
+    }
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
     }
@@ -50,14 +70,18 @@ public:
 
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
-    Field get_default() const override { return Map(); };
+    Field get_default() const override;
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for map";
+    }
+
     bool equals(const IDataType& rhs) const override;
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool is_comparable() const override {
         return key_type->is_comparable() && value_type->is_comparable();
     }
-    bool can_be_compared_with_collation() const override { return false; }
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
@@ -75,6 +99,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeMapSerDe>(key_type->get_serde(), value_type->get_serde());
+    };
 };
 
 } // namespace doris::vectorized

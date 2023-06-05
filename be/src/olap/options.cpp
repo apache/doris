@@ -17,18 +17,26 @@
 
 #include "olap/options.h"
 
+#include <ctype.h>
 #include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <stdlib.h>
 
 #include <algorithm>
+#include <memory>
+#include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
+#include "gutil/strings/strip.h"
+#include "io/fs/local_file_system.h"
+#include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -43,16 +51,15 @@ static std::string HDD_UC = "HDD";
 static std::string REMOTE_CACHE_UC = "REMOTE_CACHE";
 
 static std::string CACHE_PATH = "path";
-static std::string CACHE_NORMAL_SIZE = "normal";
-static std::string CACHE_PERSISTENT_SIZE = "persistent";
+static std::string CACHE_TOTAL_SIZE = "total_size";
 static std::string CACHE_QUERY_LIMIT_SIZE = "query_limit";
 
 // TODO: should be a general util method
-static std::string to_upper(const std::string& str) {
-    std::string out = str;
-    std::transform(out.begin(), out.end(), out.begin(), [](auto c) { return std::toupper(c); });
-    return out;
-}
+// static std::string to_upper(const std::string& str) {
+//     std::string out = str;
+//     std::transform(out.begin(), out.end(), out.begin(), [](auto c) { return std::toupper(c); });
+//     return out;
+// }
 
 // Currently, both of three following formats are supported(see be.conf), remote cache is the
 // local cache path for remote storage.
@@ -71,11 +78,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
     }
 
     string canonicalized_path;
-    Status status = Env::Default()->canonicalize(tmp_vec[0], &canonicalized_path);
-    if (!status.ok()) {
-        LOG(WARNING) << "path can not be canonicalized. may be not exist. path=" << tmp_vec[0];
-        return Status::Error<INVALID_ARGUMENT>();
-    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(tmp_vec[0], &canonicalized_path));
     path->path = tmp_vec[0];
 
     // parse root path capacity and storage medium
@@ -164,9 +167,9 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
 
 /** format:   
  *  [
- *    {"path": "storage1", "normal":53687091200,"persistent":21474836480,"query_limit": "10737418240"},
- *    {"path": "storage2", "normal":53687091200,"persistent":21474836480},
- *    {"path": "storage3", "normal":53687091200,"persistent":21474836480},
+ *    {"path": "storage1", "total_size":53687091200,"query_limit": "10737418240"},
+ *    {"path": "storage2", "total_size":53687091200},
+ *    {"path": "storage3", "total_size":53687091200},
  *  ]
  */
 Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& paths) {
@@ -178,45 +181,59 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         auto map = config.GetObject();
         DCHECK(map.HasMember(CACHE_PATH.c_str()));
         std::string path = map.FindMember(CACHE_PATH.c_str())->value.GetString();
-        int64_t normal_size = map.HasMember(CACHE_NORMAL_SIZE.c_str())
-                                      ? map.FindMember(CACHE_NORMAL_SIZE.c_str())->value.GetInt64()
-                                      : 0;
-        int64_t persistent_size =
-                map.HasMember(CACHE_PERSISTENT_SIZE.c_str())
-                        ? map.FindMember(CACHE_PERSISTENT_SIZE.c_str())->value.GetInt64()
-                        : 0;
-        int64_t query_limit_bytes = 0;
+        int64_t total_size = 0, query_limit_bytes = 0;
+        if (map.HasMember(CACHE_TOTAL_SIZE.c_str())) {
+            auto& value = map.FindMember(CACHE_TOTAL_SIZE.c_str())->value;
+            if (value.IsInt64()) {
+                total_size = value.GetInt64();
+            } else {
+                return Status::InvalidArgument("total_size should be int64");
+            }
+        }
         if (config::enable_file_cache_query_limit) {
-            query_limit_bytes =
-                    map.HasMember(CACHE_QUERY_LIMIT_SIZE.c_str())
-                            ? map.FindMember(CACHE_QUERY_LIMIT_SIZE.c_str())->value.GetInt64()
-                            : normal_size / 5;
+            if (map.HasMember(CACHE_QUERY_LIMIT_SIZE.c_str())) {
+                auto& value = map.FindMember(CACHE_QUERY_LIMIT_SIZE.c_str())->value;
+                if (value.IsInt64()) {
+                    query_limit_bytes = value.GetInt64();
+                } else {
+                    return Status::InvalidArgument("query_limit should be int64");
+                }
+            }
         }
-        if (normal_size <= 0 || persistent_size <= 0) {
-            LOG(WARNING) << "normal or persistent size should not less than or equal to zero";
-            return Status::InternalError("OLAP_ERR_INPUT_PARAMETER_ERROR");
+        if (total_size <= 0 || (config::enable_file_cache_query_limit && query_limit_bytes <= 0)) {
+            return Status::InvalidArgument(
+                    "total_size or query_limit should not less than or equal to zero");
         }
-        paths.emplace_back(std::move(path), normal_size, persistent_size, query_limit_bytes);
+        paths.emplace_back(std::move(path), total_size, query_limit_bytes);
     }
     if (paths.empty()) {
-        LOG(WARNING) << "fail to parse storage_root_path config. value=[" << config_path << "]";
-        return Status::InternalError("OLAP_ERR_INPUT_PARAMETER_ERROR");
+        return Status::InvalidArgument("fail to parse storage_root_path config. value={}",
+                                       config_path);
     }
     return Status::OK();
 }
 
 io::FileCacheSettings CachePath::init_settings() const {
     io::FileCacheSettings settings;
-    settings.max_size = normal_bytes;
-    settings.persistent_max_size = persistent_bytes;
+    settings.total_size = total_bytes;
     settings.max_file_segment_size = config::file_cache_max_file_segment_size;
-
-    settings.max_elements = std::max<size_t>(
-            normal_bytes / config::file_cache_max_file_segment_size, settings.max_elements);
-    settings.persistent_max_elements =
-            std::max<size_t>(persistent_bytes / config::file_cache_max_file_segment_size,
-                             settings.persistent_max_elements);
     settings.max_query_cache_size = query_limit_bytes;
+    size_t per_size = settings.total_size / io::percentage[3];
+    settings.disposable_queue_size = per_size * io::percentage[1];
+    settings.disposable_queue_elements =
+            std::max(settings.disposable_queue_size / settings.max_file_segment_size,
+                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+
+    settings.index_queue_size = per_size * io::percentage[2];
+    settings.index_queue_elements =
+            std::max(settings.index_queue_size / settings.max_file_segment_size,
+                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+
+    settings.query_queue_size =
+            settings.total_size - settings.disposable_queue_size - settings.index_queue_size;
+    settings.query_queue_elements =
+            std::max(settings.query_queue_size / settings.max_file_segment_size,
+                     io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
     return settings;
 }
 

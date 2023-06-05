@@ -17,7 +17,34 @@
 
 #include "vec/exprs/vbitmap_predicate.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <utility>
+#include <vector>
+
+#include "exprs/bitmapfilter_predicate.h"
+#include "gutil/integral_types.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

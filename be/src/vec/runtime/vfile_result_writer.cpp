@@ -17,36 +17,68 @@
 
 #include "vec/runtime/vfile_result_writer.h"
 
+#include <gen_cpp/Data_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "io/file_factory.h"
-#include "io/file_writer.h"
+#include "io/fs/broker_file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/hdfs_file_system.h"
+#include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_system.h"
+#include "io/hdfs_builder.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "service/backend_options.h"
-#include "util/file_utils.h"
+#include "util/metrics.h"
 #include "util/mysql_global.h"
 #include "util/mysql_row_buffer.h"
+#include "util/s3_uri.h"
+#include "util/s3_util.h"
+#include "util/types.h"
+#include "util/uid_util.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 #include "vec/runtime/vorc_writer.h"
+#include "vec/runtime/vparquet_writer.h"
+#include "vec/sink/vresult_sink.h"
 
 namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
-VFileResultWriter::VFileResultWriter(
-        const ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
-        const TUniqueId fragment_instance_id,
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile, BufferControlBlock* sinker, Block* output_block,
-        bool output_object_data, const RowDescriptor& output_row_descriptor)
+VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
+                                     const TStorageBackendType::type storage_type,
+                                     const TUniqueId fragment_instance_id,
+                                     const VExprContextSPtrs& output_vexpr_ctxs,
+                                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                     Block* output_block, bool output_object_data,
+                                     const RowDescriptor& output_row_descriptor)
         : _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
@@ -62,6 +94,10 @@ VFileResultWriter::VFileResultWriter(
 Status VFileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
+    // Delete existing files
+    if (_file_opts->delete_existing_files) {
+        RETURN_IF_ERROR(_delete_dir());
+    }
     return _create_next_file_writer();
 }
 
@@ -78,9 +114,13 @@ void VFileResultWriter::_init_profile() {
 Status VFileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    RETURN_IF_ERROR(_create_file_writer(file_name));
-    // set only close to true to avoid dead loop
-    return _close_file_writer(true, true);
+    RETURN_IF_ERROR(FileFactory::create_file_writer(
+            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
+            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
+            _file_writer_impl));
+    // must write somthing because s3 file writer can not writer empty file
+    RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
+    return _file_writer_impl->close();
 }
 
 Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -93,9 +133,10 @@ Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
+        if (exists) {
+            return Status::InternalError("File already exists: {}", *file_name);
         }
     }
 
@@ -113,7 +154,6 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
             _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
             _file_writer_impl));
-    RETURN_IF_ERROR(_file_writer_impl->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
@@ -152,9 +192,10 @@ Status VFileResultWriter::_get_next_file_name(std::string* file_name) {
         // Because the file path is currently arbitrarily specified by the user,
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
-        if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name +
-                                         ". Host: " + BackendOptions::get_localhost());
+        bool exists = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
+        if (exists) {
+            return Status::InternalError("File already exists: {}", *file_name);
         }
     }
 
@@ -199,14 +240,11 @@ Status VFileResultWriter::append_block(Block& block) {
     Status status = Status::OK();
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    auto output_block =
-            VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block, status);
-    auto num_rows = output_block.rows();
-    if (UNLIKELY(num_rows == 0)) {
-        return status;
-    }
+    Block output_block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs, block,
+                                                                       &output_block));
     if (_vfile_writer) {
-        _write_file(output_block);
+        RETURN_IF_ERROR(_write_file(output_block));
     } else {
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }
@@ -346,6 +384,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
+                case TYPE_STRUCT: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
                 default: {
                     // not supported type, like BITMAP, just export null
                     _plain_text_outstream << NULL_IN_CSV;
@@ -381,10 +423,7 @@ Status VFileResultWriter::write_csv_header() {
         if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             tmp_header += gen_types();
         }
-        size_t written_len = 0;
-        RETURN_IF_ERROR(
-                _file_writer_impl->write(reinterpret_cast<const uint8_t*>(tmp_header.c_str()),
-                                         tmp_header.size(), &written_len));
+        RETURN_IF_ERROR(_file_writer_impl->append(tmp_header));
         _header_sent = true;
     }
     return Status::OK();
@@ -398,9 +437,8 @@ Status VFileResultWriter::_flush_plain_text_outstream(bool eos) {
     }
 
     const std::string& buf = _plain_text_outstream.str();
-    size_t written_len = 0;
-    RETURN_IF_ERROR(_file_writer_impl->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
-                                             buf.size(), &written_len));
+    size_t written_len = buf.size();
+    RETURN_IF_ERROR(_file_writer_impl->append(buf));
     COUNTER_UPDATE(_written_data_bytes, written_len);
     _current_written_bytes += written_len;
 
@@ -426,17 +464,13 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
     return Status::OK();
 }
 
-Status VFileResultWriter::_close_file_writer(bool done, bool only_close) {
+Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vfile_writer) {
         _vfile_writer->close();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         _file_writer_impl->close();
-    }
-
-    if (only_close) {
-        return Status::OK();
     }
 
     if (!done) {
@@ -478,6 +512,15 @@ Status VFileResultWriter::_send_result() {
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
+
+    std::map<std::string, string> attach_infos;
+    attach_infos.insert(std::make_pair("FileNumber", std::to_string(_file_idx)));
+    attach_infos.insert(
+            std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
+    attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
+    attach_infos.insert(std::make_pair("URL", file_url));
+
+    result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
     return Status::OK();
 }
@@ -531,6 +574,46 @@ Status VFileResultWriter::_fill_result_block() {
                     _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type);
         }
     }
+    return Status::OK();
+}
+
+Status VFileResultWriter::_delete_dir() {
+    // get dir of file_path
+    std::string dir = _file_opts->file_path.substr(0, _file_opts->file_path.find_last_of('/') + 1);
+    std::shared_ptr<io::FileSystem> file_system = nullptr;
+    switch (_storage_type) {
+    case TStorageBackendType::LOCAL:
+        file_system = io::LocalFileSystem::create(dir, "");
+        break;
+    case TStorageBackendType::BROKER: {
+        std::shared_ptr<io::BrokerFileSystem> broker_fs = nullptr;
+        RETURN_IF_ERROR(io::BrokerFileSystem::create(_file_opts->broker_addresses[0],
+                                                     _file_opts->broker_properties, &broker_fs));
+        file_system = broker_fs;
+        break;
+    }
+    case TStorageBackendType::HDFS: {
+        THdfsParams hdfs_params = parse_properties(_file_opts->broker_properties);
+        std::shared_ptr<io::HdfsFileSystem> hdfs_fs = nullptr;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &hdfs_fs));
+        file_system = hdfs_fs;
+        break;
+    }
+    case TStorageBackendType::S3: {
+        S3URI s3_uri(dir);
+        RETURN_IF_ERROR(s3_uri.parse());
+        S3Conf s3_conf;
+        std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
+        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
+                _file_opts->broker_properties, s3_uri, &s3_conf));
+        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
+        file_system = s3_fs;
+        break;
+    }
+    default:
+        return Status::NotSupported("Unsupported storage type: {}", std::to_string(_storage_type));
+    }
+    RETURN_IF_ERROR(file_system->delete_directory(dir));
     return Status::OK();
 }
 

@@ -20,38 +20,38 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.NotImplementedException;
 
 public class HMSAnalysisTask extends BaseAnalysisTask {
 
     protected HMSExternalTable table;
 
-    public HMSAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HMSAnalysisTask(AnalysisInfo info) {
+        super(info);
         table = (HMSExternalTable) tbl;
     }
 
     /**
      * Collect the column level stats for external table through metadata.
      */
-    protected void getColumnStatsByMeta() throws Exception {
-        throw new NotImplementedException();
+    protected void getStatsByMeta() throws Exception {
+        throw new NotImplementedException("Code is not implemented");
     }
 
     /**
      * Collect the stats for external table through sql.
      * @return ColumnStatistics
      */
-    protected void getColumnStatsBySql() {
-        throw new NotImplementedException();
+    protected void getStatsBySql() throws Exception {
+        throw new NotImplementedException("getColumnStatsBySql is not implemented");
     }
 
     @Override
     public void execute() throws Exception {
         if (Config.collect_external_table_stats_by_sql) {
-            getColumnStatsBySql();
+            getStatsBySql();
         } else {
-            getColumnStatsByMeta();
+            getStatsByMeta();
         }
     }
 }

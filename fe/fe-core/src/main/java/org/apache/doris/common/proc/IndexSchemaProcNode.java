@@ -24,7 +24,7 @@ import org.apache.doris.common.FeConstants;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -59,7 +59,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             // Extra string (aggregation and bloom filter)
             List<String> extras = Lists.newArrayList();
             if (column.getAggregationType() != null) {
-                extras.add(column.getAggregationType().name());
+                extras.add(column.getAggregationString());
             }
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 extras.add("BLOOM_FILTER");
@@ -73,6 +73,13 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
+
+            if (column.getOriginType().isDateV2()) {
+                rowList.set(1, "DATE");
+            }
+            if (column.getOriginType().isDatetimeV2()) {
+                rowList.set(1, "DATETIME");
+            }
             result.addRow(rowList);
         }
         return result;

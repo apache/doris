@@ -17,11 +17,21 @@
 
 #include "exec/schema_scanner/schema_views_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+
+#include <string>
+
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaViewsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -122,6 +132,9 @@ Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
 Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto tables_num = _table_result.tables.size();
+    if (tables_num == 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(tables_num, nullptr);
     std::vector<void*> datas(tables_num);
 

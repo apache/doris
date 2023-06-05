@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -40,7 +42,9 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Base class for all functions.
@@ -119,19 +123,24 @@ public class Function implements Writable {
     private URI location;
     private TFunctionBinaryType binaryType;
 
+    private Function nestedFunction = null;
+
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
-    protected boolean vectorized = false;
+    protected boolean vectorized = true;
 
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
+
+    // If true, this function is global function
+    protected boolean isGlobal = false;
 
     // Only used for serialization
     protected Function() {
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(0, name, args, retType, varArgs, false, NullableMode.DEPEND_ON_ARGUMENT);
+        this(0, name, args, retType, varArgs, true, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized) {
@@ -144,7 +153,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
@@ -161,7 +170,7 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
-                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+            boolean hasVarArgs, boolean vectorized, NullableMode mode) {
         this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
@@ -183,6 +192,18 @@ public class Function implements Writable {
             System.arraycopy(other.argTypes, 0, this.argTypes, 0, other.argTypes.length);
         }
         this.checksum = other.checksum;
+    }
+
+    public void setNestedFunction(Function nestedFunction) {
+        this.nestedFunction = nestedFunction;
+    }
+
+    public Function getNestedFunction() {
+        return nestedFunction;
+    }
+
+    public Function clone() {
+        return new Function(this);
     }
 
     public FunctionName getFunctionName() {
@@ -207,6 +228,10 @@ public class Function implements Writable {
 
     public Type[] getArgs() {
         return argTypes;
+    }
+
+    public void setArgs(List<Type> argTypes) {
+        this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
     }
 
     // Returns the number of arguments to this function.
@@ -272,6 +297,14 @@ public class Function implements Writable {
 
     public String getChecksum() {
         return checksum;
+    }
+
+    public boolean isGlobal() {
+        return isGlobal;
+    }
+
+    public void setGlobal(boolean global) {
+        isGlobal = global;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
@@ -481,7 +514,16 @@ public class Function implements Writable {
         }
     }
 
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
+    public boolean isInferenceFunction() {
+        for (Type arg : argTypes) {
+            if (arg instanceof AnyType) {
+                return true;
+            }
+        }
+        return retType instanceof AnyType;
+    }
+
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
         TFunction fn = new TFunction();
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
@@ -489,16 +531,25 @@ public class Function implements Writable {
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
-        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation function.
-        // For aggregation functions, `argTypes` here is already its real type with true precision and scale.
+        // `realArgTypes.length != argTypes.length` is true iff this is an aggregation
+        // function.
+        // For aggregation functions, `argTypes` here is already its real type with true
+        // precision and scale.
         if (realArgTypes.length != argTypes.length) {
             fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes)));
         } else {
             fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
         }
-        // For types with different precisions and scales, return type only indicates a type with default
+
+        if (realReturnType.isAggStateType()) {
+            realReturnType = Expr.createAggStateType(((AggStateType) realReturnType), Arrays.asList(realArgTypes),
+                    Arrays.asList(realArgTypeNullables));
+        }
+
+        // For types with different precisions and scales, return type only indicates a
+        // type with default
         // precision and scale so we need to transform it to the correct type.
-        if (PrimitiveType.typeWithPrecision.contains(realReturnType.getPrimitiveType())) {
+        if (realReturnType.typeContainsPrecision() || realReturnType.isAggStateType()) {
             fn.setRetType(realReturnType.toThrift());
         } else {
             fn.setRetType(getReturnType().toThrift());
@@ -517,108 +568,6 @@ public class Function implements Writable {
     // Child classes must override this function.
     public String toSql(boolean ifNotExists) {
         return "";
-    }
-
-    public static String getUdfTypeName(PrimitiveType t) {
-        switch (t) {
-            case BOOLEAN:
-                return "boolean_val";
-            case TINYINT:
-                return "tiny_int_val";
-            case SMALLINT:
-                return "small_int_val";
-            case INT:
-                return "int_val";
-            case BIGINT:
-                return "big_int_val";
-            case LARGEINT:
-                return "large_int_val";
-            case FLOAT:
-                return "float_val";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "double_val";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "string_val";
-            case JSONB:
-                return "jsonb_val";
-            case DATE:
-            case DATETIME:
-                return "datetime_val";
-            case DATEV2:
-                return "datev2_val";
-            case DATETIMEV2:
-                return "datetimev2_val";
-            case DECIMALV2:
-                return "decimalv2_val";
-            case DECIMAL32:
-                return "decimal32_val";
-            case DECIMAL64:
-                return "decimal64_val";
-            case DECIMAL128:
-                return "decimal128_val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
-    }
-
-    public static String getUdfType(PrimitiveType t) {
-        switch (t) {
-            case NULL_TYPE:
-                return "AnyVal";
-            case BOOLEAN:
-                return "BooleanVal";
-            case TINYINT:
-                return "TinyIntVal";
-            case SMALLINT:
-                return "SmallIntVal";
-            case INT:
-                return "IntVal";
-            case BIGINT:
-                return "BigIntVal";
-            case LARGEINT:
-                return "LargeIntVal";
-            case FLOAT:
-                return "FloatVal";
-            case DOUBLE:
-            case TIME:
-            case TIMEV2:
-                return "DoubleVal";
-            case VARCHAR:
-            case CHAR:
-            case HLL:
-            case BITMAP:
-            case QUANTILE_STATE:
-            case STRING:
-                return "StringVal";
-            case JSONB:
-                return "JsonbVal";
-            case DATE:
-            case DATETIME:
-                return "DateTimeVal";
-            case DATEV2:
-                return "DateV2Val";
-            case DATETIMEV2:
-                return "DateTimeV2Val";
-            case DECIMALV2:
-                return "DecimalV2Val";
-            case DECIMAL32:
-                return "Decimal32Val";
-            case DECIMAL64:
-                return "Decimal64Val";
-            case DECIMAL128:
-                return "Decimal128Val";
-            default:
-                Preconditions.checkState(false, t.toString());
-                return "";
-        }
     }
 
     public static Function getFunction(List<Function> fns, Function desc, CompareMode mode) {
@@ -847,6 +796,28 @@ public class Function implements Writable {
         return false;
     }
 
+    public boolean hasVariadicTemplateArg() {
+        for (Type t : getArgs()) {
+            if (t.needExpandTemplateType()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // collect expand size of variadic template
+    public void collectTemplateExpandSize(Type[] args, Map<String, Integer> expandSizeMap) throws TypeException {
+        for (int i = argTypes.length - 1; i >= 0; i--) {
+            if (argTypes[i].hasTemplateType()) {
+                if (argTypes[i].needExpandTemplateType()) {
+                    argTypes[i].collectTemplateExpandSize(
+                            Arrays.copyOfRange(args, i, args.length), expandSizeMap);
+                }
+            }
+        }
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -870,5 +841,35 @@ public class Function implements Writable {
                 vectorized, checksum);
         result = 31 * result + Arrays.hashCode(argTypes);
         return result;
+    }
+
+    public static FunctionCallExpr convertToStateCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        List<Type> arguments = Arrays.asList(aggFunction.getArgs());
+        ScalarFunction fn = new ScalarFunction(
+                new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_STATE_SUFFIX), arguments,
+                Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                        fnCall.getChildren().stream().map(expr -> {
+                            return expr.getType();
+                        }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
+                            return expr.isNullable();
+                        }).collect(Collectors.toList())),
+                aggFunction.hasVarArgs(), aggFunction.isUserVisible());
+        fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return new FunctionCallExpr(fn, fnCall.getParams());
+    }
+
+    public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_MERGE_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
+                fnCall.getChildren().stream().map(expr -> {
+                    return expr.getType();
+                }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
+                    return expr.isNullable();
+                }).collect(Collectors.toList()))));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
     }
 }

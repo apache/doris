@@ -15,10 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/udf.h"
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
+#include "util/bitmap_value.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 class FunctionCoalesce : public IFunction {
@@ -30,8 +61,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
@@ -68,9 +97,10 @@ public:
             const auto& arg_type = block.get_by_position(arguments[i]).type;
             filtered_args.push_back(arguments[i]);
             if (!arg_type->is_nullable()) {
-                if (i == 0) { //if the first column not null, return it's directly
+                if (i == 0) {
                     block.get_by_position(result).column =
-                            block.get_by_position(arguments[0]).column;
+                            block.get_by_position(arguments[0])
+                                    .column->clone_resized(input_rows_count);
                     return Status::OK();
                 } else {
                     break;

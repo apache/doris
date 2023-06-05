@@ -20,7 +20,9 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -30,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.BufferedInputStream;
@@ -106,12 +109,24 @@ public class RestBaseController extends BaseController {
         return redirectView;
     }
 
-    public RedirectView redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+    public RedirectView redirectToMasterOrException(HttpServletRequest request, HttpServletResponse response)
+                    throws Exception {
         Env env = Env.getCurrentEnv();
         if (env.isMaster()) {
             return null;
         }
-        return redirectTo(request, new TNetworkAddress(env.getMasterIp(), env.getMasterHttpPort()));
+        if (!env.isReady()) {
+            throw new Exception("Node catalog is not ready, please wait for a while.");
+        }
+        return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+    }
+
+    public Object redirectToMaster(HttpServletRequest request, HttpServletResponse response) {
+        try {
+            return redirectToMasterOrException(request, response);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)
@@ -171,5 +186,21 @@ public class RestBaseController extends BaseController {
             fullDbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
         }
         return fullDbName;
+    }
+
+    public boolean needRedirect(String scheme) {
+        return Config.enable_https && "http".equalsIgnoreCase(scheme);
+    }
+
+    public Object redirectToHttps(HttpServletRequest request) {
+        String serverName = request.getServerName();
+        String uri = request.getRequestURI();
+        String query = request.getQueryString();
+        query = query == null ? "" : query;
+        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        LOG.info("redirect to new url: {}", newUrl);
+        RedirectView redirectView = new RedirectView(newUrl);
+        redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
     }
 }

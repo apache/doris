@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表。
+推荐使用 [JDBC Catalog](../multi-catalog/jdbc.md) 访问 JDBC 外表，1.2.2版本后将不再维护该功能。
 
 </version>
 
@@ -169,13 +169,14 @@ PROPERTIES (
 目前只测试了这一个版本其他版本测试后补充
 
 #### 5.ClickHouse测试
-| ClickHouse版本 | ClickHouse JDBC驱动版本 |
-|----------| ------------------- |
-| 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| ClickHouse版本 | ClickHouse JDBC驱动版本                   |
+|--------------|---------------------------------------|
+| 22           | clickhouse-jdbc-0.3.2-patch11-all.jar |
+| 22           | clickhouse-jdbc-0.4.1-all.jar         |
 
-#### 6.Sap_Hana测试
+#### 6.Sap Hana测试
 
-| Sap_Hana版本 | Sap_Hana JDBC驱动版本 |
+| Sap Hana版本 | Sap Hana JDBC驱动版本 |
 |------------|-------------------|
 | 2.0        | ngdbc.jar         |
 
@@ -199,6 +200,168 @@ PROPERTIES (
     "table_type"="sap_hana"
 );
 ```
+
+#### 7.Trino测试
+
+| Trino版本 | Trino JDBC驱动版本     |
+|----------|--------------------|
+| 389      | trino-jdbc-389.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_trino
+properties (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:8080/hive",
+    "driver_url" = "file:///path/to/trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+
+CREATE EXTERNAL TABLE `ext_trino` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_trino",
+    "table" = "hive.test",
+    "table_type"="trino"
+);
+```
+
+**注意：**
+<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
+
+#### 8.OceanBase测试
+
+| OceanBase 版本 | OceanBase JDBC驱动版本 |
+|--------------|--------------------|
+| 3.2.3        | oceanbase-client-2.4.2.jar |
+
+```sql
+CREATE EXTERNAL RESOURCE jdbc_oceanbase
+properties (
+    "type"="jdbc",
+    "user"="root",
+    "password"="",
+    "jdbc_url" = "jdbc:oceanbase://localhost:2881/test",
+    "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driver"
+);
+
+mysql模式
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase"
+);
+
+oracle模式
+CREATE EXTERNAL TABLE `ext_oceanbase` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+    "resource" = "jdbc_oceanbase",
+    "table" = "test.test",
+    "table_type"="oceanbase_oracle"
+);
+```
+
+### 9.Nebula-graph测试 （仅支持查询）
+| nebula版本 | JDBC驱动版本 |
+|------------|-------------------|
+| 3.0.0       | nebula-jdbc-3.0.0-jar-with-dependencies.jar         |
+```
+#step1.在nebula创建测试数据
+#1.1 创建结点
+(root@nebula) [basketballplayer]> CREATE TAG test(t_str string, 
+    t_int int, 
+    t_date date,
+    t_datetime datetime,
+    t_bool bool,
+    t_timestamp timestamp,
+    t_float float,
+    t_double double
+);
+#1.2 插入数据
+(root@nebula) [basketballplayer]> INSERT VERTEX test_type(t_str,t_int,t_date,t_datetime,t_bool,t_timestamp,t_float,t_double) values "zhangshan":("zhangshan",1000,date("2023-01-01"),datetime("2023-01-23 15:23:32"),true,1234242423,1.2,1.35);
+#1.3 查询数据
+(root@nebula) [basketballplayer]> match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str,v.test_type.t_int,v.test_type.t_date,v.test_type.t_datetime,v.test_type.t_bool,v.test_type.t_timestamp,v.test_type.t_float,v.test_type.t_double,v limit 30;
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| v.test_type.t_str | v.test_type.t_int | v.test_type.t_date | v.test_type.t_datetime     | v.test_type.t_bool | v.test_type.t_timestamp | v.test_type.t_float | v.test_type.t_double | v                                                                                                                                                                                                         |
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| "zhangshan"       | 1000              | 2023-01-01         | 2023-01-23T15:23:32.000000 | true               | 1234242423              | 1.2000000476837158  | 1.35                 | ("zhangshan" :test_type{t_bool: true, t_date: 2023-01-01, t_datetime: 2023-01-23T15:23:32.000000, t_double: 1.35, t_float: 1.2000000476837158, t_int: 1000, t_str: "zhangshan", t_timestamp: 1234242423}) |
++-------------------+-------------------+--------------------+----------------------------+--------------------+-------------------------+---------------------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+Got 1 rows (time spent 1616/2048 us)
+Mon, 17 Apr 2023 17:23:14 CST
+#step2.在doris中创建外表
+#2.1 创建一个resource
+MySQL [test_db]> CREATE EXTERNAL RESOURCE gg_jdbc_resource 
+properties (
+   "type"="jdbc",
+   "user"="root",
+   "password"="123",
+   "jdbc_url"="jdbc:nebula://127.0.0.1:9669/basketballplayer",
+   "driver_url"="file:///home/clz/baidu/bdg/doris/be/lib/nebula-jdbc-3.0.0-jar-with-dependencies.jar",  --仅支持本地路径，需放到be/lib目录下--
+   "driver_class"="com.vesoft.nebula.jdbc.NebulaDriver"
+);
+#2.2 创建一个外表，这个主要是告诉doris如何解析nebulagraph返回的数据
+MySQL [test_db]> CREATE TABLE `test_type` ( 
+ `t_str` varchar(64),
+ `t_int` bigint,
+ `t_date` date,
+ `t_datetime` datetime,
+ `t_bool` boolean,
+ `t_timestamp` bigint,
+ `t_float` double,
+ `t_double` double,
+ `t_vertx`  varchar(128) --vertex对应doris类型是varchar---
+) ENGINE=JDBC
+PROPERTIES (
+"resource" = "gg_jdbc_resource",
+"table" = "xx",  --因为graph没有表的概念，这里随便填一个值--
+"table_type"="nebula"
+);
+#2.3 查询graph外表,用g()函数把图的nGQL透传给nebula
+MySQL [test_db]> select * from test_type where g('match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str,v.test_type.t_int,v.test_type.t_date,v.test_type.t_datetime,v.test_type.t_bool,v.test_type.t_timestamp,v.test_type.t_float,v.test_type.t_double,v')\G;
+*************************** 1. row ***************************
+      t_str: zhangshan
+      t_int: 1000
+     t_date: 2023-01-01
+ t_datetime: 2023-01-23 15:23:32
+     t_bool: 1
+t_timestamp: 1234242423
+    t_float: 1.2000000476837158
+   t_double: 1.35
+    t_vertx: ("zhangshan" :test_type {t_datetime: utc datetime: 2023-01-23T15:23:32.000000, timezoneOffset: 0, t_timestamp: 1234242423, t_date: 2023-01-01, t_double: 1.35, t_str: "zhangshan", t_int: 1000, t_bool: true, t_float: 1.2000000476837158})
+1 row in set (0.024 sec)
+#2.3 与doris的其他表进行关联查询
+#假设有张用户表
+MySQL [test_db]> select * from t_user;
++-----------+------+---------------------------------+
+| username  | age  | addr                            |
++-----------+------+---------------------------------+
+| zhangshan |   26 | 北京市西二旗街道1008号          |
++-----------+------+---------------------------------+
+| lisi |   29 | 北京市西二旗街道1007号          |
++-----------+------+---------------------------------+
+1 row in set (0.013 sec)
+#与这张用表关联查询用户相关的信息
+MySQL [test_db]> select u.* from (select t_str username  from test_type where g('match (v:test_type) where id(v)=="zhangshan" return v.test_type.t_str limit 1')) g left join t_user u on g.username=u.username;
++-----------+------+---------------------------------+
+| username  | age  | addr                            |
++-----------+------+---------------------------------+
+| zhangshan |   26 | 北京市西二旗街道1008号          |
++-----------+------+---------------------------------+
+1 row in set (0.029 sec)
+```
+
+
+> **注意：**
+>
+> 在创建OceanBase外表时，只需在创建Resource时指定`oceanbase_mode`参数，创建外表的table_type为oceanbase。
 
 ## 类型匹配
 
@@ -269,28 +432,31 @@ PROPERTIES (
 
 ### ClickHouse
 
-| ClickHouse |  Doris   |
-|:----------:|:--------:|
-|  BOOLEAN   | BOOLEAN  |
-|    CHAR    |   CHAR   |
-|  VARCHAR   | VARCHAR  |
-|   STRING   |  STRING  |
-|    DATE    |   DATE   |
-|  Float32   |  FLOAT   |
-|  Float64   |  DOUBLE  |
-|    Int8    | TINYINT  |
-|   Int16    | SMALLINT |
-|   Int32    |   INT    |
-|   Int64    |  BIGINT  |
-|   Int128   | LARGEINT |
-|  DATETIME  | DATETIME |
-|  DECIMAL   | DECIMAL  |
+|                        ClickHouse                        |          Doris           |
+|:--------------------------------------------------------:|:------------------------:|
+|                         Boolean                          |         BOOLEAN          |
+|                          String                          |          STRING          |
+|                       Date/Date32                        |       DATE/DATEV2        |
+|                   DateTime/DateTime64                    |   DATETIME/DATETIMEV2    |
+|                         Float32                          |          FLOAT           |
+|                         Float64                          |          DOUBLE          |
+|                           Int8                           |         TINYINT          |
+|                       Int16/UInt8                        |         SMALLINT         |
+|                       Int32/UInt16                       |           INT            |
+|                       Int64/Uint32                       |          BIGINT          |
+|                      Int128/UInt64                       |         LARGEINT         |
+|                  Int256/UInt128/UInt256                  |          STRING          |
+|                         Decimal                          | DECIMAL/DECIMALV3/STRING |
+|                   Enum/IPv4/IPv6/UUID                    |          STRING          |
+| <version since="dev" type="inline"> Array(T)  </version> |        ARRAY\<T\>        |
 
 **注意：**
+
+- <version since="dev" type="inline"> 对于ClickHouse里的Array类型,可用Doris的Array类型来匹配，Array内的基础类型匹配参考基础类型匹配规则即可，不支持嵌套Array </version>
 - 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
 
-### SAP_HANA
+### SAP HANA
 
 |   SAP_HANA   |        Doris        |
 |:------------:|:-------------------:|
@@ -313,6 +479,41 @@ PROPERTIES (
 |  SHORTTEXT   |        TEXT         |
 |     CHAR     |        CHAR         |
 |    NCHAR     |        CHAR         |
+
+### Trino
+
+|   Trino   |        Doris        |
+|:---------:|:-------------------:|
+|  boolean  |       BOOLEAN       |
+|  tinyint  |       TINYINT       |
+| smallint  |      SMALLINT       |
+|  integer  |         INT         |
+|  bigint   |       BIGINT        |
+|  decimal  |  DECIMAL/DECIMALV3  |
+|   real    |        FLOAT        |
+|  double   |       DOUBLE        |
+|   date    |     DATE/DATEV2     |
+| timestamp | DATETIME/DATETIMEV2 |
+|  varchar  |        TEXT         |
+|   char    |        CHAR         |
+|   array   |        ARRAY        |
+|  others   |     UNSUPPORTED     |
+
+### OceanBase
+
+MySQL 模式请参考 [MySQL类型映射](#MySQL)
+Oracle 模式请参考 [Oracle类型映射](#Oracle)
+
+### Nebula-graph
+|   nebula   |        Doris        |
+|:------------:|:-------------------:|
+|   tinyint/samllint/int/int64    |       bigint       |
+|   double/float    |       double       |
+|   date   |      date       |
+|   timestamp   |         bigint         |
+|    datetime    |       datetime        |
+| bool |  boolean  |
+|   vertex/edge/path/list/set/time等    |  varchar  |
 
 ## Q&A
 

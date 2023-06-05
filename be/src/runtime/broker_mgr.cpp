@@ -17,16 +17,26 @@
 
 #include "runtime/broker_mgr.h"
 
+#include <gen_cpp/PaloBrokerService_types.h>
+#include <gen_cpp/TPaloBrokerService.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <thrift/Thrift.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <sstream>
+#include <vector>
 
 #include "common/config.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
+#include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/thrift_util.h"
+#include "util/hash_util.hpp"
+#include "util/metrics.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -85,7 +95,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Create broker client failed. broker=" << addr
-                             << ", status=" << status;
+                             << ", status=" << status << ", reason=" << e.what();
                 return;
             }
             client->ping(response, request);

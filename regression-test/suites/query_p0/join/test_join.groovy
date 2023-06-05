@@ -1106,7 +1106,10 @@ suite("test_join", "query,p0") {
     qt_join_on_predicate6"""select count(a.k1) from baseall a join test b on a.k1 < 10 and a.k1 = b.k1"""
     qt_join_on_predicate7"""SELECT t2.k1,t2.k2,t3.k1,t3.k2 FROM baseall t2 LEFT JOIN test t3 ON t2.k2=t3.k2 WHERE t2.k1 = 4 OR (t2.k1 > 4 AND t3.k1 IS NULL) order by 1, 2, 3, 4"""
 
-
+    test {
+        sql "select a.k1 from baseall a join test b on b.k2 in (select 49) and a.k1 = b.k1 order by k1;"
+        exception "Not support OnClause contain Subquery"
+    }
 
     // <=> test cases
     qt_join41"""select 1 <=> 2, 1 <=> 1, "a"= \"a\""""
@@ -1238,8 +1241,6 @@ suite("test_join", "query,p0") {
     qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
-    sql"""create database if not exists test_issue_6171"""
-    sql"""use test_issue_6171"""
     List table_list = ["T_DORIS_A", "T_DORIS_B", "T_DORIS_C", "T_DORIS_D", "T_DORIS_E"]
     List column_list = [",APPLY_CRCL bigint(19)",
                    ",FACTOR_FIN_VALUE decimal(19,2),PRJT_ID bigint(19)",
@@ -1253,10 +1254,25 @@ suite("test_join", "query,p0") {
                 DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
                 PROPERTIES("replication_num"="1");"""
     }
-    def ret = sql"""desc SELECT B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
+    def ret = sql"""desc SELECT /*+SET_VAR(enable_nereids_planner=false) */ B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
             LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())
     assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
-    sql"""drop database test_issue_6171"""
+
+    sql "drop table if exists `t0`"
+    sql "drop table if exists `t1`"
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t0(c0 BOOLEAN NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 8 PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    CREATE TABLE IF NOT EXISTS t1(c0 DATETIME NOT NULL) DISTRIBUTED BY HASH (c0) BUCKETS 9 PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-02-15'), (DATE '1970-11-05'), (DATE '1970-07-10');"""
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-04-04');"""
+    sql """INSERT INTO t1 (c0) VALUES (DATE '1970-09-06');"""
+    sql """INSERT INTO t0 (c0) VALUES (true);"""
+    sql """INSERT INTO t0 (c0) VALUES (false);"""
+    qt_test """SELECT t1.c0 FROM  t1 RIGHT JOIN t0 ON true WHERE  (abs(1)=0) GROUP BY  t1.c0;"""
 }

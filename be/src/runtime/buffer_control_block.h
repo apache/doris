@@ -17,14 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
+#include <memory>
 #include <mutex>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/query_statistics.h"
 
 namespace google {
@@ -39,7 +43,6 @@ class Controller;
 
 namespace doris {
 
-class TFetchDataResult;
 class PFetchDataResult;
 
 struct GetResultBatchCtx {

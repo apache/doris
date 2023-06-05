@@ -18,19 +18,32 @@
 #pragma once
 
 #include <functional>
-#include <map>
+#include <memory>
 #include <string>
+#include <vector>
 
-#include "olap/olap_define.h"
-#include "rocksdb/db.h"
+#include "common/status.h"
+
+namespace rocksdb {
+class ColumnFamilyHandle;
+class DB;
+} // namespace rocksdb
 
 namespace doris {
 
-class OlapMeta {
+class OlapMeta final {
+public:
+    struct BatchEntry {
+        const std::string& key;
+        const std::string& value;
+
+        BatchEntry(const std::string& key_arg, const std::string& value_arg)
+                : key(key_arg), value(value_arg) {}
+    };
+
 public:
     OlapMeta(const std::string& root_path);
-
-    virtual ~OlapMeta();
+    ~OlapMeta();
 
     Status init();
 
@@ -39,18 +52,21 @@ public:
     bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
 
     Status put(const int column_family_index, const std::string& key, const std::string& value);
+    Status put(const int column_family_index, const std::vector<BatchEntry>& entries);
 
     Status remove(const int column_family_index, const std::string& key);
+    Status remove(const int column_family_index, const std::vector<std::string>& keys);
 
     Status iterate(const int column_family_index, const std::string& prefix,
                    std::function<bool(const std::string&, const std::string&)> const& func);
 
-    std::string get_root_path();
+    std::string get_root_path() const { return _root_path; }
 
 private:
     std::string _root_path;
-    rocksdb::DB* _db;
-    std::vector<rocksdb::ColumnFamilyHandle*> _handles;
+    // keep order of _db && _handles, we need destroy _handles before _db
+    std::unique_ptr<rocksdb::DB, std::function<void(rocksdb::DB*)>> _db;
+    std::vector<std::unique_ptr<rocksdb::ColumnFamilyHandle>> _handles;
 };
 
 } // namespace doris

@@ -18,12 +18,10 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c.cc
 
-#include "util/crc32c.h"
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
-#elif defined(__aarch64__)
-#include <sse2neon.h>
-#endif
+// IWYU pragma: no_include <crc32intrin.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "util/coding.h"
 
 namespace doris {

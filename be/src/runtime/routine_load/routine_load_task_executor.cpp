@@ -17,18 +17,43 @@
 
 #include "runtime/routine_load/routine_load_task_executor.h"
 
-#include <thread>
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <librdkafka/rdkafkacpp.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <future>
+#include <map>
+#include <ostream>
+#include <thread>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/Types_types.h"
+#include "common/utils.h"
 #include "io/fs/kafka_consumer_pipe.h"
-#include "olap/iterators.h"
+#include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/message_body_sink.h"
+#include "runtime/routine_load/data_consumer.h"
 #include "runtime/routine_load/data_consumer_group.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_executor.h"
+#include "service/backend_options.h"
 #include "util/defer_op.h"
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
+#include "util/slice.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -188,8 +213,13 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
     put_result.status = tstatus;
-    put_result.params = task.params;
-    put_result.__isset.params = true;
+    if (task.__isset.params) {
+        put_result.params = task.params;
+        put_result.__isset.params = true;
+    } else {
+        put_result.pipeline_params = task.pipeline_params;
+        put_result.__isset.pipeline_params = true;
+    }
     ctx->put_result = put_result;
     if (task.__isset.format) {
         ctx->format = task.format;
@@ -371,8 +401,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoa
             int64_t len = 1;
             size_t read_bytes = 0;
             Slice result((uint8_t*)&one, len);
-            IOContext io_ctx;
-            Status st = pipe->read_at(0, result, io_ctx, &read_bytes);
+            Status st = pipe->read_at(0, result, &read_bytes);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
                 ctx->promise.set_value(st);

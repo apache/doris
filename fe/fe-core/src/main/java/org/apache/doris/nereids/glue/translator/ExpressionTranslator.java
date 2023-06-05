@@ -33,10 +33,8 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -76,13 +74,13 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -99,27 +97,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
 
     /**
-     * The entry function of ExpressionTranslator, call {@link Expr#finalizeForNereids()} to generate
-     * some attributes using in BE.
+     * The entry function of ExpressionTranslator.
      *
      * @param expression nereids expression
      * @param context translator context
      * @return stale planner's expr
      */
     public static Expr translate(Expression expression, PlanTranslatorContext context) {
-        Expr staleExpr = expression.accept(INSTANCE, context);
-        try {
-            if (staleExpr.getType() instanceof ScalarType) {
-                ((ScalarType) staleExpr.getType()).setByteSize((long) expression.getDataType().width());
-            }
-
-            staleExpr.finalizeForNereids();
-        } catch (Exception e) {
-            throw new AnalysisException(
-                    "Translate Nereids expression `" + expression.toSql()
-                            + "` to stale expression failed. " + e.getMessage(), e);
-        }
-        return staleExpr;
+        return expression.accept(INSTANCE, context);
     }
 
     @Override
@@ -131,42 +116,54 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitEqualTo(EqualTo equalTo, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ,
                 equalTo.child(0).accept(this, context),
-                equalTo.child(1).accept(this, context));
+                equalTo.child(1).accept(this, context),
+                equalTo.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     @Override
     public Expr visitGreaterThan(GreaterThan greaterThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GT,
                 greaterThan.child(0).accept(this, context),
-                greaterThan.child(1).accept(this, context));
+                greaterThan.child(1).accept(this, context),
+                greaterThan.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     @Override
     public Expr visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.GE,
                 greaterThanEqual.child(0).accept(this, context),
-                greaterThanEqual.child(1).accept(this, context));
+                greaterThanEqual.child(1).accept(this, context),
+                greaterThanEqual.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     @Override
     public Expr visitLessThan(LessThan lessThan, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LT,
                 lessThan.child(0).accept(this, context),
-                lessThan.child(1).accept(this, context));
+                lessThan.child(1).accept(this, context),
+                lessThan.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     @Override
     public Expr visitLessThanEqual(LessThanEqual lessThanEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.LE,
                 lessThanEqual.child(0).accept(this, context),
-                lessThanEqual.child(1).accept(this, context));
+                lessThanEqual.child(1).accept(this, context),
+                lessThanEqual.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
     }
 
     @Override
     public Expr visitNullSafeEqual(NullSafeEqual nullSafeEqual, PlanTranslatorContext context) {
         return new BinaryPredicate(Operator.EQ_FOR_NULL,
                 nullSafeEqual.child(0).accept(this, context),
-                nullSafeEqual.child(1).accept(this, context));
+                nullSafeEqual.child(1).accept(this, context),
+                nullSafeEqual.getDataType().toCatalogDataType(),
+                NullableMode.ALWAYS_NOT_NULLABLE);
     }
 
     @Override
@@ -176,19 +173,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             List<Expr> inList = inPredicate.getOptions().stream()
                     .map(e -> translate(e, context))
                     .collect(Collectors.toList());
+            boolean allConstant = inPredicate.getOptions().stream().allMatch(Expression::isConstant);
             return new org.apache.doris.analysis.InPredicate(
                     inPredicate.getCompareExpr().accept(this, context),
-                    inList,
-                    true);
+                    inList, true, allConstant);
         } else if (not.child() instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) not.child();
             return new BinaryPredicate(Operator.NE,
                     equalTo.child(0).accept(this, context),
-                    equalTo.child(1).accept(this, context));
+                    equalTo.child(1).accept(this, context),
+                    equalTo.getDataType().toCatalogDataType(),
+                    NullableMode.DEPEND_ON_ARGUMENT);
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
         } else if (not.child() instanceof IsNull) {
-            return new IsNullPredicate(((IsNull) not.child()).child().accept(this, context), true);
+            return new IsNullPredicate(((IsNull) not.child()).child().accept(this, context), true, true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context), null);
@@ -216,14 +215,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
         nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
         return nullLit;
-    }
-
-    @Override
-    public Expr visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, PlanTranslatorContext context) {
-        // BE not support date v2 literal and datetime v2 literal
-        int scale = dateTimeV2Literal.getDataType().getScale();
-        return new CastExpr(ScalarType.createDatetimeV2Type(scale),
-                new StringLiteral(dateTimeV2Literal.getStringValue()));
     }
 
     @Override
@@ -261,7 +252,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         if (defaultValue.isPresent()) {
             elseExpr = defaultValue.get().accept(this, context);
         }
-        return new CaseExpr(null, caseWhenClauses, elseExpr);
+        return new CaseExpr(caseWhenClauses, elseExpr);
     }
 
     @Override
@@ -276,9 +267,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> inList = inPredicate.getOptions().stream()
                 .map(e -> e.accept(this, context))
                 .collect(Collectors.toList());
-        return new org.apache.doris.analysis.InPredicate(inPredicate.getCompareExpr().accept(this, context),
-                inList,
-                false);
+        boolean allConstant = inPredicate.getOptions().stream().allMatch(Expression::isConstant);
+        return new org.apache.doris.analysis.InPredicate(
+                inPredicate.getCompareExpr().accept(this, context),
+                inList, false, allConstant);
     }
 
     @Override
@@ -417,15 +409,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitTimestampArithmetic(TimestampArithmetic arithmetic, PlanTranslatorContext context) {
-        if (arithmetic.getFuncName() == null) {
-            return new TimestampArithmeticExpr(arithmetic.getOp(), arithmetic.left().accept(this, context),
-                    arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
-                    arithmetic.isIntervalFirst(), arithmetic.getDataType().toCatalogDataType());
-        } else {
-            return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.left().accept(this, context),
-                    arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
-                    arithmetic.getDataType().toCatalogDataType());
+        Preconditions.checkNotNull(arithmetic.getFuncName(),
+                "funcName in TimestampArithmetic should not be null");
+        NullableMode nullableMode = NullableMode.ALWAYS_NULLABLE;
+        if (arithmetic.children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
+            nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
         }
+        return new TimestampArithmeticExpr(arithmetic.getFuncName(), arithmetic.getOp(),
+                arithmetic.left().accept(this, context), arithmetic.right().accept(this, context),
+                arithmetic.getTimeUnit().toString(), arithmetic.getDataType().toCatalogDataType(), nullableMode);
     }
 
     @Override
@@ -435,7 +427,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
-        return new IsNullPredicate(isNull.child().accept(this, context), false);
+        return new IsNullPredicate(isNull.child().accept(this, context), false, true);
     }
 
     // TODO: Supports for `distinct`

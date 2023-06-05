@@ -18,13 +18,13 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "operator.h"
 #include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
-namespace vectorized {
-class VAnalyticEvalNode;
-} // namespace vectorized
+class ExecNode;
 
 namespace pipeline {
 class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {

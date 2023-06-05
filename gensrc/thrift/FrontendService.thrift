@@ -429,6 +429,12 @@ struct TReportExecStatusParams {
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 
   19: optional i32 fragment_id
+
+  20: optional PaloInternalService.TQueryType query_type
+
+  21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+
+  22: optional i32 finished_scan_ranges
 }
 
 struct TFeResult {
@@ -440,6 +446,7 @@ struct TMasterOpRequest {
     1: required string user
     2: required string db
     3: required string sql 
+    // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options
@@ -459,6 +466,8 @@ struct TMasterOpRequest {
     19: optional map<string, string> session_variables
     20: optional bool foldConstantByBe
     21: optional map<string, string> trace_carrier
+    22: optional string clientNodeHost
+    23: optional i32 clientNodePort
 }
 
 struct TColumnDefinition {
@@ -510,6 +519,28 @@ struct TLoadTxnBeginRequest {
 struct TLoadTxnBeginResult {
     1: required Status.TStatus status
     2: optional i64 txnId
+    3: optional string job_status // if label already used, set status of existing job
+    4: optional i64 db_id
+}
+
+struct TBeginTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional list<string> tables
+    6: optional string user_ip
+    7: optional string label
+    8: optional i64 auth_code
+    // The real value of timeout should be i32. i64 ensures the compatibility of interface.
+    9: optional i64 timeout
+    10: optional Types.TUniqueId request_id
+    11: optional string token
+}
+
+struct TBeginTxnResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
 }
@@ -570,12 +601,15 @@ struct TStreamLoadPutRequest {
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    44: optional bool enable_profile
+    45: optional bool partial_update
 }
 
 struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
+    3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
 }
 
 struct TKafkaRLTaskProgress {
@@ -623,6 +657,25 @@ struct TLoadTxnCommitResult {
     1: required Status.TStatus status
 }
 
+struct TCommitTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txn_id
+    7: optional list<Types.TTabletCommitInfo> commit_infos
+    8: optional i64 auth_code
+    9: optional TTxnCommitAttachment txn_commit_attachment
+    10: optional i64 thrift_rpc_timeout_ms
+    11: optional string token
+    12: optional i64 db_id
+}
+
+struct TCommitTxnResult {
+    1: optional Status.TStatus status
+}
+
 struct TLoadTxn2PCRequest {
     1: optional string cluster
     2: required string user
@@ -638,6 +691,24 @@ struct TLoadTxn2PCRequest {
 
 struct TLoadTxn2PCResult {
     1: required Status.TStatus status
+}
+
+struct TRollbackTxnRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txn_id
+    7: optional string reason
+    9: optional i64 auth_code
+    10: optional TTxnCommitAttachment txn_commit_attachment
+    11: optional string token
+    12: optional i64 db_id
+}
+
+struct TRollbackTxnResult {
+    1: optional Status.TStatus status
 }
 
 struct TLoadTxnRollbackRequest {
@@ -715,16 +786,16 @@ struct TInitExternalCtlMetaResult {
     2: optional string status;
 }
 
-enum TSchemaTableName{
-  BACKENDS = 0,
-  ICEBERG_TABLE_META = 1,
+enum TSchemaTableName {
+  // BACKENDS = 0,
+  METADATA_TABLE = 1,
 }
 
 struct TMetadataTableRequestParams {
-  1: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional Types.TMetadataType metadata_type
+  2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
+  3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
+  4: optional list<string> columns_name
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -793,6 +864,7 @@ struct TPrivilegeCtrl {
 }
 
 enum TPrivilegeType {
+  NONE = -1,
   SHOW = 0,
   SHOW_RESOURCES = 1,
   GRANT = 2,
@@ -820,6 +892,88 @@ struct TCheckAuthResult {
     1: required Status.TStatus status
 }
 
+enum TQueryStatsType {
+    CATALOG = 0,
+    DATABASE = 1,
+    TABLE = 2,
+    TABLE_ALL = 3,
+    TABLE_ALL_VERBOSE = 4,
+    TABLET = 5,
+    TABLETS = 6
+}
+
+struct TGetQueryStatsRequest {
+    1: optional TQueryStatsType type
+    2: optional string catalog
+    3: optional string db
+    4: optional string tbl
+    5: optional i64 replica_id
+    6: optional list<i64> replica_ids
+}
+
+struct TTableQueryStats {
+    1: optional string field
+    2: optional i64 query_stats
+    3: optional i64 filter_stats
+}
+
+struct TTableIndexQueryStats {
+    1: optional string index_name
+    2: optional list<TTableQueryStats> table_stats
+}
+
+struct TQueryStatsResult {
+    1: optional Status.TStatus status
+    2: optional map<string, i64> simple_result
+    3: optional list<TTableQueryStats> table_stats
+    4: optional list<TTableIndexQueryStats> table_verbos_stats
+    5: optional map<i64, i64> tablet_stats
+}
+
+struct TGetBinlogRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string user_ip
+    7: optional string token
+    8: optional i64 prev_commit_seq
+}
+
+enum TBinlogType {
+  UPSERT = 0,
+  ADD_PARTITION = 1,
+  CREATE_TABLE = 2,
+}
+
+struct TBinlog {
+    1: optional i64 commit_seq
+    2: optional i64 timestamp
+    3: optional TBinlogType type
+    4: optional i64 db_id
+    5: optional list<i64> table_ids
+    6: optional string data
+}
+
+struct TGetBinlogResult {
+    1: optional Status.TStatus status
+    2: optional i64 next_commit_seq
+    3: optional list<TBinlog> binlogs
+    4: optional string fe_version
+    5: optional i64 fe_meta_version
+}
+
+struct TGetTabletReplicaInfosRequest {
+    1: required list<i64> tablet_ids
+}
+
+struct TGetTabletReplicaInfosResult {
+    1: optional Status.TStatus status
+    2: optional map<i64, list<Types.TReplicaInfo>> tablet_replica_infos
+    3: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -830,6 +984,7 @@ service FrontendService {
 
     MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1: MasterService.TReportRequest request)
+    // Deprecated
     MasterService.TFetchResourceResult fetchResource()
 
     TMasterOpResult forward(1: TMasterOpRequest params)
@@ -846,6 +1001,11 @@ service FrontendService {
     TLoadTxn2PCResult loadTxn2PC(1: TLoadTxn2PCRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
+
+    TBeginTxnResult beginTxn(1: TBeginTxnRequest request)
+    TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
+    TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
+    TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
 
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
@@ -866,4 +1026,8 @@ service FrontendService {
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
+
+    TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
+    
+    TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 }

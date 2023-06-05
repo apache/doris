@@ -17,6 +17,10 @@
 
 #include "analytic_source_operator.h"
 
+#include <string>
+
+#include "pipeline/exec/operator.h"
+
 namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)

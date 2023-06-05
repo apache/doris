@@ -15,12 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
 
+#include <memory>
+
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/integral_types.h"
+#include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
+#include "olap/uint24.h"
+#include "runtime/collection_value.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -38,7 +49,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     EXPECT_EQ(sizeof(src_val), type->size());
     {
         typename TypeTraits<field_type>::CppType dst_val;
-        MemPool pool;
+        vectorized::Arena pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -74,7 +85,7 @@ void test_char(Slice src_val) {
     {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
-        MemPool pool;
+        vectorized::Arena pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -104,47 +115,50 @@ void test_char(Slice src_val) {
 }
 
 template <>
-void common_test<OLAP_FIELD_TYPE_CHAR>(Slice src_val) {
-    test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
+void common_test<FieldType::OLAP_FIELD_TYPE_CHAR>(Slice src_val) {
+    test_char<FieldType::OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
 template <>
-void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
-    test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
+void common_test<FieldType::OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
+    test_char<FieldType::OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
 TEST(TypesTest, copy_and_equal) {
-    common_test<OLAP_FIELD_TYPE_BOOL>(true);
-    common_test<OLAP_FIELD_TYPE_TINYINT>(112);
-    common_test<OLAP_FIELD_TYPE_SMALLINT>(static_cast<short>(54321));
-    common_test<OLAP_FIELD_TYPE_INT>(-123454321);
-    common_test<OLAP_FIELD_TYPE_UNSIGNED_INT>(1234543212L);
-    common_test<OLAP_FIELD_TYPE_BIGINT>(123454321123456789L);
+    common_test<FieldType::OLAP_FIELD_TYPE_BOOL>(true);
+    common_test<FieldType::OLAP_FIELD_TYPE_TINYINT>(112);
+    common_test<FieldType::OLAP_FIELD_TYPE_SMALLINT>(static_cast<short>(54321));
+    common_test<FieldType::OLAP_FIELD_TYPE_INT>(-123454321);
+    common_test<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(1234543212L);
+    common_test<FieldType::OLAP_FIELD_TYPE_BIGINT>(123454321123456789L);
     __int128 int128_val = 1234567899L;
-    common_test<OLAP_FIELD_TYPE_LARGEINT>(int128_val);
-    common_test<OLAP_FIELD_TYPE_FLOAT>(1.11);
-    common_test<OLAP_FIELD_TYPE_DOUBLE>(12221.11);
+    common_test<FieldType::OLAP_FIELD_TYPE_LARGEINT>(int128_val);
+    common_test<FieldType::OLAP_FIELD_TYPE_FLOAT>(1.11);
+    common_test<FieldType::OLAP_FIELD_TYPE_DOUBLE>(12221.11);
     decimal12_t decimal_val = {123, 2345};
-    common_test<OLAP_FIELD_TYPE_DECIMAL>(decimal_val);
+    common_test<FieldType::OLAP_FIELD_TYPE_DECIMAL>(decimal_val);
 
-    common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
-    common_test<OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
+    common_test<FieldType::OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
+    common_test<FieldType::OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
 
-    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 9) | (2 << 5) | 1);
+    common_test<FieldType::OLAP_FIELD_TYPE_DATEV2>((1988 << 9) | (2 << 5) | 1);
 
     Slice slice("12345abcde");
-    common_test<OLAP_FIELD_TYPE_CHAR>(slice);
-    common_test<OLAP_FIELD_TYPE_VARCHAR>(slice);
+    common_test<FieldType::OLAP_FIELD_TYPE_CHAR>(slice);
+    common_test<FieldType::OLAP_FIELD_TYPE_VARCHAR>(slice);
 }
 
 template <FieldType item_type>
 void common_test_array(CollectionValue src_val) {
-    TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn list_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
-    if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+    if (item_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+        item_type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
         item_length = 10;
     }
-    TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, item_type, true,
+                             0, item_length);
     list_column.add_sub_column(item_column);
 
     auto array_type = get_type_info(&list_column);
@@ -153,7 +167,7 @@ void common_test_array(CollectionValue src_val) {
 
     { // test deep copy
         CollectionValue dst_val;
-        MemPool pool;
+        vectorized::Arena pool;
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
@@ -169,49 +183,60 @@ void common_test_array(CollectionValue src_val) {
 TEST(ArrayTypeTest, copy_and_equal) {
     bool bool_array[3] = {true, false, true};
     bool null_signs[3] = {true, true, true};
-    common_test_array<OLAP_FIELD_TYPE_BOOL>(CollectionValue(bool_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_BOOL>(CollectionValue(bool_array, 3, null_signs));
 
     uint8_t tiny_int_array[3] = {3, 4, 5};
-    common_test_array<OLAP_FIELD_TYPE_TINYINT>(CollectionValue(tiny_int_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_TINYINT>(
+            CollectionValue(tiny_int_array, 3, null_signs));
 
     int16_t small_int_array[3] = {123, 234, 345};
-    common_test_array<OLAP_FIELD_TYPE_SMALLINT>(CollectionValue(small_int_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_SMALLINT>(
+            CollectionValue(small_int_array, 3, null_signs));
 
     int32_t int_array[3] = {-123454321, 123454321, 323412343};
-    common_test_array<OLAP_FIELD_TYPE_INT>(CollectionValue(int_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_INT>(CollectionValue(int_array, 3, null_signs));
 
     uint32_t uint_array[3] = {123454321, 2342341, 52435234};
-    common_test_array<OLAP_FIELD_TYPE_UNSIGNED_INT>(CollectionValue(uint_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(
+            CollectionValue(uint_array, 3, null_signs));
 
     int64_t bigint_array[3] = {123454321123456789L, 23534543234L, -123454321123456789L};
-    common_test_array<OLAP_FIELD_TYPE_BIGINT>(CollectionValue(bigint_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_BIGINT>(
+            CollectionValue(bigint_array, 3, null_signs));
 
     __int128 large_int_array[3] = {1234567899L, 1234567899L, -12345631899L};
-    common_test_array<OLAP_FIELD_TYPE_LARGEINT>(CollectionValue(large_int_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_LARGEINT>(
+            CollectionValue(large_int_array, 3, null_signs));
 
     float float_array[3] = {1.11, 2.22, -3.33};
-    common_test_array<OLAP_FIELD_TYPE_FLOAT>(CollectionValue(float_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_FLOAT>(
+            CollectionValue(float_array, 3, null_signs));
 
     double double_array[3] = {12221.11, 12221.11, -12221.11};
-    common_test_array<OLAP_FIELD_TYPE_DOUBLE>(CollectionValue(double_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_DOUBLE>(
+            CollectionValue(double_array, 3, null_signs));
 
     decimal12_t decimal_array[3] = {{123, 234}, {345, 453}, {4524, 2123}};
-    common_test_array<OLAP_FIELD_TYPE_DECIMAL>(CollectionValue(decimal_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
+            CollectionValue(decimal_array, 3, null_signs));
 
     uint24_t date_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
                               (2008 << 9) | (2 << 5) | 1};
-    common_test_array<OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
 
     uint32_t date_v2_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
                                  (2008 << 9) | (2 << 5) | 1};
-    common_test_array<OLAP_FIELD_TYPE_DATEV2>(CollectionValue(date_v2_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_DATEV2>(
+            CollectionValue(date_v2_array, 3, null_signs));
 
     int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};
-    common_test_array<OLAP_FIELD_TYPE_DATETIME>(CollectionValue(datetime_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_DATETIME>(
+            CollectionValue(datetime_array, 3, null_signs));
 
     Slice char_array[3] = {"12345abcde", "12345abcde", "asdf322"};
-    common_test_array<OLAP_FIELD_TYPE_CHAR>(CollectionValue(char_array, 3, null_signs));
-    common_test_array<OLAP_FIELD_TYPE_VARCHAR>(CollectionValue(char_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_CHAR>(CollectionValue(char_array, 3, null_signs));
+    common_test_array<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+            CollectionValue(char_array, 3, null_signs));
 }
 
 } // namespace doris

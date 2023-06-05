@@ -45,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -157,7 +156,7 @@ public class MTMVJobManager {
                 Metric.MetricUnit.NOUNIT, "Total task number of mtmv.") {
             @Override
             public Integer getValue() {
-                return getTaskManager().getAllHistory().size();
+                return getTaskManager().getHistoryTasks().size();
             }
         };
         totalTask.addLabel(new MetricLabel("type", "TOTAL-TASK"));
@@ -307,7 +306,10 @@ public class MTMVJobManager {
             LOG.warn("fail to obtain scheduled info for job [{}]", job.getName());
             return true;
         }
-        boolean isCancel = future.cancel(true);
+        // MUST not set true for "mayInterruptIfRunning".
+        // Because this thread may doing bdbje write operation, it is interrupted,
+        // FE may exit due to bdbje write failure.
+        boolean isCancel = future.cancel(false);
         if (!isCancel) {
             LOG.warn("fail to cancel scheduler for job [{}]", job.getName());
         }
@@ -365,11 +367,11 @@ public class MTMVJobManager {
         LOG.info("change job:{}", changeJob.getJobId());
     }
 
-    public void dropJobByName(String dbName, String mvName) {
+    public void dropJobByName(String dbName, String mvName, boolean isReplay) {
         for (String jobName : nameToJobMap.keySet()) {
             MTMVJob job = nameToJobMap.get(jobName);
             if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                dropJobs(Collections.singletonList(job.getId()), false);
+                dropJobs(Collections.singletonList(job.getId()), isReplay);
                 return;
             }
         }
@@ -533,25 +535,20 @@ public class MTMVJobManager {
 
     public static MTMVJobManager read(DataInputStream dis, long checksum) throws IOException {
         MTMVJobManager mtmvJobManager = new MTMVJobManager();
-        try {
-            String s = Text.readString(dis);
-            MTMVCheckpointData data = GsonUtils.GSON.fromJson(s, MTMVCheckpointData.class);
-            if (data != null) {
-                if (data.jobs != null) {
-                    for (MTMVJob job : data.jobs) {
-                        mtmvJobManager.replayCreateJob(job);
-                    }
-                }
-
-                if (data.tasks != null) {
-                    for (MTMVTask runStatus : data.tasks) {
-                        mtmvJobManager.replayCreateJobTask(runStatus);
-                    }
+        String s = Text.readString(dis);
+        MTMVCheckpointData data = GsonUtils.GSON.fromJson(s, MTMVCheckpointData.class);
+        if (data != null) {
+            if (data.jobs != null) {
+                for (MTMVJob job : data.jobs) {
+                    mtmvJobManager.replayCreateJob(job);
                 }
             }
-            LOG.info("finished replaying JobManager from image");
-        } catch (EOFException e) {
-            LOG.info("no job or task to replay.");
+
+            if (data.tasks != null) {
+                for (MTMVTask runStatus : data.tasks) {
+                    mtmvJobManager.replayCreateJobTask(runStatus);
+                }
+            }
         }
         return mtmvJobManager;
     }

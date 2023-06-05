@@ -29,7 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
+import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExternalScanRange;
@@ -85,6 +85,7 @@ public class FileGroupInfo {
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
     private List<String> hiddenColumns = null;
+    private boolean isPartialUpdate = false;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -106,7 +107,7 @@ public class FileGroupInfo {
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
             BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
-            TFileType fileType, List<String> hiddenColumns) {
+            TFileType fileType, List<String> hiddenColumns, boolean isPartialUpdate) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -119,6 +120,7 @@ public class FileGroupInfo {
         this.strictMode = strictMode;
         this.fileType = fileType;
         this.hiddenColumns = hiddenColumns;
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     public Table getTargetTable() {
@@ -159,6 +161,10 @@ public class FileGroupInfo {
         return hiddenColumns;
     }
 
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
     public void getFileStatusAndCalcInstance(FederationBackendPolicy backendPolicy) throws UserException {
         if (filesAdded == 0) {
             throw new UserException("No source file in this table(" + targetTable.getName() + ").");
@@ -188,8 +194,9 @@ public class FileGroupInfo {
         LOG.info("number instance of file scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
 
-    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
-            List<TScanRangeLocations> scanRangeLocations) throws UserException {
+    public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+                                         FederationBackendPolicy backendPolicy,
+                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc, backendPolicy);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
@@ -252,11 +259,11 @@ public class FileGroupInfo {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getIp());
+                broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
         } else {
             params.setBrokerAddresses(new ArrayList<>());
         }
@@ -275,7 +282,7 @@ public class FileGroupInfo {
         if (jobType == JobType.BULK_LOAD) {
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
-            location.setServer(new TNetworkAddress(selectedBackend.getIp(), selectedBackend.getBePort()));
+            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             locations.addToLocations(location);
         } else {
             // stream load do not need locations
@@ -330,6 +337,7 @@ public class FileGroupInfo {
             rangeDesc.setSize(fileStatus.size);
             rangeDesc.setFileSize(fileStatus.size);
         }
+        rangeDesc.setModificationTime(fileStatus.getModificationTime());
         return rangeDesc;
     }
 }

@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "runtime/primitive_type.h"
+#include <stdint.h>
 
 namespace doris {
 
@@ -44,8 +42,6 @@ public:
     }
 
     void shallow_copy(const StructValue* other);
-
-    // size_t get_byte_size(const TypeDescriptor& type) const;
 
     const void** values() const { return const_cast<const void**>(_values); }
     void** mutable_values() { return _values; }

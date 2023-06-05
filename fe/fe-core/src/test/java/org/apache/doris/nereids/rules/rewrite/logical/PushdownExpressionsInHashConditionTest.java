@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -30,7 +29,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 
 public class PushdownExpressionsInHashConditionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -74,12 +72,10 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10",
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
         );
-        testSql.forEach(sql -> {
-            new NereidsPlanner(createStatementCtx(sql)).plan(
-                    new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
-        });
+        testSql.forEach(sql -> new NereidsPlanner(createStatementCtx(sql)).plan(
+                new NereidsParser().parseSingle(sql),
+                PhysicalProperties.ANY
+        ));
     }
 
     @Test
@@ -180,23 +176,6 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                             )
                         )
                     )
-                );
-    }
-
-    @Test
-    public void testNotPushDownWhenCast() {
-        PlanChecker.from(connectContext)
-                .analyze("SELECT * FROM T1 JOIN T2 ON T1.SCORE_INT = T2.SCORE")
-                .applyTopDown(new FindHashConditionForJoin())
-                .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matchesFromRoot(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalOlapScan(),
-                                        logicalOlapScan()
-                                ).when(join -> !join.getHashJoinConjuncts().get(0)
-                                        .<Set>collect(Cast.class::isInstance).isEmpty())
-                        )
                 );
     }
 }

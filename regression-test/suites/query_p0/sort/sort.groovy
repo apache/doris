@@ -67,4 +67,55 @@ suite("sort") {
                );"""
     sql """insert into test_convert values("b"),("z"),("a"), ("c"), ("睿"), ("多"), ("丝");"""
     qt_sql """select * from test_convert order by convert(a using gbk);"""
+
+    sql """ DROP TABLE if exists `sort_non_overlap`; """
+    sql """ CREATE TABLE `sort_non_overlap` (
+      `time_period` datetime NOT NULL,
+      `area_name` varchar(255) NOT NULL,
+      `province` varchar(255) NOT NULL,
+      `res_name` varchar(255) NOT NULL,
+      `dev` varchar(255) NOT NULL,
+      `dec0` decimal(10, 3) REPLACE_IF_NOT_NULL NULL,
+      `dec1` decimal(10, 3) REPLACE_IF_NOT_NULL NULL,
+      `dec2` decimal(10, 3) REPLACE_IF_NOT_NULL NULL,
+      `dec3` decimal(10, 3) REPLACE_IF_NOT_NULL NULL,
+      `update_time` datetime REPLACE NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`time_period`, `area_name`, `province`, `res_name`, `dev`)
+    DISTRIBUTED BY HASH(`area_name`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+    """
+
+    sql """ insert into sort_non_overlap values
+        ('2023-03-21 06:00:00', 'area1', 'p0', 'aaaaa', 'ddddd1', 100, 100, 100, 100, '2023-03-21 17:00:00'),
+        ('2023-03-21 07:00:00', 'area1', 'p0', 'aaaaa', 'ddddd2', 100, 100, 100, 100, '2023-03-21 17:00:00');
+    """
+
+    sql """ insert into sort_non_overlap values
+                ('2023-03-21 08:00:00', 'area1', 'p0', 'aaaaa', 'ddddd5', 100, 100, 100, 100, '2023-03-21 17:00:00'),
+                ('2023-03-21 09:00:00', 'area1', 'p0', 'aaaaa', 'ddddd6', 100, 100, 100, 100, '2023-03-21 17:00:00');
+    """
+
+    qt_sql_orderby_non_overlap_desc """ select * from sort_non_overlap order by time_period desc limit 4; """
+
+    sql """ DROP TABLE if exists `sort_default_value`; """
+    sql """ CREATE TABLE `sort_default_value` (
+      `k1` int NOT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+    """
+    sql "insert into sort_default_value values (1)"
+    sql "insert into sort_default_value values (2)"
+    sql """ alter table sort_default_value add column k4 INT default "1024" """
+    sql "insert into sort_default_value values (3, 0)"
+    sql "insert into sort_default_value values (4, null)"
+    qt_sql "select * from sort_default_value order by k1 limit 10"
 }

@@ -165,13 +165,13 @@ You can directly start an FE process in Eclipse to facilitate debugging the code
     
     Create the configuration file `fe.conf` in the `conf/` directory created in the first step. You can directly copy `conf/fe.conf` in the source directory and make simple changes.
     
-3. Find the `src/main/java/org/apache/doris/PaloFe.java` file in Eclipse, right-click and select `Run As -> Run Configurations...`. Add the following environment variables to the `Environment` tab:
+3. Find the `src/main/java/org/apache/doris/DorisFE.java` file in Eclipse, right-click and select `Run As -> Run Configurations...`. Add the following environment variables to the `Environment` tab:
 
     * `DORIS_HOME: /path/to/doris/fe/run/`
     * `PID_DIR: /path/to/doris/fe/run/`
     * `LOG_DIR: /path/to/doris/fe/run/log`
 
-4. Right-click `PaloFe.java` and select `Run As -> Java Application` to start FE.
+4. Right-click `DorisFE.java` and select `Run As -> Java Application` to start FE.
 
 To run a UT, a FE service will be started at first. And then, UT cases execute as client and test corresponding logics. When errors occur, only client logs will be print in UT logs. If you need more information from **server logs**, you can view logs in `${DORIS_HOME}/fe/mocked`.
 

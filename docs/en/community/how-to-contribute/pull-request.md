@@ -40,6 +40,8 @@ Go to the [github page](https://github.com/apache/doris) of apache/doris , and c
 
 ```
 git clone https://github.com/<your_github_name>/doris.git
+cd doris
+git submodule update --init --recursive
 ```
 
 Note: Please replace your GitHub name with your yourgithubname.
@@ -49,7 +51,6 @@ When clone is completed, origin defaults to the remote fork address on github.
 #### (2) Add apache/doris to the remote branch upstream of the local warehouse:
 
 ```
-cd  doris
 git remote add upstream https://github.com/apache/doris.git
 ```
 

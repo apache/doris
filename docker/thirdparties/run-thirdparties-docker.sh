@@ -35,9 +35,9 @@ Usage: $0 <options>
      -c mysql           start MySQL
      -c mysql,hive      start MySQL and Hive
      --stop             stop the specified components
-  
+
   All valid components:
-    mysql,pg,oracle,sqlserver,es,hive,iceberg
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,hive,iceberg"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
 else
     while true; do
         case "$1" in
@@ -92,20 +92,18 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,hive,iceberg"
+            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
         fi
     fi
 fi
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
-    exit 0
 fi
 
 if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
     usage
-    exit 1
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
@@ -126,9 +124,11 @@ RUN_MYSQL=0
 RUN_PG=0
 RUN_ORACLE=0
 RUN_SQLSERVER=0
+RUN_CLICKHOUSE=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
+RUN_HUDI=0
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
@@ -138,16 +138,19 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ORACLE=1
     elif [[ "${element}"x == "sqlserver"x ]]; then
         RUN_SQLSERVER=1
+    elif [[ "${element}"x == "clickhouse"x ]]; then
+        RUN_CLICKHOUSE=1
     elif [[ "${element}"x == "es"x ]]; then
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
         RUN_HIVE=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
+    elif [[ "${element}"x == "hudi"x ]]; then
+        RUN_HUDI=1
     else
         echo "Invalid component: ${element}"
         usage
-        exit 1
     fi
 done
 
@@ -187,7 +190,7 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-        sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
+        sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -216,17 +219,33 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     fi
 fi
 
+if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
+    # clickhouse
+    cp "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml.tpl "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
+        sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
+    fi
+fi
+
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
+    cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
     cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
-    sudo "${ROOT}"/docker-compose/hive/gen_env.sh
+    sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    sudo sed -i '/${CONTAINER_UID}namenode/d' /etc/hosts
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
+        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        sudo echo "127.0.0.1 ${CONTAINER_UID}namenode" >> /etc/hosts
     fi
 fi
 
@@ -247,5 +266,27 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
         sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
         sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+    fi
+fi
+
+if [[ "${RUN_HUDI}" -eq 1 ]]; then
+    # hudi
+    cp "${ROOT}"/docker-compose/hudi/hudi.yaml.tpl "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hudi/hudi.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/historyserver
+        sudo mkdir "${ROOT}"/docker-compose/hudi/historyserver
+        sudo rm -rf "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        sudo mkdir "${ROOT}"/docker-compose/hudi/hive-metastore-postgresql
+        if [[ ! -d "${ROOT}/docker-compose/hudi/scripts/hudi_docker_compose_attached_file" ]]; then
+            echo "Attached files does not exist, please download the https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/hudi/hudi_docker_compose_attached_file.zip file to the docker-compose/hudi/scripts/ directory and unzip it."
+            exit 1
+        fi
+        sudo docker compose -f "${ROOT}"/docker-compose/hudi/hudi.yaml --env-file "${ROOT}"/docker-compose/hudi/hadoop.env up -d
+        echo "sleep 15, wait server start"
+        sleep 15
+        docker exec -it adhoc-1 /bin/bash /var/scripts/setup_demo_container_adhoc_1.sh
+        docker exec -it adhoc-2 /bin/bash /var/scripts/setup_demo_container_adhoc_2.sh
     fi
 fi

@@ -23,7 +23,7 @@ import java.nio.file.Paths
 
 suite("test_map_load_and_compaction", "p0") {
     // define a sql table
-    def testTable = "tbl_test_map"
+    def testTable = "tbl_test_map_compaction"
     def dataFile = "map_2_rows.json";
     def dataFile1 = "map_4093_rows.json"
 
@@ -69,11 +69,7 @@ suite("test_map_load_and_compaction", "p0") {
     }
 
     def checkCompactionStatus = {compactionStatus, assertRowSetNum->
-        String checkStatus = new String("curl -X GET "+compactionStatus)
-        process = checkStatus.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        def (code, out, err) = curl("GET", compactionStatus)
         logger.info("Check compaction status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactStatusJson = parseJson(out.trim())
@@ -97,41 +93,24 @@ suite("test_map_load_and_compaction", "p0") {
 
         // check result
         qt_select "SELECT count(*) FROM ${testTable};"
+        qt_select "SELECT count(actor) FROM ${testTable};"
 
         // check here 2 rowsets
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${testTable}; """
         String[] tablet = tablets[0]
         // check rowsets number
-        String compactionStatus = tablet[17]
+        String compactionStatus = tablet[18]
         checkCompactionStatus.call(compactionStatus, 6)
 
         // trigger compaction
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
         String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
-        for (String[] backend in backends) {
-            backendId_to_backendIP.put(backend[0], backend[2])
-            backendId_to_backendHttpPort.put(backend[0], backend[5])
-        }
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
         String tablet_id = tablet[0]
         backend_id = tablet[2]
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X POST http://")
-        sb.append(backendId_to_backendIP.get(backend_id))
-        sb.append(":")
-        sb.append(backendId_to_backendHttpPort.get(backend_id))
-        sb.append("/api/compaction/run?tablet_id=")
-        sb.append(tablet_id)
-        sb.append("&compact_type=cumulative")
-
-        String command = sb.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
@@ -140,20 +119,7 @@ suite("test_map_load_and_compaction", "p0") {
         // wait compactions done
         do {
             Thread.sleep(1000)
-            sb = new StringBuilder();
-            sb.append("curl -X GET http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-
-            String cm = sb.toString()
-            logger.info(cm)
-            process = cm.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
+            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def cs = parseJson(out.trim())
@@ -167,7 +133,7 @@ suite("test_map_load_and_compaction", "p0") {
         backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
-            assertEquals("true", b[9])
+            assertEquals("true", b[8])
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

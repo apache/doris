@@ -84,13 +84,13 @@ public:
     }
 
     template <class T>
-    T* get(const KType& key, const std::function<T*()> createIfNotExists) {
+    T* get(const KType& key, const std::function<T*()> create_func) {
         std::lock_guard<std::mutex> lock(_lock);
         auto it = _storage.find(key);
         if (it != _storage.end()) {
             return reinterpret_cast<T*>(it->second);
         } else {
-            T* rawPtr = createIfNotExists();
+            T* rawPtr = create_func();
             if (rawPtr != nullptr) {
                 _delete_fn[key] = [](void* obj) { delete reinterpret_cast<T*>(obj); };
                 _storage[key] = rawPtr;
@@ -105,6 +105,36 @@ private:
     std::mutex _lock;
     std::unordered_map<KType, DeleteFn> _delete_fn;
     std::unordered_map<KType, void*> _storage;
+};
+
+class ShardedKVCache {
+public:
+    ShardedKVCache(uint32_t num_shards) : _num_shards(num_shards) {
+        _shards = new (std::nothrow) KVCache<std::string>*[_num_shards];
+        for (uint32_t i = 0; i < _num_shards; i++) {
+            _shards[i] = new KVCache<std::string>();
+        }
+    }
+
+    ~ShardedKVCache() {
+        for (uint32_t i = 0; i < _num_shards; i++) {
+            delete _shards[i];
+        }
+        delete[] _shards;
+    }
+
+    template <class T>
+    T* get(const std::string& key, const std::function<T*()> create_func) {
+        return _shards[_get_idx(key)]->get(key, create_func);
+    }
+
+private:
+    uint32_t _get_idx(const std::string& key) {
+        return (uint32_t)std::hash<std::string>()(key) % _num_shards;
+    }
+
+    uint32_t _num_shards;
+    KVCache<std::string>** _shards;
 };
 
 } // namespace doris::vectorized

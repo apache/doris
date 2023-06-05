@@ -17,14 +17,21 @@
 
 #include "datagen_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
+#include "util/runtime_profile.h"
 #include "vec/exec/vdata_gen_scan_node.h"
+
+namespace doris {
+class RuntimeState;
+} // namespace doris
 
 namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(DataGenOperator, SourceOperator)
 
 Status DataGenOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(SourceOperator::open(state));
     return _node->open(state);
 }

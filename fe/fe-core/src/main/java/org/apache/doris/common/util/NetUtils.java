@@ -45,6 +45,8 @@ public class NetUtils {
     public static final String QUERY_PORT_SUGGESTION = "Please change the 'query_port' in fe.conf and try again.";
     public static final String HTTP_PORT_SUGGESTION = "Please change the 'http_port' in fe.conf and try again. "
             + "But you need to make sure that ALL FEs http_port are same.";
+    public static final String HTTPS_PORT_SUGGESTION = "Please change the 'https_port' in fe.conf and try again. "
+            + "But you need to make sure that ALL FEs https_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
 
     // Target format is "host:port"
@@ -91,6 +93,11 @@ public class NetUtils {
         return hostName;
     }
 
+    public static String getIpByHost(String host) throws UnknownHostException {
+        InetAddress inetAddress = InetAddress.getByName(host);
+        return inetAddress.getHostAddress();
+    }
+
     // This is the implementation is inspired by Apache camel project:
     public static boolean isPortAvailable(String host, int port, String portName, String suggestion) {
         ServerSocket ss = null;
@@ -132,13 +139,13 @@ public class NetUtils {
     public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
         if (hostPort.charAt(0) == '[') {
             String[] pair = hostPort.substring(1).split("]:");
-            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
         } else {
             String[] pair = hostPort.split(":");
             if (pair.length != 2) {
                 throw new AnalysisException("invalid host port: " + hostPort);
             }
-            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
         }
     }
 

@@ -21,35 +21,42 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.List;
 
 /**
- * this rule aims to merge consecutive filters.
- * For example:
- * logical plan tree:
- *                project(a)
- *                  |
- *                project(a,b)
- *                  |
- *                project(a, b, c)
- *                  |
- *                scan
- * transformed to:
- *                project(a)
- *                   |
- *                 scan
+ * this rule aims to merge consecutive project. For example:
+ * <pre>
+ *   project(a)
+ *       |
+ *   project(a,b)    ->    project(a)
+ *       |
+ *   project(a, b, c)
+ * </pre>
  */
 public class MergeProjects extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalProject()).then(project -> {
-            LogicalProject<Plan> childProject = project.child();
-            List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-            return new LogicalProject<>(projectExpressions, childProject.child(0));
-        }).toRule(RuleType.MERGE_PROJECTS);
+        // TODO modify ExtractAndNormalizeWindowExpression to handle nested window functions
+        // here we just don't merge two projects if there is any window function
+        return logicalProject(logicalProject())
+                .whenNot(project -> containsWindowExpression(project.getProjects())
+                        && containsWindowExpression(project.child().getProjects()))
+                .then(project -> mergeProjects(project)).toRule(RuleType.MERGE_PROJECTS);
+    }
+
+    public static Plan mergeProjects(LogicalProject project) {
+        LogicalProject childProject = (LogicalProject) project.child();
+        List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
+        LogicalProject newProject = childProject.canEliminate() ? project : childProject;
+        return newProject.withProjectsAndChild(projectExpressions, childProject.child(0));
+    }
+
+    private boolean containsWindowExpression(List<NamedExpression> expressions) {
+        return expressions.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance));
     }
 }

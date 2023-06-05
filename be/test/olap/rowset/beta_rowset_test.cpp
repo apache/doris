@@ -14,32 +14,58 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/s3/S3Client.h>
+#include "olap/rowset/beta_rowset.h"
 
+#include <aws/core/auth/AWSAuthSigner.h>
+#include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <aws/s3/model/HeadObjectResult.h>
+#include <gen_cpp/olap_common.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gtest/gtest.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
-#include "olap/row_cursor.h"
-#include "olap/rowset/beta_rowset_reader.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/rowset_writer.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
-#include "runtime/memory/mem_tracker.h"
-#include "util/file_utils.h"
-#include "util/slice.h"
+#include "util/s3_util.h"
+
+namespace Aws {
+namespace S3 {
+namespace Model {
+class GetObjectRequest;
+class HeadObjectRequest;
+} // namespace Model
+} // namespace S3
+} // namespace Aws
+namespace doris {
+struct RowsetReaderContext;
+} // namespace doris
 
 using std::string;
 
@@ -65,8 +91,9 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
-        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(io::global_local_filesystem()
+                            ->delete_and_create_directory(config::storage_root_path)
+                            .ok());
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
@@ -79,7 +106,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
-        EXPECT_TRUE(FileUtils::create_dir(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
     }
 
     static void TearDownTestSuite() {
@@ -231,9 +258,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     s3_conf.bucket = "bucket";
     s3_conf.prefix = "prefix";
     std::string resource_id = "10000";
-    auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
-    Aws::SDKOptions aws_options = Aws::SDKOptions {};
-    Aws::InitAPI(aws_options);
+    std::shared_ptr<io::S3FileSystem> fs;
+    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -280,8 +306,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         Status st = rowset.load_segments(&segments);
         ASSERT_FALSE(st.ok());
     }
-
-    Aws::ShutdownAPI(aws_options);
 }
 
 } // namespace doris

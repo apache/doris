@@ -167,6 +167,12 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
+### `grpc_threadmgr_threads_nums`
+
+Default: 4096
+
+Num of thread to handle grpc events in grpc_threadmgr.
+
 #### `bdbje_replica_ack_timeout_second`
 
 Default：10  (s)
@@ -392,13 +398,32 @@ Default value: 0.0.0.0
 
 Default：none
 
-Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly..
+Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly.
 
 #### `http_port`
 
 Default：8030
 
-HTTP bind port. Defaults to 8030
+HTTP bind port. All FE http ports must be same currently.
+
+#### `https_port`
+
+Default：8050
+
+HTTPS bind port. All FE https ports must be same currently.
+
+#### `enable_https`
+
+Default：false
+
+Https enable flag. If the value is false, http is supported. Otherwise, both http and https are supported, and http requests are automatically redirected to https.
+If enable_https is true, you need to configure ssl certificate information in fe.conf.
+
+#### `enable_ssl`
+
+Default：true
+
+If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -1596,7 +1621,7 @@ The max size of one sys log and audit log
 
 #### `sys_log_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/log"
+Default：DorisFE.DORIS_HOME_DIR + "/log"
 
 sys_log_dir:
 
@@ -1759,6 +1784,20 @@ MasterOnly：true
 In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
+
+#### `recover_with_skip_missing_version`
+
+Default：disable
+
+IsMutable：true
+
+MasterOnly：true
+
+In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+This configuration has three values:
+* disable : If an exception occurs, an error will be reported normally.
+* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
 
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
@@ -1925,6 +1964,16 @@ This configs can set to true to disable the automatic colocate tables's relocate
 1. Under normal circumstances, there is no need to turn off balance at all.
 2. Because once the balance is turned off, the unstable colocate table may not be restored
 3. Eventually the colocate plan cannot be used when querying.
+
+#### `balance_slot_num_per_path`
+
+Default: 1
+
+IsMutable：true
+
+MasterOnly：true
+
+Default number of slots per path during balance.
 
 #### `disable_tablet_scheduler`
 
@@ -2096,6 +2145,8 @@ MasterOnly：true
 After dropping database(table/partition), you can recover it by using RECOVER stmt. And this specifies the maximal data retention time. After time, the data will be deleted permanently.
 
 #### `storage_cooldown_second`
+
+<version deprecated="2.0"></version>
 
 Default：`30 * 24 * 3600L`  （30 day）
 
@@ -2326,9 +2377,19 @@ Is it possible to dynamically configure: true
 
 Is it a configuration item unique to the Master FE node: true
 
+#### `max_external_cache_loader_thread_pool_size`
+
+Maximum thread pool size for loading external meta cache.
+
+Default: 10
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
 #### `max_external_file_cache_num`
 
-Maximum number of file cache to use for external external tables.
+Maximum number of file cache to use for external tables.
 
 Default: 100000
 
@@ -2394,7 +2455,7 @@ Default：{
 
 #### `yarn_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
+Default：DorisFE.DORIS_HOME_DIR + "/lib/yarn-config"
 
 Default yarn config file directory ，Each time before running the yarn command, we need to check that the  config file exists under this path, and if not, create them.
 
@@ -2432,13 +2493,13 @@ Default spark dpp version
 
 #### `tmp_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/temp_dir"
+Default：DorisFE.DORIS_HOME_DIR + "/temp_dir"
 
 temp dir is used to save intermediate results of some process, such as backup and restore process.  file in this dir will be cleaned after these process is finished.
 
 #### `custom_config_dir`
 
-Default：PaloFe.DORIS_HOME_DIR + "/conf"
+Default：DorisFE.DORIS_HOME_DIR + "/conf"
 
 Custom configuration file directory
 
@@ -2636,3 +2697,46 @@ MasterOnly：false
 Only take effect when `prefer_compute_node_for_external_table` is true. If the compute node number is less than this value, query on external table will try to get some mix node to assign, to let the total number of node reach this value.
 If the compute node number is larger than this value, query on external table will assign to compute node only.
 
+#### `infodb_support_ext_catalog`
+
+<version since="1.2.4"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+If false, when select from tables in information_schema database,
+the result will not contain the information of the table in external catalog.
+This is to avoid query time when external catalog is not reachable.
+
+
+#### `enable_query_hit_stats`
+
+<version since="dev"></version>
+
+Default: false
+
+IsMutable: true
+
+MasterOnly: false
+
+Controls whether to enable query hit statistics. The default is false.
+
+#### `max_instance_num`
+
+<version since="dev"></version>
+
+Default: 128
+
+This is used to limit the setting of "parallel_fragment_exec_instance_num".
+"parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+Default: 4
+
+This variable indicates the number of digits by which to increase the scale of the result of 
+division operations performed with the `/` operator. 

@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.0">
 
-请使用 [JDBC Catalog](../multi-catalog/jdbc.md) 功能访问外表。
+请使用 [JDBC Catalog](../multi-catalog/jdbc.md) 功能访问外表，1.2.0版本后将不再维护该功能。
 
 </version>
 

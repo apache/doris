@@ -17,22 +17,36 @@
 
 #include "exec/table_connector.h"
 
-#include <fmt/core.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <iconv.h>
 
+#include <memory>
+#include <string_view>
+#include <type_traits>
+
+#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
-#include "util/mysql_global.h"
+#include "util/binary_cast.hpp"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class TupleDescriptor;
 
 // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
 static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
@@ -83,19 +97,12 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
 }
 
 Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
-                              const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-                              uint32_t start_send_row, uint32_t* num_rows_sent,
+                              const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                              uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
                               TOdbcTableType::type table_type) {
-    _insert_stmt_buffer.clear();
-    std::u16string insert_stmt;
-    if (table_type == TOdbcTableType::ORACLE) {
-        SCOPED_TIMER(_convert_tuple_timer);
-        oracle_type_append(table_name, block, output_vexpr_ctxs, start_send_row, num_rows_sent,
-                           table_type);
-        // Translate utf8 string to utf16 to use unicode encoding
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    } else {
+    if (is_odbc) {
+        _insert_stmt_buffer.clear();
+        std::u16string insert_stmt;
         SCOPED_TIMER(_convert_tuple_timer);
         fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
 
@@ -126,42 +133,15 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
         // Translate utf8 string to utf16 to use unicode encoding
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-    }
-    RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
-    COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
-    return Status::OK();
-}
 
-Status TableConnector::oracle_type_append(
-        const std::string& table_name, vectorized::Block* block,
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs, uint32_t start_send_row,
-        uint32_t* num_rows_sent, TOdbcTableType::type table_type) {
-    fmt::format_to(_insert_stmt_buffer, "INSERT ALL ");
-    int num_rows = block->rows();
-    int num_columns = block->columns();
-    for (int i = start_send_row; i < num_rows; ++i) {
-        (*num_rows_sent)++;
-        fmt::format_to(_insert_stmt_buffer, "INTO {} VALUES (", table_name);
-        // Construct insert statement of odbc/jdbc table
-        for (int j = 0; j < num_columns; ++j) {
-            if (j != 0) {
-                fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-            }
-            auto& column_ptr = block->get_by_position(j).column;
-            auto& type_ptr = block->get_by_position(j).type;
-            RETURN_IF_ERROR(convert_column_data(
-                    column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
-        }
-
-        if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-            fmt::format_to(_insert_stmt_buffer, "{}", ") ");
-        } else {
-            // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-            fmt::format_to(_insert_stmt_buffer, "{}", ") SELECT 1 FROM DUAL");
-            break;
-        }
+        RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
+        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+        return Status::OK();
+    } else {
+        RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs, num_rows_sent));
+        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
+        return Status::OK();
     }
-    return Status::OK();
 }
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
@@ -169,15 +149,20 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
-            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
-        } else {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
             //if is ORACLE and date type, insert into need convert
             if (is_date) {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
             } else {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd hh24:mi:ss')", str);
             }
+        } else if (table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "'{}'::date", str);
+        } else if (table_type == TOdbcTableType::SQLSERVER) {
+            // Values in sqlserver should be enclosed by single quotes
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }
     };
     const vectorized::IColumn* column = column_ptr;
@@ -264,7 +249,6 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
             table_type == TOdbcTableType::SAP_HANA) {
@@ -282,9 +266,9 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                 reinterpret_cast<const vectorized::DataTypeArray&>(*array_type).get_nested_type();
 
         //for doris、CK insert into --->  []
-        //for PG        insert into ---> '{}'
+        //for PG        insert into ---> ARRAY[]
         if (table_type == TOdbcTableType::POSTGRESQL) {
-            fmt::format_to(_insert_stmt_buffer, "{}", "'{");
+            fmt::format_to(_insert_stmt_buffer, "{}", "ARRAY[");
         } else if (table_type == TOdbcTableType::CLICKHOUSE ||
                    table_type == TOdbcTableType::MYSQL) {
             fmt::format_to(_insert_stmt_buffer, "{}", "[");
@@ -302,12 +286,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
             }
             first_value = false;
         }
-        if (table_type == TOdbcTableType::POSTGRESQL) {
-            fmt::format_to(_insert_stmt_buffer, "{}", "}'");
-        } else if (table_type == TOdbcTableType::CLICKHOUSE ||
-                   table_type == TOdbcTableType::MYSQL) {
-            fmt::format_to(_insert_stmt_buffer, "{}", "]");
-        }
+        fmt::format_to(_insert_stmt_buffer, "{}", "]");
         break;
     }
     case TYPE_DECIMALV2: {

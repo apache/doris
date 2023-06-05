@@ -17,7 +17,21 @@
 
 #include "olap/base_compaction.h"
 
+#include <gen_cpp/olap_file.pb.h>
+#include <stdint.h>
+#include <time.h>
+
+#include <memory>
+#include <mutex>
+#include <ostream>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/thread.h"
 #include "util/trace.h"
 
 namespace doris {
@@ -38,11 +52,9 @@ Status BaseCompaction::prepare_compact() {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got base compaction lock");
 
     // 1. pick rowsets to compact
-    RETURN_NOT_OK(pick_rowsets_to_compact());
-    TRACE("rowsets picked");
+    RETURN_IF_ERROR(pick_rowsets_to_compact());
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
@@ -60,7 +72,6 @@ Status BaseCompaction::execute_compact_impl() {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got base compaction lock");
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
@@ -73,8 +84,7 @@ Status BaseCompaction::execute_compact_impl() {
 
     // 2. do base compaction, merge rowsets
     int64_t permits = get_compaction_permits();
-    RETURN_NOT_OK(do_compaction(permits));
-    TRACE("compaction finished");
+    RETURN_IF_ERROR(do_compaction(permits));
 
     // 3. set state to success
     _state = CompactionState::SUCCESS;
@@ -82,7 +92,6 @@ Status BaseCompaction::execute_compact_impl() {
     // 4. add metric to base compaction
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
-    TRACE("save base compaction metrics");
 
     return Status::OK();
 }
@@ -112,8 +121,8 @@ void BaseCompaction::_filter_input_rowset() {
 
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
-    RETURN_NOT_OK(check_version_continuity(_input_rowsets));
-    RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
+    RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
+    RETURN_IF_ERROR(_check_rowset_overlapping(_input_rowsets));
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>();

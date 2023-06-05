@@ -108,7 +108,6 @@ public final class MetricRepo {
     public static Histogram HISTO_TXN_PUBLISH_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_PUBLISH_TXN_NUM;
-    public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_REPLICA_NUM;
 
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
@@ -442,18 +441,6 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
         DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
                 () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT, "number of publish transactions"));
-
-        GaugeMetric<Long> txnReplicaNum = new GaugeMetric<Long>("txn_replica_num", MetricUnit.NOUNIT,
-                "number of writing tablets in all running transactions") {
-            @Override
-            public Long getValue() {
-                return Env.getCurrentGlobalTransactionMgr().getAllRunningTxnReplicaNum();
-            }
-        };
-        DORIS_METRIC_REGISTER.addMetrics(txnReplicaNum);
-        DB_GAUGE_TXN_REPLICA_NUM = addLabeledMetrics("db", () -> new GaugeMetricImpl<>("txn_replica_num",
-                MetricUnit.NOUNIT, "number of writing tablets in all running transactions"));
-
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
                 "total rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ROWS);
@@ -596,7 +583,7 @@ public final class MetricRepo {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
-        for (Long beId : infoService.getBackendIds(false)) {
+        for (Long beId : infoService.getAllBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
             if (be == null) {
                 continue;
@@ -612,7 +599,7 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-            tabletNum.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletNum);
 
             // max compaction score of tablets on each backends
@@ -626,7 +613,7 @@ public final class MetricRepo {
                     return be.getTabletMaxCompactionScore();
                 }
             };
-            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getIp() + ":" + be.getHeartbeatPort()));
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             DORIS_METRIC_REGISTER.addMetrics(tabletMaxCompactionScore);
 
         } // end for backends

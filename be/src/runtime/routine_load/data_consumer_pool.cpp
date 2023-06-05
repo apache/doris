@@ -17,8 +17,24 @@
 
 #include "runtime/routine_load/data_consumer_pool.h"
 
+#include <gen_cpp/Types_types.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ctime>
+#include <iterator>
+#include <map>
+#include <ostream>
+#include <vector>
+
 #include "common/config.h"
+#include "common/logging.h"
+#include "common/status.h"
+#include "runtime/routine_load/data_consumer.h"
 #include "runtime/routine_load/data_consumer_group.h"
+#include "runtime/stream_load/stream_load_context.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -101,7 +117,6 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
                 << ", current pool size: " << _pool.size();
-    return;
 }
 
 void DataConsumerPool::return_consumers(DataConsumerGroup* grp) {
@@ -114,9 +129,6 @@ Status DataConsumerPool::start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "ResultBufferMgr", "clean_idle_consumer",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
                 do {
                     _clean_idle_consumer_bg();
                 } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));

@@ -39,9 +39,11 @@ struct TTabletSchema {
     11: optional Types.TSortType sort_type
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
-    14: optional bool store_row_column = false
+    14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
-    16: optional i32 version_col_idx = -1
+    16: optional bool store_row_column = false
+    17: optional bool enable_single_replica_compaction = false
+    18: optional bool skip_write_index_on_load = false
 }
 
 // this enum stands for different storage format in src_backends
@@ -105,6 +107,13 @@ enum TCompressionType {
 }
 
 
+struct TBinlogConfig {
+    1: optional bool enable;
+    2: optional i64 ttl_seconds;
+    3: optional i64 max_bytes;
+    4: optional i64 max_history_nums;
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -131,6 +140,7 @@ struct TCreateTabletReq {
     // 18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
     20: optional i64 storage_policy_id
+    21: optional TBinlogConfig binlog_config
 }
 
 struct TDropTabletReq {
@@ -152,6 +162,12 @@ enum TAlterTabletType {
     MIGRATION = 3
 }
 
+struct TAlterMaterializedViewParam {
+    1: required string column_name
+    2: optional string origin_column_name
+    3: optional Exprs.TExpr mv_expr
+}
+
 // This v2 request will replace the old TAlterTabletReq.
 // TAlterTabletReq should be deprecated after new alter job process merged.
 struct TAlterTabletReqV2 {
@@ -166,25 +182,20 @@ struct TAlterTabletReqV2 {
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
+    11: optional i32 be_exec_version = 0
 }
 
 struct TAlterInvertedIndexReq {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
-    3: optional Types.TVersion alter_version
-    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
+    3: optional Types.TVersion alter_version // Deprecated
+    4: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE // Deprecated
     5: optional bool is_drop_op= false
     6: optional list<Descriptors.TOlapTableIndex> alter_inverted_indexes
-    7: optional list<Descriptors.TOlapTableIndex> indexes
+    7: optional list<Descriptors.TOlapTableIndex> indexes_desc
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration
-}
-
-struct TAlterMaterializedViewParam {
-    1: required string column_name
-    2: optional string origin_column_name
-    3: optional Exprs.TExpr mv_expr
 }
 
 struct TStorageMigrationReqV2 {
@@ -274,7 +285,7 @@ struct TUploadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
-
+    6: optional string location // root path
 }
 
 struct TDownloadReq {
@@ -283,6 +294,7 @@ struct TDownloadReq {
     3: required Types.TNetworkAddress broker_addr
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
+    6: optional string location // root path
 }
 
 struct TSnapshotRequest {
@@ -298,6 +310,8 @@ struct TSnapshotRequest {
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
     10: optional bool is_copy_tablet_task
+    11: optional Types.TVersion start_version
+    12: optional Types.TVersion end_version
 }
 
 struct TReleaseSnapshotRequest {
@@ -353,17 +367,20 @@ struct TRecoverTabletReq {
 
 enum TTabletMetaType {
     PARTITIONID,
-    INMEMORY
+    INMEMORY,
+    BINLOG_CONFIG
 }
 
 struct TTabletMetaInfo {
     1: optional Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TPartitionId partition_id
-    4: optional TTabletMetaType meta_type
+    // 4: optional TTabletMetaType Deprecated_meta_type
     5: optional bool is_in_memory
-    // 6: optional string storage_policy;
+    // 6: optional string Deprecated_storage_policy
     7: optional i64 storage_policy_id
+    8: optional Types.TReplicaId replica_id
+    9: optional TBinlogConfig binlog_config
 }
 
 struct TUpdateTabletMetaInfoReq {

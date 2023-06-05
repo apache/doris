@@ -49,6 +49,8 @@ struct TRuntimeProfileNode {
   
   // map from parent counter name to child counter name
   8: required map<string, set<string>> child_counters_map
+
+  9: required i64 timestamp
 }
 
 // A flattened tree of runtime profiles, obtained by an

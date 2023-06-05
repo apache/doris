@@ -17,12 +17,32 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/types.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -31,17 +51,17 @@ class IOBufAsZeroCopyInputStream;
 namespace doris {
 class ObjectPool;
 class RuntimePredicateWrapper;
-class MemTracker;
 class PPublishFilterRequest;
+class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
 class RowDescriptor;
 class PInFilter;
 class PMinMaxFilter;
-class HashJoinNode;
-class RuntimeProfile;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
+class TNetworkAddress;
+class TQueryOptions;
 
 namespace vectorized {
 class VExpr;
@@ -88,7 +108,6 @@ struct RuntimeFilterParams {
               bloom_filter_size(-1),
               max_in_num(0),
               filter_id(0),
-              fragment_instance_id(0, 0),
               bitmap_filter_not_in(false) {}
 
     RuntimeFilterType filter_type;
@@ -97,8 +116,8 @@ struct RuntimeFilterParams {
     int64_t bloom_filter_size;
     int32_t max_in_num;
     int32_t filter_id;
-    UniqueId fragment_instance_id;
     bool bitmap_filter_not_in;
+    bool build_bf_exactly;
 };
 
 struct UpdateRuntimeFilterParams {
@@ -106,6 +125,16 @@ struct UpdateRuntimeFilterParams {
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
             : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequest* request;
+    butil::IOBufAsZeroCopyInputStream* data;
+    ObjectPool* pool;
+};
+
+struct UpdateRuntimeFilterParamsV2 {
+    UpdateRuntimeFilterParamsV2(const PPublishFilterRequestV2* req,
+                                butil::IOBufAsZeroCopyInputStream* data_stream,
+                                ObjectPool* obj_pool)
+            : request(req), data(data_stream), pool(obj_pool) {}
+    const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
     ObjectPool* pool;
 };
@@ -145,13 +174,35 @@ public:
               _expr_order(-1),
               _always_true(false),
               _is_ignored(false),
-              registration_time_(MonotonicMillis()) {}
+              registration_time_(MonotonicMillis()),
+              _enable_pipeline_exec(_state->enable_pipeline_exec()) {}
+
+    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool)
+            : _query_ctx(query_ctx),
+              _pool(pool),
+              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
+              _filter_id(-1),
+              _is_broadcast_join(true),
+              _has_remote_target(false),
+              _has_local_target(false),
+              _rf_state(RuntimeFilterState::NOT_READY),
+              _rf_state_atomic(RuntimeFilterState::NOT_READY),
+              _role(RuntimeFilterRole::PRODUCER),
+              _expr_order(-1),
+              _always_true(false),
+              _is_ignored(false),
+              registration_time_(MonotonicMillis()),
+              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()) {}
 
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res);
+                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
+
+    static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
+                         const TQueryOptions* query_options, const RuntimeFilterRole role,
+                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -170,23 +221,22 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
+    Status get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs);
 
-    Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
-                               const RowDescriptor& desc);
+    Status get_prepared_exprs(std::vector<doris::vectorized::VExprSPtr>* push_exprs,
+                              const RowDescriptor& desc, RuntimeState* state);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
     bool has_remote_target() const { return _has_remote_target; }
 
     bool is_ready() const {
-        return (!_state->enable_pipeline_exec() && _rf_state == RuntimeFilterState::READY) ||
-               (_state->enable_pipeline_exec() &&
+        return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
+               (_enable_pipeline_exec &&
                 _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
     }
     RuntimeFilterState current_state() const {
-        return _state->enable_pipeline_exec() ? _rf_state_atomic.load(std::memory_order_acquire)
-                                              : _rf_state;
+        return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
     }
     bool is_ready_or_timeout();
 
@@ -207,31 +257,33 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id, int node_id = -1);
+                          int node_id = -1, bool build_bf_exactly = false);
 
     BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
     Status serialize(PPublishFilterRequest* request, void** data = nullptr, int* len = nullptr);
+    Status serialize(PPublishFilterRequestV2* request, void** data = nullptr, int* len = nullptr);
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
     // for ut
-    const RuntimePredicateWrapper* get_wrapper();
     static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+    static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
+                                 ObjectPool* pool,
+                                 std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
+    Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
+    Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
     void set_ignored() { _is_ignored = true; }
-
-    // for ut
-    bool is_ignored() const { return _is_ignored; }
 
     void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
 
@@ -242,21 +294,19 @@ public:
     Status consumer_close();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
     Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);
 
-    void update_runtime_filter_type_to_profile();
+    std::string& get_name() { return _name; }
 
-    void set_push_down_profile();
+    void update_runtime_filter_type_to_profile();
 
     void ready_for_publish();
 
-    std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const;
-
-    static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
-        return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
+    static bool enable_use_batch(bool use_batch, PrimitiveType type) {
+        return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
     }
 
     int filter_id() const { return _filter_id; }
@@ -284,7 +334,7 @@ protected:
     }
 
     std::string _get_explain_state_string() {
-        if (_state->enable_pipeline_exec()) {
+        if (_enable_pipeline_exec) {
             return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
                            ? "READY"
                    : _rf_state_atomic.load(std::memory_order_acquire) ==
@@ -298,11 +348,12 @@ protected:
         }
     }
 
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
+    QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper = nullptr;
+    RuntimePredicateWrapper* _wrapper;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
     // runtime filter id
@@ -330,25 +381,31 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    doris::vectorized::VExprContext* _vprobe_ctx;
+    doris::vectorized::VExprContextSPtr _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
     std::string _ignored_msg;
 
-    std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
+    std::vector<doris::vectorized::VExprSPtr> _push_down_vexprs;
 
     struct rpc_context;
+
     std::shared_ptr<rpc_context> _rpc_context;
 
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    // unix millis
-    RuntimeProfile::Counter* _await_time_cost = nullptr;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
+
+    const bool _enable_pipeline_exec;
+
+    bool _profile_init = false;
+    doris::Mutex _profile_mutex;
+    std::string _name;
+    bool _opt_remote_rf;
 };
 
 // avoid expose RuntimePredicateWrapper
@@ -411,7 +468,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
     } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+        auto origin_value = reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);

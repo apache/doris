@@ -17,8 +17,14 @@
 
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -53,7 +59,6 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size);
     RETURN_IF_ERROR((*bf)->init(value.data, value.size,
                                 _reader->_bloom_filter_index_meta->hash_strategy()));
-    _pool->clear();
     return Status::OK();
 }
 

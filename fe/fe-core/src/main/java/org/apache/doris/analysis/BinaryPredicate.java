@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -166,6 +167,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+    }
+
+    public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+        super();
+        this.op = op;
+        this.opcode = op.opcode;
+        Preconditions.checkNotNull(e1);
+        children.add(e1);
+        Preconditions.checkNotNull(e2);
+        children.add(e2);
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -401,13 +414,21 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
-            return Type.DECIMALV2;
+        if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
+                || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
+                || (t2 == PrimitiveType.LARGEINT && t1 == PrimitiveType.DECIMALV2)) {
+            // only decimalv3 can hold big and large int
+            return ScalarType.createDecimalType(PrimitiveType.DECIMAL128, ScalarType.MAX_DECIMAL128_PRECISION,
+                    ScalarType.MAX_DECIMALV2_SCALE);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
+        }
+        // MySQL will try to parse string as bigint, if failed, will take string as 0.
+        if (t1 == PrimitiveType.BIGINT && t2.isCharFamily()) {
+            return Type.BIGINT;
         }
 
         // Implicit conversion affects query performance.
@@ -586,9 +607,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     public Range<LiteralExpr> convertToRange() {
-        Preconditions.checkState(getChild(0) instanceof SlotRef);
-        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
-        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        Preconditions.checkState(getChildWithoutCast(0) instanceof SlotRef);
+        Preconditions.checkState(getChildWithoutCast(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChildWithoutCast(1);
         switch (op) {
             case EQ:
                 return Range.singleton(literalExpr);
@@ -778,11 +799,5 @@ public class BinaryPredicate extends Predicate implements Writable {
             return false;
         }
         return hasNullableChild();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
     }
 }

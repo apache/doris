@@ -17,38 +17,49 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
 #include <cstdint>
+#include <map>
 #include <memory> // for unique_ptr
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h" // Status
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
-#include "olap/iterators.h"
-#include "olap/primary_key_index.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/short_key_index.h"
+#include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "util/faststring.h"
 #include "util/once.h"
+#include "util/slice.h"
 
 namespace doris {
 
-class TabletSchema;
 class ShortKeyIndexDecoder;
 class Schema;
 class StorageReadOptions;
+class MemTracker;
+class PrimaryKeyIndexReader;
+class RowwiseIterator;
+
+namespace io {
+class FileReaderOptions;
+} // namespace io
+struct RowLocation;
 
 namespace segment_v2 {
 
 class BitmapIndexIterator;
-class ColumnReader;
-class ColumnIterator;
 class Segment;
-class SegmentIterator;
+class InvertedIndexIterator;
+
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
@@ -67,7 +78,7 @@ public:
 
     ~Segment();
 
-    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
+    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     uint32_t id() const { return _segment_id; }
@@ -76,13 +87,15 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column,
+                               std::unique_ptr<ColumnIterator>* iter);
 
-    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                     std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
                                        const TabletIndex* index_meta, OlapReaderStatistics* stats,
-                                       InvertedIndexIterator** iter);
+                                       std::unique_ptr<InvertedIndexIterator>* iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -94,7 +107,7 @@ public:
         return _pk_index_reader.get();
     }
 
-    Status lookup_row_key(const Slice& key, RowLocation* row_location);
+    Status lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 

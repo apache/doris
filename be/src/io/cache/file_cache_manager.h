@@ -17,17 +17,22 @@
 
 #pragma once
 
-#include <list>
-#include <memory>
-#include <queue>
+#include <stdint.h>
 
-#include "common/config.h"
+#include <list>
+#include <map>
+#include <queue>
+#include <shared_mutex>
+#include <string>
+#include <vector>
+
 #include "common/status.h"
 #include "io/cache/file_cache.h"
-#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
 namespace io {
+enum class FileCachePolicy : uint8_t;
 
 class GCContextPerDisk {
 public:

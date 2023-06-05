@@ -1,1 +1,1 @@
-SELECT * FROM tbl_scalar_types_dup ORDER BY c_datev2, c_bigint LIMIT 20;
+SELECT * FROM tbl_scalar_types_dup ORDER BY c_datev2 ASC, c_bigint ASC LIMIT 20;

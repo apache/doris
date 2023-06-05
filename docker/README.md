@@ -26,6 +26,8 @@ under the License.
     ```console
     $ cd /to/your/workspace/
     $ git clone https://github.com/apache/doris.git
+    $ cd doris
+    $ git submodule update --init --recursive
     ```
 
     You can remove the `.git` dir in `doris/` to make the dir size smaller.

@@ -41,6 +41,8 @@ public class IndexDef {
     private IndexType indexType;
     private String comment;
     private Map<String, String> properties;
+    private boolean isBuildDeferred = false;
+    private PartitionNames partitionNames;
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -73,7 +75,24 @@ public class IndexDef {
         }
     }
 
+    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+        this.indexName = indexName;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = isBuildDeferred;
+    }
+
     public void analyze() throws AnalysisException {
+        if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
+            if (Strings.isNullOrEmpty(indexName)) {
+                throw new AnalysisException("index name cannot be blank.");
+            }
+            if (indexName.length() > 128) {
+                throw new AnalysisException("index name too long, the index name length at most is 128.");
+            }
+            return;
+        }
+
         if (indexType == IndexDef.IndexType.BITMAP
                 || indexType == IndexDef.IndexType.INVERTED) {
             if (columns == null || columns.size() != 1) {
@@ -168,6 +187,14 @@ public class IndexDef {
         return ifNotExists;
     }
 
+    public boolean isBuildDeferred() {
+        return isBuildDeferred;
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    }
+
     public enum IndexType {
         BITMAP,
         INVERTED,
@@ -179,7 +206,8 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
-    public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -192,10 +220,17 @@ public class IndexDef {
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid column: " + indexColName);
-            } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
+            } else if (indexType == IndexType.INVERTED
+                    && ((keysType == KeysType.AGG_KEYS && !column.isKey())
+                        || (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite))) {
                 throw new AnalysisException(indexType.toString()
-                        + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
-                                + " AGG_KEYS table. invalid column: " + indexColName);
+                    + " index only used in columns of DUP_KEYS table"
+                    + " or UNIQUE_KEYS table with merge_on_write enabled"
+                    + " or key columns of AGG_KEYS table. invalid column: " + indexColName);
+            } else if (keysType == KeysType.AGG_KEYS && !column.isKey() && indexType != IndexType.INVERTED) {
+                throw new AnalysisException(indexType.toString()
+                    + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                    + " AGG_KEYS table. invalid column: " + indexColName);
             }
 
             if (indexType == IndexType.INVERTED) {
@@ -228,14 +263,6 @@ public class IndexDef {
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
-        }
-    }
-
-    public void checkColumns(List<Column> columns, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
-            for (Column col : columns) {
-                checkColumn(col, keysType);
-            }
         }
     }
 }

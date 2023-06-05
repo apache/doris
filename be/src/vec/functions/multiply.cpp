@@ -18,9 +18,16 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Multiply.cpp
 // and modified by Doris
 
+#include <stddef.h>
+
+#include <utility>
+
+#include "gutil/integral_types.h"
 #include "runtime/decimalv2_value.h"
-#include "vec/columns/column_decimal.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
+#include "vec/core/types.h"
+#include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -41,10 +48,9 @@ struct MultiplyImpl {
         return a * b;
     }
 
-    static void vector_vector(const ColumnDecimal128::Container& a,
-                              const ColumnDecimal128::Container& b,
-                              ColumnDecimal128::Container& c) {
-        size_t size = c.size();
+    static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
+                              const ColumnDecimal128::Container::value_type* __restrict b,
+                              ColumnDecimal128::Container::value_type* c, size_t size) {
         int8 sgn[size];
 
         for (int i = 0; i < size; i++) {
@@ -58,9 +64,15 @@ struct MultiplyImpl {
         }
 
         for (int i = 0; i < size; i++) {
-            c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
-                           DecimalV2Value::ONE_BILLION +
-                   sgn[i];
+            int128_t i128_mul_result;
+            if (common::mul_overflow(DecimalV2Value(a[i]).value(), DecimalV2Value(b[i]).value(),
+                                     i128_mul_result)) {
+                VLOG_DEBUG << "Decimal multiply overflow";
+                c[i] = (sgn[i] == -1) ? -DecimalV2Value::MAX_DECIMAL_VALUE
+                                      : DecimalV2Value::MAX_DECIMAL_VALUE;
+            } else {
+                c[i] = (i128_mul_result - sgn[i]) / DecimalV2Value::ONE_BILLION + sgn[i];
+            }
         }
     }
 

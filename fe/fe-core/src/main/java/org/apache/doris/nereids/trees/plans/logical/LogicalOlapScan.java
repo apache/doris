@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.mv.AbstractSelectMaterializedIndexRule;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -40,12 +41,13 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -73,6 +75,14 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
      */
     private final PreAggStatus preAggStatus;
 
+    /**
+     * When the Slotreference is generated through fromColumn,
+     * the exprId will be generated incrementally,
+     * causing the slotId of the base to change when the output is recalculated.
+     * This structure is responsible for storing the generated Slotreference
+     */
+    private final Map<String, Slot> cacheSlotWithSlotName;
+
     ///////////////////////////////////////////////////////////////////////////
     // Members for tablet ids.
     ///////////////////////////////////////////////////////////////////////////
@@ -81,11 +91,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
      * Selected tablet ids to read data from.
      */
     private final List<Long> selectedTabletIds;
-
-    /**
-     * Status to indicate tablets are pruned or not.
-     */
-    private final boolean tabletPruned;
 
     ///////////////////////////////////////////////////////////////////////////
     // Members for partition ids.
@@ -111,28 +116,28 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
-                ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(),
+                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of(), Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
-                ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), ImmutableList.of(), hints);
+                ImmutableList.of(),
+                -1, false, PreAggStatus.on(), ImmutableList.of(), hints, Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
             List<String> hints) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                specifiedPartitions, false, ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), specifiedPartitions, hints);
+                specifiedPartitions, false, ImmutableList.of(),
+                -1, false, PreAggStatus.on(), specifiedPartitions, hints, Maps.newHashMap());
     }
 
     public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of());
+                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(),
+                -1, false, PreAggStatus.on(), ImmutableList.of(), ImmutableList.of(), Maps.newHashMap());
     }
 
     /**
@@ -141,22 +146,24 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public LogicalOlapScan(ObjectId id, Table table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds, boolean partitionPruned,
-            List<Long> selectedTabletIds, boolean tabletPruned,
-            long selectedIndexId, boolean indexSelected, PreAggStatus preAggStatus, List<Long> partitions,
-            List<String> hints) {
+            List<Long> selectedTabletIds, long selectedIndexId, boolean indexSelected,
+            PreAggStatus preAggStatus, List<Long> partitions,
+            List<String> hints, Map<String, Slot> cacheSlotWithSlotName) {
 
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
+        Preconditions.checkArgument(selectedPartitionIds != null, "selectedPartitionIds can not be null");
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.partitionPruned = partitionPruned;
-        this.tabletPruned = tabletPruned;
         this.selectedIndexId = selectedIndexId <= 0 ? getTable().getBaseIndexId() : selectedIndexId;
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(partitions);
-        this.selectedPartitionIds = ImmutableList.copyOf(
-                Objects.requireNonNull(selectedPartitionIds, "selectedPartitionIds can not be null"));
+        this.selectedPartitionIds = selectedPartitionIds.stream()
+                .filter(partitionId -> this.getTable().getPartition(partitionId).hasData()).collect(
+                        Collectors.toList());
         this.hints = Objects.requireNonNull(hints, "hints can not be null");
+        this.cacheSlotWithSlotName = Objects.requireNonNull(cacheSlotWithSlotName, "mvNameToSlot can not be null");
     }
 
     public List<Long> getSelectedPartitionIds() {
@@ -200,8 +207,8 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
                 && Objects.equals(selectedIndexId, ((LogicalOlapScan) o).selectedIndexId)
                 && Objects.equals(indexSelected, ((LogicalOlapScan) o).indexSelected)
                 && Objects.equals(selectedTabletIds, ((LogicalOlapScan) o).selectedTabletIds)
-                && Objects.equals(tabletPruned, ((LogicalOlapScan) o).tabletPruned)
-                && Objects.equals(hints, ((LogicalOlapScan) o).hints);
+                && Objects.equals(hints, ((LogicalOlapScan) o).hints)
+                && Objects.equals(cacheSlotWithSlotName, ((LogicalOlapScan) o).cacheSlotWithSlotName);
     }
 
     @Override
@@ -209,46 +216,51 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         return Objects.hash(id,
                 selectedPartitionIds, partitionPruned,
                 selectedIndexId, indexSelected,
-                selectedTabletIds, tabletPruned,
+                selectedTabletIds,
                 hints);
     }
 
     @Override
     public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName);
     }
 
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, true, selectedTabletIds, tabletPruned,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, true, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, long indexId) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                indexId, true, preAgg, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                indexId, true, preAgg, manuallySpecifiedPartitions, hints, cacheSlotWithSlotName);
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName);
     }
 
     public LogicalOlapScan withPreAggStatus(PreAggStatus preAggStatus) {
         return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints);
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName);
     }
 
     @Override
@@ -258,10 +270,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     public boolean isPartitionPruned() {
         return partitionPruned;
-    }
-
-    public boolean isTabletPruned() {
-        return tabletPruned;
     }
 
     public List<Long> getSelectedTabletIds() {
@@ -289,6 +297,9 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     @Override
     public List<Slot> computeOutput() {
+        if (selectedIndexId != ((OlapTable) table).getBaseIndexId()) {
+            return getOutputByMvIndex(selectedIndexId);
+        }
         List<Column> otherColumns = new ArrayList<>();
         if (!Util.showHiddenColumns() && getTable().hasDeleteSign()
                 && !ConnectContext.get().getSessionVariable()
@@ -296,30 +307,45 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
             otherColumns.add(getTable().getDeleteSignColumn());
         }
         return Stream.concat(table.getBaseSchema().stream(), otherColumns.stream())
-                .map(col -> SlotReference.fromColumn(col, qualified()))
+                .map(col -> {
+                    if (cacheSlotWithSlotName.containsKey(col.getName())) {
+                        return cacheSlotWithSlotName.get(col.getName());
+                    }
+                    Slot slot = SlotReference.fromColumn(col, qualified());
+                    cacheSlotWithSlotName.put(col.getName(), slot);
+                    return slot;
+                })
                 .collect(ImmutableList.toImmutableList());
     }
 
-    @Override
-    public List<Slot> computeNonUserVisibleOutput() {
-        // if (getTable().getIndexIdToMeta().size() == 1) {
-        //     return ImmutableList.of();
-        // }
-        Set<String> baseSchemaColNames = table.getBaseSchema().stream()
-                .map(Column::getName)
-                .collect(Collectors.toSet());
-
+    /**
+     * Get the slot under the index,
+     * and create a new slotReference for the slot that has not appeared in the materialized view.
+     */
+    public List<Slot> getOutputByMvIndex(long indexId) {
         OlapTable olapTable = (OlapTable) table;
-        // extra columns in materialized index, such as `mv_bitmap_union_xxx`
-        return olapTable.getVisibleIndexIdToMeta().values()
+        // PhysicalStorageLayerAggregateTest has no visible index
+        if (-1 == indexId) {
+            return olapTable.getIndexMetaByIndexId(indexId).getSchema()
+                .stream().map(s -> generateUniqueSlot(s, indexId == ((OlapTable) table).getBaseIndexId()))
+                .collect(Collectors.toList());
+        }
+        return olapTable.getVisibleIndexIdToMeta().get(indexId).getSchema()
                 .stream()
-                .filter(index -> index.getIndexId() != ((OlapTable) table).getBaseIndexId())
-                .flatMap(index -> index.getSchema()
-                        .stream()
-                        .filter(col -> !baseSchemaColNames.contains(col.getName()))
-                )
-                .map(col -> SlotReference.fromColumn(col, qualified()))
+                .map(s -> generateUniqueSlot(s, indexId == ((OlapTable) table).getBaseIndexId()))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    private Slot generateUniqueSlot(Column column, boolean isBaseIndex) {
+        String name = isBaseIndex ? column.getName()
+                : AbstractSelectMaterializedIndexRule.parseMvColumnToMvName(column.getName(),
+                column.isAggregated() ? Optional.of(column.getAggregationType().toSql()) : Optional.empty());
+        if (cacheSlotWithSlotName.containsKey(name)) {
+            return cacheSlotWithSlotName.get(name);
+        }
+        Slot slot = SlotReference.fromColumn(column, name, qualified());
+        cacheSlotWithSlotName.put(name, slot);
+        return slot;
     }
 
     public List<Long> getManuallySpecifiedPartitions() {

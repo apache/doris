@@ -17,30 +17,65 @@
 
 #include "io/fs/remote_file_system.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+
+#include "common/config.h"
 #include "gutil/strings/stringpiece.h"
 #include "io/cache/block/cached_remote_file_reader.h"
+#include "io/cache/file_cache.h"
 #include "io/cache/file_cache_manager.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {
 
-Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
-                                   FileReaderSPtr* reader, IOContext* io_ctx) {
-    if (bthread_self() == 0) {
-        return open_file_impl(path, reader_options, reader, io_ctx);
+Status RemoteFileSystem::upload(const Path& local_file, const Path& dest_file) {
+    auto dest_path = absolute_path(dest_file);
+    FILESYSTEM_M(upload_impl(local_file, dest_path));
+}
+
+Status RemoteFileSystem::batch_upload(const std::vector<Path>& local_files,
+                                      const std::vector<Path>& remote_files) {
+    std::vector<Path> remote_paths;
+    for (auto& path : remote_files) {
+        remote_paths.push_back(absolute_path(path));
     }
-    Status s;
-    auto task = [&] { s = open_file_impl(path, reader_options, reader, io_ctx); };
-    AsyncIO::run_task(task, io::FileSystemType::S3);
-    return s;
+    FILESYSTEM_M(batch_upload_impl(local_files, remote_paths));
+}
+
+Status RemoteFileSystem::direct_upload(const Path& remote_file, const std::string& content) {
+    auto remote_path = absolute_path(remote_file);
+    FILESYSTEM_M(direct_upload_impl(remote_path, content));
+}
+
+Status RemoteFileSystem::upload_with_checksum(const Path& local_file, const Path& remote,
+                                              const std::string& checksum) {
+    auto remote_path = absolute_path(remote);
+    FILESYSTEM_M(upload_with_checksum_impl(local_file, remote_path, checksum));
+}
+
+Status RemoteFileSystem::download(const Path& remote_file, const Path& local) {
+    auto remote_path = absolute_path(remote_file);
+    FILESYSTEM_M(download_impl(remote_path, local));
+}
+
+Status RemoteFileSystem::direct_download(const Path& remote_file, std::string* content) {
+    auto remote_path = absolute_path(remote_file);
+    FILESYSTEM_M(direct_download_impl(remote_path, content));
+}
+
+Status RemoteFileSystem::connect() {
+    FILESYSTEM_M(connect_impl());
 }
 
 Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
-                                        FileReaderSPtr* reader, IOContext* io_ctx) {
+                                        FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
+    RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
@@ -57,11 +92,17 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
         break;
     }
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
-        DCHECK(io_ctx);
         StringPiece str(raw_reader->path().native());
         std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
-        *reader =
-                std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path, io_ctx);
+        if (reader_options.has_cache_base_path) {
+            // from query session variable: file_cache_base_path
+            *reader = std::make_shared<CachedRemoteFileReader>(
+                    std::move(raw_reader), reader_options.cache_base_path, cache_path,
+                    reader_options.modification_time);
+        } else {
+            *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path,
+                                                               reader_options.modification_time);
+        }
         break;
     }
     default: {

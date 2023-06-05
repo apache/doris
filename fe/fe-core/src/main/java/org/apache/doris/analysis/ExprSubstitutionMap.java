@@ -86,9 +86,10 @@ public final class ExprSubstitutionMap {
                 if (lhsExpr.notCheckDescIdEquals(lhs.get(i))) {
                     return rhs.get(i);
                 }
-            }
-            if (lhsExpr.equals(lhs.get(i))) {
-                return rhs.get(i);
+            } else {
+                if (lhsExpr.equals(lhs.get(i))) {
+                    return rhs.get(i);
+                }
             }
         }
         return null;
@@ -153,7 +154,7 @@ public final class ExprSubstitutionMap {
         if (f == null) {
             return g;
         }
-        if (g == null) {
+        if (g == null || g.size() == 0) {
             return f;
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
@@ -229,7 +230,7 @@ public final class ExprSubstitutionMap {
         if (f == null) {
             return g;
         }
-        if (g == null) {
+        if (g == null || g.size() == 0) {
             return f;
         }
         ExprSubstitutionMap result = new ExprSubstitutionMap();

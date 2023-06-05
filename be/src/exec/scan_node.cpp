@@ -20,9 +20,18 @@
 
 #include "exec/scan_node.h"
 
+#include <gen_cpp/Metrics_types.h>
+
+#include <memory>
+
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class VExpr;
+} // namespace vectorized
 
 const std::string ScanNode::_s_bytes_read_counter = "BytesRead";
 const std::string ScanNode::_s_rows_read_counter = "RowsRead";
@@ -43,31 +52,6 @@ Status ScanNode::prepare(RuntimeState* state) {
             ADD_COUNTER(runtime_profile(), _s_num_disks_accessed_counter, TUnit::UNIT);
 
     return Status::OK();
-}
-
-// This function is used to remove pushed expr in expr tree.
-// It relies on the logic of function convertConjunctsToAndCompoundPredicate() of FE splicing expr.
-// It requires FE to satisfy each splicing with 'and' expr, and spliced from left to right, in order.
-// Expr tree specific forms do not require requirements.
-void ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
-                                      const std::function<bool(int)>& checker) {
-    if (_vconjunct_ctx_ptr == nullptr) {
-        return;
-    }
-
-    int leaf_index = 0;
-    vectorized::VExpr* conjunct_expr_root = (*_vconjunct_ctx_ptr)->root();
-
-    if (conjunct_expr_root != nullptr) {
-        vectorized::VExpr* new_conjunct_expr_root = vectorized::VectorizedUtils::dfs_peel_conjunct(
-                state, *_vconjunct_ctx_ptr, conjunct_expr_root, leaf_index, checker);
-        if (new_conjunct_expr_root == nullptr) {
-            (*_vconjunct_ctx_ptr)->close(state);
-            _vconjunct_ctx_ptr.reset(nullptr);
-        } else {
-            (*_vconjunct_ctx_ptr)->set_root(new_conjunct_expr_root);
-        }
-    }
 }
 
 } // namespace doris

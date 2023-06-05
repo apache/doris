@@ -20,8 +20,20 @@
 
 #include "vec/functions/function_helpers.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
 #include "common/consts.h"
+#include "util/string_util.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 
@@ -67,7 +79,8 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
                     res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
-                    LOG(FATAL) << "Illegal column for DataTypeNullable";
+                    LOG(FATAL) << "Illegal column= " << col.column->get_name()
+                               << " for DataTypeNullable";
                 }
             } else {
                 res.insert(col);

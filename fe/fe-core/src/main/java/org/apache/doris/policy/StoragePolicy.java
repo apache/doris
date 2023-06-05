@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -37,8 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,12 +161,12 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
         if (hasCooldownDatetime) {
-            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.cooldownTimestampMs = df.parse(props.get(COOLDOWN_DATETIME)).getTime();
-            } catch (ParseException e) {
+                this.cooldownTimestampMs = LocalDateTime.parse(props.get(COOLDOWN_DATETIME), TimeUtils.DATETIME_FORMAT)
+                        .atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+            } catch (DateTimeParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
-                                            props.get(COOLDOWN_DATETIME)), e);
+                        props.get(COOLDOWN_DATETIME)), e);
             }
             // ttl would be set as -1 when using datetime
             this.cooldownTtl = -1;
@@ -193,13 +193,13 @@ public class StoragePolicy extends Policy {
             throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
         Map<String, String> properties = resource.getCopiedProperties();
-        if (!properties.containsKey(S3Resource.S3_ROOT_PATH)) {
+        if (!properties.containsKey(S3Properties.ROOT_PATH)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_ROOT_PATH, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.ROOT_PATH, storageResource));
         }
-        if (!properties.containsKey(S3Resource.S3_BUCKET)) {
+        if (!properties.containsKey(S3Properties.BUCKET)) {
             throw new AnalysisException(String.format(
-                    "Missing [%s] in '%s' resource", S3Resource.S3_BUCKET, storageResource));
+                    "Missing [%s] in '%s' resource", S3Properties.BUCKET, storageResource));
         }
         return resource;
     }
@@ -325,10 +325,10 @@ public class StoragePolicy extends Policy {
             if (properties.get(COOLDOWN_DATETIME).isEmpty()) {
                 cooldownTimestampMs = -1;
             } else {
-                SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 try {
-                    cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
-                } catch (ParseException e) {
+                    cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
+                            TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }
             }

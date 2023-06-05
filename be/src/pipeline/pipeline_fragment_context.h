@@ -17,26 +17,42 @@
 
 #pragma once
 
-#include <future>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "io/fs/stream_load_pipe.h"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 class ExecNode;
 class DataSink;
 struct ReportStatusRequest;
+class ExecEnv;
+class RuntimeFilterMergeControllerEntity;
+class TDataSink;
+class TPipelineFragmentParams;
 
-namespace vectorized {
-template <bool is_intersect>
-class VSetOperationNode;
-}
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
 
 namespace pipeline {
-
-class PipelineTask;
 
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
 public:
@@ -49,7 +65,7 @@ public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
-                            std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+                            std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             const report_status_callback& report_status_cb);
 
@@ -66,8 +82,6 @@ public:
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
-    Status prepare(const doris::TExecPlanFragmentParams& request);
-
     Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
     Status submit();
@@ -76,16 +90,12 @@ public:
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
-    ExecNode*& plan() { return _root_plan; }
-
-    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
-
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "");
 
     // TODO: Support pipeline runtime filter
 
-    QueryFragmentsCtx* get_query_context() { return _query_ctx.get(); }
+    QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -110,10 +120,11 @@ public:
         return _exec_status;
     }
 
+    taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
+
 private:
-    Status _create_sink(const TDataSink& t_data_sink);
+    Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
-    Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
@@ -128,7 +139,7 @@ private:
 
     int _backend_num;
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     bool _prepared = false;
     bool _submitted = false;
@@ -140,10 +151,11 @@ private:
 
     Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
-    std::atomic_int _closed_tasks = 0;
+    std::mutex _task_mutex;
+    int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    std::atomic_int _total_tasks = 0;
+    int _total_tasks = 0;
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
 
     int32_t _next_operator_builder_id = 10000;
@@ -156,12 +168,13 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     ExecNode* _root_plan = nullptr; // lives in _runtime_state->obj_pool()
+    // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
+    // of it in pipeline task not the fragment_context
     std::unique_ptr<DataSink> _sink;
+    std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
-    std::shared_ptr<QueryFragmentsCtx> _query_ctx;
+    std::shared_ptr<QueryContext> _query_ctx;
 
-    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
-    bool _need_wait_execution_trigger = false;
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
     MonotonicStopWatch _fragment_watcher;

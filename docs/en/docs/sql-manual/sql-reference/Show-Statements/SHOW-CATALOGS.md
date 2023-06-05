@@ -54,7 +54,7 @@ Return result:
 
 ### Example
 
-1. View all created catalogs
+1. View the data catalogs that have been created currently
 
    ```sql
    SHOW CATALOGS;

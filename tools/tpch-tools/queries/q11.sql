@@ -15,31 +15,30 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=2, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
+select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
     ps_partkey,
     sum(ps_supplycost * ps_availqty) as value
 from
     partsupp,
-    (
-    select s_suppkey
-    from supplier, nation
-    where s_nationkey = n_nationkey and n_name = 'GERMANY'
-    ) B
+    supplier,
+    nation
 where
-    ps_suppkey = B.s_suppkey
+    ps_suppkey = s_suppkey
+    and s_nationkey = n_nationkey
+    and n_name = 'GERMANY'
 group by
     ps_partkey having
-        sum(ps_supplycost * ps_availqty) > (
-            select
-                sum(ps_supplycost * ps_availqty) * 0.000002
-            from
-                partsupp,
-                (select s_suppkey
-                 from supplier, nation
-                 where s_nationkey = n_nationkey and n_name = 'GERMANY'
-                ) A
-            where
-                ps_suppkey = A.s_suppkey
-        )
+    sum(ps_supplycost * ps_availqty) > (
+        select
+        sum(ps_supplycost * ps_availqty) * 0.000002
+        from
+            partsupp,
+            supplier,
+            nation
+        where
+            ps_suppkey = s_suppkey
+            and s_nationkey = n_nationkey
+            and n_name = 'GERMANY'
+    )
 order by
     value desc;

@@ -28,13 +28,13 @@
 namespace doris::vectorized {
 
 class VLambdaFunctionCallExpr : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLambdaFunctionCallExpr);
+
 public:
     VLambdaFunctionCallExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionCallExpr() override = default;
 
-    VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(new VLambdaFunctionCallExpr(*this));
-    }
+    VExprSPtr clone() const override { return VLambdaFunctionCallExpr::create_shared(*this); }
 
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) override {
@@ -67,7 +67,7 @@ public:
         out << _expr_name;
         out << "]{";
         bool first = true;
-        for (VExpr* input_expr : children()) {
+        for (auto& input_expr : children()) {
             if (first) {
                 first = false;
             } else {

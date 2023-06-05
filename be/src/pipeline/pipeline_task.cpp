@@ -17,9 +17,38 @@
 
 #include "pipeline_task.h"
 
-#include "pipeline/pipeline_fragment_context.h"
+#include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <ostream>
+
+#include "pipeline/exec/operator.h"
+#include "pipeline/pipeline.h"
+#include "pipeline_fragment_context.h"
+#include "runtime/descriptors.h"
+#include "runtime/query_context.h"
+#include "runtime/thread_context.h"
+#include "task_queue.h"
+#include "util/defer_op.h"
+
+namespace doris {
+class RuntimeState;
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
+} // namespace doris
 
 namespace doris::pipeline {
+
+void PipelineTask::_fresh_profile_counter() {
+    COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
+    COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
+    COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
+    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+}
 
 void PipelineTask::_init_profile() {
     std::stringstream ss;
@@ -77,7 +106,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block.reset(new doris::vectorized::Block());
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -97,7 +126,7 @@ bool PipelineTask::has_dependency() {
         return true;
     }
 
-    if (!query_fragments_context()->is_ready_to_execute()) {
+    if (!query_context()->is_ready_to_execute()) {
         return true;
     }
 
@@ -106,7 +135,7 @@ bool PipelineTask::has_dependency() {
     return false;
 }
 
-Status PipelineTask::open() {
+Status PipelineTask::_open() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
@@ -120,18 +149,27 @@ Status PipelineTask::open() {
     return Status::OK();
 }
 
+void PipelineTask::set_task_queue(TaskQueue* task_queue) {
+    _task_queue = task_queue;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, time_spent);
+        }
+    }};
     // The status must be runnable
     *eos = false;
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = open();
+            auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
@@ -180,10 +218,12 @@ Status PipelineTask::execute(bool* eos) {
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            RETURN_IF_ERROR(_sink->sink(_state, block, _data_state));
+            auto status = _sink->sink(_state, block, _data_state);
+            *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 break;
             }
+            RETURN_IF_ERROR(status);
         }
     }
 
@@ -193,6 +233,11 @@ Status PipelineTask::execute(bool* eos) {
 Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, _finalize_timer->value());
+        }
+    }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
 }
@@ -203,6 +248,11 @@ Status PipelineTask::try_close() {
 
 Status PipelineTask::close() {
     int64_t close_ns = 0;
+    Defer defer {[&]() {
+        if (_task_queue) {
+            _task_queue->update_statistics(this, close_ns);
+        }
+    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
@@ -215,18 +265,14 @@ Status PipelineTask::close() {
         }
     }
     if (_opened) {
-        COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
-        COUNTER_UPDATE(_schedule_counts, _schedule_time);
-        COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
-        COUNTER_UPDATE(_close_timer, close_ns);
+        _fresh_profile_counter();
+        COUNTER_SET(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
 }
 
-QueryFragmentsCtx* PipelineTask::query_fragments_context() {
+QueryContext* PipelineTask::query_context() {
     return _fragment_context->get_query_context();
 }
 
@@ -256,8 +302,13 @@ void PipelineTask::set_state(PipelineTaskState state) {
     _cur_state = state;
 }
 
-std::string PipelineTask::debug_string() const {
+std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    std::stringstream profile_ss;
+    _fresh_profile_counter();
+    _task_profile->pretty_print(&profile_ss, "");
+
+    fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
@@ -267,6 +318,10 @@ std::string PipelineTask::debug_string() const {
     fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
                    _sink->debug_string());
     return fmt::to_string(debug_string_buffer);
+}
+
+taskgroup::TaskGroup* PipelineTask::get_task_group() const {
+    return _fragment_context->get_task_group();
 }
 
 } // namespace doris::pipeline

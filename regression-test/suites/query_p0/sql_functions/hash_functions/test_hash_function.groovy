@@ -16,6 +16,7 @@
 // under the License.
 suite("test_hash_function") {
     sql "set batch_size = 4096;"
+    sql "set enable_profile = true;"
 
     qt_sql "SELECT murmur_hash3_32(null);"
     qt_sql "SELECT murmur_hash3_32(\"hello\");"

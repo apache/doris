@@ -193,14 +193,14 @@ suite("test_nereids_set_operation") {
 	    """
 
     // test_union_basic
-    qt_union30 """select 1, 2  union select 1.01, 2.0 union (select 0.0001, 0.0000001)"""
-    qt_union31 """select 1, 2 union (select "hell0", "")"""
-    qt_union32 """select 1, 2  union select 1.0, 2.0 union (select 1.00000000, 2.00000)"""
-    qt_union33 """select 1, 2  union all select 1.0, 2.0 union (select 1.00000000, 2.00000) """
-    qt_union34 """select 1, 2  union all select 1.0, 2.0 union all (select 1.00000000, 2.00000) """
-    qt_union35 """select 1, 2  union select 1.0, 2.0 union all (select 1.00000000, 2.00000) """
-    qt_union36 """select 1, 2  union distinct select 1.0, 2.0 union distinct (select 1.00000000, 2.00000) """
-    qt_union38 """select "2016-07-01" union (select "2016-07-02")"""
+    qt_union30 """select 1 c1, 2  union select 1.01, 2.0 union (select 0.0001, 0.0000001) order by c1"""
+    qt_union31 """select 1 c1, 2 union (select "hell0", "") order by c1"""
+    qt_union32 """select 1 c1, 2  union select 1.0, 2.0 union (select 1.00000000, 2.00000) order by c1"""
+    qt_union33 """select 1 c1, 2  union all select 1.0, 2.0 union (select 1.00000000, 2.00000) order by c1"""
+    qt_union34 """select 1 c1, 2  union all select 1.0, 2.0 union all (select 1.00000000, 2.00000) order by c1"""
+    qt_union35 """select 1 c1, 2  union select 1.0, 2.0 union all (select 1.00000000, 2.00000) order by c1"""
+    qt_union36 """select 1 c1, 2  union distinct select 1.0, 2.0 union distinct (select 1.00000000, 2.00000) order by c1"""
+    qt_union38 """select "2016-07-01" c1 union (select "2016-07-02") order by c1"""
 
     // test_union_bug
     // PALO-3617
@@ -275,7 +275,7 @@ suite("test_nereids_set_operation") {
             (select k1, k5 from setOperationTable)
     """
 
-    qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
+    order_qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
     
     qt_union44 """
         select * from

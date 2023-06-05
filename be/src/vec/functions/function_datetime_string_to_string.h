@@ -17,15 +17,33 @@
 
 #pragma once
 
-#include "vec/columns/column_const.h"
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -52,7 +70,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -72,21 +89,15 @@ public:
 
             if (arguments.size() == 2) {
                 const IColumn& source_col1 = *block.get_by_position(arguments[1]).column;
-                if (const auto* delta_const_column =
-                            typeid_cast<const ColumnConst*>(&source_col1)) {
-                    TransformerToStringTwoArgument<Transform>::vector_constant(
-                            context, sources->get_data(),
-                            delta_const_column->get_field().get<String>(), col_res->get_chars(),
-                            col_res->get_offsets(), vec_null_map_to);
-                } else {
-                    return Status::InternalError(
-                            "Illegal column {} is not const {}",
-                            block.get_by_position(arguments[1]).column->get_name(), name);
-                }
-            } else {
+                StringRef formatter =
+                        source_col1.get_data_at(0); // for both ColumnString or ColumnConst.
                 TransformerToStringTwoArgument<Transform>::vector_constant(
-                        context, sources->get_data(), "%Y-%m-%d %H:%i:%s", col_res->get_chars(),
+                        context, sources->get_data(), formatter, col_res->get_chars(),
                         col_res->get_offsets(), vec_null_map_to);
+            } else { //default argument
+                TransformerToStringTwoArgument<Transform>::vector_constant(
+                        context, sources->get_data(), StringRef("%Y-%m-%d %H:%i:%s"),
+                        col_res->get_chars(), col_res->get_offsets(), vec_null_map_to);
             }
 
             if (nullable_column) {

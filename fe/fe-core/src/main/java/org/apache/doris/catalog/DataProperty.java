@@ -35,9 +35,11 @@ import java.io.IOException;
 import java.util.Objects;
 
 public class DataProperty implements Writable, GsonPostProcessable {
-    public static final TStorageMedium DEFAULT_STORAGE_MEDIUM =
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD;
+    public static final TStorageMedium DEFAULT_STORAGE_MEDIUM = "SSD".equalsIgnoreCase(Config.default_storage_medium)
+            ? TStorageMedium.SSD : TStorageMedium.HDD;
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
+
+    public static final DataProperty DEFAULT_HDD_DATA_PROPERTY = new DataProperty(TStorageMedium.HDD);
 
     @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
@@ -54,13 +56,15 @@ public class DataProperty implements Writable, GsonPostProcessable {
 
     public DataProperty(TStorageMedium medium) {
         this.storageMedium = medium;
-        if (medium == TStorageMedium.SSD) {
-            long currentTimeMs = System.currentTimeMillis();
-            this.cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
-        } else {
-            this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
-        }
+        this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         this.storagePolicy = "";
+    }
+
+    public DataProperty(DataProperty other) {
+        this.storageMedium = other.storageMedium;
+        this.cooldownTimeMs = other.cooldownTimeMs;
+        this.storagePolicy = other.storagePolicy;
+        this.isMutable = other.isMutable;
     }
 
     /**

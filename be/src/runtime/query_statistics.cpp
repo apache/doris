@@ -17,6 +17,7 @@
 
 #include "runtime/query_statistics.h"
 
+#include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
 namespace doris {

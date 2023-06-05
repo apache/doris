@@ -121,9 +121,25 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
+
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
 
+    public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
+
+    public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
+
+    // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
+    public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
+    public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
+    public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
+    public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
+    public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
+
+    public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
+                                                                        "enable_duplicate_without_keys_by_default";
 
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
@@ -201,8 +217,7 @@ public class PropertyAnalyzer {
         }
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
-            // set default cooldown time
-            cooldownTimestamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
         }
 
         if (hasStoragePolicy) {
@@ -436,6 +451,7 @@ public class PropertyAnalyzer {
         return bfFpp;
     }
 
+    // analyze the colocation properties of table
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
@@ -496,6 +512,45 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        // set enable single replica compaction false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
+                            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT
+                + " must be `true` or `false`");
+    }
+
     public static Boolean analyzeStoreRowColumn(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -512,6 +567,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeSkipWriteIndexOnLoad(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        // set skip_write_index_on_load false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
     }
 
@@ -685,6 +759,56 @@ public class PropertyAnalyzer {
         return tagMap;
     }
 
+    public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return null;
+        }
+
+        Map<String, String> binlogConfigMap = Maps.newHashMap();
+        // check PROPERTIES_BINLOG_ENABLE = "binlog.enable";
+        if (properties.containsKey(PROPERTIES_BINLOG_ENABLE)) {
+            String enable = properties.get(PROPERTIES_BINLOG_ENABLE);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_ENABLE, String.valueOf(Boolean.parseBoolean(enable)));
+                properties.remove(PROPERTIES_BINLOG_ENABLE);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog enable value: " + enable);
+            }
+        }
+        // check PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
+        if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
+            String ttlSeconds = properties.get(PROPERTIES_BINLOG_TTL_SECONDS);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+                properties.remove(PROPERTIES_BINLOG_TTL_SECONDS);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog ttl_seconds value: " + ttlSeconds);
+            }
+        }
+        // check PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
+        if (properties.containsKey(PROPERTIES_BINLOG_MAX_BYTES)) {
+            String maxBytes = properties.get(PROPERTIES_BINLOG_MAX_BYTES);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_MAX_BYTES, String.valueOf(Long.parseLong(maxBytes)));
+                properties.remove(PROPERTIES_BINLOG_MAX_BYTES);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog max_bytes value: " + maxBytes);
+            }
+        }
+        // check PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
+        if (properties.containsKey(PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
+            String maxHistoryNums = properties.get(PROPERTIES_BINLOG_MAX_HISTORY_NUMS);
+            try {
+                binlogConfigMap.put(PROPERTIES_BINLOG_MAX_HISTORY_NUMS, String.valueOf(Long.parseLong(maxHistoryNums)));
+                properties.remove(PROPERTIES_BINLOG_MAX_HISTORY_NUMS);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog max_history_nums value: " + maxHistoryNums);
+            }
+        }
+
+        return binlogConfigMap;
+    }
+
     // There are 2 kinds of replication property:
     // 1. "replication_num" = "3"
     // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
@@ -756,18 +880,10 @@ public class PropertyAnalyzer {
             sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
         }
         TSortType sortType = TSortType.LEXICAL;
-        if (sortMethod.equalsIgnoreCase(TSortType.ZORDER.name())) {
-            sortType = TSortType.ZORDER;
-        } else if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+        if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
             sortType = TSortType.LEXICAL;
         } else {
-            throw new AnalysisException("only support zorder/lexical method!");
-        }
-        if (keyType != KeysType.DUP_KEYS && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only duplicate key supports zorder method!");
-        }
-        if (storageFormat != TStorageFormat.V2 && sortType == TSortType.ZORDER) {
-            throw new AnalysisException("only V2 storage format supports zorder method!");
+            throw new AnalysisException("only support lexical method now!");
         }
 
         int colNum = keyCount;
@@ -778,21 +894,16 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
             }
         }
-        if (sortType == TSortType.ZORDER && (colNum <= 1 || colNum > keyCount)) {
-            throw new AnalysisException("z-order needs 2 columns at least, " + keyCount + " columns at most!");
-        }
         DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
         return dataSortInfo;
     }
 
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return false;
+            // enable merge on write by default
+            return true;
         }
-        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
-        if (value == null) {
-            return false;
-        }
+        String value = properties.getOrDefault(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
         if (value.equals("true")) {
             return true;
@@ -818,7 +929,7 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerHiveAccessControllerFactory",
         // "access_controller.properties.prop1" = "xxx",
         // "access_controller.properties.prop2" = "yyy",
         // )

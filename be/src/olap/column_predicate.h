@@ -121,6 +121,21 @@ struct PredicateTypeTraits {
     }
 };
 
+#define EVALUATE_BY_SELECTOR(EVALUATE_IMPL_WITH_NULL_MAP, EVALUATE_IMPL_WITHOUT_NULL_MAP) \
+    const bool is_dense_column = pred_col.size() == size;                                 \
+    for (uint16_t i = 0; i < size; i++) {                                                 \
+        uint16_t idx = is_dense_column ? i : sel[i];                                      \
+        if constexpr (is_nullable) {                                                      \
+            if (EVALUATE_IMPL_WITH_NULL_MAP(idx)) {                                       \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        } else {                                                                          \
+            if (EVALUATE_IMPL_WITHOUT_NULL_MAP(idx)) {                                    \
+                sel[new_size++] = idx;                                                    \
+            }                                                                             \
+        }                                                                                 \
+    }
+
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
@@ -187,9 +202,23 @@ public:
     }
     uint32_t column_id() const { return _column_id; }
 
+    bool opposite() const { return _opposite; }
+
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +
                ", opposite=" + (_opposite ? "true" : "false");
+    }
+
+    /// Some predicates need to be cloned for each segment.
+    virtual bool need_to_clone() const { return false; }
+
+    virtual void clone(ColumnPredicate** to) const { LOG(FATAL) << "clone not supported"; }
+
+    virtual int get_filter_id() const { return -1; }
+
+    PredicateFilterInfo get_filtered_info() const {
+        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
+                                    _evaluated_rows - 1 - _passed_rows};
     }
 
     std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
@@ -240,6 +269,8 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     std::shared_ptr<PredicateParams> _predicate_params;
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
 };
 
 } //namespace doris

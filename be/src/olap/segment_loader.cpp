@@ -17,8 +17,9 @@
 
 #include "olap/segment_loader.h"
 
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_schema.h"
+#include "common/config.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -73,7 +74,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     cache_handle->owned = !use_cache;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_NOT_OK(rowset->load_segments(&segments));
+    RETURN_IF_ERROR(rowset->load_segments(&segments));
 
     if (use_cache) {
         // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
@@ -85,6 +86,10 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     }
 
     return Status::OK();
+}
+
+void SegmentLoader::erase_segment(const SegmentLoader::CacheKey& key) {
+    _cache->erase(key.encode());
 }
 
 Status SegmentLoader::prune() {

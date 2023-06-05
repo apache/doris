@@ -75,6 +75,9 @@ public class UploadAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             @RequestParam("file") MultipartFile file,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
 
         checkWithCookie(request, response, false);
 

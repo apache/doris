@@ -32,9 +32,8 @@ under the License.
 
 展开一个 json 数组。根据数组元素类型，有三种函数名称。分别对应整型、浮点和字符串数组。
 
-语法：
-
-```
+#### syntax
+```sql
 explode_json_array_int(json_str)
 explode_json_array_double(json_str)
 explode_json_array_string(json_str)
@@ -52,9 +51,6 @@ mysql> select k1 from example1 order by k1;
 |    1 |
 |    2 |
 |    3 |
-|    4 |
-|    5 |
-|    6 |
 +------+
 ```
 

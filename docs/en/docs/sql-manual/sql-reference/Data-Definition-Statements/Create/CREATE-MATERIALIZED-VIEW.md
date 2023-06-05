@@ -115,8 +115,8 @@ attention：If the materialized view contains partitioned and distributed column
 1. Create a materialized view that contains only the columns of the original table (k1, k2)
 
    ```sql
-   create materialized view k1_k2 as
-   select k1, k2 from duplicate_table;
+   create materialized view k2_k1 as
+   select k2, k1 from duplicate_table;
    ````
 
    The schema of the materialized view is as follows, the materialized view contains only two columns k1, k2 without any aggregation
@@ -125,8 +125,8 @@ attention：If the materialized view contains partitioned and distributed column
    +-------+-------+--------+------+------+ ---------+-------+
    | IndexName | Field | Type | Null | Key | Default | Extra |
    +-------+-------+--------+------+------+ ---------+-------+
-   | k1_k2 | k1 | INT | Yes | true | N/A | |
-   | | k2 | INT | Yes | true | N/A | |
+   | k2_k1 | k2 | INT | Yes | true | N/A | |
+   | | k1 | INT | Yes | true | N/A | |
    +-------+-------+--------+------+------+ ---------+-------+
    ````
 

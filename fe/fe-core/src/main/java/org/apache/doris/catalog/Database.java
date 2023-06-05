@@ -30,11 +30,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,7 +46,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -73,24 +77,32 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
+    @SerializedName(value = "clusterName")
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
     // table family group map
     private Map<Long, Table> idToTable;
+    @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
     // table name lower cast -> table name
     private Map<String, String> lowerCaseToTableName;
 
     // user define function
+    @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
     // user define encryptKey for current db
+    @SerializedName(value = "dbEncryptKey")
     private DatabaseEncryptKey dbEncryptKey;
 
+    @SerializedName(value = "dataQuotaBytes")
     private volatile long dataQuotaBytes;
 
+    @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
     private volatile long transactionQuotaSize;
@@ -101,9 +113,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         NORMAL, LINK, MOVE
     }
 
+    @SerializedName(value = "attachDbName")
     private String attachDbName;
+    @SerializedName(value = "dbState")
     private DbState dbState;
 
+    @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
     public Database() {
@@ -555,6 +570,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         out.writeLong(id);
         Text.writeString(out, fullQualifiedName);
         // write tables
+        discardHudiTable();
         int numTables = nameToTable.size();
         out.writeInt(numTables);
         for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
@@ -567,20 +583,25 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         Text.writeString(out, attachDbName);
 
         // write functions
-        out.writeInt(name2Function.size());
-        for (Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (Function function : entry.getValue()) {
-                function.write(out);
-            }
-        }
+        FunctionUtil.write(out, name2Function);
 
         // write encryptKeys
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
         dbProperties.write(out);
+    }
+
+    private void discardHudiTable() {
+        Iterator<Entry<String, Table>> iterator = nameToTable.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Table> entry = iterator.next();
+            if (entry.getValue().getType() == TableType.HUDI) {
+                LOG.warn("hudi table is deprecated, discard it. table name: {}", entry.getKey());
+                iterator.remove();
+                idToTable.remove(entry.getValue().getId());
+            }
+        }
     }
 
     @Override
@@ -606,17 +627,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
-        int numEntries = in.readInt();
-        for (int i = 0; i < numEntries; ++i) {
-            String name = Text.readString(in);
-            ImmutableList.Builder<Function> builder = ImmutableList.builder();
-            int numFunctions = in.readInt();
-            for (int j = 0; j < numFunctions; ++j) {
-                builder.add(Function.read(in));
-            }
-
-            name2Function.put(name, builder.build());
-        }
+        FunctionUtil.readFields(in, name2Function);
 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
@@ -695,140 +706,43 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.checkWritable();
-        if (addFunctionImpl(function, ifNotExists, false)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
-            addFunctionImpl(function, false, true);
+            FunctionUtil.addFunctionImpl(function, false, true, name2Function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * @param function
-     * @param ifNotExists
-     * @param isReplay
-     * @return return true if we do add the function, otherwise, return false.
-     * @throws UserException
-     */
-    private boolean addFunctionImpl(Function function, boolean ifNotExists, boolean isReplay) throws UserException {
-        String functionName = function.getFunctionName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (!isReplay) {
-            if (existFuncs != null) {
-                for (Function existFunc : existFuncs) {
-                    if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
-                        if (ifNotExists) {
-                            LOG.debug("function already exists");
-                            return false;
-                        }
-                        throw new UserException("function already exists");
-                    }
-                }
-            }
-            // Get function id for this UDF, use CatalogIdGenerator. Only get function id
-            // when isReplay is false
-            long functionId = Env.getCurrentEnv().getNextId();
-            function.setId(functionId);
-        }
-
-        ImmutableList.Builder<Function> builder = ImmutableList.builder();
-        if (existFuncs != null) {
-            builder.addAll(existFuncs);
-        }
-        builder.add(function);
-        name2Function.put(functionName, builder.build());
-        return true;
-    }
-
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (dropFunctionImpl(function, ifExists)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            dropFunctionImpl(functionSearchDesc, false);
+            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
     }
 
-    /**
-     * @param function
-     * @param ifExists
-     * @return return true if we do drop the function, otherwise, return false.
-     * @throws UserException
-     */
-    private boolean dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        String functionName = function.getName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (existFuncs == null) {
-            if (ifExists) {
-                LOG.debug("function name does not exist: " + functionName);
-                return false;
-            }
-            throw new UserException("function name does not exist: " + functionName);
-        }
-        boolean isFound = false;
-        ImmutableList.Builder<Function> builder = ImmutableList.builder();
-        for (Function existFunc : existFuncs) {
-            if (function.isIdentical(existFunc)) {
-                isFound = true;
-            } else {
-                builder.add(existFunc);
-            }
-        }
-        if (!isFound) {
-            if (ifExists) {
-                LOG.debug("function does not exist: " + function);
-                return false;
-            }
-            throw new UserException("function does not exist: " + function);
-        }
-        ImmutableList<Function> newFunctions = builder.build();
-        if (newFunctions.isEmpty()) {
-            name2Function.remove(functionName);
-        } else {
-            name2Function.put(functionName, newFunctions);
-        }
-        return true;
-    }
-
     public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
-        List<Function> fns = name2Function.get(desc.getFunctionName().getFunction());
-        if (fns == null) {
-            return null;
-        }
-        return Function.getFunction(fns, desc, mode);
+        return FunctionUtil.getFunction(desc, mode, name2Function);
     }
 
     public synchronized Function getFunction(FunctionSearchDesc function) throws AnalysisException {
-        String functionName = function.getName().getFunction();
-        List<Function> existFuncs = name2Function.get(functionName);
-        if (existFuncs == null) {
-            throw new AnalysisException("Unknown function, function=" + function.toString());
-        }
-
-        for (Function existFunc : existFuncs) {
-            if (function.isIdentical(existFunc)) {
-                return existFunc;
-            }
-        }
-        throw new AnalysisException("Unknown function, function=" + function.toString());
+        return FunctionUtil.getFunction(function, name2Function);
     }
 
     public synchronized List<Function> getFunctions() {
-        List<Function> functions = Lists.newArrayList();
-        for (Map.Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
-            functions.addAll(entry.getValue());
-        }
-        return functions;
+        return FunctionUtil.getFunctions(name2Function);
     }
 
     public boolean isInfoSchemaDb() {
@@ -921,5 +835,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             return dbEncryptKey.getName2EncryptKey().get(keyName);
         }
         return null;
+    }
+
+    public Map<Long, Table> getIdToTable() {
+        return new HashMap<>(idToTable);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

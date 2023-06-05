@@ -17,13 +17,8 @@
 
 #pragma once
 
-#include <stdio.h>
-
-#include <memory>
-
 namespace doris {
 
-class MemTracker;
 class WebPageHandler;
 
 // Adds a set of default path handlers to the webserver to display

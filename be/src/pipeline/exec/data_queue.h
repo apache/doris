@@ -16,17 +16,18 @@
 // under the License.
 #pragma once
 
+#include <stdint.h>
+
 #include <atomic>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/core/block.h"
+
 namespace doris {
-namespace vectorized {
-class Block;
-}
 namespace pipeline {
 
 class DataQueue {

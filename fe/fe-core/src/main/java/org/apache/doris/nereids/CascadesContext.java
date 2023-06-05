@@ -42,15 +42,20 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -61,7 +66,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -91,7 +98,19 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     private boolean isRewriteRoot;
 
+    private volatile boolean isTimeout = false;
+
     private Optional<Scope> outerScope = Optional.empty();
+
+    private Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
+
+    private Map<CTEId, Callable<LogicalPlan>> cteIdToCTEClosure = new HashMap<>();
+
+    private Map<CTEId, Set<Expression>> cteIdToProjects = new HashMap<>();
+
+    private Map<Integer, Set<Expression>> consumerIdToFilters = new HashMap<>();
+
+    private Map<CTEId, Set<Integer>> cteIdToConsumerUnderProjects = new HashMap<>();
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
@@ -133,6 +152,28 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
+    /**
+     * New rewrite context.
+     */
+    public static CascadesContext newRewriteContext(CascadesContext context, Plan plan) {
+        CascadesContext cascadesContext = CascadesContext.newRewriteContext(
+                context.getStatementContext(), plan, context.getCteContext());
+        cascadesContext.cteIdToConsumers = context.cteIdToConsumers;
+        cascadesContext.cteIdToProjects = context.cteIdToProjects;
+        cascadesContext.cteContext = context.cteContext;
+        cascadesContext.cteIdToCTEClosure = context.cteIdToCTEClosure;
+        cascadesContext.consumerIdToFilters = context.consumerIdToFilters;
+        return cascadesContext;
+    }
+
+    public synchronized void setIsTimeout(boolean isTimeout) {
+        this.isTimeout = isTimeout;
+    }
+
+    public synchronized boolean isTimeout() {
+        return isTimeout;
+    }
+
     public void toMemo() {
         this.memo = new Memo(plan);
     }
@@ -148,6 +189,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     public Memo getMemo() {
         return memo;
+    }
+
+    public void setTables(List<Table> tables) {
+        this.tables = tables;
     }
 
     public ConnectContext getConnectContext() {
@@ -280,6 +325,25 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         this.outerScope = Optional.ofNullable(outerScope);
     }
 
+    /**
+     * getAndCacheSessionVariable
+     */
+    public <T> T getAndCacheSessionVariable(String cacheName,
+            T defaultValue, Function<SessionVariable, T> variableSupplier) {
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null) {
+            return defaultValue;
+        }
+
+        StatementContext statementContext = getStatementContext();
+        if (statementContext == null) {
+            return defaultValue;
+        }
+        T cacheResult = statementContext.getOrRegisterCache(cacheName,
+                () -> variableSupplier.apply(connectContext.getSessionVariable()));
+        return cacheResult;
+    }
+
     private CascadesContext execute(Job job) {
         pushJob(job);
         jobScheduler.executeJobPool(this);
@@ -299,6 +363,21 @@ public class CascadesContext implements ScheduleContext, PlanSource {
                 // IGNORE
             }
         }
+    }
+
+    /** get table by table name, try to get from information from dumpfile first */
+    public Table getTableByName(String tableName) {
+        Preconditions.checkState(tables != null);
+        for (Table table : tables) {
+            if (table.getName().equals(tableName)) {
+                return table;
+            }
+        }
+        return null;
+    }
+
+    public List<Table> getTables() {
+        return tables;
     }
 
     private Set<UnboundRelation> getTables(LogicalPlan logicalPlan) {
@@ -383,7 +462,10 @@ public class CascadesContext implements ScheduleContext, PlanSource {
          */
         public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
             this.cascadesContext = cascadesContext;
-            cascadesContext.extractTables(plan);
+            // tables can also be load from dump file
+            if (cascadesContext.getTables() == null) {
+                cascadesContext.extractTables(plan);
+            }
             for (Table table : cascadesContext.tables) {
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();
@@ -399,5 +481,89 @@ public class CascadesContext implements ScheduleContext, PlanSource {
                 locked.pop().readUnlock();
             }
         }
+    }
+
+    public void putCTEIdToCTEClosure(CTEId cteId, Callable<LogicalPlan> cteClosure) {
+        this.cteIdToCTEClosure.put(cteId, cteClosure);
+    }
+
+    public void putCTEIdToCTEClosure(Map<CTEId, Callable<LogicalPlan>> cteConsumers) {
+        this.cteIdToCTEClosure.putAll(cteConsumers);
+    }
+
+    public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
+        Set<LogicalCTEConsumer> consumers =
+                this.cteIdToConsumers.computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
+        consumers.add(cteConsumer);
+    }
+
+    public void putCTEIdToConsumer(Map<CTEId, Set<LogicalCTEConsumer>> cteConsumers) {
+        this.cteIdToConsumers.putAll(cteConsumers);
+    }
+
+    public void putCTEIdToProject(CTEId cteId, Expression p) {
+        Set<Expression> projects = this.cteIdToProjects.computeIfAbsent(cteId, k -> new HashSet<>());
+        projects.add(p);
+    }
+
+    public Set<Expression> findProjectForProducer(CTEId cteId) {
+        return this.cteIdToProjects.get(cteId);
+    }
+
+    /**
+     * Fork for rewritten child tree of CTEProducer.
+     */
+    public CascadesContext forkForCTEProducer(Plan plan) {
+        CascadesContext cascadesContext = new CascadesContext(plan, memo, statementContext, PhysicalProperties.ANY);
+        cascadesContext.cteIdToConsumers = cteIdToConsumers;
+        cascadesContext.cteIdToProjects = cteIdToProjects;
+        cascadesContext.cteContext = cteContext;
+        cascadesContext.cteIdToCTEClosure = cteIdToCTEClosure;
+        cascadesContext.consumerIdToFilters = consumerIdToFilters;
+        return cascadesContext;
+    }
+
+    public int cteReferencedCount(CTEId cteId) {
+        Set<LogicalCTEConsumer> cteConsumer = cteIdToConsumers.get(cteId);
+        if (cteConsumer == null) {
+            return 0;
+        }
+        return cteIdToConsumers.get(cteId).size();
+    }
+
+    public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
+        return cteIdToConsumers;
+    }
+
+    public Map<CTEId, Callable<LogicalPlan>> getCteIdToCTEClosure() {
+        return cteIdToCTEClosure;
+    }
+
+    public LogicalPlan findCTEPlanForInline(CTEId cteId) {
+        try {
+            return cteIdToCTEClosure.get(cteId).call();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void putConsumerIdToFilter(int id, Expression filter) {
+        Set<Expression> filters = this.consumerIdToFilters.computeIfAbsent(id, k -> new HashSet<>());
+        filters.add(filter);
+    }
+
+    public Map<Integer, Set<Expression>> getConsumerIdToFilters() {
+        return consumerIdToFilters;
+    }
+
+    public void markConsumerUnderProject(LogicalCTEConsumer cteConsumer) {
+        Set<Integer> consumerIds =
+                this.cteIdToConsumerUnderProjects.computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
+        consumerIds.add(cteConsumer.getConsumerId());
+    }
+
+    public boolean couldPruneColumnOnProducer(CTEId cteId) {
+        Set<Integer> consumerIds = this.cteIdToConsumerUnderProjects.get(cteId);
+        return consumerIds.size() == this.cteIdToConsumers.get(cteId).size();
     }
 }

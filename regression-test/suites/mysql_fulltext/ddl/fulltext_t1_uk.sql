@@ -7,5 +7,6 @@ CREATE TABLE IF NOT EXISTS fulltext_t1_uk (
 UNIQUE KEY(a)
 DISTRIBUTED BY HASH(a) BUCKETS 3
 PROPERTIES ( 
-    "replication_num" = "1" 
+    "replication_num" = "1",
+    "enable_unique_key_merge_on_write" = "true"
 );

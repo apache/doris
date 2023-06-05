@@ -21,16 +21,22 @@
 #include "vec/data_types/data_type_decimal.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
+#include <string.h>
 
 #include <utility>
 
-#include "gen_cpp/data.pb.h"
+#include "runtime/decimalv2_value.h"
+#include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/int_exp.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/common/typeid_cast.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -136,14 +142,6 @@ template <typename T>
 Field DataTypeDecimal<T>::get_default() const {
     return DecimalField(T(0), scale);
 }
-
-template <typename T>
-DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
-    using PromotedType = std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                                            DataTypeDecimal<Decimal128I>>;
-    return std::make_shared<PromotedType>(PromotedType::max_precision(), scale);
-}
-
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     if constexpr (IsDecimalV2<T>) {
@@ -156,14 +154,11 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 }
 
 template <typename T>
-T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
+bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
-                                                        &result);
-    if (result != StringParser::PARSE_SUCCESS) {
-        LOG(WARNING) << "Failed to parse string of decimal";
-    }
-    return value;
+    *res = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
+                                                     &result);
+    return result == StringParser::PARSE_SUCCESS;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {

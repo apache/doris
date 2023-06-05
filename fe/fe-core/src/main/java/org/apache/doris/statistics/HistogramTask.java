@@ -19,8 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -34,8 +33,7 @@ import java.util.Map;
  */
 public class HistogramTask extends BaseAnalysisTask {
 
-    /** To avoid too much data, use the following efficient sampling method */
-    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE = "INSERT INTO "
+    private static final String ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE = "INSERT INTO "
             + "${internalDB}.${histogramStatTbl} "
             + "SELECT "
             + "    CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -45,18 +43,18 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    ${idxId} AS idx_id, "
             + "    '${colId}' AS col_id, "
             + "    ${sampleRate} AS sample_rate, "
-            + "    HISTOGRAM(`${colName}`, 1, ${maxBucketNum}) AS buckets, "
+            + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
-            + "    `${dbName}`.`${tblName}` TABLESAMPLE (${percentValue} PERCENT)";
+            + "    `${dbName}`.`${tblName}` ${sampleExpr}";
 
     @VisibleForTesting
     public HistogramTask() {
         super();
     }
 
-    public HistogramTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public HistogramTask(AnalysisInfo info) {
+        super(info);
     }
 
     @Override
@@ -67,24 +65,30 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
-        params.put("idxId", "-1");
+        params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
         params.put("dbName", info.dbName);
         params.put("tblName", String.valueOf(info.tblName));
         params.put("colName", String.valueOf(info.colName));
-        params.put("sampleRate", String.valueOf(info.sampleRate));
+        params.put("sampleRate", getSampleRateFunction());
+        params.put("sampleExpr", getSampleExpression());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
-        params.put("percentValue", String.valueOf((int) (info.sampleRate * 100)));
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String histogramSql = stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE);
-        LOG.info("SQL to collect the histogram:\n {}", histogramSql);
+        StatisticsUtil.execUpdate(stringSubstitutor.replace(ANALYZE_HISTOGRAM_SQL_TEMPLATE_TABLE));
+        Env.getCurrentEnv().getStatisticsCache().refreshHistogramSync(tbl.getId(), -1, col.getName());
+    }
 
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            this.stmtExecutor = new StmtExecutor(r.connectContext, histogramSql);
-            this.stmtExecutor.execute();
+    private String getSampleRateFunction() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "0";
         }
-
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
+        if (info.samplePercent > 0) {
+            return String.valueOf(info.samplePercent / 100.0);
+        } else {
+            long rowCount = tbl.getRowCount() > 0 ? tbl.getRowCount() : 1;
+            double sampRate = (double) info.sampleRows / rowCount;
+            return sampRate >= 1 ? "1.0" : String.format("%.4f", sampRate);
+        }
     }
 }

@@ -35,7 +35,7 @@ namespace vectorized {
 class VMysqlScanNode : public ScanNode {
 public:
     VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VMysqlScanNode() = default;
+    ~VMysqlScanNode() override = default;
 
     // initialize mysql_scanner, and create text_converter.
     Status prepare(RuntimeState* state) override;

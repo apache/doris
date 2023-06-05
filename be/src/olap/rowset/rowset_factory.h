@@ -18,9 +18,13 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
 #define DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
 
-#include "gen_cpp/olap_file.pb.h"
-#include "olap/data_dir.h"
+#include <memory>
+#include <string>
+
+#include "common/status.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 

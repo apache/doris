@@ -49,7 +49,7 @@ public class Multiply extends BinaryArithmetic implements CheckOverflowNullable 
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
             retPercision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
         }
-        Preconditions.checkState(retPercision > retScale,
+        Preconditions.checkState(retPercision >= retScale,
                 "scale " + retScale + " larger than precision " + retPercision
                         + " in Multiply return type");
         return DecimalV3Type.createDecimalV3Type(retPercision, retScale);

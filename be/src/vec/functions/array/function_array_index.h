@@ -19,13 +19,33 @@
 // and modified by Doris
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/functions/function.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -110,7 +130,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -127,7 +149,9 @@ private:
                 // StringRef operator == using vec impl
                 if (StringRef(left_raw_v, str_len) == StringRef(right_raw_v, right_len)) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;
@@ -167,7 +191,9 @@ private:
                 if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
                     nested_null_map[pos + off]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
                 // some is null while another is not
                 if (right_nested_null_map && nested_null_map &&
@@ -179,7 +205,9 @@ private:
                 }
                 if (nested_data[pos + off] == right_data[row]) {
                     ConcreteAction::apply(res, pos);
-                    break;
+                    if constexpr (!ConcreteAction::resume_execution) {
+                        break;
+                    }
                 }
             }
             dst_data[row] = res;

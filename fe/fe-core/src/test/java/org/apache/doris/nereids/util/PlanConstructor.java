@@ -39,11 +39,6 @@ public class PlanConstructor {
     public static final OlapTable score;
     public static final OlapTable course;
 
-    public static final LogicalOlapScan scan1;
-    public static final LogicalOlapScan scan2;
-    public static final LogicalOlapScan scan3;
-    public static final LogicalOlapScan scan4;
-
     private static final IdGenerator<ObjectId> RELATION_ID_GENERATOR = ObjectId.createGenerator();
 
     static {
@@ -81,11 +76,6 @@ public class PlanConstructor {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
-
-        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-        scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {

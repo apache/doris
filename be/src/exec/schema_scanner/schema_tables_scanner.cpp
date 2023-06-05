@@ -17,13 +17,27 @@
 
 #include "exec/schema_scanner/schema_tables_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/primitive_type.h"
-#include "vec/columns/column_complex.h"
+#include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
+#include "util/timezone_utils.h"
 #include "vec/common/string_ref.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -41,9 +55,9 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         {"INDEX_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_FREE", TYPE_BIGINT, sizeof(int64_t), true},
         {"AUTO_INCREMENT", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CREATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
+        {"CREATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"UPDATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"CHECK_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -121,6 +135,9 @@ Status SchemaTablesScanner::_get_new_table() {
 Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
+    if (table_num == 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(table_num, nullptr);
     std::vector<void*> datas(table_num);
 
@@ -237,7 +254,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     { fill_dest_column_for_range(block, 13, null_datas); }
     // creation_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.create_time) {
@@ -256,7 +273,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // update_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.update_time) {
@@ -275,7 +292,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // check_time
     {
-        DateTimeValue srcs[table_num];
+        vectorized::VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.last_check_time) {

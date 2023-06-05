@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -32,7 +33,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** min agg function. */
-public class Min extends NullableAggregateFunction implements UnaryExpression, CustomSignature {
+public class Min extends NullableAggregateFunction
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic {
 
     public Min(Expression child) {
         this(false, false, child);

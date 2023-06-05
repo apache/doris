@@ -24,12 +24,15 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -96,6 +99,8 @@ public class HyperGraph {
         slotToNodeMap.put(aliasSlot, bitmap);
         if (!complexProject.containsKey(bitmap)) {
             complexProject.put(bitmap, new ArrayList<>());
+        } else if (!(alias.child() instanceof SlotReference)) {
+            alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
         }
         complexProject.get(bitmap).add(alias);
         return true;
@@ -107,7 +112,7 @@ public class HyperGraph {
      * @param group The group that is the end node in graph
      */
     public void addNode(Group group) {
-        Preconditions.checkArgument(!group.isJoinGroup());
+        Preconditions.checkArgument(!group.isInnerJoinGroup());
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
@@ -130,7 +135,7 @@ public class HyperGraph {
      * @param group The join group
      */
     public void addEdge(Group group) {
-        Preconditions.checkArgument(group.isJoinGroup());
+        Preconditions.checkArgument(group.isInnerJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
         for (Expression expression : join.getHashJoinConjuncts()) {

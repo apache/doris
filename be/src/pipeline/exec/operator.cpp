@@ -17,6 +17,11 @@
 
 #include "operator.h"
 
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+} // namespace doris
+
 namespace doris::pipeline {
 
 OperatorBase::OperatorBase(OperatorBuilderBase* operator_builder)

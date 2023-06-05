@@ -42,12 +42,26 @@ grammar
 SHOW [FULL] [BUILTIN] FUNCTIONS [IN|FROM db] [LIKE 'function_pattern']
 ````
 
- Parameters
+Parameters
 
 >`full`: Indicates the detailed information of the display function
 >`builtin`: Indicates the functions provided by the display system
 >`db`: database name to query
 >`function_pattern`: parameter used to filter function names
+
+grammar
+
+```sql
+SHOW GLOBAL [FULL] FUNCTIONS [LIKE 'function_pattern']
+````
+
+Parameters
+
+>`global`: Indicates it means that the show function is a global function
+>`full`: Indicates the detailed information of the display function
+>`function_pattern`: parameter used to filter function names
+
+**Note: the "global" keyword is only available after v2.0**
 
 ### Example
 
@@ -83,6 +97,31 @@ mysql> show builtin functions in testDb like 'year%';
 | years_sub     |
 +---------------+
 2 rows in set (0.00 sec)
+
+mysql> show global full functions\G;
+*************************** 1. row ***************************
+        Signature: decimal(ALL, INT, INT)
+      Return Type: VARCHAR
+    Function Type: Alias
+Intermediate Type: NULL
+       Properties: {"parameter":"col, precision, scale","origin_function":"CAST(`col` AS decimal(`precision`, `scale`))"}
+*************************** 2. row ***************************
+        Signature: id_masking(BIGINT)
+      Return Type: VARCHAR
+    Function Type: Alias
+Intermediate Type: NULL
+       Properties: {"parameter":"id","origin_function":"concat(left(`id`, 3), `****`, right(`id`, 4))"}
+2 rows in set (0.00 sec)
+    
+mysql> show global functions ;
++---------------+
+| Function Name |
++---------------+
+| decimal       |
+| id_masking    |
++---------------+
+2 rows in set (0.00 sec)    
+    
 ````
 
 ### Keywords

@@ -17,24 +17,37 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
-#include <map>
+#include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "io/file_writer.h"
+#include "orc/Type.hh"
+#include "orc/Writer.hh"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vfile_result_writer.h"
+#include "vec/runtime/vparquet_writer.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace orc {
+struct ColumnVectorBatch;
+} // namespace orc
 
 namespace doris::vectorized {
-class FileWriter;
 
 class VOrcOutputStream : public orc::OutputStream {
 public:
-    VOrcOutputStream(doris::FileWriter* file_writer);
+    VOrcOutputStream(doris::io::FileWriter* file_writer);
 
     ~VOrcOutputStream() override;
 
@@ -51,8 +64,8 @@ public:
     void set_written_len(int64_t written_len);
 
 private:
-    doris::FileWriter* _file_writer; // not owned
-    int64_t _cur_pos = 0;            // current write position
+    doris::io::FileWriter* _file_writer; // not owned
+    int64_t _cur_pos = 0;                // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
     const std::string _name;
@@ -61,9 +74,9 @@ private:
 // a wrapper of parquet output stream
 class VOrcWriterWrapper final : public VFileWriterWrapper {
 public:
-    VOrcWriterWrapper(doris::FileWriter* file_writer,
-                      const std::vector<VExprContext*>& output_vexpr_ctxs,
-                      const std::string& schema, bool output_object_data);
+    VOrcWriterWrapper(doris::io::FileWriter* file_writer,
+                      const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
+                      bool output_object_data);
 
     ~VOrcWriterWrapper() = default;
 
@@ -78,7 +91,7 @@ public:
 private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
 
-    doris::FileWriter* _file_writer;
+    doris::io::FileWriter* _file_writer;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
     const std::string& _schema_str;

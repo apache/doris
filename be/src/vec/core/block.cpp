@@ -20,29 +20,46 @@
 
 #include "vec/core/block.h"
 
+#include <assert.h>
 #include <fmt/format.h>
+#include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <iomanip>
+#include <iterator>
+#include <limits>
 
 #include "agent/be_exec_version_manager.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "udf/udf.h"
+#include "runtime/thread_context.h"
 #include "util/block_compression.h"
-#include "util/exception.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/exception.h"
-#include "vec/common/schema_util.h"
-#include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
+
+class SipHash;
+
+namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -195,7 +212,7 @@ void Block::erase_tail(size_t start) {
 
 void Block::erase(size_t position) {
     DCHECK(!data.empty()) << "Block is empty";
-    DCHECK(position < data.size()) << fmt::format(
+    DCHECK_LT(position, data.size()) << fmt::format(
             "Position out of bound in Block::erase(), max position = {}", data.size() - 1);
 
     erase_impl(position);
@@ -338,15 +355,16 @@ size_t Block::rows() const {
 }
 
 std::string Block::each_col_size() const {
-    std::stringstream ss;
+    std::string ss;
     for (const auto& elem : data) {
         if (elem.column) {
-            ss << elem.column->size() << " | ";
+            ss += elem.column->size();
+            ss += " | ";
         } else {
-            ss << "-1 | ";
+            ss += "-1 | ";
         }
     }
-    return ss.str();
+    return ss;
 }
 
 void Block::set_num_rows(size_t length) {
@@ -398,12 +416,25 @@ size_t Block::allocated_bytes() const {
 }
 
 std::string Block::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
-        if (it != data.begin()) out << ", ";
-        out << it->name;
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->name;
     }
-    return out.str();
+    return out;
+}
+
+std::string Block::dump_types() const {
+    std::string out;
+    for (auto it = data.begin(); it != data.end(); ++it) {
+        if (it != data.begin()) {
+            out += ", ";
+        }
+        out += it->type->get_name();
+    }
+    return out;
 }
 
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
@@ -443,7 +474,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
                     << std::right;
                 continue;
             }
-            std::string s = "";
+            std::string s;
             if (data[i].column) {
                 s = data[i].to_string(row_num);
             }
@@ -478,15 +509,14 @@ std::string Block::dump_one_line(size_t row, int column_end) const {
 }
 
 std::string Block::dump_structure() const {
-    // WriteBufferFromOwnString out;
-    std::stringstream out;
+    std::string out;
     for (auto it = data.begin(); it != data.end(); ++it) {
         if (it != data.begin()) {
-            out << ", ";
+            out += ", \n";
         }
-        out << it->dump_structure();
+        out += it->dump_structure();
     }
-    return out.str();
+    return out;
 }
 
 Block Block::clone_empty() const {
@@ -700,7 +730,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 }
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
-    DCHECK(data.size() == dst->mutable_columns().size());
+    DCHECK_EQ(data.size(), dst->mutable_columns().size());
     for (size_t i = 0; i < data.size(); i++) {
         data[i].column->append_data_by_selector(dst->mutable_columns()[i], selector);
     }
@@ -726,7 +756,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         for (size_t i = 0; i < size; ++i) {
             filter_data[i] &= !null_map[i];
         }
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
@@ -738,7 +768,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         const IColumn::Filter& filter =
                 assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                         .get_data();
-        filter_block_internal(block, columns_to_filter, filter);
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 
     erase_useless_column(block, column_to_keep);
@@ -776,10 +806,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     try {
         column_values.resize(content_uncompressed_size);
     } catch (...) {
-        std::exception_ptr p = std::current_exception();
-        std::string msg =
-                fmt::format("Try to alloc {} bytes for pblock column values failed. reason {}",
-                            content_uncompressed_size, get_current_exception_type_name(p));
+        std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
+                                      content_uncompressed_size);
         LOG(WARNING) << msg;
         return Status::BufferAllocFailed(msg);
     }
@@ -800,8 +828,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_ERROR(codec->compress(Slice(column_values.data(), content_uncompressed_size),
-                                        &buf_compressed));
+        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(codec->compress(
+                Slice(column_values.data(), content_uncompressed_size), &buf_compressed)));
         size_t compressed_size = buf_compressed.size();
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
@@ -823,17 +851,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
                                      *compressed_bytes);
     }
     return Status::OK();
-}
-
-inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
-                                       const StringRef& data_ref, const IColumn* column, int row) {
-    if (type_desc.type != TYPE_ARRAY) {
-        return data_ref.data == nullptr;
-    } else {
-        Field array;
-        column->get(row, array);
-        return array.is_null();
-    }
 }
 
 MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
@@ -971,7 +988,7 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
 }
 
 std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
-    auto temp_block = std::make_unique<Block>();
+    auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
         column->resize(size);
@@ -1027,14 +1044,14 @@ size_t MutableBlock::get_position_by_name(const std::string& name) const {
 }
 
 std::string MutableBlock::dump_names() const {
-    std::stringstream out;
+    std::string out;
     for (auto it = _names.begin(); it != _names.end(); ++it) {
         if (it != _names.begin()) {
-            out << ", ";
+            out += ", ";
         }
-        out << *it;
+        out += *it;
     }
-    return out.str();
+    return out;
 }
 
 } // namespace doris::vectorized

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 public class SetTransaction extends SetVar {
     public SetTransaction() {
+        this.varType = SetVarType.SET_TRANSACTION;
     }
 
     @Override

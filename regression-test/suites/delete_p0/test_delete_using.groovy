@@ -19,10 +19,12 @@ suite("test_delete_using") {
     def tbName1 = "test_delete_unique_1"
     def tbName2 = "test_delete_unique_2"
     def tbName3 = "test_delete_unique_3"
+    def tbName4 = "test_delete_unique_4"
 
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql "DROP TABLE IF EXISTS ${tbName4}"
 
     // test complex update syntax
     sql """
@@ -35,6 +37,9 @@ suite("test_delete_using") {
         create table ${tbName3} (id int) distributed by hash (id) properties('replication_num'='1');
     """
     sql """
+        create table ${tbName4} (id int) distributed by hash (id) properties('replication_num'='1');
+    """
+    sql """
         insert into ${tbName1} values(1, 1, '1', 1.0, '2000-01-01'),(2, 2, '2', 2.0, '2000-01-02'),(3, 3, '3', 3.0, '2000-01-03');
     """
     sql """
@@ -42,6 +47,9 @@ suite("test_delete_using") {
     """
     sql """
         insert into ${tbName3} values(1), (4), (5);
+    """
+    sql """
+        insert into ${tbName4} values(2), (4), (5);
     """
 
     sql """
@@ -52,7 +60,16 @@ suite("test_delete_using") {
         select * from ${tbName1} order by id;
     """
 
+    sql """
+        DELETE FROM ${tbName1} t1a USING ${tbName2} inner join ${tbName4} on ${tbName2}.id = ${tbName4}.id where t1a.id = ${tbName2}.id;
+    """
+
+    qt_complex_delete_alias """
+        select * from ${tbName1} order by id;
+    """
+
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql "DROP TABLE IF EXISTS ${tbName4}"
 }

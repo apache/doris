@@ -119,12 +119,37 @@ suite("test_dynamic_table", "dynamic_table"){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                 break
+                sleep(3000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
             }
             useTime = t
             sleep(delta_time)
         }
         assertTrue(useTime <= OpTimeout)
+    }
+
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            expected_finished_num = alter_res.size();
+            finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            } else {
+                finished_num = 0;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
 
     def index_res = ""
@@ -143,6 +168,10 @@ suite("test_dynamic_table", "dynamic_table"){
             }
             logger.info("create index res: ${index_res} \n".toString())
             wait_for_latest_op_on_table_finish(table_name, timeout)
+
+            index_res = sql """ build index ${index_name} on ${table_name} """
+            logger.info("build index res: ${index_res} \n".toString())
+            wait_for_build_index_on_partition_finish(table_name, timeout)
 
         }catch(Exception ex){
             logger.info("create create index ${index_name} on ${table_name}(`${colume_name}`) using inverted(${index_type}) fail, catch exception: ${ex} \n".toString())

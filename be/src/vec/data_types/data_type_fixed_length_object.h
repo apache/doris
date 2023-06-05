@@ -17,8 +17,26 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <typeinfo>
+
+#include "runtime/define_primitive_type.h"
+#include "serde/data_type_fixedlengthobject_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -34,7 +52,17 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::FixedLengthObject; }
 
+    PrimitiveType get_type_as_primitive_type() const override { return INVALID_TYPE; }
+
+    TPrimitiveType::type get_type_as_tprimitive_type() const override {
+        return TPrimitiveType::INVALID_TYPE;
+    }
+
     Field get_default() const override { return String(); }
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+    }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
@@ -52,8 +80,10 @@ public:
     bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
 
-    bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return false; }
+    DataTypeSerDeSPtr get_serde() const override {
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    };
 };
 
 } // namespace doris::vectorized

@@ -37,7 +37,7 @@ Delete a custom function. Function names and parameter types are exactly the sam
 grammar:
 
 ```sql
-DROP FUNCTION function_name
+DROP [GLOBAL] FUNCTION function_name
      (arg_type [, ...])
 ````
 
@@ -53,6 +53,11 @@ Parameter Description:
     ```sql
     DROP FUNCTION my_add(INT, INT)
     ````
+2. Delete a global function
+
+    ```sql
+    DROP GLOBAL FUNCTION my_add(INT, INT)
+    ````   
 
 ### Keywords
 

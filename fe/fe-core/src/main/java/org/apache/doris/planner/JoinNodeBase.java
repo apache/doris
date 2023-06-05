@@ -45,7 +45,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -430,9 +429,6 @@ public abstract class JoinNodeBase extends PlanNode {
         // 4. replace other conjuncts and conjuncts
         computeOtherConjuncts(analyzer, originToIntermediateSmap);
         conjuncts = Expr.substituteList(conjuncts, originToIntermediateSmap, analyzer, false);
-        if (vconjunct != null) {
-            vconjunct = Expr.substituteList(Arrays.asList(vconjunct), originToIntermediateSmap, analyzer, false).get(0);
-        }
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
     }
@@ -597,19 +593,19 @@ public abstract class JoinNodeBase extends PlanNode {
                 Lists.newArrayList(vSrcToOutputSMap.getLhs()));
         List<Expr> newRhs = Lists.newArrayList();
         boolean bSmapChanged = false;
-        for (Expr expr : smap.getRhs()) {
-            if (expr instanceof SlotRef) {
-                newRhs.add(expr);
+        for (Expr rhsExpr : smap.getRhs()) {
+            if (rhsExpr instanceof SlotRef || !rhsExpr.isBound(vOutputTupleDesc.getId())) {
+                newRhs.add(rhsExpr);
             } else {
                 // we need do project in the join node
                 // add a new slot for projection result and add the project expr to vSrcToOutputSMap
                 SlotDescriptor slotDesc = analyzer.addSlotDescriptor(vOutputTupleDesc);
-                slotDesc.initFromExpr(expr);
+                slotDesc.initFromExpr(rhsExpr);
                 slotDesc.setIsMaterialized(true);
                 // the project expr is from smap, which use the slots of hash join node's output tuple
                 // we need substitute it to make sure the project expr use slots from intermediate tuple
-                expr.substitute(tmpSmap);
-                vSrcToOutputSMap.getLhs().add(expr);
+                rhsExpr = rhsExpr.substitute(tmpSmap);
+                vSrcToOutputSMap.getLhs().add(rhsExpr);
                 SlotRef slotRef = new SlotRef(slotDesc);
                 vSrcToOutputSMap.getRhs().add(slotRef);
                 newRhs.add(slotRef);

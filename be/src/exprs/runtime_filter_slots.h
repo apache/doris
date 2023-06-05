@@ -23,6 +23,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
@@ -31,14 +32,14 @@ namespace doris {
 template <typename ExprCtxType>
 class RuntimeFilterSlotsBase {
 public:
-    RuntimeFilterSlotsBase(const std::vector<ExprCtxType*>& prob_expr_ctxs,
-                           const std::vector<ExprCtxType*>& build_expr_ctxs,
+    RuntimeFilterSlotsBase(const std::vector<std::shared_ptr<ExprCtxType>>& prob_expr_ctxs,
+                           const std::vector<std::shared_ptr<ExprCtxType>>& build_expr_ctxs,
                            const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
             : _probe_expr_context(prob_expr_ctxs),
               _build_expr_context(build_expr_ctxs),
               _runtime_filter_descs(runtime_filter_descs) {}
 
-    Status init(RuntimeState* state, int64_t hash_table_size) {
+    Status init(RuntimeState* state, int64_t hash_table_size, size_t build_bf_cardinality) {
         DCHECK(_probe_expr_context.size() == _build_expr_context.size());
 
         // runtime filter effect strategy
@@ -101,6 +102,10 @@ public:
             if (over_max_in_num &&
                 runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
                 runtime_filter->change_to_bloom_filter();
+            }
+
+            if (runtime_filter->is_bloomfilter()) {
+                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(build_bf_cardinality));
             }
 
             // Note:
@@ -242,8 +247,8 @@ public:
     bool empty() { return !_runtime_filters.size(); }
 
 private:
-    const std::vector<ExprCtxType*>& _probe_expr_context;
-    const std::vector<ExprCtxType*>& _build_expr_context;
+    const std::vector<std::shared_ptr<ExprCtxType>>& _probe_expr_context;
+    const std::vector<std::shared_ptr<ExprCtxType>>& _build_expr_context;
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
     // prob_contition index -> [IRuntimeFilter]
     std::map<int, std::list<IRuntimeFilter*>> _runtime_filters;

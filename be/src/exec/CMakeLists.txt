@@ -22,9 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
-    arrow/arrow_reader.cpp
-    arrow/parquet_reader.cpp
-    base_scanner.cpp
     data_sink.cpp
     decompressor.cpp
     exec_node.cpp
@@ -51,7 +48,6 @@ set(EXEC_FILES
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
     schema_scanner/schema_rowsets_scanner.cpp
-    schema_scanner/schema_backends_scanner.cpp
     scan_node.cpp
     odbc_connector.cpp
     table_connector.cpp
@@ -68,3 +64,5 @@ endif()
 add_library(Exec STATIC
     ${EXEC_FILES}
 )
+
+pch_reuse(Exec)

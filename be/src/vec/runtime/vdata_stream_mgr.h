@@ -17,14 +17,17 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <memory>
 #include <mutex>
 #include <set>
 #include <unordered_map>
+#include <utility>
 
 #include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 
 namespace google {
 namespace protobuf {
@@ -35,7 +38,6 @@ class Closure;
 namespace doris {
 class RuntimeState;
 class RowDescriptor;
-class TUniqueId;
 class RuntimeProfile;
 class QueryStatisticsRecvr;
 class PTransmitDataParams;

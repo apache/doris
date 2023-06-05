@@ -75,7 +75,7 @@ public class AnalysisTaskExecutor extends Thread {
             try {
                 AnalysisTaskWrapper taskWrapper = taskQueue.take();
                 try {
-                    long timeout = StatisticConstants.STATISTICS_TASKS_TIMEOUT_IN_MS;
+                    long timeout = TimeUnit.MINUTES.toMillis(Config.analyze_task_timeout_in_minutes);
                     taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
                     taskWrapper.cancel();
@@ -103,19 +103,10 @@ public class AnalysisTaskExecutor extends Thread {
     private void doFetchAndExecute() {
         BaseAnalysisTask task = taskScheduler.getPendingTasks();
         AnalysisTaskWrapper taskWrapper = new AnalysisTaskWrapper(this, task);
-        incr();
         executors.submit(taskWrapper);
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(task.info,
                         AnalysisState.RUNNING, "", System.currentTimeMillis());
-    }
-
-    public void decr() {
-        blockingCounter.decr();
-    }
-
-    public void incr() {
-        blockingCounter.incr();
     }
 
     public void putJob(AnalysisTaskWrapper wrapper) throws Exception {

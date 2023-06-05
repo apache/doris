@@ -20,14 +20,19 @@
 
 #pragma once
 
-#include <bitset>
+#include <stddef.h>
+
+#include <algorithm>
+#include <string>
+#include <string_view>
 #include <vector>
 
+#include "vec/common/uint128.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+
 namespace doris::vectorized {
-class ReadBuffer;
-class WriteBuffer;
+
 /// Class that represents path in document, e.g. JSON.
 class PathInData {
 public:

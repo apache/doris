@@ -17,14 +17,23 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <limits.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <ostream>
 #include <string>
 #include <type_traits>
 
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
+#include "olap/decimal12.h"
+#include "olap/olap_common.h"
 #include "olap/types.h"
-#include "runtime/mem_pool.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -92,7 +101,7 @@ private:
         case 16:
             return BigEndian::FromHost128(val);
         default:
-            LOG(FATAL) << "Invalid type to big endian, type=" << field_type
+            LOG(FATAL) << "Invalid type to big endian, type=" << int(field_type)
                        << ", size=" << sizeof(UnsignedCppType);
         }
     }
@@ -137,10 +146,11 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DATE> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
 public:
-    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -170,10 +180,11 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DATEV2> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
 public:
-    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -203,10 +214,11 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DATETIMEV2> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
 public:
-    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
-    using UnsignedCppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
+    using CppType = typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType;
+    using UnsignedCppType =
+            typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::UnsignedCppType;
 
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
@@ -236,13 +248,15 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_DECIMAL> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         decimal12_t decimal_val;
         memcpy(&decimal_val, value, sizeof(decimal12_t));
-        KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(&decimal_val.integer, buf);
-        KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction, buf);
+        KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(
+                &decimal_val.integer, buf);
+        KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction,
+                                                                              buf);
     } // namespace doris
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
@@ -251,9 +265,9 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         decimal12_t decimal_val = {0, 0};
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
+        RETURN_IF_ERROR(KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
                 encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer));
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
+        RETURN_IF_ERROR(KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_INT>::decode_ascending(
                 encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction));
         memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
         return Status::OK();
@@ -261,7 +275,7 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_CHAR> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
@@ -283,7 +297,7 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_VARCHAR> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
@@ -303,7 +317,7 @@ public:
 };
 
 template <>
-class KeyCoderTraits<OLAP_FIELD_TYPE_STRING> {
+class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
 public:
     static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);

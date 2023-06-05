@@ -18,10 +18,10 @@
 suite("test_oracle_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String resource_name = "oracle_catalog_resource";
         String catalog_name = "oracle_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "DORIS_TEST";
+        String ex_db_name_lower_case = ex_db_name.toLowerCase();
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
         String SID = "XE";
         String test_insert = "TEST_INSERT";
@@ -29,18 +29,15 @@ suite("test_oracle_jdbc_catalog", "p0") {
         String inDorisTable = "doris_in_tb";
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
                     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc6.jar",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
-
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -86,10 +83,9 @@ suite("test_oracle_jdbc_catalog", "p0") {
         order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
         // test only_specified_database argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
@@ -98,15 +94,29 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "only_specified_database" = "true"
         );"""
-        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
         sql """ switch ${catalog_name} """
 
         qt_specified_database   """ show databases; """
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
+
+        // test only_specified_database and specified_database_list argument
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "only_specified_database" = "true",
+                    "include_database_list" = "${ex_db_name}"
+        );"""
+        sql """ switch ${catalog_name} """
+
+        qt_specified_database   """ show databases; """
+        sql """drop catalog if exists ${catalog_name} """
 
         // test lower_case_table_names argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
@@ -115,16 +125,14 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "lower_case_table_names" = "true"
         );"""
-        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
         sql """ switch ${catalog_name} """
-        sql """ use ${ex_db_name}"""
+        sql """ use ${ex_db_name_lower_case}"""
 
         qt_lower_case_table_names1  """ select * from test_num order by ID; """
         qt_lower_case_table_names2  """ select * from test_char order by ID; """
         qt_lower_case_table_names3  """ select * from test_int order by ID; """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
     }
 }

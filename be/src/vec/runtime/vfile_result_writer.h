@@ -17,12 +17,34 @@
 
 #pragma once
 
-#include "io/file_writer.h"
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <iosfwd>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_writer.h"
+#include "runtime/descriptors.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/runtime/vparquet_writer.h"
-#include "vec/sink/vresult_sink.h"
+#include "vec/sink/vresult_writer.h"
+
+namespace doris {
+class BufferControlBlock;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+struct ResultFileOptions;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
-class VFileWriterWrapper;
 
 // write result to file
 class VFileResultWriter final : public VResultWriter {
@@ -30,9 +52,8 @@ public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const std::vector<VExprContext*>& _output_vexpr_ctxs,
-                      RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                      Block* output_block, bool output_object_data,
+                      const VExprContextSPtrs& _output_vexpr_ctxs, RuntimeProfile* parent_profile,
+                      BufferControlBlock* sinker, Block* output_block, bool output_object_data,
                       const RowDescriptor& output_row_descriptor);
     virtual ~VFileResultWriter() = default;
 
@@ -65,24 +86,25 @@ private:
     Status _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
-    // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done, bool only_close = false);
+    Status _close_file_writer(bool done);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
     Status _send_result();
     // save result into batch rather than send it
     Status _fill_result_block();
+    // delete the dir of file_path
+    Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
-    const std::vector<VExprContext*>& _output_vexpr_ctxs;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
-    std::unique_ptr<doris::FileWriter> _file_writer_impl;
+    std::unique_ptr<doris::io::FileWriter> _file_writer_impl;
     // Used to buffer the export data of plain text
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.

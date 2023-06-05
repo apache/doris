@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.ConnectContext;
-
 import com.google.common.base.Preconditions;
 
 /**
@@ -38,6 +36,8 @@ public class CostWeight {
     static final double MEMORY_WEIGHT = 1;
     static final double NETWORK_WEIGHT = 1.5;
     static final double DELAY = 0.5;
+
+    static double nereidsCboPenaltyFactor = 0.7;
     final double cpuWeight;
     final double memoryWeight;
     final double networkWeight;
@@ -47,7 +47,7 @@ public class CostWeight {
      * Except stats information, there are some special criteria in doris.
      * For example, in hash join cluster, BE could build hash tables
      * in parallel for left deep tree. And hence, we need to punish right deep tree.
-     * penalyWeight is the factor of punishment.
+     * penaltyWeight is the factor of punishment.
      * The punishment is denoted by stats.penalty.
      */
     final double penaltyWeight;
@@ -69,7 +69,7 @@ public class CostWeight {
 
     public static CostWeight get() {
         return new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
-                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
+            nereidsCboPenaltyFactor);
     }
 
     //TODO: add it in session variable
@@ -79,5 +79,9 @@ public class CostWeight {
 
     public double weightSum(double cpuCost, double ioCost, double netCost) {
         return cpuCost * cpuWeight + ioCost * ioWeight + netCost * networkWeight;
+    }
+
+    public static void setNereidsCboPenaltyFactor(double nereidsCboPenaltyFactor) {
+        CostWeight.nereidsCboPenaltyFactor = nereidsCboPenaltyFactor;
     }
 }

@@ -17,15 +17,41 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
 #include "util/counts.h"
 #include "util/tdigest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -43,7 +69,7 @@ struct PercentileApproxState {
             if (compression < 2048 || compression > 10000) {
                 compression = 10000;
             }
-            digest.reset(new TDigest(compression));
+            digest = TDigest::create_unique(compression);
             compressions = compression;
             init_flag = true;
         }
@@ -75,7 +101,7 @@ struct PercentileApproxState {
         read_binary(compressions, buf);
         std::string str;
         read_binary(str, buf);
-        digest.reset(new TDigest(compressions));
+        digest = TDigest::create_unique(compressions);
         digest->unserialize((uint8_t*)str.c_str());
     }
 
@@ -95,7 +121,7 @@ struct PercentileApproxState {
             DCHECK(digest.get() != nullptr);
             digest->merge(rhs.digest.get());
         } else {
-            digest.reset(new TDigest(compressions));
+            digest = TDigest::create_unique(compressions);
             digest->merge(rhs.digest.get());
             init_flag = true;
         }
@@ -112,7 +138,7 @@ struct PercentileApproxState {
     void reset() {
         target_quantile = INIT_QUANTILE;
         init_flag = false;
-        digest.reset(new TDigest(compressions));
+        digest = TDigest::create_unique(compressions);
     }
 
     bool init_flag = false;
@@ -416,7 +442,7 @@ public:
 
         AggregateFunctionPercentileArray::data(place).add(
                 sources.get_int(row_num), nested_column_data.get_data(),
-                offset_column_data.data()[row_num] - offset_column_data.data()[row_num - 1]);
+                offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {

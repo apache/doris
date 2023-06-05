@@ -59,4 +59,53 @@ suite("load") {
             }
         }
     }
+
+    // for like test
+    def tbName = "test_string_function_like2"
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName} (
+                k varchar(32)
+            )
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql """
+        INSERT INTO ${tbName} VALUES 
+            (""),
+            (" "),
+            ("a"),
+            ("b"),
+            ("bb"),
+            ("bab"),
+            ("ba"),
+            ("ab"),
+            ("accb");
+        """
+    streamLoad {
+        // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
+        // db 'regression_test'
+        table "${tbName}"
+
+        // default column_separator is specify in doris fe config, usually is '\t'.
+        // this line change to ','
+        set 'column_separator', '|'
+        // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+        // also, you can stream load a http stream, e.g. http://xxx/some.csv
+        file """like.csv"""
+
+        time 10000 // limit inflight 10s
+
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals('success', json.Status.toLowerCase())
+            assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+        }
+    }
 }

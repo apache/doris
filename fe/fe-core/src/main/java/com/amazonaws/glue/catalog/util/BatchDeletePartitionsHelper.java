@@ -33,7 +33,7 @@ import com.amazonaws.services.glue.model.GetPartitionResult;
 import com.amazonaws.services.glue.model.Partition;
 import com.amazonaws.services.glue.model.PartitionError;
 import org.apache.log4j.Logger;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.Collection;
 import java.util.List;

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -81,7 +82,7 @@ import java.util.TreeSet;
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
  * It old way of transform will be removed gradually. It
  */
-public class DataDescription {
+public class DataDescription implements InsertStmt.DataDesc {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
@@ -146,7 +147,7 @@ public class DataDescription {
 
     private boolean isHadoopLoad = false;
 
-    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    private final LoadTask.MergeType mergeType;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
@@ -1151,6 +1152,17 @@ public class DataDescription {
             sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
+    }
+
+    public void checkKeyTypeForLoad(OlapTable table) throws AnalysisException {
+        if (getMergeType() != LoadTask.MergeType.APPEND) {
+            if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            } else if (!table.hasDeleteSign()) {
+                throw new AnalysisException(
+                        "load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+        }
     }
 
     @Override

@@ -17,7 +17,16 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <memory>
+#include <vector>
+
 #include "common/status.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/utils.h"
 #ifdef USE_LIBCPP
 #include <queue>
 #else
@@ -28,9 +37,14 @@
 #include "olap/rowset/rowset_reader.h"
 #include "vec/core/block.h"
 
+namespace __gnu_pbds {
+struct pairing_heap_tag;
+} // namespace __gnu_pbds
+
 namespace doris {
 
 class TabletSchema;
+class RuntimeProfile;
 
 namespace vectorized {
 
@@ -39,7 +53,8 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
+              std::vector<std::pair<int, int>> rs_readers_segment_offsets);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -268,6 +283,8 @@ private:
             return false;
         }
 
+        Status init_level0_iterators_for_union();
+
     private:
         Status _merge_next(IteratorRowRef* ref);
 
@@ -313,7 +330,9 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
+    // when we use scanner pooling + query with topn_with_limit, we use it.
     std::vector<RowsetReaderSharedPtr> _rs_readers;
+    std::vector<std::pair<int, int>> _rs_readers_segment_offsets;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;

@@ -27,6 +27,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 public class LambdaFunctionExpr extends Expr {
@@ -69,21 +70,32 @@ public class LambdaFunctionExpr extends Expr {
         if (this.children.size() == 0) {
             this.children.add(slotExpr.get(0));
         }
+        HashSet<String> nameSet = new HashSet<>();
         // the first is lambda
         int size = slotExpr.size();
         for (int i = size - 1; i < names.size(); ++i) {
+            if (nameSet.contains(names.get(i))) {
+                throw new AnalysisException(
+                        "The lambda function of params " + names.get(i) + " has already been repeated, "
+                                + "you should give a unique name for every param.");
+            } else {
+                nameSet.add(names.get(i));
+            }
             Expr param = params.get(i);
+            if (!param.isAnalyzed()) {
+                param.analyze(analyzer);
+            }
             Type paramType = param.getType();
             if (!paramType.isArrayType()) {
                 throw new AnalysisException(
-                        "The lambda function of params must be array type, now " + (i + 1) + "th is "
-                                + paramType.toString());
+                        "The lambda function of params must be array type, now the param of "
+                                + param.toColumnLabel() + " is " + paramType.toString());
             }
             // this ColumnRefExpr record the unique columnId, which is used for BE
             // so could insert nested column by order.
             ColumnRefExpr column = new ColumnRefExpr();
             column.setName(names.get(i));
-            column.setcolumnId(columnId);
+            column.setColumnId(columnId);
             column.setNullable(true);
             column.setType(((ArrayType) paramType).getItemType());
             columnId = columnId + 1;

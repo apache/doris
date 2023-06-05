@@ -20,38 +20,37 @@
 
 #pragma once
 
-#include <google/protobuf/repeated_field.h>
-#include <google/protobuf/stubs/common.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <google/protobuf/stubs/port.h>
+#include <stdint.h>
 
 #include <ostream>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
-#include "gen_cpp/Descriptors_types.h"     // for TTupleId
-#include "gen_cpp/FrontendService_types.h" // for TTupleId
-#include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
-namespace doris::vectorized {
-struct ColumnWithTypeAndName;
-}
+namespace google {
+namespace protobuf {
+template <typename Element>
+class RepeatedField;
+} // namespace protobuf
+} // namespace google
 
 namespace doris {
 
 class ObjectPool;
-class TDescriptorTable;
-class TSlotDescriptor;
-class TTupleDescriptor;
-class RuntimeState;
-class SchemaScanner;
-class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
-class PInternalServiceImpl;
-class TabletSchema;
 
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
@@ -79,8 +78,6 @@ struct NullIndicatorOffset {
 };
 
 std::ostream& operator<<(std::ostream& os, const NullIndicatorOffset& null_indicator);
-
-class TupleDescriptor;
 
 class SlotDescriptor {
 public:
@@ -497,7 +494,7 @@ public:
 
     std::string debug_string() const;
 
-    int get_column_id(int slot_id) const;
+    int get_column_id(int slot_id, bool force_materialize_slot = false) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.

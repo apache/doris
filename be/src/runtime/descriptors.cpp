@@ -20,19 +20,20 @@
 
 #include "runtime/descriptors.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
+#include <stddef.h>
 
+#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
-#include <ios>
-#include <sstream>
+#include <memory>
 
 #include "common/object_pool.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/descriptors.pb.h"
 #include "util/string_util.h"
-#include "vec/columns/column_nullable.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
 using boost::algorithm::join;
@@ -516,11 +517,11 @@ std::string RowDescriptor::debug_string() const {
     return ss.str();
 }
 
-int RowDescriptor::get_column_id(int slot_id) const {
+int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const {
     int column_id_counter = 0;
     for (const auto tuple_desc : _tuple_desc_map) {
         for (const auto slot : tuple_desc->slots()) {
-            if (!slot->need_materialize()) {
+            if (!force_materialize_slot && !slot->need_materialize()) {
                 continue;
             }
             if (slot->id() == slot_id) {

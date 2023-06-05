@@ -15,14 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <list>
+#include <map>
+#include <memory>
+#include <queue>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/schema.h"
+#include "olap/utils.h"
+#include "vec/core/block.h"
 
 namespace doris {
+class RuntimeProfile;
 
 namespace segment_v2 {
 class Segment;
-}
+class ColumnIterator;
+} // namespace segment_v2
 
 namespace vectorized {
 
@@ -32,7 +51,7 @@ public:
     VStatisticsIterator(std::shared_ptr<Segment> segment, const Schema& schema)
             : _segment(std::move(segment)), _schema(schema) {}
 
-    ~VStatisticsIterator() override;
+    ~VStatisticsIterator() override = default;
 
     Status init(const StorageReadOptions& opts) override;
 
@@ -47,7 +66,7 @@ private:
     size_t _output_rows = 0;
     bool _init = false;
     TPushAggOp::type _push_down_agg_type_opt;
-    std::map<int32_t, ColumnIterator*> _column_iterators_map;
+    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators_map;
     std::vector<ColumnIterator*> _column_iterators;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
@@ -80,7 +99,7 @@ public:
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext& operator=(VMergeIteratorContext&&) = delete;
 
-    ~VMergeIteratorContext() {}
+    ~VMergeIteratorContext() = default;
 
     Status block_reset(const std::shared_ptr<Block>& block);
 

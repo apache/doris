@@ -24,7 +24,8 @@ import java.time.LocalDate;
 public class MyDayDate {
     private static final Logger LOG = Logger.getLogger(MyDayDate.class);
     public static class State {
-        public LocalDate counter = LocalDate.of(2022,01,01);
+        public LocalDate counter;
+        public boolean inited = false;
     }
 
     public State create() {
@@ -36,21 +37,36 @@ public class MyDayDate {
 
     public void add(State state, LocalDate val1) {
         if (val1 == null) return;
-        state.counter = state.counter.plusDays(val1.getDayOfMonth());
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDate.of(val1.getYear(),val1.getMonthValue(),val1.getDayOfMonth());
+        } else {
+            state.counter = state.counter.plusDays(val1.getDayOfMonth());
+        }
     }
 
     public void serialize(State state, DataOutputStream out) throws IOException {
         out.writeInt(state.counter.getYear());
         out.writeInt(state.counter.getMonthValue());
         out.writeInt(state.counter.getDayOfMonth());
+        out.writeBoolean(state.inited);
     }
 
     public void deserialize(State state, DataInputStream in) throws IOException {
         state.counter = LocalDate.of(in.readInt(),in.readInt(),in.readInt());
+        state.inited = in.readBoolean();
     }
 
     public void merge(State state, State rhs) {
-        state.counter = state.counter.plusDays(rhs.counter.getDayOfMonth());
+        if (!rhs.inited) {
+            return;
+        }
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDate.of(rhs.counter.getYear(),rhs.counter.getMonthValue(),rhs.counter.getDayOfMonth());
+        } else {
+            state.counter = state.counter.plusDays(rhs.counter.getDayOfMonth());
+        }
     }
 
     public LocalDate getValue(State state) {

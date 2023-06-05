@@ -17,32 +17,26 @@
 
 #pragma once
 
-#include <fcntl.h>
-#include <pthread.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <limits.h>
+#include <stdint.h>
 #include <sys/time.h>
-#include <zlib.h>
 
 #include <cstdio>
 #include <cstdlib>
-#include <exception>
-#include <filesystem>
 #include <iterator>
 #include <limits>
-#include <list>
-#include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-
-#define TRY_LOCK true
 
 namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
+static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 
 // 用来加速运算
@@ -155,7 +149,7 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
 // 不用sse4指令的crc32c的计算函数
 unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsigned int crc);
 
-bool check_datapath_rw(const std::string& path);
+Status check_datapath_rw(const std::string& path);
 
 Status read_write_test_file(const std::string& test_file_path);
 
@@ -239,22 +233,31 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale);
 bool valid_bool(const std::string& value_str);
 
 constexpr bool is_string_type(const FieldType& field_type) {
-    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
-           field_type == OLAP_FIELD_TYPE_STRING;
+    return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+           field_type == FieldType::OLAP_FIELD_TYPE_STRING;
 }
 
 constexpr bool is_numeric_type(const FieldType& field_type) {
-    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
-           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
-           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
-           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
-           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
-           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
-           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
-           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
-           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
-           field_type == OLAP_FIELD_TYPE_BOOL;
+    return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATE ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 
 // Util used to get string name of thrift enum item
@@ -298,6 +301,18 @@ struct GlobalRowLoacation {
             : tablet_id(tid), row_location(rsid, sid, rid) {}
     uint32_t tablet_id;
     RowLocation row_location;
+
+    bool operator==(const GlobalRowLoacation& rhs) const {
+        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
+    }
+
+    bool operator<(const GlobalRowLoacation& rhs) const {
+        if (tablet_id != rhs.tablet_id) {
+            return tablet_id < rhs.tablet_id;
+        } else {
+            return row_location < rhs.row_location;
+        }
+    }
 };
 
 } // namespace doris

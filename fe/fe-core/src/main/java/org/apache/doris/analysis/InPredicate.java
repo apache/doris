@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -53,8 +54,6 @@ public class InPredicate extends Predicate {
     private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     private final boolean isNotIn;
-    private static final String IN = "in";
-    private static final String NOT_IN = "not_in";
 
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
@@ -63,31 +62,29 @@ public class InPredicate extends Predicate {
             if (t.isNull()) {
                 continue;
             }
-            // TODO we do not support codegen for CHAR and the In predicate must be codegened
+            // TODO we do not support codegen for CHAR and the In predicate must be
+            // codegened
             // because it has variable number of arguments. This will force CHARs to be
-            // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
+            // cast up to strings; meaning that "in" comparisons will not have CHAR
+            // comparison
             // semantics.
             if (t.getPrimitiveType() == PrimitiveType.CHAR) {
                 continue;
             }
 
-            String typeString = Function.getUdfTypeName(t.getPrimitiveType());
-
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::in_iterate", null, null, false));
+                    null, null, null, false));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::not_in_iterate", null, null, false));
+                    null, null, null, false));
 
-            String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
-            String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
+                    null, null, null, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
+                    null, null, null, false));
 
         }
     }
@@ -98,6 +95,22 @@ public class InPredicate extends Predicate {
         children.add(compareExpr);
         children.addAll(inList);
         this.isNotIn = isNotIn;
+    }
+
+    /**
+     * use for Nereids ONLY
+     */
+    public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn, boolean allConstant) {
+        this(compareExpr, inList, isNotIn);
+        type = Type.BOOLEAN;
+        if (allConstant) {
+            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
+        } else {
+            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
+            fn = new Function(new FunctionName(isNotIn ? NOT_IN_ITERATE : IN_ITERATE),
+                    Lists.newArrayList(getChild(0).getType(), getChild(1).getType()), Type.BOOLEAN,
+                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
+        }
     }
 
     protected InPredicate(InPredicate other) {
@@ -133,7 +146,7 @@ public class InPredicate extends Predicate {
     }
 
     public List<Expr> getListChildren() {
-        return  children.subList(1, children.size());
+        return children.subList(1, children.size());
     }
 
     public boolean isNotIn() {
@@ -159,7 +172,8 @@ public class InPredicate extends Predicate {
         super.analyzeImpl(analyzer);
 
         if (contains(Subquery.class)) {
-            // An [NOT] IN predicate with a subquery must contain two children, the second of
+            // An [NOT] IN predicate with a subquery must contain two children, the second
+            // of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " + toSql());
@@ -202,12 +216,14 @@ public class InPredicate extends Predicate {
             }
         }
         boolean useSetLookup = allConstant;
-        // Only lookup fn_ if all subqueries have been rewritten. If the second child is a
+        // Only lookup fn_ if all subqueries have been rewritten. If the second child is
+        // a
         // subquery, it will have type ArrayType, which cannot be resolved to a builtin
         // function and will fail analysis.
-        Type[] argTypes = {getChild(0).type, getChild(1).type};
+        Type[] argTypes = { getChild(0).type, getChild(1).type };
         if (useSetLookup) {
-            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP : IN_SET_LOOKUP,
+            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP :
+            // IN_SET_LOOKUP,
             // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
         } else {
@@ -330,40 +346,5 @@ public class InPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return hasNullableChild();
-    }
-
-    @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-        super.finalizeImplForNereids();
-        boolean allConstant = true;
-        for (int i = 1; i < children.size(); ++i) {
-            if (!children.get(i).isConstant()) {
-                allConstant = false;
-                break;
-            }
-        }
-        // Only lookup fn_ if all subqueries have been rewritten. If the second child is a
-        // subquery, it will have type ArrayType, which cannot be resolved to a builtin
-        // function and will fail analysis.
-        Type[] argTypes = {getChild(0).type, getChild(1).type};
-        if (allConstant) {
-            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP : IN_SET_LOOKUP,
-            // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
-            // Todo: need to implement completely type cast compatibility, like castAllToCompatibleType();
-            Type compatibleType = getChild(0).getType();
-            for (int i = 1; i < children.size(); ++i) {
-                compatibleType = Type.getCmpType(compatibleType, getChild(i).getType());
-            }
-            for (int i = 0; i < children.size(); ++i) {
-                if (!getChild(i).getType().equals(compatibleType)) {
-                    getChild(i).setType(compatibleType);
-                }
-            }
-        } else {
-            fn = getBuiltinFunction(isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
-                    argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
-        }
     }
 }

@@ -46,7 +46,7 @@ import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -205,7 +205,7 @@ public class BDBEnvironment {
                 .getFrontends(FrontendNodeType.FOLLOWER)
                 .stream()
                 .filter(Frontend::isAlive)
-                .map(fe -> new InetSocketAddress(fe.getIp(), fe.getEditLogPort()))
+                .map(fe -> new InetSocketAddress(fe.getHost(), fe.getEditLogPort()))
                 .collect(Collectors.toSet());
         return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
     }
@@ -362,7 +362,6 @@ public class BDBEnvironment {
                 db.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
         openedDatabases.clear();
@@ -372,7 +371,6 @@ public class BDBEnvironment {
                 epochDB.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
 
@@ -382,7 +380,6 @@ public class BDBEnvironment {
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }
@@ -391,11 +388,11 @@ public class BDBEnvironment {
     public void closeReplicatedEnvironment() {
         if (replicatedEnvironment != null) {
             try {
+                openedDatabases.clear();
                 // Finally, close the store and environment.
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }
@@ -405,7 +402,15 @@ public class BDBEnvironment {
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 // open the environment
-                replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+                replicatedEnvironment =
+                        new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
+
+                // start state change listener
+                StateChangeListener listener = new BDBStateChangeListener();
+                replicatedEnvironment.setStateChangeListener(listener);
+
+                // open epochDB. the first parameter null means auto-commit
+                epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
             } catch (DatabaseException e) {
                 if (i < RETRY_TIME - 1) {

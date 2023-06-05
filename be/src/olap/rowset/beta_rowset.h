@@ -18,25 +18,32 @@
 #ifndef DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
-#include <cstdint>
-#include <string>
+#include <stddef.h>
 
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
-class BetaRowsetReader;
-class RowsetFactory;
-
 class BetaRowset;
+
+namespace io {
+class RemoteFileSystem;
+} // namespace io
+struct RowsetId;
+
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
-class BetaRowset : public Rowset {
+class BetaRowset final : public Rowset {
 public:
     virtual ~BetaRowset();
 
@@ -64,7 +71,8 @@ public:
     Status remove() override;
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                         size_t new_rowset_start_seg_id = 0) override;
+                         size_t new_rowset_start_seg_id = 0,
+                         std::set<int32_t>* without_index_column_uids = nullptr) override;
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
@@ -85,6 +93,8 @@ public:
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
+
+    [[nodiscard]] virtual Status add_to_binlog() override;
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

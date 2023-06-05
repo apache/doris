@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -48,13 +49,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Timestamp;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Comparator;
@@ -79,18 +81,20 @@ public class DynamicPartitionUtil {
                 || !(timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())
                 || timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())
                 || timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())
-                || timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString()))) {
+                || timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())
+                || timeUnit.equalsIgnoreCase(TimeUnit.YEAR.toString()))) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_TIME_UNIT, timeUnit);
         }
         Preconditions.checkState(partitionInfo instanceof RangePartitionInfo);
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
         Preconditions.checkState(!rangePartitionInfo.isMultiColumnPartition());
         Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
-        if ((partitionColumn.getDataType() == PrimitiveType.DATE)
+        if ((partitionColumn.getDataType() == PrimitiveType.DATE
+                || partitionColumn.getDataType() == PrimitiveType.DATEV2)
                 && (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString()))) {
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
-                    + TimeUnit.HOUR.toString() + " when type of partition column "
-                    + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE.toString());
+                    + TimeUnit.HOUR + " when type of partition column "
+                    + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE + " or " + PrimitiveType.DATEV2);
         } else if (PrimitiveType.getIntegerTypes().contains(partitionColumn.getDataType())
                 && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             // The partition column's type is INT, not support HOUR
@@ -224,14 +228,14 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, db.getClusterName(), null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {
@@ -318,7 +322,7 @@ public class DynamicPartitionUtil {
 
         List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods, timeUnit);
         Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
-        SimpleDateFormat sdf = getSimpleDateFormat(timeUnit);
+        DateTimeFormatter sdf = getDateTimeFormatter(timeUnit);
 
         if (reservedHistoryPeriodsToRangeList.size() != sizeOfPeriods) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID,
@@ -336,7 +340,7 @@ public class DynamicPartitionUtil {
                                 + " \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
                     }
                 }
-            } catch (ParseException e) {
+            } catch (DateTimeParseException e) {
                 throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS
                         + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\""
                         + " while time_unit is DAY/WEEK/MONTH "
@@ -375,11 +379,11 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static SimpleDateFormat getSimpleDateFormat(String timeUnit) {
+    private static DateTimeFormatter getDateTimeFormatter(String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return new SimpleDateFormat(DATETIME_FORMAT);
+            return TimeUtils.DATETIME_FORMAT;
         } else {
-            return new SimpleDateFormat(DATE_FORMAT);
+            return TimeUtils.DATE_FORMAT;
         }
     }
 
@@ -399,10 +403,12 @@ public class DynamicPartitionUtil {
     // Check if all requried properties has been set.
     // And also check all optional properties, if not set, set them to default value.
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties,
-            PartitionInfo partitionInfo) throws DdlException {
+            OlapTable olapTable) throws DdlException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
+
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
             throw new DdlException("Dynamic partition only support single-column range partition");
         }
@@ -443,7 +449,9 @@ public class DynamicPartitionUtil {
                 throw new DdlException("Must assign dynamic_partition.end properties");
             }
             if (Strings.isNullOrEmpty(buckets)) {
-                throw new DdlException("Must assign dynamic_partition.buckets properties");
+                DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+                buckets = String.valueOf(distributionInfo.getBucketNum());
+                properties.put(DynamicPartitionProperty.BUCKETS, buckets);
             }
             if (Strings.isNullOrEmpty(timeZone)) {
                 properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());
@@ -457,7 +465,7 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
                 properties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS,
-                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS));
+                        DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS);
             }
         }
         return true;
@@ -467,12 +475,6 @@ public class DynamicPartitionUtil {
         if (olapTable.getTableProperty() != null
                 && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
             if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
-                if (!isReplay) {
-                    // execute create partition first time only in master of FE, So no need execute
-                    // when it's replay
-                    Env.getCurrentEnv().getDynamicPartitionScheduler()
-                            .executeDynamicPartitionFirstTime(dbId, olapTable.getId());
-                }
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {
@@ -506,6 +508,7 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.BUCKETS);
             analyzedProperties.put(DynamicPartitionProperty.BUCKETS, bucketsValue);
         }
+
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             String enableValue = properties.get(DynamicPartitionProperty.ENABLE);
             checkEnable(enableValue);
@@ -675,7 +678,7 @@ public class DynamicPartitionUtil {
      */
     public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties,
             Database db) throws UserException {
-        if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
+        if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable)) {
             Map<String, String> dynamicPartitionProperties =
                     DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
             TableProperty tableProperty = olapTable.getTableProperty();
@@ -708,14 +711,18 @@ public class DynamicPartitionUtil {
             return formattedDateStr.substring(0, 8);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             return formattedDateStr.substring(0, 6);
+        } else if (timeUnit.equalsIgnoreCase(TimeUnit.YEAR.toString())) {
+            return formattedDateStr.substring(0, 4);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             return formattedDateStr.substring(0, 10);
         } else {
             formattedDateStr = formattedDateStr.substring(0, 8);
             Calendar calendar = Calendar.getInstance(tz);
             try {
-                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(formattedDateStr));
-            } catch (ParseException e) {
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+                calendar.setTime(Date.from(
+                        LocalDate.parse(formattedDateStr, formatter).atStartOfDay().atZone(tz.toZoneId()).toInstant()));
+            } catch (DateTimeParseException e) {
                 LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
                 return formattedDateStr;
             }
@@ -731,7 +738,6 @@ public class DynamicPartitionUtil {
 
     // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
     // add support: HOUR by caoyang10
-    // TODO: support YEAR
     public static String getPartitionRangeString(DynamicPartitionProperty property, ZonedDateTime current,
                                                  int offset, String format) {
         String timeUnit = property.getTimeUnit();
@@ -741,28 +747,37 @@ public class DynamicPartitionUtil {
             return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             return getPartitionRangeOfHour(current, offset, format);
-        } else { // MONTH
+        } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
+        } else { // YEAR
+            return getPartitionRangeOfYear(current, offset, format);
         }
     }
 
     public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty,
             String time, String format) throws AnalysisException {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
-        Date date = null;
+        LocalDateTime dateTime = null;
         Timestamp timestamp = null;
         String timeUnit = dynamicPartitionProperty.getTimeUnit();
         DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
-        SimpleDateFormat simpleDateFormat = getSimpleDateFormat(timeUnit);
         try {
-            date = simpleDateFormat.parse(time);
-        } catch (ParseException e) {
+            dateTime = getDateTimeByTimeUnit(time, timeUnit);
+        } catch (DateTimeParseException e) {
             LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
             throw new AnalysisException("Parse dynamic partition periods error. Error=" + e.getMessage());
         }
-        timestamp = new Timestamp(date.getTime());
+        timestamp = Timestamp.valueOf(dateTime);
         return getFormattedTimeWithoutMinuteSecond(
                 ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
+    }
+
+    private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {
+        if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+            return LocalDateTime.parse(time, TimeUtils.DATETIME_FORMAT);
+        } else {
+            return LocalDate.from(TimeUtils.DATE_FORMAT.parse(time)).atStartOfDay();
+        }
     }
 
     /**
@@ -836,6 +851,11 @@ public class DynamicPartitionUtil {
             realOffset -= 1;
         }
         ZonedDateTime resultTime = current.plusMonths(realOffset).withDayOfMonth(startOf.day);
+        return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
+    }
+
+    private static String getPartitionRangeOfYear(ZonedDateTime current, int offset, String format) {
+        ZonedDateTime resultTime = current.plusYears(offset).withMonth(1).withDayOfMonth(1);
         return getFormattedTimeWithoutHourMinuteSecond(resultTime, format);
     }
 

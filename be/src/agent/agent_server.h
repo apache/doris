@@ -17,17 +17,22 @@
 
 #pragma once
 
+#include <butil/macros.h>
+
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "gen_cpp/AgentService_types.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 
 class TaskWorkerPool;
 class TopicSubscriber;
+class ExecEnv;
+class TAgentPublishRequest;
+class TAgentResult;
+class TAgentTaskRequest;
+class TMasterInfo;
+class TSnapshotRequest;
 
 // Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
@@ -55,10 +60,10 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _create_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _drop_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _push_workers;
+    std::unique_ptr<TaskWorkerPool> _push_load_workers;
     std::unique_ptr<TaskWorkerPool> _publish_version_workers;
     std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
-    std::unique_ptr<TaskWorkerPool> _delete_workers;
+    std::unique_ptr<TaskWorkerPool> _push_delete_workers;
     std::unique_ptr<TaskWorkerPool> _alter_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers;
     std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers;

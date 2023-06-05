@@ -274,12 +274,34 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public void finalizeImplForNereids() throws AnalysisException {
-
+    public String toString() {
+        return toSqlImpl();
     }
 
     @Override
-    public String toString() {
-        return toSqlImpl();
+    public boolean containsSubPredicate(Expr subExpr) throws AnalysisException {
+        if (op.equals(Operator.AND)) {
+            for (Expr child : children) {
+                if (child.containsSubPredicate(subExpr)) {
+                    return true;
+                }
+            }
+        }
+        return super.containsSubPredicate(subExpr);
+    }
+
+    @Override
+    public Expr replaceSubPredicate(Expr subExpr) {
+        if (op.equals(Operator.AND)) {
+            Expr lhs = children.get(0);
+            Expr rhs = children.get(1);
+            if (lhs.replaceSubPredicate(subExpr) == null) {
+                return rhs;
+            }
+            if (rhs.replaceSubPredicate(subExpr) == null) {
+                return lhs;
+            }
+        }
+        return this;
     }
 }

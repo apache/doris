@@ -17,20 +17,32 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <parallel_hashmap/phmap.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/field_visitors.h>
-#include <vec/core/block.h>
-#include <vec/core/column_with_type_and_name.h>
-#include <vec/data_types/data_type_number.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <map>
+#include <mutex>
+#include <string>
+
+#include "common/status.h"
 #include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
 class LocalSchemaChangeRecorder;
-}
+enum class FieldType;
+
+namespace vectorized {
+class Block;
+class IColumn;
+struct ColumnWithTypeAndName;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -53,9 +65,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 // from object column and casted to the new type from slot_descs.
 // Also if column in block is empty, it will be filled
 // with num_rows of default values
-void unfold_object(size_t dynamic_col_position, std::vector<MutableColumnPtr>& columns,
-                   const HashMap<StringRef, size_t, StringRefHash>& column_offset_map,
-                   const std::vector<SlotDescriptor*>& slot_descs, bool cast_to_original_type);
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type);
 
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
@@ -77,6 +87,7 @@ Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*fo
 // maybe use col_unique_id as key in the future
 // but for dynamic table, column name if ok
 struct FullBaseSchemaView {
+    ENABLE_FACTORY_CREATOR(FullBaseSchemaView);
     phmap::flat_hash_map<std::string, TColumn> column_name_to_column;
     int32_t schema_version = -1;
     int32_t table_id = 0;

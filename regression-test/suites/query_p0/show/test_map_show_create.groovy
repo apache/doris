@@ -62,6 +62,7 @@ suite("test_map_show_create", "query") {
         create_test_table.call(testTable)
 
         qt_select "SHOW CREATE TABLE ${testTable}"
+        qt_select "select count(k2), count(k3), count(k4), count(k5), count(k6) from ${testTable}"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

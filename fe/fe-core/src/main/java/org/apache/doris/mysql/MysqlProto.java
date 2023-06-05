@@ -29,7 +29,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
@@ -77,45 +76,18 @@ public class MysqlProto {
             return null;
         }
 
-        // check cluster, user name may contains cluster name or cluster id.
-        // eg:
-        // user_name@cluster_name
-        String clusterName = "";
-        String[] strList = tmpUser.split("@", 2);
-        if (strList.length > 1) {
-            tmpUser = strList[0];
-            clusterName = strList[1];
-            try {
-                // if cluster does not exist and it is not a valid cluster id, authenticate failed
-                if (Env.getCurrentEnv().getCluster(clusterName) == null
-                        && Integer.valueOf(strList[1]) != context.getEnv().getClusterId()) {
-                    ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                    return null;
-                }
-            } catch (Throwable e) {
-                ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                return null;
-            }
-        }
-        if (Strings.isNullOrEmpty(clusterName)) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        context.setCluster(clusterName);
+        context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
-        // check resource group level. user name may contains resource group level.
+        // check workload group level. user name may contains workload group level.
         // eg:
         // ...@user_name#HIGH
-        // set resource group if it is valid, or just ignore it
-        strList = tmpUser.split("#", 2);
+        // set workload group if it is valid, or just ignore it
+        String[] strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
-            if (UserResource.isValidGroup(strList[1])) {
-                context.getSessionVariable().setResourceGroup(strList[1]);
-            }
         }
 
-        LOG.debug("parse cluster: {}", clusterName);
-        String qualifiedUser = ClusterNamespace.getFullName(clusterName, tmpUser);
+        String qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, tmpUser);
         context.setQualifiedUser(qualifiedUser);
         return qualifiedUser;
     }
@@ -182,10 +154,10 @@ public class MysqlProto {
         ByteBuffer handshakeResponse;
 
         if (capability.isClientUseSsl()) {
-            LOG.info("client is using ssl connection.");
+            LOG.debug("client is using ssl connection.");
             // During development, we set SSL mode to true by default.
             if (SERVER_USE_SSL) {
-                LOG.info("server is also using ssl connection. Will use ssl mode for data exchange.");
+                LOG.debug("server is also using ssl connection. Will use ssl mode for data exchange.");
                 MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
                 mysqlSslContext.init();
                 channel.initSslBuffer();
@@ -218,7 +190,7 @@ public class MysqlProto {
 
                 // Set channel mode to ssl mode to handle socket packet in ssl format.
                 channel.setSslMode(true);
-                LOG.info("switch to ssl mode.");
+                LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
                 capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
                 if (!capability.isClientUseSsl()) {

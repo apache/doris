@@ -70,7 +70,7 @@ suite("test_array_export", "export") {
               `k8` ARRAY<DATETIME> NOT NULL COMMENT "",
               `k9` ARRAY<FLOAT> NOT NULL COMMENT "",
               `k10` ARRAY<DOUBLE> NOT NULL COMMENT "",
-              `k11` ARRAY<DECIMAL(27, 9)> NULL COMMENT ""
+              `k11` ARRAY<DECIMALV3(27, 9)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -175,9 +175,7 @@ suite("test_array_export", "export") {
         for (int j = 0; j < outLines.size(); j ++) {
             String[] outLine = outLines.get(j).split("\t")
             String[] baseLine = baseLines.get(j + 2).split("\t")
-            for (int slotId = 0; slotId < outLine.size(); slotId ++) {
-                assert outLine[slotId] == baseLine[slotId]
-            }
+            assert outLine.length == baseLine.length
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -33,10 +33,10 @@ import java.util.Map;
  */
 public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("QueryId").add("ConnectionId").add("Database").add("User")
+            .add("QueryId").add("ConnectionId").add("Catalog").add("Database").add("User")
             .add("ExecTime").add("SqlHash").add("Statement").build();
 
-    private static final int EXEC_TIME_INDEX = 4;
+    private static final int EXEC_TIME_INDEX = 5;
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
@@ -50,6 +50,7 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());
             values.add(item.getConnId());
+            values.add(item.getCatalog());
             values.add(item.getDb());
             values.add(item.getUser());
             values.add(item.getQueryExecTime());

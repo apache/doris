@@ -148,7 +148,9 @@ class StreamLoadAction implements SuiteAction {
             ex = t
         }
         long endTime = System.currentTimeMillis()
-        log.info("Stream load elapsed ${endTime - startTime} ms".toString())
+
+        log.info("Stream load elapsed ${endTime - startTime} ms, response: ${responseText}".toString() +
+                 ex.toString())
         checkResult(responseText, ex, startTime, endTime)
     }
 
@@ -193,6 +195,7 @@ class StreamLoadAction implements SuiteAction {
         int code = resp.getStatusLine().getStatusCode()
         if (code != HttpStatus.SC_OK) {
             String streamBody = EntityUtils.toString(resp.getEntity())
+            log.info("Fail to download data ${url}, code: ${code}, body:\n${streamBody}")
             throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
         }
 
@@ -314,7 +317,6 @@ class StreamLoadAction implements SuiteAction {
             long numberLoadedRows = result.NumberLoadedRows.toLong()
             if (numberTotalRows != numberLoadedRows) {
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
-
             }
 
             if (time > 0) {
@@ -333,32 +335,37 @@ class StreamLoadAction implements SuiteAction {
     // So here we wait for at most 60s, using "show transaction" to check the
     // status of txn, and return once it become ABORTED or VISIBLE.
     private String waitForPublishOrFailure(String responseText) {
-        long maxWaitSecond = 60;
-        def jsonSlurper = new JsonSlurper()
-        def parsed = jsonSlurper.parseText(responseText)
-        String status = parsed.Status
-        long txnId = parsed.TxnId
-        if (!status.equalsIgnoreCase("Publish Timeout")) {
-            return status;
-        }
-
-        log.info("Stream load with txn ${txnId} is publish timeout")
-        String sql = "show transaction from ${db} where id = ${txnId}"
-        String st = "PREPARE"
-        while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && maxWaitSecond > 0) {
-            Thread.sleep(2000)
-            maxWaitSecond -= 2
-            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
-            if (result.size() != 1) {
-                throw new IllegalStateException("Failed to get txn's ${txnId}")
+        try {
+            long maxWaitSecond = 60;
+            def jsonSlurper = new JsonSlurper()
+            def parsed = jsonSlurper.parseText(responseText)
+            String status = parsed.Status
+            long txnId = parsed.TxnId
+            if (!status.equalsIgnoreCase("Publish Timeout")) {
+                return status;
             }
-            st = String.valueOf(result[0][3])
-        }
-        log.info("Stream load with txn ${txnId} is ${st}")
-        if (st.equalsIgnoreCase("VISIBLE")) {
-            return "Success";
-        } else {
-            return "Fail";
+
+            log.info("Stream load with txn ${txnId} is publish timeout")
+            String sql = "show transaction from ${db} where id = ${txnId}"
+            String st = "PREPARE"
+            while (!st.equalsIgnoreCase("VISIBLE") && !st.equalsIgnoreCase("ABORTED") && maxWaitSecond > 0) {
+                Thread.sleep(2000)
+                maxWaitSecond -= 2
+                def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
+                if (result.size() != 1) {
+                    throw new IllegalStateException("Failed to get txn's ${txnId}")
+                }
+                st = String.valueOf(result[0][3])
+            }
+            log.info("Stream load with txn ${txnId} is ${st}")
+            if (st.equalsIgnoreCase("VISIBLE")) {
+                return "Success";
+            } else {
+                return "Fail";
+            }
+        } catch (Throwable t) {
+            log.info("failed to waitForPublishOrFailure. response: ${responseText}", t);
+            throw t;
         }
     }
 }

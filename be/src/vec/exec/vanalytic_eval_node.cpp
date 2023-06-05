@@ -17,9 +17,34 @@
 
 #include "vec/exec/vanalytic_eval_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
+#include "common/logging.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -113,10 +138,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _agg_intput_columns[i].resize(desc.nodes[0].num_children);
         for (int j = 0; j < desc.nodes[0].num_children; ++j) {
             ++node_idx;
-            VExpr* expr = nullptr;
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(_pool, desc.nodes, nullptr, &node_idx,
-                                                           &expr, &ctx));
+            VExprSPtr expr;
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
 
@@ -129,10 +153,9 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         }
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.partition_exprs,
-                                             &_partition_by_eq_expr_ctxs));
     RETURN_IF_ERROR(
-            VExpr::create_expr_trees(_pool, analytic_node.order_by_exprs, &_order_by_eq_expr_ctxs));
+            VExpr::create_expr_trees(analytic_node.partition_exprs, _partition_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs, _order_by_eq_expr_ctxs));
     _partition_by_column_idxs.resize(_partition_by_eq_expr_ctxs.size());
     _ordey_by_column_idxs.resize(_order_by_eq_expr_ctxs.size());
     _agg_functions_size = _agg_functions.size();
@@ -144,7 +167,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
 
-    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
     _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
@@ -183,7 +206,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     }
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
                                                    _align_aggregate_states);
-    _create_agg_status();
+    RETURN_IF_CATCH_EXCEPTION(_create_agg_status());
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
     _executor.execute =
@@ -224,7 +247,6 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
     {
-        START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_CANCELLED(state);
@@ -262,8 +284,7 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
         }
     }
     RETURN_IF_ERROR(_output_current_block(output_block));
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -272,7 +293,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::close");
 
     VExpr::close(_partition_by_eq_expr_ctxs, state);
     VExpr::close(_order_by_eq_expr_ctxs, state);
@@ -302,8 +322,6 @@ bool VAnalyticEvalNode::can_read() {
 }
 
 Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
 
@@ -324,7 +342,7 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
 }
@@ -514,14 +532,12 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     Block block;
     RETURN_IF_CANCELLED(state);
     do {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, &block, &_input_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), _input_eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, &block, &_input_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
     } while (!_input_eos && block.rows() == 0);
 
     RETURN_IF_ERROR(sink(state, &block, _input_eos));
@@ -583,8 +599,9 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
     return Status::OK();
 }
 
-Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block, VExprContext* expr,
-                                               IColumn* dst_column, size_t length) {
+Status VAnalyticEvalNode::_insert_range_column(vectorized::Block* block,
+                                               const VExprContextSPtr& expr, IColumn* dst_column,
+                                               size_t length) {
     int result_col_id = -1;
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);
@@ -712,13 +729,21 @@ Status VAnalyticEvalNode::_reset_agg_status() {
 
 Status VAnalyticEvalNode::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        try {
+            _agg_functions[i]->create(_fn_place_ptr + _offsets_of_aggregate_states[i]);
+        } catch (...) {
+            for (int j = 0; j < i; ++j) {
+                _agg_functions[j]->destroy(_fn_place_ptr + _offsets_of_aggregate_states[j]);
+            }
+            throw;
+        }
     }
+    _agg_functions_created = true;
     return Status::OK();
 }
 
 Status VAnalyticEvalNode::_destroy_agg_status() {
-    if (UNLIKELY(_fn_place_ptr == nullptr)) {
+    if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
         return Status::OK();
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {

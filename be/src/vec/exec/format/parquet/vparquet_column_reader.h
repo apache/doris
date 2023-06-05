@@ -18,9 +18,34 @@
 #pragma once
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "schema_desc.h"
+#include <list>
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_chunk_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -39,7 +64,7 @@ public:
                   decode_level_time(0),
                   decode_null_map_time(0) {}
 
-        Statistics(BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
+        Statistics(io::BufferedStreamReader::Statistics& fs, ColumnChunkReader::Statistics& cs,
                    int64_t null_map_time)
                 : read_time(fs.read_time),
                   read_calls(fs.read_calls),
@@ -77,8 +102,9 @@ public:
         }
     };
 
-    ParquetColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
-            : _row_ranges(row_ranges), _ctz(ctz) {}
+    ParquetColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                        io::IOContext* io_ctx)
+            : _row_ranges(row_ranges), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ParquetColumnReader() = default;
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     ColumnSelectVector& select_vector, size_t batch_size,
@@ -100,7 +126,8 @@ public:
     static Status create(io::FileReaderSPtr file, FieldSchema* field,
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                         std::unique_ptr<ParquetColumnReader>& reader, size_t max_buf_size);
+                         io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
+                         size_t max_buf_size);
     void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
@@ -117,6 +144,7 @@ protected:
     bool _nested_column = false;
     const std::vector<RowRange>& _row_ranges;
     cctz::time_zone* _ctz;
+    io::IOContext* _io_ctx;
     tparquet::OffsetIndex* _offset_index;
     int64_t _current_row_index = 0;
     int _row_range_index = 0;
@@ -126,8 +154,9 @@ protected:
 class ScalarColumnReader : public ParquetColumnReader {
 public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges,
-                       const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz)
-            : ParquetColumnReader(row_ranges, ctz), _chunk_meta(chunk_meta) {}
+                       const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz,
+                       io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx), _chunk_meta(chunk_meta) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
@@ -147,7 +176,7 @@ public:
 
 private:
     tparquet::ColumnChunk _chunk_meta;
-    std::unique_ptr<BufferedFileStreamReader> _stream_reader;
+    std::unique_ptr<io::BufferedFileStreamReader> _stream_reader;
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
@@ -163,8 +192,9 @@ private:
 
 class ArrayColumnReader : public ParquetColumnReader {
 public:
-    ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
-            : ParquetColumnReader(row_ranges, ctz) {}
+    ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
@@ -185,8 +215,9 @@ private:
 
 class MapColumnReader : public ParquetColumnReader {
 public:
-    MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
-            : ParquetColumnReader(row_ranges, ctz) {}
+    MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                    io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~MapColumnReader() override { close(); }
 
     Status init(std::unique_ptr<ParquetColumnReader> key_reader,
@@ -218,8 +249,9 @@ private:
 
 class StructColumnReader : public ParquetColumnReader {
 public:
-    StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
-            : ParquetColumnReader(row_ranges, ctz) {}
+    StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                       io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~StructColumnReader() override { close(); }
 
     Status init(std::vector<std::unique_ptr<ParquetColumnReader>>&& child_readers,

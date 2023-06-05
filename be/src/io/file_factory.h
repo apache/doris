@@ -16,19 +16,30 @@
 // under the License.
 #pragma once
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "io/file_writer.h"
-#include "io/fs/file_reader.h"
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/status.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
 namespace io {
 class FileSystem;
-class FileReaderOptions;
+class FileWriter;
 } // namespace io
 class ExecEnv;
-class TNetworkAddress;
 class RuntimeProfile;
+class RuntimeState;
 
 struct FileSystemProperties {
     TFileType::type system_type;
@@ -40,23 +51,29 @@ struct FileSystemProperties {
 struct FileDescription {
     std::string path;
     int64_t start_offset;
-    size_t file_size;
+    int64_t file_size;
 };
 
 class FileFactory {
+    ENABLE_FACTORY_CREATOR(FileFactory);
+
 public:
-    // Create FileWriter
+    static io::FileReaderOptions get_reader_options(RuntimeState* state);
+    static io::FileReaderOptions NO_CACHE_READER_OPTIONS;
+
+    /// Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,
                                      const std::vector<TNetworkAddress>& broker_addresses,
                                      const std::map<std::string, std::string>& properties,
                                      const std::string& path, int64_t start_offset,
-                                     std::unique_ptr<FileWriter>& file_writer);
+                                     std::unique_ptr<io::FileWriter>& file_writer);
 
-    static Status create_file_reader(RuntimeProfile* profile,
-                                     const FileSystemProperties& system_properties,
-                                     const FileDescription& file_description,
-                                     std::shared_ptr<io::FileSystem>* file_system,
-                                     io::FileReaderSPtr* file_reader, IOContext* io_ctx);
+    /// Create FileReader
+    static Status create_file_reader(
+            RuntimeProfile* profile, const FileSystemProperties& system_properties,
+            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
+            io::FileReaderSPtr* file_reader,
+            io::FileReaderOptions reader_options = NO_CACHE_READER_OPTIONS);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);
@@ -64,25 +81,20 @@ public:
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                      io::FileReaderSPtr* reader,
-                                     const io::FileReaderOptions& reader_options,
-                                     IOContext* io_ctx);
-
-    static Status create_hdfs_writer(const std::map<std::string, std::string>& properties,
-                                     const std::string& path, std::unique_ptr<FileWriter>& writer);
+                                     const io::FileReaderOptions& reader_options);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const std::string& path,
                                    std::shared_ptr<io::FileSystem>* s3_file_system,
                                    io::FileReaderSPtr* reader,
-                                   const io::FileReaderOptions& reader_options, IOContext* io_ctx);
+                                   const io::FileReaderOptions& reader_options);
 
     static Status create_broker_reader(const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop,
                                        const FileDescription& file_description,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader,
-                                       const io::FileReaderOptions& reader_options,
-                                       IOContext* io_ctx);
+                                       const io::FileReaderOptions& reader_options);
 
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {

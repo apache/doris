@@ -17,33 +17,31 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link MergeLimits}.
  */
 class MergeLimitsTest implements MemoPatternMatchSupported {
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
     @Test
     void testMergeLimits() {
-        LogicalPlan logicalLimit = new LogicalPlanBuilder(
-                new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "t")))
+        LogicalPlan logicalLimit = new LogicalPlanBuilder(scan1)
                 .limit(3, 5)
                 .limit(2, 0)
                 .limit(10, 0).build();
 
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(
-                        logicalLimit(
-                                unboundRelation()
-                        ).when(limit -> limit.getLimit() == 2).when(limit -> limit.getOffset() == 5));
+                        logicalLimit().when(limit -> limit.getLimit() == 2).when(limit -> limit.getOffset() == 5));
     }
 }

@@ -17,9 +17,26 @@
 
 #include "vec/exec/vtable_function_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/table_function_factory.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -31,20 +48,18 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
 
     for (const TExpr& texpr : tnode.table_function_node.fnCallExprList) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, texpr, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(texpr, ctx));
         _vfn_ctxs.push_back(ctx);
 
-        VExpr* root = ctx->root();
+        auto root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
         RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
-        fn->set_vexpr_context(ctx);
+        fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
     _fn_num = _fns.size();
-    _fn_values.resize(_fn_num);
-    _fn_value_lengths.resize(_fn_num);
 
     // Prepare output slot ids
     RETURN_IF_ERROR(_prepare_output_slot_ids(tnode));
@@ -104,28 +119,31 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
         }
     }
 
+    for (size_t i = 0; i < _child_slots.size(); i++) {
+        if (_slot_need_copy(i)) {
+            _output_slot_indexs.push_back(i);
+        } else {
+            _useless_slot_indexs.push_back(i);
+        }
+    }
+
     _cur_child_offset = -1;
 
     return Status::OK();
 }
 
 Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VTableFunctionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_CANCELLED(state);
 
     // if child_block is empty, get data from child.
     while (need_more_input_data()) {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_child_block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_child_block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, Block*, bool*)) & ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         RETURN_IF_ERROR(push(state, &_child_block, _child_eos));
     }
@@ -133,16 +151,23 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
     return pull(state, block, eos);
 }
 
-Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output_block, bool* eos) {
+Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* output_block,
+                                               bool* eos) {
     size_t column_size = _output_slots.size();
     bool mem_reuse = output_block->mem_reuse();
 
-    std::vector<vectorized::MutableColumnPtr> columns(column_size);
+    std::vector<MutableColumnPtr> columns(column_size);
     for (size_t i = 0; i < column_size; i++) {
         if (mem_reuse) {
             columns[i] = std::move(*output_block->get_by_position(i).column).mutate();
         } else {
             columns[i] = _output_slots[i]->get_empty_mutable_column();
+        }
+    }
+
+    for (int i = 0; i < _fn_num; i++) {
+        if (columns[i + _child_slots.size()]->is_nullable()) {
+            _fns[i]->set_nullable();
         }
     }
 
@@ -158,6 +183,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         while (columns[_child_slots.size()]->size() < state->batch_size()) {
             int idx = _find_last_fn_eos_idx();
             if (idx == 0 || skip_child_row) {
+                _copy_output_slots(columns);
                 // all table functions' results are exhausted, process next child row.
                 RETURN_IF_ERROR(_process_next_child_row());
                 if (_cur_child_offset == -1) {
@@ -175,41 +201,25 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
             if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
                 continue;
             }
-
-            // get slots from every table function.
-            // notice that _fn_values[i] may be null if the table function has empty result set.
-            for (int i = 0; i < _fn_num; i++) {
-                RETURN_IF_ERROR(_fns[i]->get_value(&_fn_values[i]));
-                RETURN_IF_ERROR(_fns[i]->get_value_length(&_fn_value_lengths[i]));
-            }
-
-            // The tuples order in parent row batch should be
-            //      child1, child2, tf1, tf2, ...
-
-            // 1. copy data from child_block.
-            for (int i = 0; i < _child_slots.size(); i++) {
-                if (!slot_need_copy(i)) {
-                    columns[i]->insert_default();
-                    continue;
+            if (_fn_num == 1) {
+                _current_row_insert_times += _fns[0]->get_value(
+                        columns[_child_slots.size()],
+                        state->batch_size() - columns[_child_slots.size()]->size());
+            } else {
+                for (int i = 0; i < _fn_num; i++) {
+                    _fns[i]->get_value(columns[i + _child_slots.size()]);
                 }
-                auto src_column = _child_block.get_by_position(i).column;
-                columns[i]->insert_from(*src_column, _cur_child_offset);
+                _current_row_insert_times++;
+                _fns[_fn_num - 1]->forward();
             }
-
-            // 2. copy function result
-            for (int i = 0; i < _fns.size(); i++) {
-                int output_slot_idx = i + _child_slots.size();
-                if (_fn_values[i] == nullptr) {
-                    columns[output_slot_idx]->insert_default();
-                } else {
-                    columns[output_slot_idx]->insert_data(reinterpret_cast<char*>(_fn_values[i]),
-                                                          _fn_value_lengths[i]);
-                }
-            }
-
-            bool tmp = false;
-            _fns[_fn_num - 1]->forward(&tmp);
         }
+    }
+
+    _copy_output_slots(columns);
+
+    size_t row_size = columns[_child_slots.size()]->size();
+    for (auto index : _useless_slot_indexs) {
+        columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
 
     if (!columns.empty() && !columns[0]->empty()) {
@@ -226,8 +236,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
     }
 
     // 3. eval conjuncts
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
@@ -292,11 +301,10 @@ int VTableFunctionNode::_find_last_fn_eos_idx() {
 //  If `last_eos_idx` is 1, which means f2 and f3 are eos.
 //  So we need to forward f1, and reset f2 and f3.
 bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
-    bool fn_eos = false;
     int i = last_eos_idx - 1;
     for (; i >= 0; --i) {
-        _fns[i]->forward(&fn_eos);
-        if (!fn_eos) {
+        _fns[i]->forward();
+        if (!_fns[i]->eos()) {
             break;
         }
     }

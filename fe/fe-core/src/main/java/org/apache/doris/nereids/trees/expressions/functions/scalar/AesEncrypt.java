@@ -58,13 +58,15 @@ public class AesEncrypt extends AesCryptoFunction {
      * Some javadoc for checkstyle...
      */
     public AesEncrypt(Expression arg0, Expression arg1) {
-        super("aes_encrypt", arg0, arg1, getDefaultBlockEncryptionMode());
-        String blockEncryptionMode = String.valueOf(getDefaultBlockEncryptionMode());
-        if (!blockEncryptionMode.toUpperCase().equals("'AES_128_ECB'")
-                && !blockEncryptionMode.toUpperCase().equals("'AES_192_ECB'")
-                && !blockEncryptionMode.toUpperCase().equals("'AES_256_ECB'")) {
-            throw new AnalysisException("Incorrect parameter count in the call to native function "
-                    + "'aes_encrypt' or 'aes_decrypt'");
+        // if there are only 2 params, we need set encryption mode to AES_128_ECB
+        // this keeps the behavior consistent with old doris ver.
+        super("aes_encrypt", arg0, arg1, new StringLiteral("AES_128_ECB"));
+
+        // check if encryptionMode from session variables is valid
+        StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
+        if (!AES_MODES.contains(encryptionMode.getValue())) {
+            throw new AnalysisException(
+                    "session variable block_encryption_mode is invalid with aes");
         }
     }
 
@@ -87,9 +89,6 @@ public class AesEncrypt extends AesCryptoFunction {
         } else if (children().size() == 3) {
             return new AesEncrypt(children.get(0), children.get(1), children.get(2));
         } else {
-            if (!(children.get(3) instanceof StringLiteral)) {
-                throw new AnalysisException("the 4th parameter should be string literal: " + this.toSql());
-            }
             return new AesEncrypt(children.get(0), children.get(1), children.get(2), (StringLiteral) children.get(3));
         }
     }

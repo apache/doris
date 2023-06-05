@@ -26,7 +26,8 @@ suite("add_table_policy_by_alter_table") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH (k1) BUCKETS 3
         PROPERTIES(
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
     assertEquals(create_table_not_have_policy_result.size(), 1);
@@ -51,7 +52,7 @@ suite("add_table_policy_by_alter_table") {
 
     if (!storage_exist.call("created_create_table_alter_policy")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_create_alter_table_use_resource"
+            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -64,7 +65,7 @@ suite("add_table_policy_by_alter_table") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY created_create_table_alter_policy
+            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy
             PROPERTIES(
             "storage_resource" = "test_create_alter_table_use_resource",
             "cooldown_datetime" = "2025-06-08 00:00:00"
@@ -87,7 +88,7 @@ suite("add_table_policy_by_alter_table") {
 
     if (!storage_exist.call("created_create_table_alter_policy_1")) {
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_create_alter_table_use_resource_1"
+            CREATE RESOURCE IF NOT EXISTS "test_create_alter_table_use_resource_1"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -100,7 +101,7 @@ suite("add_table_policy_by_alter_table") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY created_create_table_alter_policy_1
+            CREATE STORAGE POLICY IF NOT EXISTS created_create_table_alter_policy_1
             PROPERTIES(
             "storage_resource" = "test_create_alter_table_use_resource_1",
             "cooldown_datetime" = "2025-06-08 00:00:00"

@@ -76,6 +76,10 @@ public class ImportAction extends RestBaseController {
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
     public Object fileReview(@RequestBody FileReviewRequestVo body,
             HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
         }

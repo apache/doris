@@ -52,7 +52,7 @@ suite("use_default_storage_policy") {
         assertEquals(create_table_use_default_policy_but_not_set_default_policy_result, null);
 
         def create_s3_resource = try_sql """
-            CREATE RESOURCE "default_s3_resource"
+            CREATE RESOURCE IF NOT EXISTS "default_s3_resource"
             PROPERTIES(
                 "type"="s3",
                 "AWS_REGION" = "bj",
@@ -65,7 +65,7 @@ suite("use_default_storage_policy") {
             );
         """
         def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY default_storage_policy PROPERTIES(
+            CREATE STORAGE POLICY IF NOT EXISTS default_storage_policy PROPERTIES(
                 "storage_resource" = "default_s3_resource",
                 "cooldown_ttl" = "1008611"
             );

@@ -17,7 +17,9 @@
 
 #include "exec/schema_scanner/schema_statistics_scanner.h"
 
-#include "runtime/primitive_type.h"
+#include <stdint.h>
+
+#include "runtime/define_primitive_type.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {

@@ -126,7 +126,7 @@ mysql> SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM tab
 mysql> SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;
 ```
 
-Doris 会执行这些sql时会自动命中这个 ROLLUP 表。
+Doris 执行这些sql时会自动命中这个 ROLLUP 表。
 
 ### Duplicate 模型中的 ROLLUP
 

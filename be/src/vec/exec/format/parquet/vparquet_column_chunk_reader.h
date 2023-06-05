@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -24,12 +27,28 @@
 
 #include "common/status.h"
 #include "decoder.h"
-#include "gen_cpp/parquet_types.h"
-#include "io/buffered_reader.h"
 #include "level_decoder.h"
-#include "schema_desc.h"
-#include "util/block_compression.h"
+#include "util/slice.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class BlockCompressionCodec;
+
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -64,8 +83,8 @@ public:
         int64_t decode_level_time = 0;
     };
 
-    ColumnChunkReader(BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
-                      FieldSchema* field_schema, cctz::time_zone* ctz);
+    ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
+                      FieldSchema* field_schema, cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.
@@ -172,9 +191,10 @@ private:
     level_t _max_def_level;
     tparquet::LogicalType _parquet_logical_type;
 
-    BufferedStreamReader* _stream_reader;
+    io::BufferedStreamReader* _stream_reader;
     tparquet::ColumnMetaData _metadata;
     cctz::time_zone* _ctz;
+    io::IOContext* _io_ctx;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
     BlockCompressionCodec* _block_compress_codec = nullptr;

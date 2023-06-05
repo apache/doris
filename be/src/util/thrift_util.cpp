@@ -17,17 +17,26 @@
 
 #include "util/thrift_util.h"
 
-#include <thrift/Thrift.h>
-#include <thrift/concurrency/ThreadFactory.h>
-#include <thrift/concurrency/ThreadManager.h>
-#include <thrift/server/TNonblockingServer.h>
-#include <thrift/transport/TServerSocket.h>
+#include <gen_cpp/Types_types.h>
+#include <thrift/TOutput.h>
+#include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 
-#include "gen_cpp/Data_types.h"
-#include "gen_cpp/Types_types.h"
-#include "util/hash_util.hpp"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "util/thrift_server.h"
+
+namespace apache {
+namespace thrift {
+namespace protocol {
+class TProtocol;
+} // namespace protocol
+} // namespace thrift
+} // namespace apache
 
 // TCompactProtocol requires some #defines to work right.  They also define UNLIKELY
 // so we need to undef this.
@@ -35,9 +44,18 @@
 #ifdef UNLIKELY
 #undef UNLIKELY
 #endif
+#ifndef SIGNED_RIGHT_SHIFT_IS
 #define SIGNED_RIGHT_SHIFT_IS 1
+#endif
+
+#ifndef ARITHMETIC_RIGHT_SHIFT
 #define ARITHMETIC_RIGHT_SHIFT 1
+#endif
+
 #include <thrift/protocol/TCompactProtocol.h>
+
+#include <sstream>
+#include <thread>
 
 namespace doris {
 

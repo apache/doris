@@ -21,10 +21,12 @@
 #include <string>
 #include <vector>
 
-#include "env/env.h"
+#include "io/fs/fs_utils.h"
 
 namespace doris {
 namespace path_util {
+
+using doris::io::FilePathDesc;
 
 // NOTE: The methods here are only related to path processing, do not involve
 // any file and IO operations.

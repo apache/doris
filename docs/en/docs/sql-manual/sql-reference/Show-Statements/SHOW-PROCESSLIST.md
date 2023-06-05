@@ -46,7 +46,7 @@ illustrate:
 - User: refers to the user who started this thread.
 - Host: Records the IP and port number of the client sending the request. Through this information, when troubleshooting the problem, we can locate which client and which process sent the request.
 - Cluster: Cluster name
-- DB: which database the currently executed command is on. If no database is specified, the value is NULL .
+- Db: which database the currently executed command is on. If no database is specified, the value is NULL .
 - Command: refers to the command that the thread is executing at the moment. 
 - Time: Indicates the time the thread is in the current state.
 - State: The state of the thread, corresponding to Command.

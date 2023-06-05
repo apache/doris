@@ -83,4 +83,34 @@ suite("test_group_concat") {
                 group by 
                 b2;
               """
+
+    sql """ drop table table_group_concat """
+    sql """create table table_group_concat ( b1 varchar(10) not null, b2 int not null, b3 varchar(10) not null )
+            ENGINE=OLAP
+            DISTRIBUTED BY HASH(b3) BUCKETS 4
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+
+    sql """insert into table_group_concat values('1', 1, '1'),('1', 2, '2'),('1', 3, '3');"""
+    sql """insert into table_group_concat values('1', 1, '11'),('1', 2, '21');"""
+    sql """insert into table_group_concat values('2', 21, '21'),('2', 22, '22'),('2', 23, '23');"""
+    sql """insert into table_group_concat values('2', 21, '211'),('2', 22, '222');"""
+
+    qt_select_group_concat_order_by_all_data """
+      select * from table_group_concat order by b1, b2, b3;
+    """
+    qt_select_group_concat_order_by_desc1 """
+                SELECT b1, group_concat(cast(abs(b2) as varchar) order by abs(b2) desc) FROM table_group_concat  group by b1 order by b1
+              """
+
+    qt_select_group_concat_order_by_desc2 """
+                SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3) FROM table_group_concat  group by b1 order by b1
+              """
+    qt_select_group_concat_order_by_desc3 """
+                SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1
+              """
 }

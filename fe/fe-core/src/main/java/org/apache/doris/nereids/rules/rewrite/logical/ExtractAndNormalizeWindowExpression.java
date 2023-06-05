@@ -25,16 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -43,7 +39,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * extract window expressions from LogicalProject.projects and Normalize LogicalWindow
+ * extract window expressions from LogicalProject#projects and Normalize LogicalWindow
  */
 public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory implements NormalizeToSlot {
 
@@ -62,14 +58,8 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             if (bottomProjects.isEmpty()) {
                 normalizedChild = project.child();
             } else {
-                boolean needAggregate = bottomProjects.stream().anyMatch(expr ->
-                        expr.anyMatch(AggregateFunction.class::isInstance));
-                if (needAggregate) {
-                    normalizedChild = new LogicalAggregate<>(
-                            ImmutableList.of(), ImmutableList.copyOf(bottomProjects), project.child());
-                } else {
-                    normalizedChild = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), project.child());
-                }
+                normalizedChild = project.withProjectsAndChild(
+                        ImmutableList.copyOf(bottomProjects), project.child());
             }
 
             // 2. handle window's outputs and windowExprs
@@ -85,11 +75,11 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             Set<NamedExpression> normalizedWindowWithAlias = ctxForWindows.pushDownToNamedExpression(normalizedWindows);
             // only need normalized windowExpressions
             LogicalWindow normalizedLogicalWindow =
-                    new LogicalWindow(Lists.newArrayList(normalizedWindowWithAlias), normalizedChild);
+                    new LogicalWindow<>(ImmutableList.copyOf(normalizedWindowWithAlias), normalizedChild);
 
             // 3. handle top projects
             List<NamedExpression> topProjects = ctxForWindows.normalizeToUseSlotRef(normalizedOutputs1);
-            return new LogicalProject<>(topProjects, normalizedLogicalWindow);
+            return project.withProjectsAndChild(topProjects, normalizedLogicalWindow);
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }
 
@@ -97,35 +87,32 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         // bottomProjects includes:
         // 1. expressions from function and WindowSpec's partitionKeys and orderKeys
         // 2. other slots of outputExpressions
-        /*
-        avg(c) / sum(a+1) over (order by avg(b))  group by a
-        win(x/sum(z) over y)
-            prj(x, y, a+1 as z)
-                agg(avg(c) x, avg(b) y, a)
-                    proj(a b c)
-        toBePushDown = {avg(c), a+1, avg(b)}
-         */
+        //
+        // avg(c) / sum(a+1) over (order by avg(b))  group by a
+        // win(x/sum(z) over y)
+        //     prj(x, y, a+1 as z)
+        //         agg(avg(c) x, avg(b) y, a)
+        //             proj(a b c)
+        // toBePushDown = {avg(c), a+1, avg(b)}
         return expressions.stream()
             .flatMap(expression -> {
                 if (expression.anyMatch(WindowExpression.class::isInstance)) {
-                    Set<Slot> inputSlots = expression.getInputSlots().stream().collect(Collectors.toSet());
+                    Set<Slot> inputSlots = Sets.newHashSet(expression.getInputSlots());
                     Set<WindowExpression> collects = expression.collect(WindowExpression.class::isInstance);
-                    Set<Slot> windowInputSlots = collects.stream().flatMap(
-                            win -> win.getInputSlots().stream()
-                    ).collect(Collectors.toSet());
-                    /*
-                    substr(
-                      ref_1.cp_type,
-                      max(
-                          cast(ref_1.`cp_catalog_page_number` as int)) over (...)
-                          ),
-                      1)
-
-                      in above case, ref_1.cp_type should be pushed down. ref_1.cp_type is in
-                      substr.inputSlots, but not in windowExpression.inputSlots
-
-                      inputSlots= {ref_1.cp_type}
-                     */
+                    Set<Slot> windowInputSlots = collects.stream()
+                            .flatMap(win -> win.getInputSlots().stream())
+                            .collect(Collectors.toSet());
+                    // substr(
+                    //   ref_1.cp_type,
+                    //   max(
+                    //       cast(ref_1.`cp_catalog_page_number` as int)) over (...)
+                    //       ),
+                    //   1)
+                    //
+                    //  in above case, ref_1.cp_type should be pushed down. ref_1.cp_type is in
+                    //  substr.inputSlots, but not in windowExpression.inputSlots
+                    //
+                    //  inputSlots= {ref_1.cp_type}
                     inputSlots.removeAll(windowInputSlots);
                     return Stream.concat(
                             collects.stream().flatMap(windowExpression ->

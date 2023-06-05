@@ -17,15 +17,24 @@
 
 #include "olap/primary_key_index.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "io/fs/file_reader.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/types.h"
 
 namespace doris {
 
 Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
-    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
     segment_v2::IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = true;
@@ -36,8 +45,9 @@ Status PrimaryKeyIndexBuilder::init() {
             new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
     RETURN_IF_ERROR(_primary_key_index_builder->init());
 
-    return segment_v2::BloomFilterIndexWriter::create(segment_v2::BloomFilterOptions(), type_info,
-                                                      &_bloom_filter_index_builder);
+    _bloom_filter_index_builder.reset(new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(
+            segment_v2::BloomFilterOptions(), type_info));
+    return Status::OK();
 }
 
 Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
@@ -73,6 +83,7 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
                                           const segment_v2::PrimaryKeyIndexMetaPB& meta) {
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
+    _index_reader->set_is_pk_index(true);
     RETURN_IF_ERROR(_index_reader->load(!config::disable_storage_page_cache, false));
 
     _index_parsed = true;

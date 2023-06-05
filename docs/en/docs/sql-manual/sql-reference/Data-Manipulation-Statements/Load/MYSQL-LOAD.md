@@ -77,6 +77,8 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 
 5. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
+6. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the load file are trimmed.
+
 ### Example
 
 1. Import the data from the client side local file `testData` into the table `testTbl` in the database `testDb`. Specify a timeout of 100 seconds

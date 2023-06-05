@@ -17,20 +17,24 @@
 
 #include "olap/delete_handler.h"
 
-#include <errno.h>
-#include <json2pb/pb_to_json.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <limits>
 #include <regex>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/olap_file.pb.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
-#include "olap/tablet.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
@@ -106,7 +110,7 @@ std::string DeleteHandler::construct_sub_predicates(const TCondition& condition)
         } else if (op == "!*=") {
             op = "!=";
         }
-        condition_str = condition.column_name + op + condition.condition_values[0];
+        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
     }
     return condition_str;
 }
@@ -120,46 +124,46 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
 
     FieldType field_type = column.type();
     switch (field_type) {
-    case OLAP_FIELD_TYPE_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_TINYINT:
         return valid_signed_number<int8_t>(value_str);
-    case OLAP_FIELD_TYPE_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
         return valid_signed_number<int16_t>(value_str);
-    case OLAP_FIELD_TYPE_INT:
+    case FieldType::OLAP_FIELD_TYPE_INT:
         return valid_signed_number<int32_t>(value_str);
-    case OLAP_FIELD_TYPE_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_BIGINT:
         return valid_signed_number<int64_t>(value_str);
-    case OLAP_FIELD_TYPE_LARGEINT:
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         return valid_signed_number<int128_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
         return valid_unsigned_number<uint8_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
         return valid_unsigned_number<uint16_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
         return valid_unsigned_number<uint32_t>(value_str);
-    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return valid_unsigned_number<uint64_t>(value_str);
-    case OLAP_FIELD_TYPE_DECIMAL:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL32:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL64:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL128I:
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
-    case OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
         return value_str.size() <= config::string_type_length_soft_limit_bytes;
-    case OLAP_FIELD_TYPE_DATE:
-    case OLAP_FIELD_TYPE_DATETIME:
-    case OLAP_FIELD_TYPE_DATEV2:
-    case OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATE:
+    case FieldType::OLAP_FIELD_TYPE_DATETIME:
+    case FieldType::OLAP_FIELD_TYPE_DATEV2:
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         return valid_datetime(value_str, column.frac());
-    case OLAP_FIELD_TYPE_BOOL:
+    case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
     default:
-        LOG(WARNING) << "unknown field type. [type=" << field_type << "]";
+        LOG(WARNING) << "unknown field type. [type=" << int(field_type) << "]";
     }
     return false;
 }
@@ -177,7 +181,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     const TabletColumn& column = schema.column(field_index);
 
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+        column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
         return Status::Error<DELETE_INVALID_CONDITION>();
@@ -213,7 +218,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
         //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*((?:[\s\S]+)?))";
+                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -233,7 +238,11 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     }
     condition->column_name = what[1].str();
     condition->condition_op = what[2].str();
-    condition->condition_values.push_back(what[3].str());
+    if (what[4].matched) { // match string with single quotes, eg. a = 'b'
+        condition->condition_values.push_back(what[4].str());
+    } else { // match string without quote, compat with old conditions, eg. a = b
+        condition->condition_values.push_back(what[3].str());
+    }
 
     return true;
 }
@@ -242,7 +251,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
-    _predicate_mem_pool.reset(new MemPool());
+    _predicate_arena.reset(new vectorized::Arena());
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
@@ -263,7 +272,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
             auto predicate =
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true);
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true);
             if (predicate != nullptr) {
                 temp.column_predicate_vec.push_back(predicate);
             }
@@ -283,7 +292,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 condition.condition_values.push_back(value);
             }
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_mem_pool.get(), true));
+                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));

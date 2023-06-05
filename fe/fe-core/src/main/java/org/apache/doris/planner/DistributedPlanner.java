@@ -592,7 +592,7 @@ public class DistributedPlanner {
                 }
             }
 
-            //3 the join columns should contains all distribute columns to enable colocate join
+            //3 the join columns should contain all distribute columns to enable colocate join
             if (leftJoinColumns.containsAll(leftDistributeColumns)
                     && rightJoinColumns.containsAll(rightDistributeColumns)) {
                 return true;
@@ -654,10 +654,11 @@ public class DistributedPlanner {
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo) {
-            // use the table_name + '-' + column_name as check condition
+            // use the table_name + '-' + column_name.toLowerCase() as check condition,
+            // as column name in doris is case insensitive and table name is case sensitive
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<String> leftDistributeColumnNames = leftDistributeColumns.stream()
-                    .map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
+                    .map(col -> leftTable.getName() + "." + col.getName().toLowerCase()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -675,7 +676,8 @@ public class DistributedPlanner {
                         && leftScanNode.desc.getSlots().contains(leftSlot.getDesc())) {
                     // table name in SlotRef is not the really name. `select * from test as t`
                     // table name in SlotRef is `t`, but here we need is `test`.
-                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "." + leftSlot.getColumnName());
+                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "."
+                            + leftSlot.getColumnName().toLowerCase());
                     rightExprs.add(rhsJoinExpr);
                 }
             }
@@ -688,7 +690,11 @@ public class DistributedPlanner {
                 // check the rhs join expr type is same as distribute column
                 for (int j = 0; j < leftJoinColumnNames.size(); j++) {
                     if (leftJoinColumnNames.get(j).equals(distributeColumnName)) {
-                        if (rightExprs.get(j).getType().equals(leftDistributeColumns.get(i).getType())) {
+                        // varchar and string type don't need to check the length property
+                        if ((rightExprs.get(j).getType().isVarcharOrStringType()
+                                && leftDistributeColumns.get(i).getType().isVarcharOrStringType())
+                                || (rightExprs.get(j).getType()
+                                        .equals(leftDistributeColumns.get(i).getType()))) {
                             rhsJoinExprs.add(rightExprs.get(j));
                             findRhsExprs = true;
                             break;
@@ -928,6 +934,13 @@ public class DistributedPlanner {
             if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
+                return childFragment;
+            } else if (ConnectContext.get().getSessionVariable().enablePipelineEngine()
+                    && childFragment.getPlanRoot().shouldColoAgg(node.getAggInfo())
+                    && childFragment.getPlanRoot() instanceof OlapScanNode) {
+                childFragment.getPlanRoot().setShouldColoScan();
+                childFragment.addPlanRoot(node);
+                childFragment.setHasColocatePlanNode(false);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);

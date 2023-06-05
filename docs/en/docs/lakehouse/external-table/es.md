@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-Please use [ES Catalog](../multi-catalog/es) to access Elasticsearch (ES) data sources.
+Please use [ES Catalog](../multi-catalog/es) to access Elasticsearch (ES) data sources, this function will no longer be maintained after version 1.2.2.
 
 </version>
 

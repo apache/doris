@@ -18,8 +18,12 @@
 #pragma once
 
 #include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -82,7 +86,7 @@ private:
 
     TypeDescriptor convert_to_doris_type(tparquet::LogicalType logicalType);
 
-    TypeDescriptor convert_to_doris_type(tparquet::ConvertedType::type convertedType);
+    TypeDescriptor convert_to_doris_type(const tparquet::SchemaElement& physical_schema);
 
     TypeDescriptor get_doris_type(const tparquet::SchemaElement& physical_schema);
 

@@ -17,16 +17,33 @@
 
 #pragma once
 
-#include <boost/thread.hpp>
-#include <future>
-#include <stack>
-#include <string>
+#include <gen_cpp/PlanNodes_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "exprs/runtime_filter.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "runtime/descriptors.h"
+#include <algorithm>
+#include <iosfwd>
+#include <memory>
+#include <stack>
+#include <vector>
+
+#include "common/status.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vjoin_node_base.h"
+
+namespace doris {
+class DescriptorTbl;
+class ObjectPool;
+class RowDescriptor;
+
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -105,10 +122,11 @@ private:
             }
 
             if constexpr (set_probe_side_flag) {
-                auto status =
-                        _do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                               set_probe_side_flag, ignore_null>(
-                                &_join_block, !_is_left_semi_anti);
+                Status status;
+                RETURN_IF_CATCH_EXCEPTION(
+                        (status = _do_filtering_and_update_visited_flags<
+                                 set_build_side_flag, set_probe_side_flag, ignore_null>(
+                                 &_join_block, !_is_left_semi_anti)));
                 _update_additional_flags(&_join_block);
                 if (!status.ok()) {
                     return status;
@@ -141,10 +159,11 @@ private:
         }
 
         if constexpr (!set_probe_side_flag) {
-            Status status =
-                    _do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
-                                                           ignore_null>(&_join_block,
-                                                                        !_is_right_semi_anti);
+            Status status;
+            RETURN_IF_CATCH_EXCEPTION(
+                    (status = _do_filtering_and_update_visited_flags<
+                             set_build_side_flag, set_probe_side_flag, ignore_null>(
+                             &_join_block, !_is_right_semi_anti)));
             _update_additional_flags(&_join_block);
             mutable_join_block = MutableBlock(&_join_block);
             if (!status.ok()) {
@@ -227,11 +246,11 @@ private:
     MutableColumns _dst_columns;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
+    VExprContextSPtrs _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;
     std::stack<uint16_t> _offset_stack;
-    std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
+    VExprContextSPtrs _join_conjuncts;
 
     friend struct RuntimeFilterBuild;
 };

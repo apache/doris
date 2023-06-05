@@ -15,23 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/schema_util.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/functions/simple_function_factory.h>
-#include <vec/json/parse2column.h>
+#include "vec/common/schema_util.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <assert.h>
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/config.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/names.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
 
@@ -70,47 +95,6 @@ Array create_empty_array_field(size_t num_dimensions) {
     return array;
 }
 
-FieldType get_field_type(const IDataType* data_type) {
-    switch (data_type->get_type_id()) {
-    case TypeIndex::UInt8:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT;
-    case TypeIndex::UInt16:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT;
-    case TypeIndex::UInt32:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
-    case TypeIndex::UInt64:
-        return FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
-    case TypeIndex::Int8:
-        return FieldType::OLAP_FIELD_TYPE_TINYINT;
-    case TypeIndex::Int16:
-        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
-    case TypeIndex::Int32:
-        return FieldType::OLAP_FIELD_TYPE_INT;
-    case TypeIndex::Int64:
-        return FieldType::OLAP_FIELD_TYPE_BIGINT;
-    case TypeIndex::Float32:
-        return FieldType::OLAP_FIELD_TYPE_FLOAT;
-    case TypeIndex::Float64:
-        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
-    case TypeIndex::Decimal32:
-        return FieldType::OLAP_FIELD_TYPE_DECIMAL;
-    case TypeIndex::Array:
-        return FieldType::OLAP_FIELD_TYPE_ARRAY;
-    case TypeIndex::String:
-        return FieldType::OLAP_FIELD_TYPE_STRING;
-    case TypeIndex::Date:
-        return FieldType::OLAP_FIELD_TYPE_DATE;
-    case TypeIndex::DateTime:
-        return FieldType::OLAP_FIELD_TYPE_DATETIME;
-    case TypeIndex::Tuple:
-        return FieldType::OLAP_FIELD_TYPE_STRUCT;
-    // TODO add more types
-    default:
-        LOG(FATAL) << "unknow type";
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-    }
-}
-
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs) {
     WhichDataType which_lhs(lhs);
     WhichDataType which_rhs(rhs);
@@ -123,26 +107,35 @@ bool is_conversion_required_between_integers(const IDataType& lhs, const IDataTy
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
     // We only support signed integers for semi-structure data at present
     // TODO add unsigned integers
-    if (lhs == OLAP_FIELD_TYPE_BIGINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT || rhs == OLAP_FIELD_TYPE_BIGINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_BIGINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT || rhs == FieldType::OLAP_FIELD_TYPE_BIGINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_INT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT ||
-                 rhs == OLAP_FIELD_TYPE_INT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_INT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_INT);
     }
-    if (lhs == OLAP_FIELD_TYPE_SMALLINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT || rhs == OLAP_FIELD_TYPE_SMALLINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+                 rhs == FieldType::OLAP_FIELD_TYPE_SMALLINT);
     }
-    if (lhs == OLAP_FIELD_TYPE_TINYINT) {
-        return !(rhs == OLAP_FIELD_TYPE_TINYINT);
+    if (lhs == FieldType::OLAP_FIELD_TYPE_TINYINT) {
+        return !(rhs == FieldType::OLAP_FIELD_TYPE_TINYINT);
     }
     return true;
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    ColumnsWithTypeAndName arguments {arg,
-                                      {type->create_column_const_with_default_value(1), type, ""}};
+    ColumnsWithTypeAndName arguments;
+    if (WhichDataType(type->get_type_id()).is_string()) {
+        // Special handle ColumnString, since the original cast logic use ColumnString's first item
+        // as the name of the dest type
+        arguments = {arg, {type->create_column_const(1, type->get_name()), type, ""}};
+    } else {
+        arguments = {arg, {type->create_column_const_with_default_value(1), type, ""}};
+    }
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     Block tmp_block {arguments};
     // the 0 position is input argument, the 1 position is to type argument, the 2 position is result argument
@@ -168,7 +161,7 @@ static void get_column_def(const vectorized::DataTypePtr& data_type, const std::
         get_column_def(real_type.get_nested_type(), "", column);
         return;
     }
-    column->columnDesc.__set_columnType(to_thrift(get_primitive_type(data_type->get_type_id())));
+    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
     if (data_type->get_type_id() == TypeIndex::Array) {
         TColumnDef child;
         column->columnDesc.__set_children({});
@@ -281,52 +274,70 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
-void unfold_object(size_t dynamic_col_position, std::vector<MutableColumnPtr>& columns,
-                   const HashMap<StringRef, size_t, StringRefHash>& column_offset_map,
-                   const std::vector<SlotDescriptor*>& slot_descs, bool cast_to_original_type) {
-    auto* column_object_ptr = assert_cast<ColumnObject*>(columns[dynamic_col_position].get());
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
+    auto dynamic_col = block.get_by_position(dynamic_col_position).column->assume_mutable();
+    auto* column_object_ptr = assert_cast<ColumnObject*>(dynamic_col.get());
     if (column_object_ptr->empty()) {
-        return;
+        return Status::OK();
     }
     size_t num_rows = column_object_ptr->size();
-    CHECK(columns[0]->size() <= num_rows);
+    CHECK(block.rows() <= num_rows);
     CHECK(column_object_ptr->is_finalized());
     Columns subcolumns;
     DataTypes types;
     Names names;
     std::unordered_set<std::string> static_column_names;
+
+    // extract columns from dynamic column
     for (auto& subcolumn : column_object_ptr->get_subcolumns()) {
         subcolumns.push_back(subcolumn->data.get_finalized_column().get_ptr());
         types.push_back(subcolumn->data.get_least_common_type());
         names.push_back(subcolumn->path.get_path());
     }
     for (size_t i = 0; i < subcolumns.size(); ++i) {
-        // block may already contains this column, eg. key columns, we should ignore
+        // Block may already contains this column, eg. key columns, we should ignore
         // or replcace the same column from object subcolumn
-        auto iter = column_offset_map.find(names[i]);
-        if (iter != column_offset_map.end()) {
+        ColumnWithTypeAndName* column_type_name = block.try_get_by_name(names[i]);
+        if (column_type_name) {
             ColumnPtr column = subcolumns[i];
-            SlotDescriptor* slot_desc = slot_descs[iter->get_second()];
-            DataTypePtr dst_type = slot_desc->get_data_type_ptr();
+            DataTypePtr dst_type = column_type_name->type;
+            // Make it nullable when src is nullable but dst is not
+            // since we should filter some data when slot type is not null
+            // but column contains nulls
+            if (!dst_type->is_nullable() && column->is_nullable()) {
+                dst_type = make_nullable(dst_type);
+            }
             if (cast_to_original_type && !dst_type->equals(*types[i])) {
                 // Cast static columns to original slot type
-                schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column);
+                RETURN_IF_ERROR(
+                        schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column));
             }
-            // TODO swap to avoid memcpy
-            columns[iter->get_second()]->insert_range_from(*column, 0, column->size());
+            // replace original column
+            column_type_name->column = column;
+            column_type_name->type = dst_type;
             static_column_names.emplace(names[i]);
-            continue;
         }
     }
-    // remove static ones remain extra dynamic columns
+
+    // Remove static ones remain extra dynamic columns
     column_object_ptr->remove_subcolumns(static_column_names);
-    // fill default value
-    for (auto& column : columns) {
-        if (column->size() < num_rows) {
-            column->insert_many_defaults(num_rows - column->size());
+
+    // Fill default value
+    for (auto& entry : block) {
+        if (entry.column->size() < num_rows) {
+            entry.column->assume_mutable()->insert_many_defaults(num_rows - entry.column->size());
         }
     }
-    // column_object_ptr->clear();
+#ifndef NDEBUG
+    for (const auto& column_type_name : block) {
+        if (column_type_name.column->size() != num_rows) {
+            LOG(FATAL) << "unmatched column:" << column_type_name.name
+                       << ", expeted rows:" << num_rows
+                       << ", but meet:" << column_type_name.column->size();
+        }
+    }
+#endif
+    return Status::OK();
 }
 
 void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,

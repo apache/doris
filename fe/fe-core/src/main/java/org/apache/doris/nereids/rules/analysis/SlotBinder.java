@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -197,7 +197,7 @@ class SlotBinder extends SubExprAnalyzer {
     }
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
-        return boundSlots.stream().filter(boundSlot -> {
+        return boundSlots.stream().distinct().filter(boundSlot -> {
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();

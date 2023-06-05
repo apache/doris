@@ -41,7 +41,9 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
 
@@ -86,7 +88,6 @@ public:
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
     bool use_default_implementation_for_nulls() const override { return false; }
 

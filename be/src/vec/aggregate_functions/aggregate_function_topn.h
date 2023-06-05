@@ -17,30 +17,54 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
+#include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <string>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 // space-saving algorithm
 template <typename T>
 struct AggregateFunctionTopNData {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
         capacity = (uint64_t)top_num * space_expand_rate;
@@ -171,10 +195,10 @@ struct AggregateFunctionTopNData {
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
             if constexpr (std::is_same_v<T, std::string>) {
-                static_cast<ColumnString&>(to).insert_data(element.second.c_str(),
+                assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
                                                            element.second.length());
             } else {
-                static_cast<ColVecType&>(to).get_data().push_back(element.second);
+                assert_cast<ColVecType&>(to).get_data().push_back(element.second);
             }
         }
     }
@@ -183,46 +207,45 @@ struct AggregateFunctionTopNData {
 
     int top_num = 0;
     uint64_t capacity = 0;
-    phmap::flat_hash_map<T, uint64_t> counter_map;
+    flat_hash_map<T, uint64_t> counter_map;
 };
 
 struct AggregateFunctionTopNImplInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
-        place.set_paramenters(static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
-        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+        place.set_paramenters(assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+        place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
     }
 };
 
 struct AggregateFunctionTopNImplIntInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
-        place.set_paramenters(static_cast<const ColumnInt32*>(columns[1])->get_element(row_num),
-                              static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
-        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+        place.set_paramenters(assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num),
+                              assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
+        place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
     }
 };
 
 //for topn_array agg
 template <typename T, bool has_default_param>
 struct AggregateFunctionTopNImplArray {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
             place.set_paramenters(
-                    static_cast<const ColumnInt32*>(columns[1])->get_element(row_num),
-                    static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num),
+                    assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
 
         } else {
             place.set_paramenters(
-                    static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+            place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
         } else {
-            T val = static_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
+            T val = assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
             place.add(val);
         }
     }
@@ -231,25 +254,24 @@ struct AggregateFunctionTopNImplArray {
 //for topn_weighted agg
 template <typename T, bool has_default_param>
 struct AggregateFunctionTopNImplWeight {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
             place.set_paramenters(
-                    static_cast<const ColumnInt32*>(columns[2])->get_element(row_num),
-                    static_cast<const ColumnInt32*>(columns[3])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num),
+                    assert_cast<const ColumnInt32*>(columns[3])->get_element(row_num));
 
         } else {
             place.set_paramenters(
-                    static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            auto weight = static_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];
-            place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num), weight);
+            auto weight = assert_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];
+            place.add(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num), weight);
         } else {
-            T val = static_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
-            auto weight = static_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];
+            T val = assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
+            auto weight = assert_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];
             place.add(val, weight);
         }
     }
@@ -300,7 +322,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = this->data(place).get();
-        static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
 };
 

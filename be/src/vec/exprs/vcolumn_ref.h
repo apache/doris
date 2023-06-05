@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
@@ -23,6 +24,8 @@
 namespace doris {
 namespace vectorized {
 class VColumnRef final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VColumnRef);
+
 public:
     //this is different of slotref is using slot_id find a column_id
     //slotref: need to find the equal id in tuple, then return column_id, the plan of FE is very important
@@ -50,9 +53,7 @@ public:
         return Status::OK();
     }
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VColumnRef(*this));
-    }
+    VExprSPtr clone() const override { return VColumnRef::create_shared(*this); }
 
     bool is_constant() const override { return false; }
 

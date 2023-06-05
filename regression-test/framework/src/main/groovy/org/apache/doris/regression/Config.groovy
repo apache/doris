@@ -53,6 +53,7 @@ class Config {
     public String realDataPath
     public String cacheDataPath
     public String pluginPath
+    public String sslCertificatePath
 
     public String testGroups
     public String excludeGroups
@@ -90,7 +91,7 @@ class Config {
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
-           String testDirectories, String excludeDirectories, String pluginPath) {
+           String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -110,6 +111,7 @@ class Config {
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
+        this.sslCertificatePath = sslCertificatePath
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -137,6 +139,7 @@ class Config {
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
+        config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -244,7 +247,8 @@ class Config {
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
-            configToString(obj.pluginPath)
+            configToString(obj.pluginPath),
+            configToString(obj.sslCertificatePath)
         )
 
         def declareFileNames = config.getClass()
@@ -325,6 +329,11 @@ class Config {
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
             log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+        }
+
+        if (config.sslCertificatePath == null) {
+            config.sslCertificatePath = "regression-test/ssl_default_certificate"
+            log.info("Set sslCertificatePath to '${config.sslCertificatePath}' because not specify.".toString())
         }
 
         if (config.testGroups == null) {
@@ -478,6 +487,7 @@ class Config {
             urlWithDb += ("/" + dbName)
         }
         urlWithDb = addSslUrl(urlWithDb);
+        urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
     }
@@ -491,10 +501,7 @@ class Config {
         String useSslConfig = "verifyServerCertificate=false&useSSL=" + useSsl + "&requireSSL=false"
         String tlsVersion = "TLSv1.2"
         String tlsVersionConfig = "&enabledTLSProtocols=" + tlsVersion
-        String keyStoreFile = "file:regression-test/certificate.p12"
-        String keyStoreFileConfig = "&trustCertificateKeyStoreUrl=" + keyStoreFile + "&clientCertificateKeyStoreUrl=" + keyStoreFile
-        String password = "&trustCertificateKeyStorePassword=doris&clientCertificateKeyStorePassword=doris"
-        String sslUrl = useSslConfig + tlsVersionConfig + keyStoreFileConfig + password
+        String sslUrl = useSslConfig + tlsVersionConfig
         // e.g: jdbc:mysql://locahost:8080/dbname?
         if (url.charAt(url.length() - 1) == '?') {
             return url + sslUrl
@@ -504,6 +511,26 @@ class Config {
             // e.g: jdbc:mysql://locahost:8080/dbname
         } else {
             return url + '?' + sslUrl
+        }
+    }
+
+    private String addTimeoutUrl(String url) {
+        if (url.contains("connectTimeout=") || url.contains("socketTimeout="))
+        {
+            return url
+        }
+
+        Integer connectTimeout = 5000
+        Integer socketTimeout = 1000 * 60 * 30
+        String s = String.format("connectTimeout=%d&socketTimeout=%d", connectTimeout, socketTimeout)
+        if (url.charAt(url.length() - 1) == '?') {
+            return url + s
+            // e.g: jdbc:mysql://locahost:8080/dbname?a=b
+        } else if (url.contains('?')) {
+            return url + '&' + s
+            // e.g: jdbc:mysql://locahost:8080/dbname
+        } else {
+            return url + '?' + s
         }
     }
 }

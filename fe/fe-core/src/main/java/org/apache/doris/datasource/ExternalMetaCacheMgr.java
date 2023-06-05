@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 
@@ -46,7 +47,8 @@ public class ExternalMetaCacheMgr {
     private Executor executor;
 
     public ExternalMetaCacheMgr() {
-        executor = ThreadPoolManager.newDaemonCacheThreadPool(10, "ExternalMetaCacheMgr", false);
+        executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_external_cache_loader_thread_pool_size,
+                "ExternalMetaCacheMgr", true);
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -144,8 +146,7 @@ public class ExternalMetaCacheMgr {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
-            metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames,
-                    ((HMSExternalTable) table).getPartitionColumnTypes(), true);
+            metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames, true);
         }
         LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
     }

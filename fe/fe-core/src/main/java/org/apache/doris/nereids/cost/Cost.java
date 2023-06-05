@@ -17,21 +17,19 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.ConnectContext;
-
 /**
  * Cost encapsulate the real cost with double type.
  * We do this because we want to customize the operation of adding child cost
  * according different operator
  */
 public interface Cost {
-    public double getValue();
+    double getValue();
 
     /**
      * This is for calculating the cost in simplifier
      */
-    public static Cost withRowCount(double rowCount) {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    static Cost withRowCount(double rowCount, boolean enableNewCostModel) {
+        if (enableNewCostModel) {
             return new CostV2(0, rowCount, 0);
         }
         return new CostV1(rowCount);
@@ -40,18 +38,15 @@ public interface Cost {
     /**
      * return zero cost
      */
-    public static Cost zero() {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    static Cost zero(boolean enableNewCostModel) {
+        if (enableNewCostModel) {
             return CostV2.zero();
         }
         return CostV1.zero();
     }
 
-    /**
-     * return infinite cost
-     */
-    public static Cost infinite() {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+    static Cost infinite(boolean enableNewCostModel) {
+        if (enableNewCostModel) {
             return CostV2.infinite();
         }
         return CostV1.infinite();

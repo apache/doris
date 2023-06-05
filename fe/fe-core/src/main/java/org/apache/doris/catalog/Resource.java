@@ -46,6 +46,8 @@ import java.util.stream.Collectors;
 public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
     public static final String REFERENCE_SPLIT = "@";
+    public static final String INCLUDE_DATABASE_LIST = "include_database_list";
+    public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
 
     public enum ResourceType {
         UNKNOWN,
@@ -203,7 +205,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
      * @throws DdlException
      */
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        notifyUpdate();
+        notifyUpdate(properties);
     }
 
     /**
@@ -274,7 +276,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return copied;
     }
 
-    private void notifyUpdate() {
+    private void notifyUpdate(Map<String, String> properties) {
         references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
             if (type == ReferenceType.CATALOG) {
                 for (Map.Entry<String, ReferenceType> ref : refs) {
@@ -289,7 +291,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                                 + "names(resource={}, catalog.resource={})", catalogName, name, catalog.getResource());
                         continue;
                     }
-                    catalog.notifyPropertiesUpdated();
+                    catalog.notifyPropertiesUpdated(properties);
                 }
             }
         });

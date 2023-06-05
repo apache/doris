@@ -63,7 +63,7 @@ suite("drop_policy") {
 
         def resource_table_use = "resource_table_use"
         sql """
-        CREATE RESOURCE "${resource_table_use}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_table_use}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "bj.s3.comaaaa",
@@ -102,7 +102,7 @@ suite("drop_policy") {
         assertEquals(drop_policy_ret.size(), 1)
 
         def create_succ_2 = try_sql """
-            CREATE STORAGE POLICY drop_policy_test_has_table_binded
+            CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
             "cooldown_datetime" = "2025-06-08 00:00:00"
@@ -122,7 +122,8 @@ suite("drop_policy") {
             DISTRIBUTED BY HASH (k1) BUCKETS 3
             PROPERTIES(
                 "storage_policy" = "drop_policy_test_has_table_binded",
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false"
             );
         """
 

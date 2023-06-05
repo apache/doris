@@ -21,19 +21,41 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 struct RetentionState {
     static constexpr size_t MAX_EVENTS = 32;
     uint8_t events[MAX_EVENTS] = {0};
 
-    RetentionState() {}
+    RetentionState() = default;
 
     void reset() {
         for (int64_t i = 0; i < MAX_EVENTS; i++) {
@@ -72,7 +94,7 @@ struct RetentionState {
     }
 
     void insert_result_into(IColumn& to, size_t events_size, const uint8_t* events) const {
-        auto& data_to = static_cast<ColumnUInt8&>(to).get_data();
+        auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);

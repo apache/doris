@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -30,16 +29,17 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -52,8 +52,6 @@ public class DeriveStatsJobTest {
 
     @Mocked
     ConnectContext context;
-    @Mocked
-    Env env;
 
     SlotReference slot1;
 
@@ -69,7 +67,7 @@ public class DeriveStatsJobTest {
         }
         Statistics statistics = cascadesContext.getMemo().getRoot().getStatistics();
         Assertions.assertNotNull(statistics);
-        Assertions.assertEquals(0, statistics.getRowCount());
+        Assertions.assertTrue(Precision.equals(0.5, statistics.getRowCount(), 0.1));
     }
 
     private LogicalOlapScan constructOlapSCan() {

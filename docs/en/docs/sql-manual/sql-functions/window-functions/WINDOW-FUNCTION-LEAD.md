@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 The LEAD() method is used to calculate the value of the current line several lines backwards.
 
 ```sql
-LEAD(expr, offset, default]) OVER (partition_by_clause order_by_clause)
+LEAD(expr, offset, default) OVER (partition_by_clause order_by_clause)
 ```
 
 ### example

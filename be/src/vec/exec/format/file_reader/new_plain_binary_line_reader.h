@@ -17,23 +17,34 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+
+#include "common/status.h"
 #include "exec/line_reader.h"
-#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
+class PDataRow;
+
+namespace io {
+class IOContext;
+} // namespace io
 
 // only used for FORMAT_PROTO type, which used for insert
 // transaction(begin/insert into/commit)
 class NewPlainBinaryLineReader : public LineReader {
+    ENABLE_FACTORY_CREATOR(NewPlainBinaryLineReader);
+
 public:
     NewPlainBinaryLineReader(io::FileReaderSPtr file_reader);
 
     ~NewPlainBinaryLineReader() override;
 
-    Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+    Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                     const io::IOContext* io_ctx) override;
 
     void close() override;
 

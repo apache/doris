@@ -20,16 +20,47 @@
 
 #pragma once
 
-#include <cmath>
-#include <type_traits>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cmath>
+#include <initializer_list>
+#include <string>
+#include <type_traits>
+#include <typeinfo>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/uint24.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+#include "vec/runtime/vdatetime_value.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -295,6 +326,12 @@ public:
 
     Int64 get_int(size_t n) const override { return Int64(data[n]); }
 
+    // For example, during create column_const(1, uint8), will use NearestFieldType
+    // to cast a uint8 to int64, so that the Field is int64, but the column is created
+    // using data_type, so that T == uint8. After the field is created, it will be inserted
+    // into the column, but its type is different from column's data type, so that during column
+    // insert method, should use NearestFieldType<T> to get the Field and get it actual
+    // uint8 value and then insert into column.
     void insert(const Field& x) override {
         data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
     }

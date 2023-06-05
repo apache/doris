@@ -115,7 +115,7 @@ suite("test_outer_join_with_inline_view") {
     sql """
         CREATE TABLE `subquery_table_3` (
         `org_code` varchar(96) NULL, 
-        `bo_ql_in_advance` decimal(27, 6) NULL
+        `bo_ql_in_advance` decimal(24, 6) NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`org_code`)
         COMMENT 'OLAP'

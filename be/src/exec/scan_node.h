@@ -20,15 +20,21 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
+#include <vector>
 
+#include "common/status.h"
 #include "exec/exec_node.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-class TScanRange;
+class DescriptorTbl;
+class ObjectPool;
+class RuntimeState;
+class TPlanNode;
+class TScanRangeParams;
 
 // Abstract base class of all scan nodes; introduces set_scan_range().
 //
@@ -94,10 +100,6 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
-    void _peel_pushed_vconjunct(
-            RuntimeState* state,
-            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
-
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     RuntimeProfile::Counter* _rows_read_counter;
     // Wall based aggregate read throughput [bytes/sec]

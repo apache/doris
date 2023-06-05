@@ -17,16 +17,19 @@
 
 #include "vec/columns/column_complex.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <memory>
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "agent/heartbeat_server.h"
-#include "vec/core/block.h"
+#include "gtest/gtest_pred_impl.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_quantilestate.h"
+
 namespace doris::vectorized {
 TEST(ColumnComplexTest, BasicTest) {
     using ColumnSTLString = ColumnComplexType<std::string>;
@@ -61,7 +64,10 @@ public:
         for (size_t i = 0; i < l_col.size(); ++i) {
             auto& l_bitmap = const_cast<BitmapValue&>(l_col.get_element(i));
             auto& r_bitmap = const_cast<BitmapValue&>(r_col.get_element(i));
-            ASSERT_EQ(l_bitmap.xor_cardinality(r_bitmap), 0);
+            ASSERT_EQ(l_bitmap.and_cardinality(r_bitmap), r_bitmap.cardinality());
+            auto or_cardinality = l_bitmap.or_cardinality(r_bitmap);
+            ASSERT_EQ(or_cardinality, l_bitmap.cardinality());
+            ASSERT_EQ(or_cardinality, r_bitmap.cardinality());
         }
     }
 
@@ -140,6 +146,13 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
     data[row_size - 1].add(33333);
     data[row_size - 1].add(0);
     check_serialize_and_deserialize(column);
+
+    Field field;
+    column->get(0, field);
+    auto str = field.get<String>();
+    auto* bitmap = reinterpret_cast<const BitmapValue*>(str.c_str());
+    EXPECT_TRUE(bitmap->contains(10));
+    EXPECT_TRUE(bitmap->contains(1000000));
 }
 
 TEST_F(ColumnQuantileStateTest, ColumnQuantileStateReadWrite) {

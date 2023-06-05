@@ -17,13 +17,21 @@
 
 #include "vec/sink/vmysql_table_sink.h"
 
-#include <sstream>
+#include <gen_cpp/DataSinks_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
 
 #include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
+class Block;
+
 VMysqlTableSink::VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                  const std::vector<TExpr>& t_exprs)
         : VTableSink(pool, row_desc, t_exprs) {
@@ -44,7 +52,6 @@ Status VMysqlTableSink::init(const TDataSink& t_sink) {
 }
 
 Status VMysqlTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VTableSink::open(state));
     // create writer
@@ -54,12 +61,10 @@ Status VMysqlTableSink::open(RuntimeState* state) {
 }
 
 Status VMysqlTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VMysqlTableSink::send");
     return _writer->append(block);
 }
 
 Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     return Status::OK();
 }

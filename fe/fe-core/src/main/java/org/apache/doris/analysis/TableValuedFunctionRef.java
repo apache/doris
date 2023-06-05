@@ -17,13 +17,20 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TableValuedFunctionRef extends TableRef {
 
@@ -64,6 +71,29 @@ public class TableValuedFunctionRef extends TableRef {
         return result;
     }
 
+    @Override
+    protected String tableNameToSql() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+
+        // set tableName
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(funcName);
+        stringBuilder.append('(');
+        String paramsString  = params.entrySet().stream().map(kv -> "\"" + kv.getKey() + "\""
+                        + " = " + "\"" + kv.getValue() + "\"")
+                        .collect(Collectors.joining(","));
+        stringBuilder.append(paramsString);
+        stringBuilder.append(')');
+
+        // set alias
+        stringBuilder.append((aliasSql != null) ? " " + aliasSql : "");
+        return stringBuilder.toString();
+    }
+
     /**
      * Register this table ref and then analyze the Join clause.
      */
@@ -72,6 +102,16 @@ public class TableValuedFunctionRef extends TableRef {
         if (isAnalyzed) {
             return;
         }
+
+        // check privilige for backends tvf
+        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                                                                            PrivPredicate.OPERATOR)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+            }
+        }
+
         desc = analyzer.registerTableRef(this);
         isAnalyzed = true; // true that we have assigned desc
         analyzeJoin(analyzer);

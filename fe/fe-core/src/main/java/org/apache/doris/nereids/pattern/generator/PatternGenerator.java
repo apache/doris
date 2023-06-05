@@ -25,7 +25,6 @@ import org.apache.doris.nereids.pattern.generator.javaast.MethodDeclaration;
 import org.apache.doris.nereids.pattern.generator.javaast.VariableDeclarator;
 
 import com.google.common.base.Joiner;
-import org.apache.commons.lang.math.IntRange;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.AbstractMap.SimpleEntry;
@@ -266,51 +265,55 @@ public abstract class PatternGenerator {
     /** generate a pattern method code. */
     public String generateTypePattern(String patterName, String className,
             String genericParam, String predicate, boolean specifyChildren, boolean isMemoPattern) {
-
         int childrenNum = childrenNum();
-
         if (specifyChildren) {
-            String methodGeneric = Arrays.stream(new IntRange(1, childrenNum).toArray())
-                    .mapToObj(i -> "C" + i + " extends Plan")
-                    .collect(Collectors.joining(", ", "<", ">"));
+            StringBuilder methodGenericBuilder = new StringBuilder("<");
+            StringBuilder methodParamBuilder = new StringBuilder();
+            StringBuilder childrenPatternBuilder = new StringBuilder();
+            int min = Math.min(1, childrenNum);
+            int max = Math.max(1, childrenNum);
+            for (int i = min; i <= max; i++) {
+                methodGenericBuilder.append("C").append(i).append(" extends Plan");
+                methodParamBuilder.append("PatternDescriptor<C").append(i).append("> child").append(i);
+                childrenPatternBuilder.append("child").append(i).append(".pattern");
 
-            String methodParam = Arrays.stream(new IntRange(1, childrenNum).toArray())
-                    .mapToObj(i -> "PatternDescriptor<C" + i + "> child" + i)
-                    .collect(Collectors.joining(", "));
-
-            String childrenPattern = Arrays.stream(new IntRange(1, childrenNum).toArray())
-                    .mapToObj(i -> "child" + i + ".pattern")
-                    .collect(Collectors.joining(", "));
-            if (childrenNum > 0) {
-                childrenPattern = ", " + childrenPattern;
+                if (i < max) {
+                    methodGenericBuilder.append(", ");
+                    methodParamBuilder.append(", ");
+                    childrenPatternBuilder.append(", ");
+                }
             }
+            methodGenericBuilder.append(">");
 
-            String pattern = "default " + methodGeneric + "\n"
+            if (childrenNum > 0) {
+                childrenPatternBuilder.insert(0, ", ");
+            }
+            String pattern = "default " + methodGenericBuilder + "\n"
                     + "PatternDescriptor" + genericParam + "\n"
-                    + "        " + patterName + "(" + methodParam + ") {\n"
+                    + "        " + patterName + "(" + methodParamBuilder + ") {\n"
                     + "    return new PatternDescriptor" + genericParam + "(\n"
-                    + "        new TypePattern(" + className + ".class" + childrenPattern + "),\n"
-                    + "        defaultPromise()\n"
-                    + "    )" + predicate + ";\n"
-                    + "}\n";
-            generatePatterns.add(pattern);
-            return pattern;
-        } else {
-            String childrenPattern = StringUtils.repeat(
-                    isMemoPattern ? "Pattern.GROUP" : "Pattern.ANY", ", ", childrenNum);
-            if (childrenNum > 0) {
-                childrenPattern = ", " + childrenPattern;
-            }
-
-            String pattern = "default PatternDescriptor" + genericParam + " " + patterName + "() {\n"
-                    + "    return new PatternDescriptor" + genericParam + "(\n"
-                    + "        new TypePattern(" + className + ".class" + childrenPattern + "),\n"
+                    + "        new TypePattern(" + className + ".class" + childrenPatternBuilder + "),\n"
                     + "        defaultPromise()\n"
                     + "    )" + predicate + ";\n"
                     + "}\n";
             generatePatterns.add(pattern);
             return pattern;
         }
+
+        String childrenPattern = StringUtils.repeat(
+                isMemoPattern ? "Pattern.GROUP" : "Pattern.ANY", ", ", childrenNum);
+        if (childrenNum > 0) {
+            childrenPattern = ", " + childrenPattern;
+        }
+
+        String pattern = "default PatternDescriptor" + genericParam + " " + patterName + "() {\n"
+                + "    return new PatternDescriptor" + genericParam + "(\n"
+                + "        new TypePattern(" + className + ".class" + childrenPattern + "),\n"
+                + "        defaultPromise()\n"
+                + "    )" + predicate + ";\n"
+                + "}\n";
+        generatePatterns.add(pattern);
+        return pattern;
     }
 
     public String generatePatterns() {

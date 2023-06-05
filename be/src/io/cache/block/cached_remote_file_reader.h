@@ -17,31 +17,37 @@
 
 #pragma once
 
-#include "gutil/macros.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
-#include "io/cache/block/block_file_cache_fwd.h"
-#include "io/cache/block/block_file_cache_profile.h"
-#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_path,
-                           IOContext* io_ctx);
+                           const long modification_time);
+
+    CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const std::string& cache_base_path,
+                           const std::string& cache_path, const long modification_time);
 
     ~CachedRemoteFileReader() override;
 
     Status close() override;
-
-    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
-                   size_t* bytes_read) override;
-
-    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
 
     const Path& path() const override { return _remote_file_reader->path(); }
 
@@ -51,23 +57,27 @@ public:
 
     FileSystemSPtr fs() const override { return _remote_file_reader->fs(); }
 
+    FileReader* get_remote_reader() { return _remote_file_reader.get(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
+
 private:
     std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
 
     FileReaderSPtr _remote_file_reader;
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
-    CloudFileCachePtr _disposable_cache;
-
-    IOContext* _io_ctx;
 
     struct ReadStatistics {
-        bool hit_cache = false;
+        bool hit_cache = true;
+        bool skip_cache = false;
         int64_t bytes_read = 0;
-        int64_t bytes_read_from_file_cache = 0;
-        int64_t bytes_write_in_file_cache = 0;
-        int64_t write_in_file_cache = 0;
-        int64_t bytes_skip_cache = 0;
+        int64_t bytes_write_into_file_cache = 0;
+        int64_t remote_read_timer = 0;
+        int64_t local_read_timer = 0;
+        int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
 };

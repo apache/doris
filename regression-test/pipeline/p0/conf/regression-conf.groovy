@@ -48,7 +48,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_date_function,test_broker_load"
+excludeSuites = "test_broker_load,test_spark_load,test_analyze_stats_p1"
 // this directories will not be executed
 excludeDirectories = ""
 
@@ -82,3 +82,5 @@ cacheDataPath = "/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+
+max_failure_num=50

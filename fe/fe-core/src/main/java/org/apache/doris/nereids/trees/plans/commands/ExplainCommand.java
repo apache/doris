@@ -17,14 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 /**
  * explain command.
  */
-public class ExplainCommand extends Command {
+public class ExplainCommand extends Command implements NoForward {
 
     /**
      * explain level.
@@ -38,6 +43,7 @@ public class ExplainCommand extends Command {
         ANALYZED_PLAN(true),
         REWRITTEN_PLAN(true),
         OPTIMIZED_PLAN(true),
+        SHAPE_PLAN(true),
         ALL_PLAN(true)
         ;
 
@@ -55,6 +61,17 @@ public class ExplainCommand extends Command {
         super(PlanType.EXPLAIN_COMMAND);
         this.level = level;
         this.logicalPlan = logicalPlan;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
+        logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
+        executor.setParsedStmt(logicalPlanAdapter);
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        executor.setPlanner(planner);
+        executor.handleExplainStmt(planner.getExplainString(new ExplainOptions(level)));
     }
 
     @Override

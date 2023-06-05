@@ -17,13 +17,11 @@
 
 #include "runtime/primitive_type.h"
 
-#include "gen_cpp/Types_types.h"
-#include "runtime/collection_value.h"
+#include <gen_cpp/Types_types.h>
+
+#include <vector>
+
 #include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
-#include "runtime/map_value.h"
-#include "runtime/struct_value.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -51,13 +49,6 @@ bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     }
 
     return lhs == rhs;
-}
-
-//to_tcolumn_type_thrift only test
-TColumnType to_tcolumn_type_thrift(TPrimitiveType::type ttype) {
-    TColumnType t;
-    t.__set_type(ttype);
-    return t;
 }
 
 TExprOpcode::type to_in_opcode(PrimitiveType t) {
@@ -158,10 +149,15 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
+
     case TPrimitiveType::LAMBDA_FUNCTION:
         return TYPE_LAMBDA_FUNCTION;
 
+    case TPrimitiveType::AGG_STATE:
+        return TYPE_AGG_STATE;
+
     default:
+        CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
     }
 }
@@ -354,6 +350,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
 
+    case TYPE_AGG_STATE:
+        return "AGG_STATE";
+
     case TYPE_ARRAY:
         return "ARRAY";
 
@@ -453,8 +452,12 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "object";
+
     case TYPE_QUANTILE_STATE:
         return "quantile_state";
+
+    case TYPE_AGG_STATE:
+        return "agg_state";
     };
 
     return "unknown";
@@ -489,47 +492,6 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);
     return type_desc;
-}
-
-PrimitiveType get_primitive_type(vectorized::TypeIndex v_type) {
-    switch (v_type) {
-    case vectorized::TypeIndex::Int8:
-        return PrimitiveType::TYPE_TINYINT;
-    case vectorized::TypeIndex::Int16:
-        return PrimitiveType::TYPE_SMALLINT;
-    case vectorized::TypeIndex::Int32:
-        return PrimitiveType::TYPE_INT;
-    case vectorized::TypeIndex::Int64:
-        return PrimitiveType::TYPE_BIGINT;
-    case vectorized::TypeIndex::Float32:
-        return PrimitiveType::TYPE_FLOAT;
-    case vectorized::TypeIndex::Float64:
-        return PrimitiveType::TYPE_DOUBLE;
-    case vectorized::TypeIndex::Decimal32:
-        return PrimitiveType::TYPE_DECIMALV2;
-    case vectorized::TypeIndex::Array:
-        return PrimitiveType::TYPE_ARRAY;
-    case vectorized::TypeIndex::String:
-        return PrimitiveType::TYPE_STRING;
-    case vectorized::TypeIndex::Date:
-        return PrimitiveType::TYPE_DATE;
-    case vectorized::TypeIndex::DateTime:
-        return PrimitiveType::TYPE_DATETIME;
-    case vectorized::TypeIndex::Tuple:
-        return PrimitiveType::TYPE_STRUCT;
-    case vectorized::TypeIndex::Decimal128:
-        return PrimitiveType::TYPE_DECIMAL128I;
-    case vectorized::TypeIndex::JSONB:
-        return PrimitiveType::TYPE_JSONB;
-    case vectorized::TypeIndex::DateTimeV2:
-        return PrimitiveType::TYPE_DATETIMEV2;
-    case vectorized::TypeIndex::DateV2:
-        return PrimitiveType::TYPE_DATEV2;
-    // TODO add vectorized::more types
-    default:
-        LOG(FATAL) << "unknow data_type: " << getTypeName(v_type);
-        return PrimitiveType::INVALID_TYPE;
-    }
 }
 
 } // namespace doris

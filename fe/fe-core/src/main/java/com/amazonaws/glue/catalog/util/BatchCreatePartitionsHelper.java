@@ -33,7 +33,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
 import org.apache.log4j.Logger;
-import org.apache.thrift.TException;
+import shade.doris.hive.org.apache.thrift.TException;
 
 import java.util.Collection;
 import java.util.List;

@@ -20,6 +20,7 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+MACHINE_OS=$(uname -s)
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
     PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
     export PATH
@@ -70,16 +71,42 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
     fi
 fi
 
-# add libs to CLASSPATH
+MAX_FILE_COUNT="$(ulimit -n)"
+if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
+    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+    exit 1
+fi
+
+# add java libs
 for f in "${DORIS_HOME}/lib"/*.jar; do
-    if [[ -z "${DORIS_JNI_CLASSPATH_PARAMETER}" ]]; then
-        export DORIS_JNI_CLASSPATH_PARAMETER="${f}"
+    if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        export DORIS_CLASSPATH="${f}"
     else
-        export DORIS_JNI_CLASSPATH_PARAMETER="${f}:${DORIS_JNI_CLASSPATH_PARAMETER}"
+        export DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
     fi
 done
-# DORIS_JNI_CLASSPATH_PARAMETER is used to configure additional jar path to jvm. e.g. -Djava.class.path=$DORIS_HOME/lib/java-udf.jar
-export DORIS_JNI_CLASSPATH_PARAMETER="-Djava.class.path=${DORIS_JNI_CLASSPATH_PARAMETER}"
+
+if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
+    # add hadoop libs
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+fi
+
+# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
+# and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
+export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+# DORIS_CLASSPATH is for self-managed jni
+export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
 jdk_version() {
     local java_cmd="${1}"
@@ -123,8 +150,9 @@ export ODBCSYSINI="${DORIS_HOME}/conf"
 # support utf8 for oracle database
 export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
 
-#filter known leak for lsan.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
+# filter known leak.
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
+export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
 while read -r line; do
     envline="$(echo "${line}" |
@@ -230,13 +258,55 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs conf
+## set hdfs3 conf
 if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-# see https://github.com/jemalloc/jemalloc/issues/2366
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof:true,prof_prefix:jeprof.out"
+# check java version and choose correct JAVA_OPTS
+java_version="$(
+    set -e
+    jdk_version "${JAVA_HOME}/bin/java"
+)"
+
+CUR_DATE=$(date +%Y%m%d-%H%M%S)
+LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
+COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
+
+if [[ "${java_version}" -gt 8 ]]; then
+    if [[ -z ${JAVA_OPTS} ]]; then
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS}"
+else
+    if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
+fi
+
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    max_fd_limit='-XX:-MaxFDLimit'
+
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+        final_java_opt="${final_java_opt} ${max_fd_limit}"
+    fi
+
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+        JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    fi
+fi
+
+# set LIBHDFS_OPTS for hadoop libhdfs
+export LIBHDFS_OPTS="${final_java_opt}"
+
+#echo "CLASSPATH: ${CLASSPATH}"
+#echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+#echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
+
+# see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &

@@ -22,18 +22,22 @@ import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
+import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -173,6 +177,11 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
+    protected  <T extends StatementBase> T createStmt(String showSql)
+            throws Exception {
+        return (T) parseAndAnalyzeStmt(showSql, connectContext);
+    }
+
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
@@ -281,6 +290,8 @@ public abstract class TestWithFeService {
         Config.plugin_dir = dorisHome + "/plugins";
         Config.custom_config_dir = dorisHome + "/conf";
         Config.edit_log_type = "local";
+        Config.disable_decimalv2 = false;
+        Config.disable_datev1 = false;
         File file = new File(Config.custom_config_dir);
         if (!file.exists()) {
             file.mkdir();
@@ -394,7 +405,6 @@ public abstract class TestWithFeService {
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(false);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
@@ -406,7 +416,6 @@ public abstract class TestWithFeService {
         try {
             cleanDir(dorisHome + "/" + runningDir);
             cleanDir(Config.plugin_dir);
-            cleanDir(Config.custom_config_dir);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -461,7 +470,8 @@ public abstract class TestWithFeService {
         if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             return stmtExecutor.planner();
         } else {
-            return null;
+            throw new Exception(
+                    connectContext.getState().toString() + ", " + connectContext.getState().getErrorMessage());
         }
     }
 
@@ -482,12 +492,30 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().createDb(createDbStmt);
     }
 
+    public void dropDatabase(String db) throws Exception {
+        String createDbStmtStr = "DROP DATABASE " + db;
+        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
+        Env.getCurrentEnv().dropDb(createDbStmt);
+    }
+
     public void useDatabase(String dbName) {
         connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
     }
 
     protected ShowResultSet showCreateTable(String sql) throws Exception {
         ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    protected ShowResultSet showCreateFunction(String sql) throws Exception {
+        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        return executor.execute();
+    }
+
+    protected ShowResultSet showFunctions(String sql) throws Exception {
+        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         return executor.execute();
     }
@@ -542,6 +570,11 @@ public abstract class TestWithFeService {
         Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
     }
 
+    public void createFunction(String sql) throws Exception {
+        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
+        Env.getCurrentEnv().createFunction(createFunctionStmt);
+    }
+
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
@@ -565,7 +598,8 @@ public abstract class TestWithFeService {
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
         // Note: adding `EXPLAIN` is necessary for non-query SQL, e.g., DDL, DML, etc.
         // TODO: Use a graceful way to get explain plan string, rather than modifying the SQL string.
-        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect),
+                getSQLPlanOrErrorMsg("EXPLAIN " + sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String... expects) throws Exception {
@@ -590,6 +624,12 @@ public abstract class TestWithFeService {
         Thread.sleep(100);
     }
 
+    protected void alterTableSync(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
+        Thread.sleep(100);
+    }
+
     protected void createMv(String sql) throws Exception {
         CreateMaterializedViewStmt createMaterializedViewStmt =
                 (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
@@ -600,7 +640,8 @@ public abstract class TestWithFeService {
     }
 
     private void updateReplicaPathHash() {
-        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex().getReplicaMetaTable();
+        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex()
+                .getReplicaMetaTable();
         for (com.google.common.collect.Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
             long beId = cell.getColumnKey();
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);

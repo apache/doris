@@ -19,6 +19,7 @@ suite("test_update_unique", "p0") {
     def tbName1 = "test_update_unique_1"
     def tbName2 = "test_update_unique_2"
     def tbName3 = "test_update_unique_3"
+    def tbName4 = "test_update_unique_4"
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1} (
@@ -44,6 +45,7 @@ suite("test_update_unique", "p0") {
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql "DROP TABLE IF EXISTS ${tbName4}"
 
     // test complex update syntax
     sql """
@@ -56,6 +58,9 @@ suite("test_update_unique", "p0") {
         create table ${tbName3} (id int) distributed by hash (id) properties('replication_num'='1');
     """
     sql """
+        create table ${tbName4} (id int) distributed by hash (id) properties('replication_num'='1');
+    """
+    sql """
         insert into ${tbName1} values(1, 1, '1', 1.0, '2000-01-01'),(2, 2, '2', 2.0, '2000-01-02'),(3, 3, '3', 3.0, '2000-01-03');
     """
     sql """
@@ -63,6 +68,9 @@ suite("test_update_unique", "p0") {
     """
     sql """
         insert into ${tbName3} values(1), (4), (5);
+    """
+    sql """
+        insert into ${tbName4} values(2), (4), (5);
     """
 
     sql """
@@ -73,7 +81,16 @@ suite("test_update_unique", "p0") {
         select * from ${tbName1} order by id;
     """
 
+    sql """
+        update ${tbName1} t1a set t1a.c1 = ${tbName2}.c1, t1a.c3 = ${tbName2}.c3 * 100 from ${tbName2} inner join ${tbName4} on ${tbName2}.id = ${tbName4}.id where t1a.id = ${tbName2}.id;
+    """
+
+    qt_complex_update_by_alias """
+        select * from ${tbName1} order by id;
+    """
+
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql "DROP TABLE IF EXISTS ${tbName4}"
 }

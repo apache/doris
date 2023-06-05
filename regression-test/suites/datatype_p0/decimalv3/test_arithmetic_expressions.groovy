@@ -49,4 +49,64 @@ suite("test_arithmetic_expressions") {
     qt_select "select k1 * k2 * k3 * k1 * k2 * k3 from ${table1} order by k1"
     qt_select "select k1 * k2 / k3 * k1 * k2 * k3 from ${table1} order by k1"
     sql "drop table if exists ${table1}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table1} (             `a` DECIMALV3(9, 3) NOT NULL, `b` DECIMALV3(9, 3) NOT NULL, `c` DECIMALV3(9, 3) NOT NULL, `d` DECIMALV3(9, 3) NOT NULL, `e` DECIMALV3(9, 3) NOT NULL, `f` DECIMALV3(9, 3) NOT
+        NULL, `g` DECIMALV3(9, 3) NOT NULL , `h` DECIMALV3(9, 3) NOT NULL, `i` DECIMALV3(9, 3) NOT NULL, `j` DECIMALV3(9, 3) NOT NULL, `k` DECIMALV3(9, 3) NOT NULL)            DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+    insert into ${table1} values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
+    """
+    qt_select_all "select * from ${table1} order by a"
+
+    qt_select "select a + b + c from ${table1};"
+    qt_select "select (a + b + c) * d from ${table1};"
+    qt_select "select (a + b + c) / d from ${table1};"
+    qt_select "select a + b + c + d + e + f + g + h + i + j + k from ${table1};"
+    sql "drop table if exists ${table1}"
+
+    def table2 = "test_arithmetic_expressions"
+
+    sql "drop table if exists ${table2}"
+    sql """ create table ${table2} (
+            id smallint,
+            fz decimal(27,9),
+            fzv3 decimalv3(27,9),
+            fm decimalv3(38,10))
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES
+            (
+                "replication_num" = "1"
+            ); """
+
+    sql """ insert into ${table2} values (1,92594283.129196000,92594283.129196000,147202.0000000000); """
+    sql """ insert into ${table2} values (2,107684988.257976000,107684988.257976000,148981.0000000000); """
+    sql """ insert into ${table2} values (3,76891560.464178000,76891560.464178000,106161.0000000000); """
+    sql """ insert into ${table2} values (4,277170831.851350000,277170831.851350000,402344.0000000000); """
+
+    qt_select """ select id, fz/fm as dec,fzv3/fm as decv3 from ${table2} ORDER BY id; """
+    sql "drop table if exists ${table2}"
+
+    def table3 = "test_mod_expressions"
+
+    sql "drop table if exists ${table3}"
+    sql """ create table ${table3} (
+            id smallint,
+            v1 decimalv3(27,9),
+            v2 decimalv3(9,0),
+            v3 int )
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES
+            (
+                "replication_num" = "1"
+            ); """
+
+    sql """ insert into ${table3} values (1,92594283.129196000,1,1); """
+    sql """ insert into ${table3} values (2,107684988.257976000,3,3); """
+    sql """ insert into ${table3} values (3,76891560.464178000,5,5); """
+    sql """ insert into ${table3} values (4,277170831.851350000,7,7); """
+
+    qt_select """ select v1, v2, v1 % v2, v1 % v3 from ${table3} ORDER BY id; """
+    sql "drop table if exists ${table3}"
 }

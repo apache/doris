@@ -17,27 +17,32 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.MetadataScanNode;
+import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataType;
 
 public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
-
-    public enum MetaType { ICEBERG }
-
-    private final MetaType metaType;
-
-    public MetadataTableValuedFunction(MetaType metaType) {
-        this.metaType = metaType;
+    public static Integer getColumnIndexFromColumnName(TMetadataType type, String columnName)
+                                    throws AnalysisException {
+        switch (type) {
+            case BACKENDS:
+                return BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case ICEBERG:
+                return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case WORKLOAD_GROUPS:
+                return WorkloadGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            default:
+                throw new AnalysisException("Unknown Metadata TableValuedFunction type");
+        }
     }
 
-    public MetaType getMetaType() {
-        return metaType;
-    }
+    public abstract TMetadataType getMetadataType();
 
-    public abstract TableName getMetadataTableName();
+    public abstract TMetaScanRange getMetaScanRange();
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {

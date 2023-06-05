@@ -27,11 +27,13 @@ import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
+import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -54,6 +56,7 @@ public class ApplyRuleJob extends Job {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
+        super.cteIdToStats = new HashMap<>();
     }
 
     @Override
@@ -84,6 +87,7 @@ public class ApplyRuleJob extends Job {
                 }
                 // we should derive stats for new logical/physical plan if the plan missing the stats
                 pushJob(new DeriveStatsJob(newGroupExpression, context));
+                NereidsTracer.logApplyRuleEvent(rule.toString(), plan, newGroupExpression.getPlan());
                 APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
                         rule::isRewrite);
             }

@@ -17,12 +17,22 @@
 
 #include "exec/odbc_connector.h"
 
+#include <glog/logging.h>
+#include <sql.h>
 #include <sqlext.h>
+#include <wchar.h>
 
-#include <codecvt>
+#include <algorithm>
+#include <ostream>
 
-#include "runtime/primitive_type.h"
-#include "util/types.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
+#include "runtime/types.h"
+#include "util/runtime_profile.h"
+
+namespace doris {
+class RuntimeState;
+} // namespace doris
 
 #define ODBC_DISPOSE(h, ht, x, op)                                                        \
     {                                                                                     \

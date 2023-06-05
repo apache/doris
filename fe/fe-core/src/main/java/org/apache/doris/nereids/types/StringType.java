@@ -44,7 +44,7 @@ public class StringType extends CharacterType {
 
     @Override
     public boolean acceptsType(AbstractDataType other) {
-        return other instanceof StringType;
+        return other instanceof StringType || other instanceof VarcharType;
     }
 
     @Override

@@ -35,6 +35,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
@@ -83,6 +84,8 @@ public class RuntimeFilterTranslator {
 
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            slotReference = context.getRuntimeTranslator().get()
+                    .context.getCorrespondingOlapSlotReference(slotReference);
             SlotRef slot = nereidsExprIdToSlotRef.get(slotReference.getExprId());
             if (slot == null) {
                 throw new AnalysisException("cannot find SlotRef for " + slotReference);
@@ -103,21 +106,14 @@ public class RuntimeFilterTranslator {
             context.setTargetNullCount();
             return;
         }
-        Expr targetExpr = null;
+        Expr targetExpr;
         if (filter.getType() == TRuntimeFilterType.BITMAP) {
             if (filter.getTargetExpression().equals(filter.getTargetExpr())) {
                 targetExpr = target;
             } else {
                 RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
                         context.getExprIdToOlapScanNodeSlotRef());
-                try {
-                    targetExpr = filter.getTargetExpression().accept(translator, ctx);
-                    targetExpr.finalizeForNereids();
-                } catch (org.apache.doris.common.AnalysisException e) {
-                    throw new AnalysisException(
-                            "Translate Nereids expression to stale expression failed. " + e.getMessage(), e);
-                }
-
+                targetExpr = filter.getTargetExpression().accept(translator, ctx);
             }
         } else {
             targetExpr = target;
@@ -135,7 +131,7 @@ public class RuntimeFilterTranslator {
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), targetExpr,
                 ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)),
-                filter.getType(), context.getLimits());
+                filter.getType(), context.getLimits(), filter.getBuildSideNdv());
         if (node instanceof HashJoinNode) {
             origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
         } else {
@@ -156,6 +152,12 @@ public class RuntimeFilterTranslator {
         origFilter.markFinalized();
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
+        // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
+        if (origFilter.hasRemoteTargets() && origFilter.getType() == TRuntimeFilterType.IN_OR_BLOOM
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+            origFilter.setType(TRuntimeFilterType.BLOOM);
+        }
         return origFilter;
     }
 }

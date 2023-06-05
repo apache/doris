@@ -33,6 +33,9 @@ array_max
 
 ### description
 
+#### Syntax
+`T array_max(ARRAY<T> array1)`
+
 Get the maximum element in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.
 

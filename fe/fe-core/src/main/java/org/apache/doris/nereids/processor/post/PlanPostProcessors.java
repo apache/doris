@@ -42,12 +42,12 @@ public class PlanPostProcessors {
      * post process
      *
      * @param physicalPlan input plan
-     * @return physcial plan
+     * @return physical plan
      */
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
         for (PlanPostProcessor processor : getProcessors()) {
-            resultPlan = (PhysicalPlan) resultPlan.accept(processor, cascadesContext);
+            resultPlan = (PhysicalPlan) processor.processRoot(resultPlan, cascadesContext);
         }
         return resultPlan;
     }
@@ -59,8 +59,9 @@ public class PlanPostProcessors {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new MergeProjectPostProcessor());
-        if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()
-                && !cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
+        builder.add(new PushdownFilterThroughProject());
+        builder.add(new FragmentProcessor());
+        if (!cascadesContext.getConnectContext().getSessionVariable().getRuntimeFilterMode()
                         .toUpperCase().equals(TRuntimeFilterMode.OFF.name())) {
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
@@ -68,6 +69,8 @@ public class PlanPostProcessors {
             }
         }
         builder.add(new Validator());
+        builder.add(new TopNScanOpt());
+        builder.add(new TwoPhaseReadOpt());
         return builder.build();
     }
 }

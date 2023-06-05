@@ -17,13 +17,18 @@
 
 #include "runtime/decimalv2_value.h"
 
-#include <algorithm>
+#include <fmt/format.h>
+
+#include <cmath>
+#include <cstring>
 #include <iostream>
 #include <utility>
 
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
 
 static inline int128_t abs(const int128_t& x) {
     return (x < 0) ? -x : x;
@@ -353,7 +358,7 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
 
     _value = StringParser::string_to_decimal<__int128>(decimal_str, length, PRECISION, SCALE,
                                                        &result);
-    if (result == StringParser::PARSE_FAILURE) {
+    if (result != StringParser::PARSE_SUCCESS) {
         error = E_DEC_BAD_NUM;
     }
     return error;
@@ -373,7 +378,18 @@ std::string DecimalV2Value::to_string(int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     auto f_int = fmt::format_int(int_val);
     if (scale == 0) {
@@ -414,7 +430,18 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
             }
         }
     } else {
-        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+        // roundup to FIX 17191
+        if (scale < SCALE) {
+            int32_t frac_val_tmp = frac_val / SCALE_TRIM_ARRAY[scale];
+            if (frac_val / SCALE_TRIM_ARRAY[scale + 1] % 10 >= 5) {
+                frac_val_tmp++;
+                if (frac_val_tmp >= SCALE_TRIM_ARRAY[9 - scale]) {
+                    frac_val_tmp = 0;
+                    _value >= 0 ? int_val++ : int_val--;
+                }
+            }
+            frac_val = frac_val_tmp;
+        }
     }
     int extra_sign_size = 0;
     if (_value < 0 && int_val == 0 && frac_val != 0) {

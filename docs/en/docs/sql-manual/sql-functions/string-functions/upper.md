@@ -31,7 +31,7 @@ under the License.
 `VARCHAR upper(VARCHAR str)`
 
 
-Convert all strings in parameters to uppercase
+Convert all strings in parameters to uppercase. Another alias for this function is [ucase](./ucase.md).
 
 ### example
 

@@ -17,7 +17,14 @@
 
 #include "set_sink_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
 #include "vec/exec/vset_operation_node.h"
+
+namespace doris {
+class ExecNode;
+} // namespace doris
 
 namespace doris::pipeline {
 

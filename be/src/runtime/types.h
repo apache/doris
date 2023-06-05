@@ -20,20 +20,20 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
+
+#include <iosfwd>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/types.pb.h"
-#include "olap/olap_define.h"
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
 
 extern const int HLL_COLUMN_DEFAULT_LEN;
-
-struct TPrimitiveType;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -59,8 +59,11 @@ struct TypeDescriptor {
     /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
     static constexpr int MAX_DECIMAL8_PRECISION = 18;
 
-    // Empty for scalar types
     std::vector<TypeDescriptor> children;
+
+    bool result_is_nullable = false;
+
+    std::string function_name;
 
     // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
@@ -126,10 +129,39 @@ struct TypeDescriptor {
         return ret;
     }
 
+    static TypeDescriptor create_decimalv3_type(int precision, int scale) {
+        DCHECK_LE(precision, MAX_PRECISION);
+        DCHECK_LE(scale, MAX_SCALE);
+        DCHECK_GE(precision, 0);
+        DCHECK_LE(scale, precision);
+        TypeDescriptor ret;
+        if (precision <= MAX_DECIMAL4_PRECISION) {
+            ret.type = TYPE_DECIMAL32;
+        } else if (precision <= MAX_DECIMAL8_PRECISION) {
+            ret.type = TYPE_DECIMAL64;
+        } else {
+            ret.type = TYPE_DECIMAL128I;
+        }
+        ret.precision = precision;
+        ret.scale = scale;
+        return ret;
+    }
+
     static TypeDescriptor from_thrift(const TTypeDesc& t) {
         int idx = 0;
         TypeDescriptor result(t.types, &idx);
         DCHECK_EQ(idx, t.types.size() - 1);
+        if (result.type == TYPE_AGG_STATE) {
+            DCHECK(t.__isset.sub_types);
+            for (auto sub : t.sub_types) {
+                result.children.push_back(from_thrift(sub));
+                result.contains_nulls.push_back(sub.is_nullable);
+            }
+            DCHECK(t.__isset.result_is_nullable);
+            result.result_is_nullable = t.result_is_nullable;
+            DCHECK(t.__isset.function_name);
+            result.function_name = t.function_name;
+        }
         return result;
     }
 

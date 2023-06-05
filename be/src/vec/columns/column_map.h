@@ -20,12 +20,36 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_impl.h"
-#include "vec/common/arena.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -133,8 +157,11 @@ public:
     const ColumnPtr& get_offsets_ptr() const { return offsets_column; }
     ColumnPtr& get_offsets_ptr() { return offsets_column; }
 
+    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
+
     size_t size() const override { return get_offsets().size(); }
     void reserve(size_t n) override;
+    void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;
@@ -146,11 +173,25 @@ public:
     const IColumn& get_keys() const { return *keys_column; }
     IColumn& get_keys() { return *keys_column; }
 
+    const ColumnPtr get_keys_array_ptr() const {
+        return ColumnArray::create(keys_column, offsets_column);
+    }
+    ColumnPtr get_keys_array_ptr() { return ColumnArray::create(keys_column, offsets_column); }
+
     const ColumnPtr& get_values_ptr() const { return values_column; }
     ColumnPtr& get_values_ptr() { return values_column; }
 
     const IColumn& get_values() const { return *values_column; }
     IColumn& get_values() { return *values_column; }
+
+    const ColumnPtr get_values_array_ptr() const {
+        return ColumnArray::create(values_column, offsets_column);
+    }
+    ColumnPtr get_values_array_ptr() { return ColumnArray::create(values_column, offsets_column); }
+
+    size_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return get_offsets()[i] - get_offsets()[i - 1];
+    }
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;
@@ -158,11 +199,6 @@ private:
     WrappedPtr keys_column;    // nullable
     WrappedPtr values_column;  // nullable
     WrappedPtr offsets_column; // offset
-
-    size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
-    size_t ALWAYS_INLINE size_at(ssize_t i) const {
-        return get_offsets()[i] - get_offsets()[i - 1];
-    }
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
 

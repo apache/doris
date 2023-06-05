@@ -38,6 +38,18 @@ under the License.
 
 用于获取集群http、mysql连接信息。
 
+## Path parameters
+
+无
+
+## Query parameters
+
+无
+
+## Request body
+
+无
+
 ### Response
 
 ```
@@ -57,21 +69,21 @@ under the License.
 ```
     
 ### Examples
-    ```
-    GET /rest/v2/manager/cluster/cluster_info/conn_info
-    
-    Response:
-    {
-        "msg": "success",
-        "code": 0,
-        "data": {
-            "http": [
-                "127.0.0.1:8030"
-            ],
-            "mysql": [
-                "127.0.0.1:9030"
-            ]
-        },
-        "count": 0
-    }
-    ```
+```
+GET /rest/v2/manager/cluster/cluster_info/conn_info
+
+Response:
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "http": [
+            "127.0.0.1:8030"
+        ],
+        "mysql": [
+            "127.0.0.1:9030"
+        ]
+    },
+    "count": 0
+}
+```

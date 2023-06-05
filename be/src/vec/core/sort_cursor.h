@@ -38,6 +38,7 @@ public:
         _reset();
     }
 
+    // need exception safety
     void filter_block(IColumn::Filter& filter) {
         Block::filter_block_internal(&block, filter, block.columns());
         _reset();
@@ -207,7 +208,7 @@ using BlockSupplier = std::function<Status(Block*, bool* eos)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
-                                const std::vector<VExprContext*>& ordering_expr,
+                                const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
@@ -228,10 +229,13 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
 
     bool has_next_block() override {
         _block.clear();
-        auto status = _block_supplier(&_block, &_is_eof);
+        Status status;
+        do {
+            status = _block_supplier(&_block, &_is_eof);
+        } while (_block.empty() && !_is_eof && status.ok());
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
-        if (status.ok() && !_is_eof) {
+        if (status.ok() && !_block.empty()) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
                     // TODO yiguolei: throw exception if status not ok in the future
@@ -262,7 +266,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         return _block.clone_with_columns(std::move(columns));
     }
 
-    std::vector<VExprContext*> _ordering_expr;
+    VExprContextSPtrs _ordering_expr;
     Block _block;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;

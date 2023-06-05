@@ -27,7 +27,7 @@ under the License.
 ### description
 #### Syntax
 
-`round_bankers(x), round_bankers(x, d)`
+`T round_bankers(T x[, d])`
 将`x`使用银行家舍入法后，保留d位小数，`d`默认为0。如果`d`为负数，则小数点左边`d`位为0。如果`x`或`d`为null，返回null。
 
 + 如果舍入数介于两个数字之间，则该函数使用银行家的舍入

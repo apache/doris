@@ -27,12 +27,19 @@ under the License.
 ### description
 #### Syntax
 
-`running_difference(x);`
+`T running_difference(T x)`
 
 Calculates the difference between successive row values ​​in the data block. 
 The result of the function depends on the affected data blocks and the order of data in the block.
 
-The rows order used during the calculation of running_difference can differ from the order of rows returned to the user. To prevent that you can make a subquery with **ORDER BY** and call the function from outside the subquery.
+The rows order used during the calculation of running_difference can differ from the order of rows returned to the user. The function will be deprecated in the future. Please use window function instead, below is the example:
+```sql
+-- running difference(x)
+SELECT running_difference(x) FROM t ORDER BY k;
+
+-- window function
+SELECT x - lag(x, 1, 0) OVER (ORDER BY k) FROM t;
+```
 
 #### Arguments
 `x` - A list of data.TINYINT,SMALLINT,INT,BIGINT,LARGEINT,FLOAT,DOUBLE,DATE,DATETIME,DECIMAL
@@ -46,18 +53,18 @@ Returns 0 for the first row and the difference from the previous row for each su
 DROP TABLE IF EXISTS running_difference_test;
 
 CREATE TABLE running_difference_test (
-                 `id` int NOT NULL COMMENT 'id' ,
-                `day` date COMMENT 'day', 
-	`time_val` datetime COMMENT 'time_val',
- 	`doublenum` double NULL COMMENT 'doublenum'
-                )
+    `id` int NOT NULL COMMENT 'id',
+    `day` date COMMENT 'day', 
+    `time_val` datetime COMMENT 'time_val',
+    `doublenum` double NULL COMMENT 'doublenum'
+)
 DUPLICATE KEY(id) 
 DISTRIBUTED BY HASH(id) BUCKETS 3 
 PROPERTIES ( 
     "replication_num" = "1"
 ); 
                                                   
-INSERT into running_difference_test (id,day, time_val,doublenum) values ('1', '2022-10-28', '2022-03-12 10:41:00', null),
+INSERT into running_difference_test (id, day, time_val,doublenum) values ('1', '2022-10-28', '2022-03-12 10:41:00', null),
                                                    ('2','2022-10-27', '2022-03-12 10:41:02', 2.6),
                                                    ('3','2022-10-28', '2022-03-12 10:41:03', 2.5),
                                                    ('4','2022-9-29', '2022-03-12 10:41:03', null),

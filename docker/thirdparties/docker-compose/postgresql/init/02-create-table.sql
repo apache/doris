@@ -156,3 +156,8 @@ CREATE TABLE catalog_pg_test.test_insert (
    name varchar(128),
    age int
 );
+
+CREATE TABLE catalog_pg_test.wkb_test (
+   id SERIAL PRIMARY KEY,
+   location bytea
+);

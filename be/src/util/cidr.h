@@ -17,9 +17,10 @@
 
 #pragma once
 
-#include <sys/socket.h>
+#include <sys/un.h>
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 namespace doris {

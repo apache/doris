@@ -19,7 +19,37 @@ package org.apache.doris.nereids.datasets.tpch;
 
 import org.apache.doris.utframe.TestWithFeService;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class TPCHUtils {
+
+    public static final List<String> SQLS = new ArrayList<String>() {
+        {
+            add(Q1);
+            add(Q2);
+            add(Q3);
+            add(Q4);
+            add(Q5);
+            add(Q6);
+            add(Q7);
+            add(Q8);
+            add(Q9);
+            add(Q10);
+            add(Q11);
+            add(Q12);
+            add(Q13);
+            add(Q14);
+            add(Q15);
+            add(Q16);
+            add(Q17);
+            add(Q18);
+            add(Q19);
+            add(Q20);
+            add(Q21);
+            add(Q22);
+        }
+    };
 
     public static final String Q1 = "select\n"
             + "    l_returnflag,\n"

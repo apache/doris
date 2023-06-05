@@ -17,270 +17,35 @@
 
 #include "vec/jsonb/serialize.h"
 
-#include "olap/hll.h"
+#include <assert.h>
+
+#include <algorithm>
+#include <memory>
+#include <vector>
+
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
+#include "runtime/types.h"
+#include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/arena.h"
-#include "vec/core/types.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 
-static inline bool is_column_null_at(int row, const IColumn* column, const doris::FieldType& type,
-                                     const StringRef& data_ref) {
-    if (type != OLAP_FIELD_TYPE_ARRAY) {
-        return data_ref.data == nullptr;
-    } else {
-        Field array;
-        column->get(row, array);
-        return array.is_null();
-    }
-}
-
-static bool is_jsonb_blob_type(FieldType type) {
-    return type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-           type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_STRUCT ||
-           type == OLAP_FIELD_TYPE_ARRAY || type == OLAP_FIELD_TYPE_MAP ||
-           type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
-           type == OLAP_FIELD_TYPE_JSONB;
-}
-
-// jsonb -> column value
-static void deserialize_column(PrimitiveType type, JsonbValue* slot_value, MutableColumnPtr& dst) {
-    if (type == TYPE_ARRAY) {
-        assert(slot_value->isBinary());
-        auto blob = static_cast<JsonbBlobVal*>(slot_value);
-        dst->deserialize_and_insert_from_arena(blob->getBlob());
-    } else if (type == TYPE_OBJECT) {
-        assert(slot_value->isBinary());
-        auto blob = static_cast<JsonbBlobVal*>(slot_value);
-        BitmapValue bitmap_value;
-        bitmap_value.deserialize(blob->getBlob());
-        dst->insert_data(reinterpret_cast<const char*>(&bitmap_value), sizeof(BitmapValue));
-    } else if (type == TYPE_HLL) {
-        assert(slot_value->isBinary());
-        auto blob = static_cast<JsonbBlobVal*>(slot_value);
-        HyperLogLog hyper_log_log;
-        Slice data {blob->getBlob(), blob->getBlobLen()};
-        hyper_log_log.deserialize(data);
-        dst->insert_data(reinterpret_cast<const char*>(&hyper_log_log), sizeof(HyperLogLog));
-    } else if (is_string_type(type)) {
-        assert(slot_value->isBinary());
-        auto blob = static_cast<JsonbBlobVal*>(slot_value);
-        dst->insert_data(blob->getBlob(), blob->getBlobLen());
-    } else {
-        switch (type) {
-        case TYPE_BOOLEAN: {
-            assert(slot_value->isInt8());
-            dst->insert(static_cast<JsonbInt8Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_TINYINT: {
-            assert(slot_value->isInt8());
-            dst->insert(static_cast<JsonbInt8Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_SMALLINT: {
-            assert(slot_value->isInt16());
-            dst->insert(static_cast<JsonbInt16Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_INT: {
-            assert(slot_value->isInt32());
-            dst->insert(static_cast<JsonbInt32Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_BIGINT: {
-            assert(slot_value->isInt64());
-            dst->insert(static_cast<JsonbInt64Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_LARGEINT: {
-            assert(slot_value->isInt128());
-            dst->insert(static_cast<JsonbInt128Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_FLOAT: {
-            dst->insert(static_cast<JsonbFloatVal*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DOUBLE: {
-            dst->insert(static_cast<JsonbDoubleVal*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DATE: {
-            assert(slot_value->isInt32());
-            int32_t val = static_cast<JsonbInt32Val*>(slot_value)->val();
-            dst->insert_many_fix_len_data(reinterpret_cast<const char*>(&val), 1);
-            break;
-        }
-        case TYPE_DATETIME: {
-            assert(slot_value->isInt64());
-            int64_t val = static_cast<JsonbInt64Val*>(slot_value)->val();
-            dst->insert_many_fix_len_data(reinterpret_cast<const char*>(&val), 1);
-            break;
-        }
-        case TYPE_DATEV2: {
-            assert(slot_value->isInt32());
-            dst->insert(static_cast<JsonbInt32Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DATETIMEV2: {
-            assert(slot_value->isInt64());
-            dst->insert(static_cast<JsonbInt64Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DECIMAL32: {
-            assert(slot_value->isInt32());
-            dst->insert(static_cast<JsonbInt32Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DECIMAL64: {
-            assert(slot_value->isInt64());
-            dst->insert(static_cast<JsonbInt64Val*>(slot_value)->val());
-            break;
-        }
-        case TYPE_DECIMAL128I: {
-            assert(slot_value->isInt128());
-            dst->insert(static_cast<JsonbInt128Val*>(slot_value)->val());
-            break;
-        }
-        default:
-            LOG(FATAL) << "unknow type " << type;
-            break;
-        }
-    }
-}
-
-// column value -> jsonb
-static void serialize_column(Arena* mem_pool, const TabletColumn& tablet_column,
-                             const IColumn* column, const StringRef& data_ref, int row,
-                             JsonbWriterT<JsonbOutStream>& jsonb_writer) {
-    if (is_column_null_at(row, column, tablet_column.type(), data_ref)) {
-        // Do nothing
-        return;
-    }
-    jsonb_writer.writeKey(tablet_column.unique_id());
-    if (tablet_column.is_array_type()) {
-        const char* begin = nullptr;
-        StringRef value = column->serialize_value_into_arena(row, *mem_pool, begin);
-        jsonb_writer.writeStartBinary();
-        jsonb_writer.writeBinary(value.data, value.size);
-        jsonb_writer.writeEndBinary();
-    } else if (tablet_column.type() == OLAP_FIELD_TYPE_OBJECT) {
-        auto bitmap_value = (BitmapValue*)(data_ref.data);
-        auto size = bitmap_value->getSizeInBytes();
-        // serialize the content of string
-        auto ptr = mem_pool->alloc(size);
-        bitmap_value->write_to(reinterpret_cast<char*>(ptr));
-        jsonb_writer.writeStartBinary();
-        jsonb_writer.writeBinary(reinterpret_cast<const char*>(ptr), size);
-        jsonb_writer.writeEndBinary();
-    } else if (tablet_column.type() == OLAP_FIELD_TYPE_HLL) {
-        auto hll_value = (HyperLogLog*)(data_ref.data);
-        auto size = hll_value->max_serialized_size();
-        auto ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
-        size_t actual_size = hll_value->serialize((uint8_t*)ptr);
-        jsonb_writer.writeStartBinary();
-        jsonb_writer.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
-        jsonb_writer.writeEndBinary();
-    } else if (is_jsonb_blob_type(tablet_column.type())) {
-        jsonb_writer.writeStartBinary();
-        jsonb_writer.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
-        jsonb_writer.writeEndBinary();
-    } else {
-        switch (tablet_column.type()) {
-        case OLAP_FIELD_TYPE_BOOL: {
-            int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
-            jsonb_writer.writeInt8(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_TINYINT: {
-            int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
-            jsonb_writer.writeInt8(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_SMALLINT: {
-            int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
-            jsonb_writer.writeInt16(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_INT: {
-            int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
-            jsonb_writer.writeInt32(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_BIGINT: {
-            int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
-            jsonb_writer.writeInt64(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_LARGEINT: {
-            __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
-            jsonb_writer.writeInt128(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_FLOAT: {
-            float val = *reinterpret_cast<const float*>(data_ref.data);
-            jsonb_writer.writeFloat(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DOUBLE: {
-            double val = *reinterpret_cast<const double*>(data_ref.data);
-            jsonb_writer.writeDouble(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATE: {
-            const auto* datetime_cur = reinterpret_cast<const VecDateTimeValue*>(data_ref.data);
-            jsonb_writer.writeInt32(datetime_cur->to_olap_date());
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATETIME: {
-            const auto* datetime_cur = reinterpret_cast<const VecDateTimeValue*>(data_ref.data);
-            jsonb_writer.writeInt64(datetime_cur->to_olap_datetime());
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATEV2: {
-            uint32_t val = *reinterpret_cast<const uint32_t*>(data_ref.data);
-            jsonb_writer.writeInt32(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATETIMEV2: {
-            uint64_t val = *reinterpret_cast<const uint64_t*>(data_ref.data);
-            jsonb_writer.writeInt64(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DECIMAL32: {
-            Decimal32::NativeType val =
-                    *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
-            jsonb_writer.writeInt32(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DECIMAL64: {
-            Decimal64::NativeType val =
-                    *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
-            jsonb_writer.writeInt64(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DECIMAL128I: {
-            Decimal128I::NativeType val =
-                    *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
-            jsonb_writer.writeInt128(val);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DECIMAL:
-            LOG(FATAL) << "OLAP_FIELD_TYPE_DECIMAL not implemented use DecimalV3 instead";
-            break;
-        default:
-            LOG(FATAL) << "unknow type " << tablet_column.type();
-            break;
-        }
-    }
-}
-
 void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
-                                        ColumnString& dst, int num_cols) {
+                                        ColumnString& dst, int num_cols,
+                                        const DataTypeSerDeSPtrs& serdes) {
     auto num_rows = block.rows();
     Arena pool;
     assert(num_cols <= block.columns());
@@ -294,9 +59,8 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                 // ignore dst row store column
                 continue;
             }
-            const auto& data_ref =
-                    !tablet_column.is_array_type() ? column->get_data_at(i) : StringRef();
-            serialize_column(&pool, tablet_column, column.get(), data_ref, i, jsonb_writer);
+            serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, &pool,
+                                               tablet_column.unique_id(), i);
         }
         jsonb_writer.writeEndObject();
         dst.insert_data(jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
@@ -304,29 +68,44 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
 }
 
 // batch rows
-void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc,
-                                        const ColumnString& jsonb_column, Block& dst) {
+void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
+                                        const ColumnString& jsonb_column,
+                                        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
+                                        Block& dst) {
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        jsonb_to_block(desc, jsonb_data.data, jsonb_data.size, dst);
+        jsonb_to_block(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx, dst);
     }
 }
 
 // single row
-void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
+void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data,
+                                        size_t size,
+                                        const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                         Block& dst) {
     auto pdoc = JsonbDocument::createDocument(data, size);
     JsonbDocument& doc = *pdoc;
-    for (int j = 0; j < desc.slots().size(); ++j) {
-        SlotDescriptor* slot = desc.slots()[j];
-        JsonbValue* slot_value = doc->find(slot->col_unique_id());
-        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
-        if (!slot_value || slot_value->isNull()) {
-            // null or not exist
-            dst_column->insert_default();
-            continue;
+    size_t num_rows = dst.rows();
+    size_t filled_columns = 0;
+    for (auto it = doc->begin(); it != doc->end(); ++it) {
+        auto col_it = col_id_to_idx.find(it->getKeyId());
+        if (col_it != col_id_to_idx.end()) {
+            MutableColumnPtr dst_column =
+                    dst.get_by_position(col_it->second).column->assume_mutable();
+            serdes[col_it->second]->read_one_cell_from_jsonb(*dst_column, it->value());
+            ++filled_columns;
         }
-        deserialize_column(slot->type().type, slot_value, dst_column);
+    }
+    if (filled_columns < dst.columns()) {
+        // fill missing slot
+        for (auto& column_type_name : dst) {
+            MutableColumnPtr col = column_type_name.column->assume_mutable();
+            if (col->size() < num_rows + 1) {
+                DCHECK(col->size() == num_rows);
+                col->insert_default();
+            }
+            DCHECK(col->size() == num_rows + 1);
+        }
     }
 }
 

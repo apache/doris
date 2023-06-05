@@ -19,11 +19,20 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class AdminSetConfigStmtTest extends TestWithFeService {
     @Test
@@ -45,10 +54,34 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
 
     @Test
     public void testEmptyConfig() {
-        AnalysisException exception =
-                Assertions.assertThrows(AnalysisException.class,
-                        () -> parseAndAnalyzeStmt("admin set frontend config;"));
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> parseAndAnalyzeStmt("admin set frontend config;"));
         Assertions.assertEquals("errCode = 2, detailMessage = config parameter size is not equal to 1",
                 exception.getMessage());
     }
+
+    @Test
+    public void testExperimentalConfig() throws Exception {
+        // 1. set without experimental
+        boolean enableMtmv = Config.enable_mtmv;
+        String stmt = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
+        AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
+        Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
+
+        // 2. set with experimental
+        enableMtmv = Config.enable_mtmv;
+        stmt = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
+        adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
+        Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
+
+        // 3. show config
+        int num = ConfigBase.getConfigNumByExperimentalType(ExperimentalType.EXPERIMENTAL);
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern("%experimental%",
+                CaseSensibility.CONFIG.getCaseSensibility());
+        List<List<String>> results = ConfigBase.getConfigInfo(matcher);
+        Assert.assertEquals(num, results.size());
+    }
 }
+

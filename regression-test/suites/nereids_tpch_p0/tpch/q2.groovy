@@ -22,7 +22,7 @@ suite("nereids_tpch_q2") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set enable_nereids_runtime_filter=false"
+    sql "set runtime_filter_mode='GLOBAL'"
     
     qt_select """
     select /*+SET_VAR(exec_mem_limit=8589934592)*/

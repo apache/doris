@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -28,7 +28,7 @@ import java.util.List;
  * Null safe equal expression: a <=> b.
  * Unlike normal equal to expression, null <=> null is true.
  */
-public class NullSafeEqual extends ComparisonPredicate {
+public class NullSafeEqual extends ComparisonPredicate implements AlwaysNotNullable {
     /**
      * Constructor of Null Safe Equal ComparisonPredicate.
      *
@@ -37,11 +37,6 @@ public class NullSafeEqual extends ComparisonPredicate {
      */
     public NullSafeEqual(Expression left, Expression right) {
         super(left, right, "<=>");
-    }
-
-    @Override
-    public boolean nullable() throws UnboundException {
-        return false;
     }
 
     @Override

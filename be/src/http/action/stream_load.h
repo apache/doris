@@ -17,18 +17,18 @@
 
 #pragma once
 
-#include <functional>
+#include <memory>
+#include <string>
 
-#include "gen_cpp/PlanNodes_types.h"
 #include "http/http_handler.h"
-#include "runtime/client_cache.h"
-#include "runtime/message_body_sink.h"
+#include "util/metrics.h"
 
 namespace doris {
 
 class ExecEnv;
 class Status;
 class StreamLoadContext;
+class HttpRequest;
 
 class StreamLoadAction : public HttpHandler {
 public:

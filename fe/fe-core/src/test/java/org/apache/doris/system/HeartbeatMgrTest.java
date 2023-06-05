@@ -55,7 +55,7 @@ public class HeartbeatMgrTest {
             {
                 env.getSelfNode();
                 minTimes = 0;
-                result = new HostInfo("192.168.1.3", null, 9010); // not self
+                result = new HostInfo("192.168.1.3", 9010); // not self
 
                 env.isReady();
                 minTimes = 0;

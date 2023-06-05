@@ -69,12 +69,17 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
+        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
         tempMap.put("oracle", TOdbcTableType.ORACLE);
         tempMap.put("clickhouse", TOdbcTableType.CLICKHOUSE);
         tempMap.put("sap_hana", TOdbcTableType.SAP_HANA);
+        tempMap.put("trino", TOdbcTableType.TRINO);
+        tempMap.put("presto", TOdbcTableType.PRESTO);
+        tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
+        tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -90,6 +95,20 @@ public class JdbcTable extends Table {
 
     public JdbcTable(long id, String name, List<Column> schema, TableType type) {
         super(id, name, type, schema);
+    }
+
+    public String getInsertSql() {
+        StringBuilder sb = new StringBuilder("INSERT INTO ");
+        sb.append(OdbcTable.databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append(" VALUES (");
+        for (int i = 0; i < getFullSchema().size(); ++i) {
+            if (i != 0) {
+                sb.append(", ");
+            }
+            sb.append("?");
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     public String getCheckSum() {
@@ -266,6 +285,7 @@ public class JdbcTable extends Table {
         if (Strings.isNullOrEmpty(jdbcTypeName)) {
             throw new DdlException("property " + TABLE_TYPE + " must be set");
         }
+
         if (!TABLE_TYPE_MAP.containsKey(jdbcTypeName.toLowerCase())) {
             throw new DdlException("Unknown jdbc table type: " + jdbcTypeName);
         }
@@ -285,5 +305,12 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+
+        String urlType = jdbcUrl.split(":")[1];
+        if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))) {
+                throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
+            }
+        }
     }
 }

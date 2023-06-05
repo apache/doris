@@ -20,14 +20,19 @@
 
 #include "vec/columns/column_const.h"
 
+#include <fmt/format.h>
+
+#include <algorithm>
+#include <cstddef>
 #include <utility>
 
-#include "gutil/port.h"
 #include "runtime/raw_value.h"
+#include "util/hash_util.hpp"
 #include "vec/columns/columns_common.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
 
@@ -53,19 +58,13 @@ ColumnPtr ColumnConst::remove_low_cardinality() const {
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
-    if (s != filt.size()) {
-        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
-                                  filt.size(), s);
-    }
+    column_match_filter_size(s, filt.size());
 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
 }
 
 size_t ColumnConst::filter(const Filter& filter) {
-    if (s != filter.size()) {
-        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
-                                  filter.size(), s);
-    }
+    column_match_filter_size(s, filter.size());
 
     const auto result_size = count_bytes_in_filter(filter);
     resize(result_size);
@@ -73,10 +72,7 @@ size_t ColumnConst::filter(const Filter& filter) {
 }
 
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
-    if (s != offsets.size()) {
-        LOG(FATAL) << fmt::format("Size of offsets ({}) doesn't match size of column ({})",
-                                  offsets.size(), s);
-    }
+    column_match_offsets_size(s, offsets.size());
 
     size_t replicated_size = 0 == s ? 0 : offsets.back();
     return ColumnConst::create(data, replicated_size);
@@ -131,8 +127,7 @@ void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::P
         }
     } else {
         for (int i = 0; i < hashes.size(); ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, TypeDescriptor {type},
-                                             hashes[i]);
+            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
         }
     }
 }
@@ -209,5 +204,38 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
         result.second = row_num;
     }
     return result;
+}
+
+std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
+    if (is_column_const(*ptr)) {
+        return std::make_pair(
+                std::cref(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
+    }
+    return std::make_pair(std::cref(ptr), false);
+}
+
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::initializer_list<size_t>& parameters,
+                                          Block& block, const ColumnNumbers& arg_indexes) noexcept {
+    if (std::all_of(parameters.begin(), parameters.end(),
+                    [&](size_t const_index) -> bool { return col_const[const_index]; })) {
+        // only need to avoid expanding when all parameters are const
+        for (auto index : parameters) {
+            columns[index] = static_cast<const ColumnConst&>(
+                                     *block.get_by_position(arg_indexes[index]).column)
+                                     .get_data_column_ptr();
+        }
+    } else {
+        // no need to avoid expanding for this rare situation
+        for (auto index : parameters) {
+            if (col_const[index]) {
+                columns[index] = static_cast<const ColumnConst&>(
+                                         *block.get_by_position(arg_indexes[index]).column)
+                                         .convert_to_full_column();
+            } else {
+                columns[index] = block.get_by_position(arg_indexes[index]).column;
+            }
+        }
+    }
 }
 } // namespace doris::vectorized

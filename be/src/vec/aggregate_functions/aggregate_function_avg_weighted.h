@@ -17,12 +17,33 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <memory>
+#include <type_traits>
 
 #include "runtime/decimalv2_value.h"
+#include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+template <typename T>
+class ColumnDecimal;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

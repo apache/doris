@@ -17,11 +17,16 @@
 
 #include "http/action/compaction_action.h"
 
-#include <sys/syscall.h>
-
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <exception>
 #include <future>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <utility>
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -31,14 +36,21 @@
 #include "http/http_status.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 using namespace ErrorCode;
 
 const static std::string HEADER_JSON = "application/json";
 
+CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
+                                   TPrivilegeHier::type hier, TPrivilegeType::type ptype)
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _type(ctype) {}
 Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     if (req_tablet_id == "") {

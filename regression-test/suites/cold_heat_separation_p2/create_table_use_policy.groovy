@@ -43,7 +43,7 @@ suite("create_table_use_policy") {
             data_sizes[0] = obj.local_data_size
             data_sizes[1] = obj.remote_data_size
         }
-        fetchBeHttp(clos, meta_url)
+        fetchBeHttp(clos, meta_url.replace("header", "data_size"))
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
@@ -132,7 +132,7 @@ suite("create_table_use_policy") {
     }
 
     sql """
-        CREATE RESOURCE "${resource_name}"
+        CREATE RESOURCE IF NOT EXISTS "${resource_name}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
@@ -149,7 +149,7 @@ suite("create_table_use_policy") {
     """
 
     sql """
-        CREATE STORAGE POLICY ${policy_name}
+        CREATE STORAGE POLICY IF NOT EXISTS ${policy_name}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "300"

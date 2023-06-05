@@ -42,12 +42,26 @@ SHOW FUNCTIONS
 SHOW [FULL] [BUILTIN] FUNCTIONS [IN|FROM db] [LIKE 'function_pattern']
 ```
 
- Parameters
+Parameters
 
 >`full`:表示显示函数的详细信息
 >`builtin`:表示显示系统提供的函数
 >`db`: 要查询的数据库名字
 >`function_pattern`: 用来过滤函数名称的参数
+
+语法
+
+```sql
+SHOW GLOBAL [FULL] FUNCTIONS [LIKE 'function_pattern']
+```
+
+Parameters
+
+>`global`:表示要展示的是全局函数
+>`full`:表示显示函数的详细信息
+>`function_pattern`: 用来过滤函数名称的参数
+
+**注意: "global"关键字在v2.0版本及以后才可用**
 
 ### Example
 
@@ -83,6 +97,31 @@ mysql> show builtin functions in testDb like 'year%';
 | years_sub     |
 +---------------+
 2 rows in set (0.00 sec)
+    
+mysql> show global full functions\G;
+*************************** 1. row ***************************
+        Signature: decimal(ALL, INT, INT)
+      Return Type: VARCHAR
+    Function Type: Alias
+Intermediate Type: NULL
+       Properties: {"parameter":"col, precision, scale","origin_function":"CAST(`col` AS decimal(`precision`, `scale`))"}
+*************************** 2. row ***************************
+        Signature: id_masking(BIGINT)
+      Return Type: VARCHAR
+    Function Type: Alias
+Intermediate Type: NULL
+       Properties: {"parameter":"id","origin_function":"concat(left(`id`, 3), `****`, right(`id`, 4))"}
+2 rows in set (0.00 sec)
+    
+mysql> show global functions ;
++---------------+
+| Function Name |
++---------------+
+| decimal       |
+| id_masking    |
++---------------+
+2 rows in set (0.00 sec)
+
 ```
 
 ### Keywords

@@ -17,6 +17,10 @@
 
 // This suit test remove constant group_by_key 
 suite("constant_group_key") {
+
+    // this case check explain, so we disable nereids
+    sql """set enable_nereids_planner=false"""
+
     //remove constant key
     explain {
         sql("select 'oneline' from nation group by n_nationkey, 'constant1'")
@@ -36,7 +40,7 @@ suite("constant_group_key") {
 
     explain {
         sql("select a from (select '1' as b, 'abc' as a) T  group by b, a")
-        contains "group by: 'abc'"
+        contains "group by: '1', 'abc'"
     }
 
     sql "drop table if exists cgk_tbl"

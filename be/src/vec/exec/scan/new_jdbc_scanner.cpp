@@ -17,8 +17,23 @@
 
 #include "new_jdbc_scanner.h"
 
+#include <new>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vjdbc_connector.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
@@ -39,12 +54,9 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
     _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
 }
 
-Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << "NewJdbcScanner::Prepare";
-    if (vconjunct_ctx_ptr != nullptr) {
-        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
-        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(state, &_vconjunct_ctx));
-    }
+    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
 
     if (_is_init) {
         return Status::OK();
@@ -76,6 +88,11 @@ Status NewJdbcScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
+
+    get_parent()->_scanner_profile->add_info_string("JdbcDriverClass", _jdbc_param.driver_class);
+    get_parent()->_scanner_profile->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
+    get_parent()->_scanner_profile->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
+    get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {

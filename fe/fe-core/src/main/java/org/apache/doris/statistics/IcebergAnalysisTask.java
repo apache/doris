@@ -17,8 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -34,8 +35,7 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -45,8 +45,8 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
     private long dataSize = 0;
     private long numNulls = 0;
 
-    public IcebergAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public IcebergAnalysisTask(AnalysisInfo info) {
+        super(info);
     }
 
     private static final String INSERT_TABLE_SQL_TEMPLATE = "INSERT INTO "
@@ -56,7 +56,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
 
 
     @Override
-    protected void getColumnStatsByMeta() throws Exception {
+    protected void getStatsByMeta() throws Exception {
         Table icebergTable = getIcebergTable();
         TableScan tableScan = icebergTable.newScan().includeColumnStats();
         for (FileScanTask task : tableScan.planFiles()) {
@@ -73,7 +73,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         }
         hiveCatalog.setConf(conf);
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, table.getMetastoreUri());
+        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, table.getMetastoreUri());
         catalogProperties.put("uri", table.getMetastoreUri());
         hiveCatalog.initialize("hive", catalogProperties);
         return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
@@ -107,13 +107,13 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
         params.put("numRows", String.valueOf(numRows));
         params.put("nulls", String.valueOf(numNulls));
         params.put("dataSize", String.valueOf(dataSize));
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        params.put("update_time", sdf.format(new Date()));
+        params.put("update_time", TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
 
         // Update table level stats info of this column.
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(INSERT_TABLE_SQL_TEMPLATE);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
         }

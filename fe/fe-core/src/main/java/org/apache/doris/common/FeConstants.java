@@ -77,10 +77,12 @@ public class FeConstants {
     public static String FS_PREFIX_S3A = "s3a";
     public static String FS_PREFIX_S3N = "s3n";
     public static String FS_PREFIX_OSS = "oss";
+    public static String FS_PREFIX_GCS = "gs";
     public static String FS_PREFIX_BOS = "bos";
     public static String FS_PREFIX_COS = "cos";
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_OFS = "ofs";
+    public static String FS_PREFIX_GFS = "gfs";
     public static String FS_PREFIX_JFS = "jfs";
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";

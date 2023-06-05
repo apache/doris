@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -39,7 +38,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 
 import java.io.StringReader;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -51,11 +50,11 @@ import java.util.Map;
 public class MVAnalysisTask extends BaseAnalysisTask {
 
     private static final String ANALYZE_MV_PART = INSERT_PART_STATISTICS
-            + " FROM (${sql}) mv";
+            + " FROM (${sql}) mv ${sampleExpr}";
 
     private static final String ANALYZE_MV_COL = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM (${sql}) mv) t2\n";
+            + "     FROM (${sql}) mv) t2";
 
     private MaterializedIndexMeta meta;
 
@@ -63,8 +62,8 @@ public class MVAnalysisTask extends BaseAnalysisTask {
 
     private OlapTable olapTable;
 
-    public MVAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
-        super(analysisTaskScheduler, info);
+    public MVAnalysisTask(AnalysisInfo info) {
+        super(info);
         init();
     }
 
@@ -98,9 +97,9 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                     .get();
             selectItem.setAlias(column.getName());
             Map<String, String> params = new HashMap<>();
-            for (Partition part : olapTable.getAllPartitions()) {
-                String partName = part.getName();
-                PartitionNames partitionName = new PartitionNames(false, Arrays.asList(partName));
+            for (String partName : tbl.getPartitionNames()) {
+                PartitionNames partitionName = new PartitionNames(false,
+                        Collections.singletonList(partName));
                 tableRef.setPartitionNames(partitionName);
                 String sql = selectOne.toSql();
                 params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
@@ -111,20 +110,23 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("idxId", String.valueOf(meta.getIndexId()));
                 String colName = column.getName();
                 params.put("colId", colName);
-                long partId = part.getId();
-                params.put("partId", String.valueOf(partId));
+                String partId = olapTable.getPartition(partName) == null ? "NULL" :
+                        String.valueOf(olapTable.getPartition(partName).getId());
+                params.put("partId", partId);
                 params.put("dataSizeFunction", getDataSizeFunction(column));
                 params.put("dbName", info.dbName);
                 params.put("colName", colName);
                 params.put("tblName", String.valueOf(info.tblName));
                 params.put("sql", sql);
+                params.put("sampleExpr", getSampleExpression());
                 StatisticsUtil.execUpdate(ANALYZE_MV_PART, params);
             }
             params.remove("partId");
+            params.remove("sampleExpr");
             params.put("type", column.getType().toString());
             StatisticsUtil.execUpdate(ANALYZE_MV_COL, params);
             Env.getCurrentEnv().getStatisticsCache()
-                    .refreshSync(meta.getIndexId(), meta.getIndexId(), column.getName());
+                    .refreshColStatsSync(meta.getIndexId(), meta.getIndexId(), column.getName());
         }
     }
 

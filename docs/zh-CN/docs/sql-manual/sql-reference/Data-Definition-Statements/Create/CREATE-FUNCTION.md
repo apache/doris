@@ -39,7 +39,7 @@ CREATE FUNCTION
 语法：
 
 ```sql
-CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
+CREATE [GLOBAL] [AGGREGATE] [ALIAS] FUNCTION function_name
     (arg_type [, ...])
     [RETURNS ret_type]
     [INTERMEDIATE inter_type]
@@ -48,6 +48,8 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 ```
 
 参数说明：
+
+-  `GLOBAL`: 如果有此项，表示的是创建的函数是全局范围内生效。
 
 -  `AGGREGATE`: 如果有此项，表示的是创建的函数是一个聚合函数。
 
@@ -147,6 +149,21 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
    ```
 
+6. 创建一个全局自定义标量函数
+
+   ```sql
+   CREATE GLOBAL FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+   "object_file" = "http://host:port/libmyadd.so"
+   );
+   ````
+
+7. 创建一个全局自定义别名函数
+
+   ```sql
+   CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+   ```` 
+   
 ### Keywords
 
     CREATE, FUNCTION

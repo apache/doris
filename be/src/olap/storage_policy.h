@@ -17,6 +17,15 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 
@@ -52,7 +61,7 @@ void delete_storage_policy(int64_t id);
 std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids();
 
 struct StorageResource {
-    io::FileSystemSPtr fs;
+    io::RemoteFileSystemSPtr fs;
     int64_t version = -1;
 };
 

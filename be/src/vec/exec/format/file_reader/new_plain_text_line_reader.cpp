@@ -17,17 +17,26 @@
 
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 
+#include <gen_cpp/Metrics_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "util/slice.h"
 
 // INPUT_CHUNK must
 //  larger than 15B for correct lz4 file decompressing
 //  larger than 300B for correct lzo header decompressing
 #define INPUT_CHUNK (2 * 1024 * 1024)
 // #define INPUT_CHUNK  (34)
-#define OUTPUT_CHUNK (8 * 1024 * 1024)
+// align with prefetch buffer size
+#define OUTPUT_CHUNK (4 * 1024 * 1024)
 // #define OUTPUT_CHUNK (32)
 // leave these 2 size small for debugging
 
@@ -174,7 +183,8 @@ void NewPlainTextLineReader::extend_output_buf() {
     } while (false);
 }
 
-Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
+                                         const io::IOContext* io_ctx) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
@@ -185,8 +195,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos = update_field_pos_and_find_line_delimiter(
-                cur_ptr + offset, output_buf_read_remaining() - offset);
+        uint8_t* pos =
+                update_field_pos_and_find_line_delimiter(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor
@@ -229,9 +239,8 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 {
                     SCOPED_TIMER(_read_timer);
                     Slice file_slice(file_buf, buffer_len);
-                    IOContext io_ctx;
                     RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
+                            _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
                     _current_offset += read_len;
                     if (read_len == 0) {
                         _file_eof = true;

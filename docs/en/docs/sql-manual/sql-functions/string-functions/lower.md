@@ -31,7 +31,7 @@ under the License.
 `VARCHAR lower (VARCHAR str)`
 
 
-Convert all strings in parameters to lowercase
+Convert all strings in parameters to lowercase. Another alias for this function is [lcase](lcase.md).
 
 ### example
 

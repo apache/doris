@@ -17,29 +17,43 @@
 
 #pragma once
 
-#include <math.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <limits>
 #include <memory>
+#include <new>
 #include <sstream>
 #include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
+#include "common/config.h"
+#include "common/status.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
+#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/uint24.h"
 #include "runtime/collection_value.h"
-#include "runtime/jsonb_value.h"
 #include "runtime/map_value.h"
-#include "runtime/mem_pool.h"
 #include "runtime/struct_value.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_utils.h"
+#include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
+#include "vec/common/arena.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -47,14 +61,12 @@ namespace segment_v2 {
 class ColumnMetaPB;
 }
 
-class MemPool;
-struct uint24_t;
-struct decimal12_t;
 class TabletColumn;
 
 extern bool is_olap_string_type(FieldType field_type);
 
 class TypeInfo;
+
 using TypeInfoPtr = std::unique_ptr<const TypeInfo, void (*)(const TypeInfo*)>;
 
 TypeInfoPtr create_static_type_info_ptr(const TypeInfo* type_info);
@@ -65,7 +77,7 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
+    virtual void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
@@ -89,8 +101,8 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
-        _deep_copy(dest, src, mem_pool);
+    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+        _deep_copy(dest, src, arena);
     }
 
     void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
@@ -128,7 +140,7 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
+    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena* arena);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
 
@@ -196,7 +208,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -209,7 +221,7 @@ public:
 
         size_t item_size = src_value->length() * _item_size;
         size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
-        dest_value->set_data(mem_pool->allocate(item_size + nulls_size));
+        dest_value->set_data(arena->alloc(item_size + nulls_size));
         dest_value->set_has_null(src_value->has_null());
         dest_value->set_null_signs(src_value->has_null()
                                            ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
@@ -225,7 +237,7 @@ public:
         for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
             _item_type_info->deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
-                                       (uint8_t*)(src_value->data()) + i * _item_size, mem_pool);
+                                       (uint8_t*)(src_value->data()) + i * _item_size, arena);
         }
     }
 
@@ -252,7 +264,7 @@ public:
         *base += nulls_size + src_value->length() * _item_type_info->size();
 
         // Direct copy item.
-        if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+        if (_item_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
                 if (dest_value->is_null_at(i)) {
                     continue;
@@ -313,7 +325,7 @@ public:
 
     size_t size() const override { return sizeof(CollectionValue); }
 
-    FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
+    FieldType type() const override { return FieldType::OLAP_FIELD_TYPE_ARRAY; }
 
     inline const TypeInfo* item_type_info() const { return _item_type_info.get(); }
 
@@ -354,7 +366,9 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override { DCHECK(false); }
+    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+        DCHECK(false);
+    }
 
     void direct_copy(void* dest, const void* src) const override { CHECK(false); }
 
@@ -399,7 +413,7 @@ public:
 
     size_t size() const override { return sizeof(MapValue); }
 
-    FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
+    FieldType type() const override { return FieldType::OLAP_FIELD_TYPE_MAP; }
 
     inline const TypeInfo* get_key_type_info() const { return _key_type_info.get(); }
     inline const TypeInfo* get_value_type_info() const { return _value_type_info.get(); }
@@ -462,7 +476,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
         auto dest_value = reinterpret_cast<StructValue*>(dest);
         auto src_value = reinterpret_cast<const StructValue*>(src);
 
@@ -481,7 +495,7 @@ public:
             allocate_size += _type_infos[i]->size();
         }
 
-        dest_value->set_values((void**)mem_pool->allocate(allocate_size));
+        dest_value->set_values((void**)arena->alloc(allocate_size));
         auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
         ptr += dest_value->size() * sizeof(*dest_value->values());
 
@@ -496,7 +510,7 @@ public:
         for (size_t i = 0; i < src_value->size(); ++i) {
             if (src_value->is_null_at(i)) continue;
             _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
-                                      mem_pool);
+                                      arena);
         }
     }
 
@@ -527,10 +541,10 @@ public:
             }
             auto dest_address = dest_value->mutable_child_value(i);
             auto src_address = src_value->child_value(i);
-            if (_type_infos[i]->type() == OLAP_FIELD_TYPE_STRUCT) {
+            if (_type_infos[i]->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 dynamic_cast<const StructTypeInfo*>(_type_infos[i].get())
                         ->direct_copy(base, dest_address, src_address);
-            } else if (_type_infos[i]->type() == OLAP_FIELD_TYPE_ARRAY) {
+            } else if (_type_infos[i]->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 dynamic_cast<const ArrayTypeInfo*>(_type_infos[i].get())
                         ->direct_copy(base, dest_address, src_address);
             } else {
@@ -578,7 +592,7 @@ public:
 
     size_t size() const override { return sizeof(StructValue); }
 
-    FieldType type() const override { return OLAP_FIELD_TYPE_STRUCT; }
+    FieldType type() const override { return FieldType::OLAP_FIELD_TYPE_STRUCT; }
 
     inline const std::vector<TypeInfoPtr>* type_infos() const { return &_type_infos; }
 
@@ -605,136 +619,142 @@ template <FieldType field_type>
 struct CppTypeTraits {};
 
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_BOOL> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
     using CppType = bool;
     using UnsignedCppType = bool;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_TINYINT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TINYINT> {
     using CppType = int8_t;
     using UnsignedCppType = uint8_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_SMALLINT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_SMALLINT> {
     using CppType = int16_t;
     using UnsignedCppType = uint16_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_INT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_INT> {
     using CppType = int32_t;
     using UnsignedCppType = uint32_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_INT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT> {
     using CppType = uint32_t;
     using UnsignedCppType = uint32_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_BIGINT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BIGINT> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
     using CppType = uint64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
     using CppType = int128_t;
     using UnsignedCppType = uint128_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_FLOAT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
     using CppType = float;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DOUBLE> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
     using CppType = double;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
     using CppType = decimal12_t;
     using UnsignedCppType = decimal12_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL32> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
     using CppType = int32_t;
     using UnsignedCppType = uint32_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL64> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
     using CppType = int128_t;
     using UnsignedCppType = uint128_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DATE> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     using CppType = uint24_t;
     using UnsignedCppType = uint24_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DATEV2> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
     using CppType = uint32_t;
     using UnsignedCppType = uint32_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_TIMEV2> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMEV2> {
     using CppType = uint64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     using CppType = uint64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DATETIME> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_CHAR> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_JSONB> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
     using CppType = Slice;
 };
+
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_STRUCT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
+    using CppType = Slice;
+};
+
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRUCT> {
     using CppType = StructValue;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_ARRAY> {
     using CppType = CollectionValue;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_MAP> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_MAP> {
     using CppType = MapValue;
 };
 template <FieldType field_type>
@@ -742,7 +762,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     static inline CppType get_cpp_type_value(const void* address) {
-        if constexpr (field_type == OLAP_FIELD_TYPE_LARGEINT) {
+        if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
@@ -764,7 +784,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
+    static inline void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
         memcpy(dest, src, sizeof(CppType));
     }
 
@@ -797,8 +817,8 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     }
 };
 
-// Using NumericFieldtypeTraits to Derived code for OLAP_FIELD_TYPE_XXXINT, OLAP_FIELD_TYPE_FLOAT,
-// OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
+// Using NumericFieldtypeTraits to Derived code for FieldType::OLAP_FIELD_TYPE_XXXINT, FieldType::OLAP_FIELD_TYPE_FLOAT,
+// FieldType::OLAP_FIELD_TYPE_DOUBLE, to reduce redundant code
 template <FieldType fieldType, bool isArithmetic>
 struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
     using CppType = typename CppTypeTraits<fieldType>::CppType;
@@ -820,7 +840,8 @@ struct FieldTypeTraits
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_BOOL> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const bool*>(src));
@@ -831,8 +852,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_F
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
-        : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT, true> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
+        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         int128_t value = 0;
@@ -899,7 +920,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
                 current += snprintf(current, end - current, "%" PRIu64, prefix);
                 current += snprintf(current, end - current, "%.19" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else if (OLAP_LIKELY(middle > 0)) {
+            } else if (LIKELY(middle > 0)) {
                 current += snprintf(current, end - current, "%" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
             } else {
@@ -912,7 +933,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -930,8 +951,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT>
-        : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT, true> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
+        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType value = 0.0f;
@@ -952,8 +973,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
-        : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
+        : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType value = 0.0;
@@ -974,8 +995,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         CppType* data_ptr = reinterpret_cast<CppType*>(buf);
@@ -998,8 +1019,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL32> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1023,8 +1044,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL64> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1047,8 +1068,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL128I> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
@@ -1079,7 +1100,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATE> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1111,8 +1133,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATEV2> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1151,8 +1173,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATEV2>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATETIMEV2> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
@@ -1192,8 +1214,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIMEV2>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATETIME> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         tm time_tm;
@@ -1239,7 +1261,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_CHAR> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     static int cmp(const void* left, const void* right) {
         auto l_slice = reinterpret_cast<const Slice*>(left);
         auto r_slice = reinterpret_cast<const Slice*>(right);
@@ -1274,10 +1297,10 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         return slice->to_string();
     }
 
-    static void deep_copy(void* dest, const void* src, MemPool* mem_pool) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
+        l_slice->data = arena->alloc(r_slice->size);
         memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
@@ -1309,7 +1332,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         size_t value_len = scan_key.length();
@@ -1332,7 +1356,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         size_t value_len = scan_key.length();
@@ -1355,7 +1380,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
     static int cmp(const void* left, const void* right) {
         LOG(WARNING) << "can not compare JSONB values";
         return -1; // always update ?
@@ -1379,14 +1405,20 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIEL
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_HLL> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {};
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {};
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>
-        : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {};
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 // Instantiate this template to get static access to the type traits.
 template <FieldType field_type>
@@ -1413,7 +1445,7 @@ inline const TypeInfo* get_collection_type_info() {
 
 // nested array type is unsupported for sub_type of collection
 template <>
-inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
+inline const TypeInfo* get_collection_type_info<FieldType::OLAP_FIELD_TYPE_ARRAY>() {
     return nullptr;
 }
 

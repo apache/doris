@@ -88,8 +88,6 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
-    List<Slot> getNonUserVisibleOutput();
-
     /**
      * Get output slot set of the plan.
      */
@@ -117,10 +115,6 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
-    default List<Slot> computeNonUserVisibleOutput() {
-        return ImmutableList.of();
-    }
-
     String treeString();
 
     default Plan withOutput(List<Slot> output) {
@@ -145,4 +139,29 @@ public interface Plan extends TreeNode<Plan> {
     }
 
     void setMutableState(String key, Object value);
+
+    /**
+     * a simple version of explain, used to verify plan shape
+     * @param prefix "  "
+     * @return string format of plan shape
+     */
+    default String shape(String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append(shapeInfo()).append("\n");
+        String childPrefix = prefix + "--";
+        children().forEach(
+                child -> {
+                    builder.append(child.shape(childPrefix));
+                }
+        );
+        return builder.toString();
+    }
+
+    /**
+     * used in shape()
+     * @return default value is its class name
+     */
+    default String shapeInfo() {
+        return this.getClass().getSimpleName();
+    }
 }

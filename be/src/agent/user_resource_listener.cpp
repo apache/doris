@@ -17,17 +17,24 @@
 
 #include "agent/user_resource_listener.h"
 
-#include <thrift/TApplicationException.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <thrift/Thrift.h>
-#include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/transport/TBufferTransports.h>
-#include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <future>
-#include <map>
+#include <ostream>
+#include <string>
+#include <vector>
 
-#include "gen_cpp/FrontendService.h"
+#include "common/config.h"
+#include "common/status.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -39,9 +46,7 @@ using apache::thrift::transport::TTransportException;
 // TRESOURCE_IOPS  not mapped
 
 UserResourceListener::UserResourceListener(ExecEnv* exec_env, const TMasterInfo& master_info)
-        : _master_info(master_info),
-          _exec_env(exec_env),
-          _cgroups_mgr(*(exec_env->cgroups_mgr())) {}
+        : _master_info(master_info), _exec_env(exec_env) {}
 
 UserResourceListener::~UserResourceListener() {}
 
@@ -58,9 +63,6 @@ void UserResourceListener::handle_update(const TAgentServiceVersion::type& proto
 }
 
 void UserResourceListener::update_users_resource(int64_t new_version) {
-    if (new_version <= _cgroups_mgr.get_cgroups_version()) {
-        return;
-    }
     // Call fe to get latest user resource
     Status master_status;
     // using 500ms as default timeout value
@@ -84,10 +86,11 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
             if (!master_status.ok()) {
                 LOG(WARNING) << "Reopen to get frontend client failed, with address:"
                              << _master_info.network_address.hostname << ":"
-                             << _master_info.network_address.port;
+                             << _master_info.network_address.port << ", reason=" << e.what();
                 return;
             }
-            LOG(WARNING) << "fetchResource from frontend failed, retry!";
+            LOG(WARNING) << "fetchResource from frontend failed"
+                         << ", reason=" << e.what();
             client->fetchResource(new_fetched_resource);
         }
     } catch (TException& e) {
@@ -98,6 +101,5 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
                      << e.what();
         return;
     }
-    _cgroups_mgr.update_local_cgroups(new_fetched_resource);
 }
 } // namespace doris

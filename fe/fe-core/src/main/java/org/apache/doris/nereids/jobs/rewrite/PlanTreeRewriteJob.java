@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,6 +52,7 @@ public abstract class PlanTreeRewriteJob extends Job {
                 if (!newPlan.deepEquals(plan)) {
                     // don't remove this comment, it can help us to trace some bug when developing.
 
+                    NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
                     // String traceBefore = null;
                     // if (traceEnable) {
                     //     traceBefore = getCurrentPlanTreeString();

@@ -23,6 +23,8 @@
 #include <mutex>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
+#include "udf/udf.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
@@ -81,6 +83,8 @@ void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
+void register_function_map(SimpleFunctionFactory& factory);
+void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -97,6 +101,8 @@ class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
+    /// @TEMPORARY: for be_exec_version=2
+    constexpr static int DATETIME_FUNCTION_NEW = 2;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -133,13 +139,24 @@ public:
         function_alias[alias] = name;
     }
 
+    /// @TEMPORARY: for be_exec_version=2
+    template <class Function>
+    void register_alternative_function() {
+        static std::string suffix {"_old_for_version_before_2_0"};
+        function_to_replace[Function::name] = Function::name + suffix;
+        register_function(Function::name + suffix, &createDefaultFunction<Function>);
+    }
+
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
-                                 const DataTypePtr& return_type) {
+                                 const DataTypePtr& return_type,
+                                 int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
         if (function_alias.count(name)) {
             key_str = function_alias[name];
         }
+
+        temporary_function_update(be_version, key_str);
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
@@ -153,22 +170,33 @@ public:
         }
 
         auto iter = function_creators.find(key_str);
-        if (iter != function_creators.end()) {
-            return iter->second()->build(arguments, return_type);
+        if (iter == function_creators.end()) {
+            LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
+            return nullptr;
         }
 
-        LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
-        return nullptr;
+        return iter->second()->build(arguments, return_type);
     }
 
 private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
+    /// @TEMPORARY: for be_exec_version=2. replace function to old version.
+    std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
+    }
+
+    /// @TEMPORARY: for be_exec_version=2
+    void temporary_function_update(int fe_version_now, std::string& name) {
+        // replace if fe is old version.
+        if (fe_version_now < DATETIME_FUNCTION_NEW &&
+            function_to_replace.find(name) != function_to_replace.end()) {
+            name = function_to_replace[name];
+        }
     }
 
 public:
@@ -230,6 +258,8 @@ public:
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);
             register_function_array(instance);
+            register_function_map(instance);
+            register_function_struct(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);

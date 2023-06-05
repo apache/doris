@@ -18,7 +18,6 @@
 suite("test_pg_jdbc_catalog", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String resource_name = "jdbc_resource_catalog_pg";
         String catalog_name = "pg_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_schema_name = "doris_test";
@@ -28,9 +27,8 @@ suite("test_pg_jdbc_catalog", "p0") {
         String test_insert = "test_insert";
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
@@ -38,8 +36,6 @@ suite("test_pg_jdbc_catalog", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
             "driver_class" = "org.postgresql.Driver"
         );"""
-
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
 
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
@@ -73,6 +69,7 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test12  """ select * from test10 order by id; """
         order_qt_test13  """ select * from test11 order by id; """
         order_qt_test14  """ select * from test12 order by id; """
+        order_qt_wkb_test  """ select * from wkb_test order by id; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -87,10 +84,9 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
         // test only_specified_database argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
@@ -99,14 +95,60 @@ suite("test_pg_jdbc_catalog", "p0") {
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true"
         );"""
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
         sql """switch ${catalog_name} """
-        qt_specified_database """ show databases; """
+        qt_specified_database_1 """ show databases; """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
 
-        // test old create-catalog syntax for compatibility
+        // test only_specified_database and include_database_list argument
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "driver_class" = "org.postgresql.Driver",
+            "only_specified_database" = "true",
+            "include_database_list" = "doris_test"
+        );"""
+        sql """switch ${catalog_name} """
+        qt_specified_database_2 """ show databases; """
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test only_specified_database and exclude_database_list argument
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "driver_class" = "org.postgresql.Driver",
+            "only_specified_database" = "true",
+            "exclude_database_list" = "doris_test"
+        );"""
+        sql """switch ${catalog_name} """
+        qt_specified_database_3 """ show databases; """
+
+        sql """drop catalog if exists ${catalog_name} """
+
+        // test include_database_list and exclude_database_list have overlapping items case
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "driver_class" = "org.postgresql.Driver",
+            "only_specified_database" = "true",
+            "include_database_list" = "doris_test",
+            "exclude_database_list" = "doris_test"
+        );"""
+        sql """switch ${catalog_name} """
+        qt_specified_database_4 """ show databases; """
+
+        sql """drop catalog if exists ${catalog_name} """
+
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
             "type"="jdbc",
             "jdbc.user"="postgres",

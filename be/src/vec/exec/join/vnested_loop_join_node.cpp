@@ -17,21 +17,50 @@
 
 #include "vec/exec/join/vnested_loop_join_node.h"
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <string.h>
 
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
 #include <sstream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "exec/exec_node.h"
+#include "exprs/runtime_filter.h"
 #include "exprs/runtime_filter_slots_cross.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "gutil/integral_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class ObjectPool;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -82,10 +111,15 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _is_output_left_side_only = tnode.nested_loop_join_node.is_output_left_side_only;
     }
 
-    if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
-        _vjoin_conjunct_ptr.reset(new VExprContext*);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.nested_loop_join_node.vjoin_conjunct,
-                                                _vjoin_conjunct_ptr.get()));
+    if (tnode.nested_loop_join_node.__isset.join_conjuncts &&
+        !tnode.nested_loop_join_node.join_conjuncts.empty()) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.nested_loop_join_node.join_conjuncts,
+                                                 _join_conjuncts));
+    } else if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(
+                VExpr::create_expr_tree(tnode.nested_loop_join_node.vjoin_conjunct, context));
+        _join_conjuncts.emplace_back(context);
     }
 
     std::vector<TExpr> filter_src_exprs;
@@ -94,8 +128,7 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
     }
-    RETURN_IF_ERROR(
-            vectorized::VExpr::create_expr_trees(_pool, filter_src_exprs, &_filter_src_expr_ctxs));
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
 }
 
@@ -120,8 +153,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
 
-    if (_vjoin_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
+    for (auto& conjunct : _join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     _num_probe_side_columns = child(0)->row_desc().num_materialized_slots();
     _num_build_side_columns = child(1)->row_desc().num_materialized_slots();
@@ -137,7 +170,6 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
     _release_mem();
 
     return VJoinNodeBase::close(state);
@@ -152,14 +184,12 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
 
         Block block;
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(1)->get_next_after_projects(
-                        state, &block, &eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[1], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(1)->get_next_span(), eos);
+        RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                state, &block, &eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[1], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         sink(state, &block, eos);
 
@@ -222,14 +252,12 @@ Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* 
 Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
     do {
         release_block_memory(_left_block);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_left_block, &_left_side_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _left_side_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_left_block, &_left_side_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
     } while (_left_block.rows() == 0 && !_left_side_eos);
 
@@ -237,8 +265,6 @@ Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
 }
 
 Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VNestedLoopJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
@@ -488,6 +514,7 @@ void VNestedLoopJoinNode::_reset_with_next_probe_row() {
         block->get_by_position(i).column->assume_mutable()->clear(); \
     }
 
+// need exception safety
 template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
 void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
         Block* block, int column_to_keep, int build_block_idx, int processed_blocks_num,
@@ -517,6 +544,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
 }
 
+// need exception safety
 template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block, bool materialize) {
     auto column_to_keep = block->columns();
@@ -527,70 +555,39 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
     size_t build_block_idx =
             _current_build_pos == 0 ? _build_blocks.size() - 1 : _current_build_pos - 1;
     size_t processed_blocks_num = _offset_stack.size();
-    if (LIKELY(_vjoin_conjunct_ptr != nullptr && block->rows() > 0)) {
-        DCHECK((*_vjoin_conjunct_ptr) != nullptr);
-        int result_column_id = -1;
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->execute(block, &result_column_id));
-        const auto& filter_column = block->get_by_position(result_column_id).column;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            const auto& nested_column = nullable_column->get_nested_column_ptr();
+    if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
+        IColumn::Filter filter(block->rows(), 1);
+        bool can_filter_all = false;
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(_join_conjuncts, nullptr, IgnoreNull, block,
+                                                        &filter, &can_filter_all));
 
-            MutableColumnPtr mutable_holder =
-                    nested_column->use_count() == 1
-                            ? nested_column->assume_mutable()
-                            : nested_column->clone_resized(nested_column->size());
-
-            ColumnUInt8* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
-            auto* __restrict null_map = nullable_column->get_null_map_data().data();
-            IColumn::Filter& filter = concrete_column->get_data();
-            auto* __restrict filter_data = filter.data();
-
-            const size_t size = filter.size();
-            if constexpr (IgnoreNull) {
-                for (size_t i = 0; i < size; ++i) {
-                    filter_data[i] |= null_map[i];
-                }
-            } else {
-                for (size_t i = 0; i < size; ++i) {
-                    filter_data[i] &= !null_map[i];
-                }
-            }
-            _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
-                                                        SetProbeSideFlag>(
-                    block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                    filter);
-        } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
-            bool ret = const_column->get_bool(0);
-            if (ret) {
-                if constexpr (SetBuildSideFlag) {
-                    for (size_t i = 0; i < processed_blocks_num; i++) {
-                        auto& build_side_flag =
-                                assert_cast<ColumnUInt8*>(
-                                        _build_side_visited_flags[build_block_idx].get())
-                                        ->get_data();
-                        auto* __restrict build_side_flag_data = build_side_flag.data();
-                        auto cur_sz = build_side_flag.size();
-                        _offset_stack.pop();
-                        memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
-                        build_block_idx = build_block_idx == 0 ? _build_blocks.size() - 1
-                                                               : build_block_idx - 1;
-                    }
-                }
-                if constexpr (SetProbeSideFlag) {
-                    _cur_probe_row_visited_flags |= ret;
-                }
-            }
-            if (!materialize || !ret) {
-                CLEAR_BLOCK
-            }
+        if (can_filter_all) {
+            CLEAR_BLOCK
         } else {
-            const IColumn::Filter& filter =
-                    assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
-                            .get_data();
             _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                         SetProbeSideFlag>(
                     block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
                     filter);
+        }
+    } else if (block->rows() > 0) {
+        if constexpr (SetBuildSideFlag) {
+            for (size_t i = 0; i < processed_blocks_num; i++) {
+                auto& build_side_flag =
+                        assert_cast<ColumnUInt8*>(_build_side_visited_flags[build_block_idx].get())
+                                ->get_data();
+                auto* __restrict build_side_flag_data = build_side_flag.data();
+                auto cur_sz = build_side_flag.size();
+                _offset_stack.pop();
+                memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
+                build_block_idx =
+                        build_block_idx == 0 ? _build_blocks.size() - 1 : build_block_idx - 1;
+            }
+        }
+        if constexpr (SetProbeSideFlag) {
+            _cur_probe_row_visited_flags = true;
+        }
+        if (!materialize) {
+            CLEAR_BLOCK
         }
     }
     Block::erase_useless_column(block, column_to_keep);
@@ -599,14 +596,13 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 
 Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    if (_vjoin_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->open(state));
+    for (auto& conjunct : _join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
 Status VNestedLoopJoinNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
@@ -654,8 +650,8 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
             _add_tuple_is_null_column(&tmp_block);
             {
                 SCOPED_TIMER(_join_filter_timer);
-                RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block,
-                                                           tmp_block.columns()));
+                RETURN_IF_ERROR(
+                        VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
             RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
             _reset_tuple_is_null_column();
@@ -686,7 +682,9 @@ bool VNestedLoopJoinNode::need_more_input_data() const {
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
     VJoinNodeBase::release_resource(state);
     VExpr::close(_filter_src_expr_ctxs, state);
-    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
+    for (auto& conjunct : _join_conjuncts) {
+        conjunct->close(state);
+    }
 }
 
 } // namespace doris::vectorized

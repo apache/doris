@@ -60,7 +60,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
 这个错误通常是因为导入的频率过高，大于后台数据的compaction速度，导致版本堆积并最终超过了限制。此时，我们可以先通过show tablet 27306172 语句，然后执行结果中的 show proc 语句，查看tablet各个副本的情况。结果中的 versionCount即表示版本数量。如果发现某个副本的版本数量过多，则需要降低导入频率或停止导入，并观察版本数是否有下降。如果停止导入后，版本数依然没有下降，则需要去对应的BE节点查看be.INFO日志，搜索tablet id以及 compaction关键词，检查compaction是否正常运行。关于compaction调优相关，可以参阅 ApacheDoris 公众号文章：Doris 最佳实践-Compaction调优(3)
 
--238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。
+-238 错误通常出现在同一批导入数据量过大的情况，从而导致某一个 tablet 的 Segment 文件过多（默认是 200，由 BE 参数 `max_segment_num_per_rowset` 控制）。此时建议减少一批次导入的数据量，或者适当提高 BE 配置参数值来解决。在2.0版本及以后，可以通过打开 segment compaction 功能来减少 Segment 文件数量(BE config 中 enable_segcompaction=true)。
 
 ### Q5. tablet 110309738 has few replicas: 1, alive backends: [10003]
 
@@ -92,7 +92,7 @@ Unique Key模型的表是一个对业务比较友好的表，因为其特有的�
 
    可以升级到 Doris 0.15 及之后的版本，已修复这个问题。
 
-### Q8. 执行导入、查询时报错-214 
+### Q8. 执行导入、查询时报错-214
 
 在执行导入、查询等操作时，可能会遇到如下错误：
 
@@ -150,7 +150,7 @@ broker_timeout_ms = 10000
 
 这里添加参数，需要重启 FE 服务。
 
-### Q11.[ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'} 
+### Q11.[ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'}
 
 出现这个问题的原因是因为kafka的清理策略默认为7天，当某个routine load任务因为某种原因导致任务暂停，长时间没有恢复，当重新恢复任务的时候routine load记录了消费的offset,而kafka的清理策略已经清理了对应的offset,就会出现这个问题
 

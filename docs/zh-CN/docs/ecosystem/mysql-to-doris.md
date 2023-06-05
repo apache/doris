@@ -93,7 +93,7 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 sh all_tables.sh mysql_db_name doris_db_name
 ```
 
-执行成功后会生成 files目录，改目录包含`tables`（表名称） 和 `tables.sql` （doris odbc建表语句）
+执行成功后会生成 files目录，该目录包含`tables`（表名称） 和 `tables.sql` （doris odbc建表语句）
 
 ### 自定义
 
@@ -105,4 +105,4 @@ sh all_tables.sh mysql_db_name doris_db_name
 sh user_define_tables.sh mysql_db_name doris_db_name
 ```
 
-执行成功后会生成 user_files目录，改目录包含 `tables.sql` （doris odbc建表语句）
+执行成功后会生成 user_files目录，该目录包含 `tables.sql` （doris odbc建表语句）

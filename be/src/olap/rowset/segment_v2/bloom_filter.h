@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
-#include "olap/utils.h"
 #include "util/murmur_hash3.h"
 
 namespace doris {

@@ -24,7 +24,8 @@ import java.time.LocalDateTime;
 public class MyHourDateTime {
     private static final Logger LOG = Logger.getLogger(MyHourDateTime.class);
     public static class State {
-        public LocalDateTime counter = LocalDateTime.of(2022,01,01,00,00,00);
+        public LocalDateTime counter;
+        public boolean inited = false;
     }
 
     public State create() {
@@ -36,8 +37,14 @@ public class MyHourDateTime {
 
     public void add(State state, LocalDateTime val1) {
         if (val1 == null) return;
-        state.counter = state.counter.plusHours(val1.getHour());
-    }
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDateTime.of(val1.getYear(),val1.getMonthValue(),val1.getDayOfMonth(),
+            val1.getHour(),val1.getMinute(),val1.getSecond());
+        } else {
+            state.counter = state.counter.plusHours(val1.getHour());
+        } 
+    }   
 
     public void serialize(State state, DataOutputStream out) throws IOException {
         out.writeInt(state.counter.getYear());
@@ -46,14 +53,25 @@ public class MyHourDateTime {
         out.writeInt(state.counter.getHour());
         out.writeInt(state.counter.getMinute());
         out.writeInt(state.counter.getSecond());
+        out.writeBoolean(state.inited);
     }
 
     public void deserialize(State state, DataInputStream in) throws IOException {
         state.counter = LocalDateTime.of(in.readInt(),in.readInt(),in.readInt(),in.readInt(),in.readInt(),in.readInt());
+        state.inited = in.readBoolean();
     }
 
     public void merge(State state, State rhs) {
-        state.counter = state.counter.plusHours(rhs.counter.getHour());
+        if (!rhs.inited) {
+            return;
+        }
+        if (!state.inited) {
+            state.inited = true;
+            state.counter = LocalDateTime.of(rhs.counter.getYear(),rhs.counter.getMonthValue(),rhs.counter.getDayOfMonth()
+            ,rhs.counter.getHour(),rhs.counter.getMinute(),rhs.counter.getSecond());
+        } else {
+            state.counter = state.counter.plusHours(rhs.counter.getHour());
+        }
     }
 
     public LocalDateTime getValue(State state) {

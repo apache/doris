@@ -42,16 +42,8 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(
-                    logicalFilter(logicalProject()).then(filter -> {
-                        LogicalProject<Plan> project = filter.child();
-                        return new LogicalProject<>(
-                                project.getProjects(),
-                                new LogicalFilter<>(
-                                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                                        project.child()
-                                )
-                        );
-                    })
+                    logicalFilter(logicalProject())
+                            .then(PushdownFilterThroughProject::pushdownFilterThroughProject)
             ),
             // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
             // then we should change filter(limit(project)) to project(filter(limit))
@@ -60,7 +52,7 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
                         LogicalLimit<LogicalProject<Plan>> limit = filter.child();
                         LogicalProject<Plan> project = limit.child();
 
-                        return new LogicalProject<>(
+                        return project.withProjectsAndChild(
                                 project.getProjects(),
                                 new LogicalFilter<>(
                                         ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
@@ -69,6 +61,17 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
                         );
                     })
             )
+        );
+    }
+
+    /** pushdown Filter through project */
+    public static Plan pushdownFilterThroughProject(LogicalFilter<LogicalProject<Plan>> filter) {
+        LogicalProject<Plan> project = filter.child();
+        return project.withChildren(
+                new LogicalFilter<>(
+                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
+                        project.child()
+                )
         );
     }
 }

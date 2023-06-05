@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -58,6 +59,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public Expression(List<Expression> children) {
         super(Optional.empty(), children);
+    }
+
+    public Alias alias(String alias) {
+        return new Alias(this, alias);
     }
 
     /**
@@ -135,6 +140,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public boolean isConstant() {
         if (this instanceof LeafExpression) {
+            if (this instanceof BoundFunction) {
+                BoundFunction function = ((BoundFunction) this);
+                return function instanceof Foldable;
+            }
             return this instanceof Literal;
         } else {
             return children().stream().allMatch(Expression::isConstant);
@@ -178,6 +187,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return this instanceof Slot;
     }
 
+    public boolean isColumnFromTable() {
+        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -208,6 +221,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             }
         }
         return false;
+    }
+
+    public String shapeInfo() {
+        return toSql();
     }
 
 }
