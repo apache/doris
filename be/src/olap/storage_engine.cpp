@@ -1055,7 +1055,6 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 

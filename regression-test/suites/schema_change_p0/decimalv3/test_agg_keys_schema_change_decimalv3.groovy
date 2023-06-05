@@ -31,7 +31,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     backend_id = backendId_to_backendIP.keySet()[0]
-    (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+    def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())

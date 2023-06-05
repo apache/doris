@@ -87,6 +87,7 @@ set(OLAP_TEST_FILES
     olap/cumulative_compaction_policy_test.cpp
     #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
+    olap/memtable_sort_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/storage_types_test.cpp
@@ -201,7 +202,6 @@ set(UTIL_TEST_FILES
     util/thread_test.cpp
     util/threadpool_test.cpp
     util/mysql_row_buffer_test.cpp
-    util/trace_test.cpp
     util/easy_json-test.cpp
     util/http_channel_test.cpp
     util/histogram_test.cpp

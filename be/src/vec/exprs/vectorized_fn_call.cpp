@@ -96,9 +96,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             }
             _function = FunctionAggState::create(
                     argument_types, _data_type,
-                    AggregateFunctionSimpleFactory::instance().get(
-                            remove_suffix(_fn.name.function_name, AGG_STATE_SUFFIX), argument_types,
-                            _data_type->is_nullable()));
+                    assert_cast<const DataTypeAggState*>(_data_type.get())->get_nested_function());
         } else {
             return Status::InternalError("Function {} is not endwith '_state'", _fn.signature);
         }

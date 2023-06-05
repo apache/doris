@@ -211,6 +211,13 @@ public class UdfUtils {
                             && scalarType.isSetScale());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
                             scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
+                        || scalarType.getType() == TPrimitiveType.DECIMAL64
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
+                            scalarType.getScale());
                 } else {
                     type = ScalarType.createType(
                             PrimitiveType.fromThrift(scalarType.getType()));

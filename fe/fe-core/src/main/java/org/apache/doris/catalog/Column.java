@@ -496,9 +496,7 @@ public class Column implements Writable, GsonPostProcessable {
         if (null != this.aggregationType) {
             tColumn.setAggregationType(this.aggregationType.toThrift());
         }
-        if (genericAggregationName != null) {
-            tColumn.setAggregation(genericAggregationName);
-        }
+
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
         // keep compatibility
@@ -509,6 +507,8 @@ public class Column implements Writable, GsonPostProcessable {
         tColumn.setColUniqueId(uniqueId);
 
         if (type.isAggStateType()) {
+            tColumn.setAggregation(genericAggregationName);
+            tColumn.setResultIsNullable(((AggStateType) type).getResultIsNullable());
             for (Column column : children) {
                 tColumn.addToChildrenColumn(column.toThrift());
             }
@@ -897,5 +897,10 @@ public class Column implements Writable, GsonPostProcessable {
                 && type.getLength() != ScalarType.MAX_STRING_LENGTH) {
             ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
         }
+    }
+
+    public boolean isMaterializedViewColumn() {
+        return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 }

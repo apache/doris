@@ -341,6 +341,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
+    public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
+
+    public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -534,6 +538,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SCAN_RUN_SERIAL,  description = {
+            "是否开启ScanNode串行读，以避免limit较小的情况下的读放大，可以提高查询的并发能力",
+            "Whether to enable ScanNode serial reading to avoid read amplification in cases of small limits"
+                + "which can improve query concurrency. default is false."})
+    public boolean enableScanRunSerial = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     public boolean enableSqlCache = false;
@@ -799,13 +809,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
-    /**
-     * If true, when synchronously collecting statistics, the information of
-     * the statistics job will be saved, currently mainly used for p0 test
-     */
-    @VariableMgr.VarAttr(name = ENABLE_SAVE_STATISTICS_SYNC_JOB)
-    public boolean enableSaveStatisticsSyncJob = false;
-
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
@@ -900,6 +903,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
+    @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
+    public int memoMaxGroupExpressionSize = 40000;
+
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
@@ -947,6 +953,11 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_CTE_MATERIALIZE
     )
     public boolean enableCTEMaterialize = true;
+
+    @VariableMgr.VarAttr(
+            name = IGNORE_COMPLEX_TYPE_COLUMN
+    )
+    public boolean ignoreColumnWithComplexType = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1461,6 +1472,10 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean isEnableScanRunSerial() {
+        return enableScanRunSerial;
+    }
+
     public boolean skipStorageEngineMerge() {
         return skipStorageEngineMerge;
     }
@@ -1571,10 +1586,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
-    }
-
-    public boolean isEnableSaveStatisticsSyncJob() {
-        return enableSaveStatisticsSyncJob;
     }
 
     public long getFileSplitSize() {

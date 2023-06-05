@@ -931,7 +931,6 @@ nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
 nonterminal PartitionDesc opt_mv_partition;
-nonterminal Boolean opt_sync;
 
 
 precedence nonassoc COMMA;
@@ -2791,7 +2790,7 @@ show_create_reporitory_stmt ::=
 // analyze statment
 analyze_stmt ::=
     // statistics
-    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols
+    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols
       opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
@@ -2799,23 +2798,16 @@ analyze_stmt ::=
         }
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
-        }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
         }
         // Rule: If no type is specified, see if there is a specified column
         if (!properties.containsKey("analysis.type")) {
-            if ((cols == null)) {
-                properties.put("analysis.type", "INDEX");
-            } else {
-                properties.put("analysis.type", "COLUMN");
-            }
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeTblStmt(tbl, cols, analyzeProperties);
     :}
-    // histogram
-    | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols KW_UPDATE KW_HISTOGRAM
-      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
             properties = Maps.newHashMap();
@@ -2823,12 +2815,28 @@ analyze_stmt ::=
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
         }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        // TODO: Support materialized view
-        properties.put("analysis.type", "HISTOGRAM");
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(ctlName, dbName, analyzeProperties);
+    :}
+    | KW_ANALYZE KW_DATABASE ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    {:
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
+        }
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(null, dbName, analyzeProperties);
     :}
     ;
 
@@ -3013,6 +3021,10 @@ drop_stmt ::=
     | KW_DROP KW_EXPIRED KW_STATS
     {:
         RESULT = new DropStatsStmt(true);
+    :}
+    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
+    {:
+        RESULT = new DropAnalyzeJobStmt(job_id);
     :}
     ;
 
@@ -4015,6 +4027,10 @@ show_param ::=
     | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+    :}
+    | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
+    {:
+        RESULT = new ShowAnalyzeTaskStatus(jobId);
     :}
     | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
@@ -5820,6 +5836,12 @@ with_analysis_properties ::=
             put("period.seconds", String.valueOf(periodInSec.intValue()));
         }};
     :}
+    | KW_HISTOGRAM
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("analysis.type", "HISTOGRAM");
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -6348,8 +6370,8 @@ map_expr ::=
   ;
 
 struct_field ::=
-  ident:name COLON type:type
-  {: RESULT = new StructField(name, type); :}
+  ident:name COLON type:type opt_comment:comment
+  {: RESULT = new StructField(name, type, comment); :}
   ;
 
 struct_field_list ::=
@@ -7110,16 +7132,6 @@ type_func_name_keyword ::=
     {: RESULT = id; :}
     | KW_RIGHT:id
     {: RESULT = id; :}
-    ;
-
-opt_sync ::=
-    {:
-        RESULT = false;
-    :}
-    | KW_SYNC
-    {:
-        RESULT = true;
-    :}
     ;
 
 // Keyword that we allow for identifiers

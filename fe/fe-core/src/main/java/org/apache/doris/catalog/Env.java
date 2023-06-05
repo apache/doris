@@ -38,7 +38,7 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -657,11 +657,9 @@ public class Env {
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
-        if (Config.enable_stats && !isCheckpointCatalog) {
-            this.analysisManager = new AnalysisManager();
-            this.statisticsCleaner = new StatisticsCleaner();
-            this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
-        }
+        this.analysisManager = new AnalysisManager();
+        this.statisticsCleaner = new StatisticsCleaner();
+        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -2008,6 +2006,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
+        this.analysisManager = AnalysisManager.readFields(in);
+        LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2263,6 +2267,11 @@ public class Env {
 
         this.binlogManager.write(out, checksum);
         LOG.info("Save binlogs to image");
+        return checksum;
+    }
+
+    public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
+        analysisManager.write(dos);
         return checksum;
     }
 
@@ -3072,6 +3081,12 @@ public class Env {
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
 
+            // skip inverted index on load
+            if (olapTable.skipWriteIndexOnLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
+                sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
+            }
+
             // dynamic schema
             if (olapTable.isDynamicSchema()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
@@ -3091,6 +3106,14 @@ public class Env {
             // enable single replica compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
             sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
+
+            // enable duplicate without keys by default
+            if (olapTable.isDuplicateWithoutKey()) {
+                sb.append(",\n\"")
+                        .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
+                        .append("\" = \"");
+                sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+            }
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -5303,8 +5326,8 @@ public class Env {
     //  1. handle partition level analysis statement properly
     //  2. support sample job
     //  3. support period job
-    public void createAnalysisJob(AnalyzeStmt analyzeStmt) throws DdlException {
-        analysisManager.createAnalysisJob(analyzeStmt);
+    public void createAnalysisJob(AnalyzeTblStmt analyzeTblStmt) throws DdlException {
+        analysisManager.createAnalysisJob(analyzeTblStmt);
     }
 
     public AnalysisManager getAnalysisManager() {
