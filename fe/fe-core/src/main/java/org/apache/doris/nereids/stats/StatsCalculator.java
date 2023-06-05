@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -842,6 +844,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> childColumnStats = stats.columnStatistics();
         Map<Expression, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
                 .map(expr -> {
+                    //estimate rank()
+                    if (expr instanceof Alias && expr.child(0) instanceof WindowExpression
+                            && ((WindowExpression) expr.child(0)).getFunction() instanceof Rank) {
+                        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();
+                        colBuilder.setNdv(stats.getRowCount())
+                                .setOriginal(null)
+                                .setCount(stats.getRowCount())
+                                .setMinValue(0)
+                                .setMaxValue(stats.getRowCount());
+                        return Pair.of(expr.toSlot(), colBuilder.build());
+                    }
+                    //estimate other expressions
                     ColumnStatistic value = null;
                     Set<Slot> slots = expr.getInputSlots();
                     if (slots.isEmpty()) {
