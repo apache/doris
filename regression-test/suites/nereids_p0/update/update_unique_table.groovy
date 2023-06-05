@@ -20,9 +20,8 @@ suite('update_unique_table') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
 
-    sql 'update a set c1 = 5 where id = 3'
+    sql 'update t1 set c1 = 5 where id = 3'
     
     qt_sql 'select * from t1 order by id'
 
