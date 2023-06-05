@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// this suite is for creating table with timestamp datatype in defferent 
-// case. For example: 'year' and 'Year' datatype should also be valid in definition
 
-suite("sql_truncate_table") {
+suite("test_truncate_table") {
     def testTable = "test_truncate_table"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
@@ -42,19 +40,22 @@ suite("sql_truncate_table") {
 			"replication_num" = "1"
 		);
 		"""
-	def result1 = sql "show partitions from ${testTable}"
-	assertEquals(result.size(), 3)
+    List<List<Object>> result = sql "show partitions from ${testTable}"
+    logger.info("${result}")
+    assertEquals(result.size(), 3)
     assertEquals(result.get(0).get(1), "p1")	
 
-	sql """truncate table ${testTable};"""
-	result1 = sql "show partitions from ${testTable}"
-	assertEquals(result.size(), 3)
+    sql """truncate table ${testTable};"""
+    result = sql "show partitions from ${testTable}"
+    logger.info("${result}")
+    assertEquals(result.size(), 3)
     assertEquals(result.get(0).get(1), "p1")
 
     sql """truncate table ${testTable} partitions (p1, P1);"""
 
-	result1 = sql "show partitions from ${testTable}"
-	assertEquals(result.size(), 3)
+    result = sql "show partitions from ${testTable}"
+    logger.info("${result}")
+    assertEquals(result.size(), 3)
     assertEquals(result.get(0).get(1), "p1")
 	
     sql "DROP TABLE IF EXISTS ${testTable}"
