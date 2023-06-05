@@ -1000,6 +1000,11 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
             continue;
         }
         uint32_t tablet_index = 0;
+        if (partition->num_buckets <= 0) {
+            std::stringstream ss;
+            ss << "num_buckets must be greater than 0, num_buckets=" << partition->num_buckets;
+            return Status::InternalError(ss.str());
+        }
         if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
             if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
                 tablet_index = _partition->find_tablet(tuple, *partition);
