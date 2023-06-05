@@ -914,6 +914,9 @@ public class EditLog {
                     env.getMTMVJobManager().replayCreateJobTask(task);
                     break;
                 }
+                case OperationType.OP_CHANGE_MTMV_TASK: {
+                    break;
+                }
                 case OperationType.OP_DROP_MTMV_TASK: {
                     final DropMTMVTask dropTask = (DropMTMVTask) journal.getData();
                     env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());

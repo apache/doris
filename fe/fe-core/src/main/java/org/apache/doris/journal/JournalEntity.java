@@ -758,6 +758,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CHANGE_MTMV_TASK: {
+                Text.readString(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_ALTER_MTMV_STMT: {
                 data = AlterMultiMaterializedView.read(in);
                 isRead = true;
