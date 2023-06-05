@@ -257,6 +257,7 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
                 tablet_uid.to_string(), binlog_version, status.to_string(), rowset_id,
                 num_segments);
     }
+    LOG(INFO) << "result:" << rowset_id;
 
     return std::make_pair(rowset_id, num_segments);
 }

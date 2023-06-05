@@ -34,6 +34,7 @@ suite("test_ccr_util") {
             "binlog.enable" = "true"
         )
     """
+    sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
 
     target_sql "DROP TABLE IF EXISTS ${tableName}"
     target_sql """
@@ -49,6 +50,7 @@ suite("test_ccr_util") {
             "binlog.enable" = "true"
         )
     """
+    target_sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
     assertTrue(get_target_meta "${tableName}")
 
     for (int index = 0; index < 10; index++) {
