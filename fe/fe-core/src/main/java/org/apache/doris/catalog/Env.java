@@ -2006,6 +2006,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
+        this.analysisManager = AnalysisManager.readFields(in);
+        LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2261,6 +2267,11 @@ public class Env {
 
         this.binlogManager.write(out, checksum);
         LOG.info("Save binlogs to image");
+        return checksum;
+    }
+
+    public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
+        analysisManager.write(dos);
         return checksum;
     }
 
