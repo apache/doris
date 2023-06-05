@@ -31,9 +31,9 @@ rm -f $path
 echo 'CREATE CATALOG IF NOT EXISTS '${doris_jdbc_catalog}'
 PROPERTIES (
   "type"="jdbc",
-  "jdbc.user"="'${mysql_username}'",
-  "jdbc.password"="'${mysql_password}'",
-  "jdbc.jdbc_url"="jdbc:mysql://'${mysql_host}:${mysql_port}/${doris_jdbc_default_db}'?useSSL=false",
-  "jdbc.driver_url"="'${doris_jdbc_driver_url}'",
-  "jdbc.driver_class"="'${doris_jdbc_driver_class}'"
+  "user"="'${mysql_username}'",
+  "password"="'${mysql_password}'",
+  "jdbc_url"="jdbc:mysql://'${mysql_host}:${mysql_port}/${doris_jdbc_default_db}'?useSSL=false",
+  "driver_url"="'${doris_jdcb_driver_url}'",
+  "driver_class"="'${doris_jdbc_driver_class}'"
 ); ' >> $path
