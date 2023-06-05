@@ -275,7 +275,7 @@ public class StatisticsRepository {
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
-            builder.setOriginalNdv(dNdv);
+            builder.setOriginal(null);
         }
         if (nullCount != null) {
             builder.setNumNulls(Double.parseDouble(nullCount));
