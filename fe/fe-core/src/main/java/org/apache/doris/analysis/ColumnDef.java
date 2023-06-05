@@ -517,8 +517,8 @@ public class ColumnDef {
             type = Expr.createAggStateType(genericAggregationName, typeList, nullableList);
         }
 
-        return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment, visible,
-                defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
+        return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
                 genericAggregationName, typeList, nullableList);
     }
 
