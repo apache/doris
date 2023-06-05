@@ -91,8 +91,8 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
 
     @Test
     public void testFromClauseUpdate() throws AnalysisException {
-        String sql = "update t1 set v1 = t2.v1 + 2, v2 = t1.v1 * 2 "
-                + "from src join t2 on src.k1 = t2.k1 where t2.k1 = t1.k1";
+        String sql = "update t1 a set v1 = t2.v1 + 2, v2 = a.v1 * 2 "
+                + "from src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
@@ -104,20 +104,18 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
+                                                logicalJoin(
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        ),
+                                                        logicalProject(
+                                                                logicalOlapScan())
+                                                ),
                                                 logicalProject(
                                                         logicalFilter(
                                                                 logicalOlapScan()
-                                                        )
-                                                ),
-                                                logicalProject(
-                                                        logicalJoin(
-                                                                logicalProject(
-                                                                        logicalOlapScan()),
-                                                                logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
-                                                                )
                                                         )
                                                 )
                                         )

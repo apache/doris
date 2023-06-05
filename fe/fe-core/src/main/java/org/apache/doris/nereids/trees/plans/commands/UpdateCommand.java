@@ -64,6 +64,7 @@ import java.util.Objects;
 public class UpdateCommand extends Command implements ForwardWithSync {
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
+    private final String tableAlias;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
     private ExplainLevel explainLevel = null;
@@ -71,13 +72,14 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     /**
      * constructor
      */
-    public UpdateCommand(List<String> nameParts, List<EqualTo> assignments,
+    public UpdateCommand(List<String> nameParts, String tableAlias, List<EqualTo> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
                 "tableName is required in update command"));
         this.assignments = ImmutableList.copyOf(Objects.requireNonNull(assignments,
                 "assignment is required in update command"));
+        this.tableAlias = tableAlias;
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
     }
 
@@ -119,7 +121,10 @@ public class UpdateCommand extends Command implements ForwardWithSync {
                         ? ((NamedExpression) expr)
                         : new Alias(expr, expr.toSql()));
             } else {
-                selectItems.add(new UnboundSlot(targetTable.getName(), column.getName()));
+                selectItems.add(new UnboundSlot(
+                        tableAlias != null
+                                ? tableAlias
+                                : targetTable.getName(), column.getName()));
             }
         }
 
