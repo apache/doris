@@ -32,12 +32,12 @@ CREATE SQL BLOCK RULE
 
 ### Description
 
-This statement creates a SQL blocking rule, which is only used to restrict query statements, not to restrict the execution of explian statements.
+This statement creates a SQL blocking rule. it can restrict any kind of sql statements(no matter DDL or DML statement).
 
 Supports configuring SQL blacklists by user:
 
 - Refuse to specify SQL by regular matching
-- Check if a query reaches one of these limits by setting partition_num, tablet_num, cardinality
+- Check if a sql reaches one of these limits by setting partition_num, tablet_num, cardinality
   - partition_num, tablet_num, cardinality can be set together, once a query reaches one of these limits, the query will be intercepted
 
 grammar:
