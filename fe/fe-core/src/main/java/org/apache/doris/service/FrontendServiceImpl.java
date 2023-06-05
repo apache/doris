@@ -1227,8 +1227,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (txnOperation.equalsIgnoreCase("commit")) {
+            long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
             Env.getCurrentGlobalTransactionMgr()
-                    .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
+                    .commitTransaction2PC(database, tableList, request.getTxnId(), timeoutMs);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
             Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {
