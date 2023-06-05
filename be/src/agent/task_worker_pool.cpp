@@ -297,7 +297,6 @@ void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t 
 
     VLOG_NOTICE << "remove task info. type=" << task_type << ", signature=" << signature
                 << ", queue_size=" << queue_size;
-    TRACE("remove task info");
 }
 
 void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request) {
@@ -322,7 +321,6 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
         }
         sleep(config::sleep_one_second);
     }
-    TRACE("finish task");
 }
 
 void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
@@ -1209,7 +1207,8 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         });
         ADOPT_TRACE(trace.get());
         DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-        TRACE("start to create tablet $0", create_tablet_req.tablet_id);
+        VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
+
         std::vector<TTabletInfo> finish_tablet_infos;
         VLOG_NOTICE << "create tablet: " << create_tablet_req;
         Status status = _env->storage_engine()->create_tablet(create_tablet_req);
