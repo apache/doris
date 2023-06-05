@@ -486,6 +486,14 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         FunctionCallExpr o = (FunctionCallExpr) obj;
+        if (orderByElements.size() != o.orderByElements.size()) {
+            return false;
+        }
+        for (int i = 0; i < orderByElements.size(); i++) {
+            if (!orderByElements.get(i).equals(o.orderByElements.get(i))) {
+                return false;
+            }
+        }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
                 && fnParams.isStar() == o.fnParams.isStar();
