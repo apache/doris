@@ -43,6 +43,9 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 │   ├── env.conf
 │   └── mysql_tables
 └── lib
+    ├── jdbc
+    │   ├── create_jdbc_catalog.sh
+    │   └── sync_to_doris.sh
     ├── e_auto.sh
     ├── e_mysql_to_doris.sh
     ├── get_tables.sh
@@ -60,11 +63,16 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 在这里配置 MySQL 和 Doris 的相关配置信息。
 ```text
 # doris env
+# doris env
 fe_master_host=<your_fe_master_host>
 fe_master_port=<your_fe_master_query_port>
 doris_username=<your_doris_username>
 doris_password=<your_doris_password>
 doris_odbc_name=<your_doris_odbc_driver_name>
+doris_jdbc_catalog=<jdbc_catalog_name>
+doris_jdbc_default_db=<jdbc_default_database>
+doris_jdbc_driver_url=<jdbc_driver_url>
+doris_jdbc_driver_class=<jdbc_driver_class>
 
 # mysql env
 mysql_host=<your_mysql_host>
@@ -106,6 +114,8 @@ Usage: run.sh [option]
     -i, --insert-data: insert data into doris olap table from doris external table
     -d, --drop-external-table: drop doris external table
     -a, --auto-external-table: create doris external table and auto check mysql schema change
+    --database: specify the database name to process all tables under the entire database, and separate multiple databases with ","
+    -t, --type: specify external table type, valid options: ODBC(default), JDBC
     -h, --help: show usage
 ```
 
@@ -131,8 +141,11 @@ sh bin/run.sh -o
 ```
 执行完成后 ODBC OLAP 表就创建完成，同时建表语句会被生成到`result/mysql/mysql_to_doris.sql`文件中。
 
-### 创建 Doris OLAP 表同时从 ODBC 外部表同步数据
-前提是你已经创建外部表，如果没有，请先创建外部表。
+如果设置 `--type` 选项为 `JDBC`，则会创建 JDBC Catalog，同时创建语句语句会被生成到 `result/mysql/jdbc_catalog.sql` 文件中。
+
+### 创建 Doris OLAP 表同时从外部同步数据
+
+前提是你已经创建外部表（JDBC 方式则为 JDBC Catalog），如果没有，请先创建。
 
 使用方法如下：
 ```shell
@@ -158,6 +171,8 @@ sh bin/run.sh --create-olap-table --insert-data --drop-external-table
 ```shell
 sh bin/run.sh -o -i -d
 ```
+
+此选项只当 `--type` 为 `ODBC` 时有效。
 
 ### 创建 Doris OLAP 表并且自动同步表结构变化
 使用方式如下：
