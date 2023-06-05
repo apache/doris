@@ -24,6 +24,8 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -52,7 +54,7 @@ import java.util.Set;
  *  InsertIntoTableCommand(Query())
  *  ExplainCommand(Query())
  */
-public class InsertIntoTableCommand extends Command implements ForwardWithSync {
+public class InsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
@@ -149,6 +151,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
             }
         }
+    }
+
+    @Override
+    public Plan getExplainPlan() {
+        return this.logicalQuery;
     }
 
     @Override

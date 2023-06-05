@@ -29,8 +29,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,13 +62,12 @@ import java.util.Objects;
  * =>
  *  insert into t1 (c1, c3) select t2.c1, t2.c3 * 100 from t1 join t2 inner join t3 on t2.id = t3.id where t1.id = t2.id
  */
-public class UpdateCommand extends Command implements ForwardWithSync {
+public class UpdateCommand extends Command implements ForwardWithSync, Explainable {
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
     private final String tableAlias;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
-    private ExplainLevel explainLevel = null;
 
     /**
      * constructor
@@ -87,11 +87,7 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         completeQueryPlan(ctx);
 
-        if (explainLevel != null) {
-            new ExplainCommand(explainLevel, logicalQuery).run(ctx, executor);
-        } else {
-            new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
-        }
+        new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
     }
 
     /**
@@ -99,11 +95,6 @@ public class UpdateCommand extends Command implements ForwardWithSync {
      */
     public void completeQueryPlan(ConnectContext ctx) throws AnalysisException {
         checkTable(ctx);
-
-        if (logicalQuery instanceof ExplainCommand) {
-            explainLevel = ((ExplainCommand) logicalQuery).getLevel();
-            logicalQuery = ((ExplainCommand) logicalQuery).getLogicalPlan();
-        }
 
         Map<String, Expression> colNameToExpression = Maps.newHashMap();
         for (EqualTo equalTo : assignments) {
@@ -154,6 +145,12 @@ public class UpdateCommand extends Command implements ForwardWithSync {
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery;
+    }
+
+    @Override
+    public Plan getExplainPlan() throws Exception {
+        completeQueryPlan(ConnectContext.get());
+        return getLogicalQuery();
     }
 
     @Override
