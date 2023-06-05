@@ -710,8 +710,8 @@ public abstract class Type {
         } else if (sourceType.isMapType() && targetType.isMapType()) {
             return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
         } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
-                && !sourceType.isNull()) {
-            // TODO: current not support cast any non-array type(except for null) to nested array type.
+                && !sourceType.isNull() && !sourceType.isStringType()) {
+            // TODO: current not support cast any non-array type(except null and charFamily) to nested array type.
             return false;
         } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
             return true;
