@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -200,7 +201,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         if (!isFileFieldSpecified) {
             return;
         }
-        filterColumns(columnExprList);
+        columnExprList = filterColumns(columnExprList);
         resetTargetColumnNames(columnExprList);
         resetSelectList(columnExprList);
     }
@@ -278,19 +279,39 @@ public class S3LoadStmt extends NativeInsertStmt {
         LOG.info("select column name to csv colum name:{}", selectColNameToCsvColName);
     }
 
-    private void filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
+    private List<ImportColumnDesc> filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
         Preconditions.checkNotNull(targetTable, "target table is unset");
         // remove all `tmp` columns, which are not in target table
         columnExprList.removeIf(
                 Predicates.and(ImportColumnDesc::isColumn,
                         columnDesc -> Objects.isNull(targetTable.getColumn(columnDesc.getColumnName())))
         );
+
+        // to deal with the case like:
+        // (k1, k2) SET(k1 = `upper(k1)`)
+        columnExprList = Lists.newArrayList(columnExprList.stream()
+                .collect(Collectors.toMap(
+                        ImportColumnDesc::getColumnName,
+                        Function.identity(),
+                        (lhs, rhs) -> {
+                            if (lhs.getExpr() != null && rhs.getExpr() == null) {
+                                return lhs;
+                            } else if (lhs.getExpr() == null && rhs.getExpr() != null) {
+                                return rhs;
+                            } else {
+                                throw new IllegalArgumentException(
+                                        String.format("column `%s` specified twice", lhs.getColumnName()));
+                            }
+                        }
+                )).values());
+
         Map<String, Expr> columnExprMap = columnExprList.stream()
                 // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
                 .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
                         (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
         checkUnspecifiedCols(columnExprMap);
         LOG.info("filtered result:{}", columnExprList);
+        return columnExprList;
     }
 
     /**
