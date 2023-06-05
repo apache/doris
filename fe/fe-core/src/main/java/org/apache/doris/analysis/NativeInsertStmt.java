@@ -868,9 +868,4 @@ public class NativeInsertStmt extends InsertStmt {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
     }
-
-    @Override
-    public String toSql() {
-        return null;
-    }
 }
