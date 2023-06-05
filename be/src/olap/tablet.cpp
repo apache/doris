@@ -148,15 +148,19 @@ bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
 struct WriteCooldownMetaExecutors {
     WriteCooldownMetaExecutors(size_t executor_nums = 5);
 
-    static WriteCooldownMetaExecutors* GetInstance() {
+    static WriteCooldownMetaExecutors* get_instance() {
         static WriteCooldownMetaExecutors instance;
         return &instance;
     }
 
     void submit(TabletSharedPtr tablet);
-    size_t _get_executor_pos(int64_t tablet_id) const { return tablet_id % _executor_nums; };
+    size_t _get_executor_pos(int64_t tablet_id) const {
+        return std::hash<int64_t>()(tablet_id) % _executor_nums;
+    };
+    // Each executor is a mpsc to ensure uploads of the same tablet meta are not concurrent
+    // FIXME(AlexYue): Use mpsc instead of `ThreadPool` with 1 thread
     std::vector<std::unique_ptr<ThreadPool>> _executors;
-    std::unordered_set<int64_t> _pengding_tablets;
+    std::unordered_set<int64_t> _pending_tablets;
     std::mutex _latch;
     size_t _executor_nums;
 };
@@ -165,7 +169,7 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
         : _executor_nums(executor_nums) {
     for (size_t i = 0; i < _executor_nums; i++) {
         std::unique_ptr<ThreadPool> pool;
-        ThreadPoolBuilder("AsyncWriteCooldownMetaExecutor")
+        ThreadPoolBuilder("WriteCooldownMetaExecutor")
                 .set_min_threads(1)
                 .set_max_threads(1)
                 .set_max_queue_size(std::numeric_limits<int>::max())
@@ -187,16 +191,16 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
     {
         // one tablet could at most have one cooldown task to be done
         std::unique_lock<std::mutex> lck {_latch};
-        if (_pengding_tablets.count(tablet_id) > 0) {
+        if (_pending_tablets.count(tablet_id) > 0) {
             return;
         }
-        _pengding_tablets.insert(tablet_id);
+        _pending_tablets.insert(tablet_id);
     }
 
     auto async_write_task = [this, t = std::move(tablet)]() {
         {
             std::unique_lock<std::mutex> lck {_latch};
-            _pengding_tablets.erase(t->tablet_id());
+            _pending_tablets.erase(t->tablet_id());
         }
         auto s = t->write_cooldown_meta();
         if (s.ok()) {
@@ -898,7 +902,7 @@ Status Tablet::capture_consistent_rowsets(const Version& spec_version,
 
 Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                     std::vector<RowsetSharedPtr>* rowsets) const {
-    DCHECK(rowsets != nullptr && rowsets->empty());
+    DCHECK(rowsets != nullptr);
     rowsets->reserve(version_path.size());
     for (auto& version : version_path) {
         bool is_find = false;
@@ -1958,6 +1962,15 @@ Status Tablet::_cooldown_data() {
     if (!old_rowset) {
         return Status::InternalError("cannot pick cooldown rowset in tablet {}", tablet_id());
     }
+    if (old_rowset->num_segments() < 1) {
+        // Empty rowset, just reset rowset's resource_id
+        std::lock_guard meta_wlock(_meta_lock);
+        old_rowset->rowset_meta()->set_fs(dest_fs);
+        LOG(INFO) << "cooldown empty rowset " << old_rowset->version() << " "
+                  << old_rowset->rowset_id().to_string() << " to " << dest_fs->root_path().native()
+                  << ", tablet_id=" << tablet_id();
+        return Status::OK();
+    }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     add_pending_remote_rowset(new_rowset_id.to_string());
     Status st;
@@ -1982,7 +1995,6 @@ Status Tablet::_cooldown_data() {
     // gen a new rowset
     auto new_rowset_meta = std::make_shared<RowsetMeta>(*old_rowset->rowset_meta());
     new_rowset_meta->set_rowset_id(new_rowset_id);
-    new_rowset_meta->set_resource_id(dest_fs->id());
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
@@ -2000,7 +2012,7 @@ Status Tablet::_cooldown_data() {
     }
     erase_pending_remote_rowset(new_rowset_id.to_string());
     {
-        std::unique_lock meta_rlock(_meta_lock);
+        std::shared_lock meta_rlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
@@ -2047,12 +2059,30 @@ Status check_version_continuity(const std::vector<RowsetMetaSharedPtr>& rs_metas
 // It's guaranteed the write cooldown meta task would be invoked at the end unless BE crashes
 // one tablet would at most have one async task to be done
 void Tablet::async_write_cooldown_meta(TabletSharedPtr tablet) {
-    WriteCooldownMetaExecutors::GetInstance()->submit(std::move(tablet));
+    WriteCooldownMetaExecutors::get_instance()->submit(std::move(tablet));
 }
 
-// hold SHARED `cooldown_conf_lock`
+bool Tablet::update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
+    std::unique_lock wlock(_cooldown_conf_lock, std::try_to_lock);
+    if (!wlock.owns_lock()) {
+        LOG(INFO) << "try cooldown_conf_lock failed, tablet_id=" << tablet_id();
+        return false;
+    }
+    if (cooldown_term <= _cooldown_term) return false;
+    LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
+              << " cooldown_replica_id: " << _cooldown_replica_id << " -> " << cooldown_replica_id
+              << ", cooldown_term: " << _cooldown_term << " -> " << cooldown_term;
+    _cooldown_replica_id = cooldown_replica_id;
+    _cooldown_term = cooldown_term;
+    return true;
+}
+
 Status Tablet::write_cooldown_meta() {
-    auto [cooldown_replica_id, cooldown_term] = cooldown_conf();
+    std::shared_lock rlock(_cooldown_conf_lock);
+    if (_cooldown_replica_id != _tablet_meta->replica_id()) {
+        return Status::Aborted("not cooldown replcia({} vs {}) tablet_id={}",
+                               _tablet_meta->replica_id(), _cooldown_replica_id, tablet_id());
+    }
 
     std::shared_ptr<io::RemoteFileSystem> fs;
     RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &fs));
@@ -2074,7 +2104,12 @@ Status Tablet::write_cooldown_meta() {
     }
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
     DCHECK(cooldowned_rs_metas.front()->start_version() == 0);
-    RETURN_IF_ERROR(check_version_continuity(cooldowned_rs_metas));
+    // If version not continuous, it must be a bug
+    if (auto st = check_version_continuity(cooldowned_rs_metas); !st.ok()) {
+        DCHECK(st.ok()) << st << " tablet_id=" << tablet_id();
+        st.set_code(ABORTED);
+        return st;
+    }
 
     TabletMetaPB tablet_meta_pb;
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
@@ -2086,8 +2121,9 @@ Status Tablet::write_cooldown_meta() {
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
     std::string remote_meta_path =
-            remote_tablet_meta_path(tablet_id(), cooldown_replica_id, cooldown_term);
+            remote_tablet_meta_path(tablet_id(), _cooldown_replica_id, _cooldown_term);
     io::FileWriterPtr tablet_meta_writer;
+    // FIXME(plat1ko): What if object store permanently unavailable?
     RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     auto val = tablet_meta_pb.SerializeAsString();
     RETURN_IF_ERROR(tablet_meta_writer->append({val.data(), val.size()}));

@@ -422,6 +422,8 @@ public:
         return code == _code;
     }
 
+    void set_code(int code) { _code = code; }
+
     bool ok() const { return _code == ErrorCode::OK; }
 
     bool is_io_error() const {

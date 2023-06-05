@@ -347,6 +347,23 @@ Status SnapshotManager::_link_index_and_data_files(
     return res;
 }
 
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.size() < 2) {
+        return Status::OK();
+    }
+    auto prev = rowsets.begin();
+    for (auto it = rowsets.begin() + 1; it != rowsets.end(); ++it) {
+        if ((*prev)->end_version() + 1 != (*it)->start_version()) {
+            return Status::InternalError("versions are not continuity: prev={} cur={}",
+                                         (*prev)->version().to_string(),
+                                         (*it)->version().to_string());
+        }
+        prev = it;
+    }
+    return Status::OK();
+}
+
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
                                                const TSnapshotRequest& request,
                                                string* snapshot_path,
@@ -493,11 +510,29 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     }
                     version = request.version;
                 }
-                // get shortest version path
-                // it very important!!!!
-                // it means 0-version has to be a readable version graph
-                res = ref_tablet->capture_consistent_rowsets(Version(0, version),
-                                                             &consistent_rowsets);
+                if (ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+                    // Tablet has cooldowned data, MUST pick consistent rowsets with continuous cooldowned version
+                    // Get max cooldowned version
+                    int64_t max_cooldowned_version = -1;
+                    for (auto& [v, rs] : ref_tablet->rowset_map()) {
+                        if (rs->is_local()) continue;
+                        consistent_rowsets.push_back(rs);
+                        max_cooldowned_version = std::max(max_cooldowned_version, v.second);
+                    }
+                    DCHECK_GE(max_cooldowned_version, 1) << "tablet_id=" << ref_tablet->tablet_id();
+                    std::sort(consistent_rowsets.begin(), consistent_rowsets.end(),
+                              Rowset::comparator);
+                    res = check_version_continuity(consistent_rowsets);
+                    if (res.ok() && max_cooldowned_version < version) {
+                        // Pick consistent rowsets of remaining required version
+                        res = ref_tablet->capture_consistent_rowsets(
+                                {max_cooldowned_version + 1, version}, &consistent_rowsets);
+                    }
+                } else {
+                    // get shortest version path
+                    res = ref_tablet->capture_consistent_rowsets(Version(0, version),
+                                                                 &consistent_rowsets);
+                }
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
