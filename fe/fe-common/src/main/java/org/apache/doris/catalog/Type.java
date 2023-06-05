@@ -102,7 +102,7 @@ public abstract class Type {
     public static final ScalarType CHAR = ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     public static final ScalarType QUANTILE_STATE = new ScalarType(PrimitiveType.QUANTILE_STATE);
-    public static final ScalarType AGG_STATE = new ScalarType(PrimitiveType.AGG_STATE);
+    public static final AggStateType AGG_STATE = new AggStateType(null, null, null, null);
     public static final ScalarType LAMBDA_FUNCTION = new ScalarType(PrimitiveType.LAMBDA_FUNCTION);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
@@ -446,7 +446,7 @@ public abstract class Type {
 
     public static final String OnlyMetricTypeErrorMsg =
             "Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't"
-                    + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
+                    + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"
                     + " or 'help map' or 'help struct' or 'help jsonb' in your mysql client.";
 
     public boolean isHllType() {

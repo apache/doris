@@ -433,12 +433,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：5
 
-#### `serialize_batch`
-
-* 类型：bool
-* 描述：BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
-* 默认值: false
-
 #### `doris_scan_range_max_mb`
 
 * 类型: int32

@@ -23,13 +23,10 @@ suite ("test_dup_mv_schema_change") {
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][8]
-    }
+
     def waitForJob =  (tbName, timeout) -> {
         while (timeout--){
-            String result = getMVJobState(tbName)
+            String result = getJobState(tbName)
             if (result == "FINISHED") {
                 sleep(3000)
                 break
@@ -92,17 +89,13 @@ suite ("test_dup_mv_schema_change") {
             """
 
         //add materialized view
-        def mvName = "mv1"
-        sql "create materialized view ${mvName} as select date, user_id, city, age from ${tableName};"
-        waitForJob(tableName, 3000)
+        createMV("create materialized view mv1 as select date, user_id, city, age from ${tableName};")
 
         // alter and test light schema change
         sql """ALTER TABLE ${tableName} SET ("light_schema_change" = "true");"""
 
         //add materialized view
-        def mvName2 = "mv2"
-        sql "create materialized view ${mvName2} as select date, user_id, city, age, cost from ${tableName};"
-        waitForJob(tableName, 3000)
+        createMV("create materialized view mv2 as select date, user_id, city, age, cost from ${tableName};")
 
         sql """ INSERT INTO ${tableName} VALUES
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
@@ -119,6 +112,7 @@ suite ("test_dup_mv_schema_change") {
         sql """
             ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
             """
+        waitForJob(tableName, 3000)
 
         sql """ SELECT * FROM ${tableName} WHERE user_id=2 order by min_dwell_time """
 

@@ -266,9 +266,9 @@ check_if_source_exist() {
     echo "===== begin build $1"
 }
 
-check_if_archieve_exist() {
+check_if_archive_exist() {
     if [[ -z $1 ]]; then
-        echo "archieve should specified to check if exist."
+        echo "archive should specified to check if exist."
         exit 1
     fi
 
@@ -1167,9 +1167,9 @@ build_parallel_hashmap() {
 
 # pdqsort
 build_pdqsort() {
-    check_if_source_exist "${PDQSORT_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${PDQSORT_SOURCE}"
-    cp -r pdqsort.h "${TP_INSTALL_DIR}/include/"
+    check_if_archive_exist "${PDQSORT_FILE}"
+    cd "${TP_SOURCE_DIR}"
+    cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
 # libdivide

@@ -209,9 +209,9 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    // unique key should flush serial because we need to make sure same key should sort
-    // in the same order in all replica.
-    bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
+    // by assigning segment_id to memtable before submiting to flush executor,
+    // we can make sure same keys sort in the same order in all replicas.
+    bool should_serial = false;
     RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
@@ -267,6 +267,10 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
+    if (_mem_table->empty()) {
+        return Status::OK();
+    }
+    _mem_table->assign_segment_id();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -612,12 +616,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     std::vector<int64_t> indices_ids;
     auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
-    for (auto& column : tablet_schema->columns()) {
-        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
-        if (index_meta) {
-            indices_ids.emplace_back(index_meta->index_id());
+    if (!tablet_schema->skip_write_index_on_load()) {
+        for (auto& column : tablet_schema->columns()) {
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                indices_ids.emplace_back(index_meta->index_id());
+            }
         }
     }
+
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);

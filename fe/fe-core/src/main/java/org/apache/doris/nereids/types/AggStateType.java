@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
@@ -30,22 +30,28 @@ import java.util.stream.Collectors;
  */
 public class AggStateType extends PrimitiveType {
 
-    public static final AggStateType SYSTEM_DEFAULT = new AggStateType(null, null);
+    public static final AggStateType SYSTEM_DEFAULT = new AggStateType(null, null, null);
 
     public static final int WIDTH = 16;
 
     private final List<DataType> subTypes;
     private final List<Boolean> subTypeNullables;
+    private final String functionName;
 
-    public AggStateType(List<DataType> subTypes, List<Boolean> subTypeNullables) {
+    public AggStateType(String functionName, List<DataType> subTypes, List<Boolean> subTypeNullables) {
         this.subTypes = subTypes;
         this.subTypeNullables = subTypeNullables;
+        this.functionName = functionName;
+    }
+
+    public List<DataType> getSubTypes() {
+        return subTypes;
     }
 
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(t -> t.toCatalogDataType()).collect(Collectors.toList());
-        return new ScalarType(types, subTypeNullables);
+        return Expr.createAggStateType(functionName, types, subTypeNullables);
     }
 
     @Override
