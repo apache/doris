@@ -167,7 +167,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
                     _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
         }
         // skip write inverted index on load if skip_write_index_on_load is true
-        if (_opts.is_direct_write && _tablet_schema->skip_write_index_on_load()) {
+        if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
+            _tablet_schema->skip_write_index_on_load()) {
             skip_inverted_index = true;
         }
         // indexes for this column

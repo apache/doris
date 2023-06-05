@@ -83,8 +83,6 @@ struct RowsetWriterContext {
     int64_t newest_write_timestamp;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
-    // If it is directly write from load procedure, else
-    // it could be compaction or schema change etc..
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     std::shared_ptr<Tablet> tablet = nullptr;
     // for tracing local schema change record

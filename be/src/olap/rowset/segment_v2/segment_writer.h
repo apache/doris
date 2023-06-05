@@ -75,7 +75,7 @@ struct SegmentWriterOptions {
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
-    DataWriteType write_type;
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
