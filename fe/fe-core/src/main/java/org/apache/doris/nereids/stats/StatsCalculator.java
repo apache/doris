@@ -551,6 +551,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+            if (cache.avgSizeByte <= 0) {
+                cache = new ColumnStatisticBuilder(cache)
+                        .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
+                        .build();
+            }
             if (cache == ColumnStatistic.UNKNOWN && !colName.equals("__DORIS_DELETE_SIGN__")) {
                 if (forbidUnknownColStats) {
                     if (StatisticsUtil.statsTblAvailable()) {
