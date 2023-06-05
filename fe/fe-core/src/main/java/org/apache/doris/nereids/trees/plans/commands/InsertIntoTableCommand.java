@@ -40,6 +40,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -65,8 +66,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, String labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
-        Preconditions.checkNotNull(logicalQuery, "logicalQuery cannot be null in InsertIntoTableCommand");
-        this.logicalQuery = logicalQuery;
+        this.logicalQuery = Objects.requireNonNull(logicalQuery,
+                "logicalQuery cannot be null in InsertIntoTableCommand");
         this.labelName = labelName;
     }
 
@@ -76,7 +77,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (false && !ctx.getSessionVariable().isEnableNereidsDML()) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
             } catch (Exception e) {

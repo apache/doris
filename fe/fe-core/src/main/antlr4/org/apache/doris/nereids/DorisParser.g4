@@ -538,7 +538,6 @@ nonReserved
     | DATE_DIFF
     | DAY
     | DBPROPERTIES
-    | DEFAULT
     | DEFINED
     | DELETE
     | DELIMITED

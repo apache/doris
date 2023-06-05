@@ -323,6 +323,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Object visitUpdate(UpdateContext ctx) {
         LogicalPlan query = withCheckPolicy(new UnboundRelation(
                 RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
+        if (ctx.tableAlias() != null) {
+            query = withTableAlias(query, ctx.tableAlias());
+        }
         if (ctx.fromClause() != null) {
             query = new LogicalJoin<>(
                     JoinType.INNER_JOIN,
@@ -334,8 +337,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             query = withExplain(query, ctx.explain());
         }
-        String tableAlias = ctx.tableAlias() == null ? null : ctx.tableAlias().getText();
-        return new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
+        return new UpdateCommand(visitMultipartIdentifier(ctx.tableName),
                 visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query);
     }
 

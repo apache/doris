@@ -390,10 +390,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return sink;
     }
 
-    public void cleanSink() {
-        this.sink = null;
-    }
-
     public void setSink(DataSink sink) {
         Preconditions.checkState(this.sink == null);
         Preconditions.checkNotNull(sink);

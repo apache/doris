@@ -44,6 +44,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * update command
@@ -62,18 +63,16 @@ import java.util.Map;
 public class UpdateCommand extends Command implements ForwardWithSync {
     private final List<Pair<List<String>, Expression>> assignments;
     private final List<String> nameParts;
-    private final String tableAlias;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
     private ExplainLevel explainLevel = null;
 
-    public UpdateCommand(List<String> nameParts, String tableAlias, List<Pair<List<String>, Expression>> assignments,
+    public UpdateCommand(List<String> nameParts, List<Pair<List<String>, Expression>> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
-        this.nameParts = nameParts;
-        this.tableAlias = tableAlias;
-        this.assignments = assignments;
-        this.logicalQuery = logicalQuery;
+        this.nameParts = Objects.requireNonNull(nameParts, "tableName is required in update command");
+        this.assignments = Objects.requireNonNull(assignments, "assignment is required in update command");
+        this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
     }
 
     @Override
