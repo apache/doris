@@ -352,6 +352,7 @@ set(VEC_FILES
   exec/format/parquet/bool_rle_decoder.cpp
   exec/jni_connector.cpp
   exec/scan/jni_reader.cpp
+  exec/scan/max_compute_jni_reader.cpp
   )
 
 if (WITH_MYSQL)

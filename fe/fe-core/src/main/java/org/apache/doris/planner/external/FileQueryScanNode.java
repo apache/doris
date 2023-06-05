@@ -195,7 +195,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
-
+        // avoid null pointer, it maybe has no slots when two tables are joined
+        if (params.getRequiredSlots() == null) {
+            params.setColumnIdxs(columnIdxs);
+            return;
+        }
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -273,6 +277,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
+                // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             }
 
@@ -329,7 +334,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         if (getLocationType() == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
+        } else if (getLocationType() == TFileType.FILE_S3
+                || getLocationType() == TFileType.FILE_BROKER
+                || getLocationType() == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
