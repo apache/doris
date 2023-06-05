@@ -42,6 +42,7 @@ import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
 import org.apache.doris.nereids.DorisParser.Date_subContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
+import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
@@ -213,6 +214,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
@@ -337,6 +339,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return withExplain(new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
                 visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query), ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitDelete(DeleteContext ctx) {
+        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        String tableAlias = ctx.tableAlias().strictIdentifier().getText();
+        List<String> partitions = visitIdentifierList(ctx.partition);
+        LogicalPlan query = new UnboundRelation(RelationUtil.newRelationId(), tableName);
+        if (ctx.USING() != null) {
+            for (RelationContext relation : ctx.relation()) {
+                // build left deep join tree
+                LogicalPlan right = visitRelation(relation);
+                query = new LogicalJoin<>(
+                                JoinType.CROSS_JOIN,
+                                ExpressionUtils.EMPTY_CONDITION,
+                                ExpressionUtils.EMPTY_CONDITION,
+                                JoinHint.NONE,
+                                Optional.empty(),
+                                query,
+                                right);
+                query = withJoinRelations(query, relation);
+                // TODO: pivot and lateral view
+            }
+        }
+        if (ctx.explain() != null) {
+            query = withExplain(query, ctx.explain());
+        }
+        return new DeleteCommand(tableName, tableAlias, partitions, query);
     }
 
     /**
