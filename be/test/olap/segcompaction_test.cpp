@@ -294,19 +294,19 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                     EXPECT_EQ(100 * v3 + k2, k1);
                     num_rows_read++;
                 }
-                    output_block->clear();
-                }
-                EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
-                EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
-                EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
-                size_t total_num_rows = 0;
-                for (const auto& i : segment_num_rows) {
-                    total_num_rows += i;
-                }
-                EXPECT_EQ(total_num_rows, num_rows_read);
+                output_block->clear();
             }
+            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            size_t total_num_rows = 0;
+            for (const auto& i : segment_num_rows) {
+                total_num_rows += i;
+            }
+            EXPECT_EQ(total_num_rows, num_rows_read);
         }
     }
+}
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     config::enable_segcompaction = true;
