@@ -37,7 +37,7 @@
 #include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to observe the memory usage of the specified code segment
-#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+#if defined(USE_MEM_TRACKER)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT(scope_mem) \
@@ -56,7 +56,7 @@
 #endif
 
 // Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
-#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+#if defined(USE_MEM_TRACKER)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // And count the memory during thread execution (is actually also the code segment that executes the function)
@@ -197,14 +197,11 @@ private:
     TUniqueId _fragment_instance_id;
 };
 
-#if defined(UNDEFINED_BEHAVIOR_SANITIZER)
-static ThreadContext* thread_context() {
-    return thread_context_ptr._ptr;
-}
-#else
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
 static void pthread_attach_bthread() {
+    // during this period, stop the use of thread_context.
+    thread_context_ptr.init = false;
     bthread_id = bthread_self();
     bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
     if (bthread_context == nullptr) {
@@ -221,22 +218,68 @@ static void pthread_attach_bthread() {
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
     }
+    thread_context_ptr.init = true;
 }
+
+// Switch thread context from pthread local to bthread local context.
+class SwitchBthreadLocal {
+public:
+    struct SwitchBthreadLocalGroup {
+        // bthread ids that has been switched to the bthread local context.
+        std::unordered_set<bthread_t> bthread_ids;
+        std::mutex group_lock;
+    };
+
+    static bool switch_to_bthread_local() {
+        if (bthread_self() != 0 && !switch_bthread_local_group.bthread_ids.count(bthread_self())) {
+            {
+                std::lock_guard<std::mutex> l(switch_bthread_local_group.group_lock);
+                switch_bthread_local_group.bthread_ids.insert(bthread_self());
+            }
+            pthread_attach_bthread();
+            return true;
+        }
+        return false;
+    }
+
+    // `switch_to_bthread_local` and `switch_back_pthread_local` should be used in pairs,
+    // `switch_to_bthread_local` should only be called if `switch_to_bthread_local` returns true
+    static void switch_back_pthread_local() {
+        DCHECK(bthread_self() != 0 && switch_bthread_local_group.bthread_ids.count(bthread_self()));
+        {
+            std::lock_guard<std::mutex> l(switch_bthread_local_group.group_lock);
+            switch_bthread_local_group.bthread_ids.erase(bthread_self());
+        }
+        bthread_context = thread_context_ptr._ptr;
+    }
+
+    static bool in_attached_bthread() {
+        return switch_bthread_local_group.bthread_ids.count(bthread_self());
+    }
+
+private:
+    static SwitchBthreadLocalGroup switch_bthread_local_group;
+};
 
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
         if (bthread_self() != bthread_id) {
-            // A new bthread starts or pthread switch occurs, during this period, stop the use of thread_context.
-            thread_context_ptr.init = false;
-            pthread_attach_bthread();
-            thread_context_ptr.init = true;
+            // A new bthread starts or pthread switch occurs.
+            // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
+            if (SwitchBthreadLocal::in_attached_bthread()) {
+                // If the current bthread is attached task, use bthread local context.
+                pthread_attach_bthread();
+            } else {
+                // If not attached, use pthread local context.
+                bthread_id = bthread_self();
+                bthread_context = thread_context_ptr._ptr;
+            }
         }
         return bthread_context;
     } else {
         return thread_context_ptr._ptr;
     }
 }
-#endif
 
 class ScopeMemCount {
 public:
@@ -262,21 +305,29 @@ public:
     explicit AttachTask(RuntimeState* runtime_state);
 
     ~AttachTask();
+
+private:
+    bool _switch_bthread_local;
 };
 
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+        _switch_bthread_local = SwitchBthreadLocal::switch_to_bthread_local();
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
     }
 
     ~SwitchThreadMemTrackerLimiter() {
         thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+        if (_switch_bthread_local) {
+            SwitchBthreadLocal::switch_back_pthread_local();
+        }
     }
 
 private:
     std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+    bool _switch_bthread_local;
 };
 
 class AddThreadMemTrackerConsumer {
@@ -293,6 +344,7 @@ public:
 private:
     std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
     bool _need_pop = false;
+    bool _switch_bthread_local;
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.

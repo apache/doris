@@ -1620,7 +1620,6 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       const PGetTabletVersionsRequest* request,
                                                       PGetTabletVersionsResponse* response,
                                                       google::protobuf::Closure* done) {
-    //SCOPED_SWITCH_BTHREAD_TLS();
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
     ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);

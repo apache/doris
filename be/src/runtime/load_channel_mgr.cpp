@@ -429,8 +429,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 << PrettyPrinter::print_bytes(process_soft_mem_limit)
                 << ", total load mem consumption: "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                << ", vm_rss: " << PerfCounters::get_vm_rss_str()
-                << ", tc/jemalloc allocator cache: " << MemInfo::allocator_cache_mem_str();
+                << ", vm_rss: " << PerfCounters::get_vm_rss_str();
         }
         LOG(INFO) << oss.str();
     }
