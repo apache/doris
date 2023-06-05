@@ -918,6 +918,9 @@ CONF_Int32(max_depth_of_expr_tree, "600");
 
 CONF_mBool(enable_stack_trace, "true");
 
+// enable shrink memory, default is false
+CONF_Bool(enable_shrink_memory, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

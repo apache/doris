@@ -231,7 +231,9 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
-        _mem_table->shrink_memtable_by_agg();
+        if (config::enable_shrink_memory) {
+            _mem_table->shrink_memtable_by_agg();
+        }
         if (_mem_table->is_flush()) {
             auto s = _flush_memtable_async();
             _reset_mem_table();
