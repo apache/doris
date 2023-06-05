@@ -62,17 +62,14 @@ Status SingleReplicaCompaction::prepare_compact() {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got cumulative compaction lock");
     std::unique_lock<std::mutex> lock_base(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock_base.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got base compaction lock");
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    TRACE("rowsets picked");
     _tablet->set_clone_occurred(false);
     if (_input_rowsets.size() == 1) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
@@ -101,14 +98,12 @@ Status SingleReplicaCompaction::execute_compact_impl() {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got cumulative compaction lock");
 
     std::unique_lock<std::mutex> lock_base(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock_base.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    TRACE("got base compaction lock");
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
@@ -121,7 +116,6 @@ Status SingleReplicaCompaction::execute_compact_impl() {
 
     // 2. do single replica compaction
     RETURN_IF_ERROR(_do_single_replica_compaction());
-    TRACE("single replica compaction finished");
 
     // 3. set state to success
     _state = CompactionState::SUCCESS;
@@ -130,8 +124,6 @@ Status SingleReplicaCompaction::execute_compact_impl() {
 }
 
 Status SingleReplicaCompaction::_do_single_replica_compaction() {
-    TRACE("start to do single replica compaction");
-
     _tablet->data_dir()->disks_compaction_num_increment(1);
     Status st = _do_single_replica_compaction_impl();
     _tablet->data_dir()->disks_compaction_num_increment(-1);
@@ -163,7 +155,6 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     RETURN_IF_ERROR(_fetch_rowset(addr, token, proper_version));
     // 5. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
-    TRACE("modify rowsets finished");
 
     // 6. update last success compaction time
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {

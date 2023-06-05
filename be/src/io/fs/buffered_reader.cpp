@@ -135,6 +135,16 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             }
             if (gap < merge_end - merge_start && content_size < _remaining &&
                 !_range_cached_data[merge_index + 1].has_read) {
+                size_t next_content =
+                        std::min(_random_access_ranges[merge_index + 1].end_offset, merge_end) -
+                        _random_access_ranges[merge_index + 1].start_offset;
+                next_content = std::min(next_content, _remaining - content_size);
+                double amplified_ratio = config::max_amplified_read_ratio;
+                if ((content_size + hollow_size) > MIN_READ_SIZE &&
+                    (hollow_size + gap) > (next_content + content_size) * amplified_ratio) {
+                    // too large gap
+                    break;
+                }
                 hollow_size += gap;
                 merge_start = _random_access_ranges[merge_index + 1].start_offset;
             } else {

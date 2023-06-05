@@ -119,8 +119,8 @@ public abstract class PlanVisitor<R, C> {
         return visitCommand(explain, context);
     }
 
-    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
-        return visitCommand(explain, context);
+    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
+        return visitCommand(createPolicy, context);
     }
 
     public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
@@ -437,5 +437,4 @@ public abstract class PlanVisitor<R, C> {
     public R visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
         return visit(cteAnchor, context);
     }
-
 }

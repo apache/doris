@@ -81,7 +81,7 @@ tcp        0      0 0.0.0.0:6033            0.0.0.0:*               LISTEN
 
 ### ProxySQL 配置
 
-ProxySQL 有配置文件 `/etc/proxysql.cnf` 和配置数据库文件`/var/lib/proxysql/proxysql.db`。**这里需要特别注意**：如果存在如果存在`"proxysql.db"`文件(在`/var/lib/proxysql`目录下)，则 ProxySQL 服务只有在第一次启动时才会去读取`proxysql.cnf文件`并解析；后面启动会就不会读取`proxysql.cnf`文件了！如果想要让proxysql.cnf 文件里的配置在重启 proxysql 服务后生效(即想要让 proxysql 重启时读取并解析 proxysql.cnf配置文件)，则需要先删除 `/var/lib/proxysql/proxysql.db`数据库文件，然后再重启 proxysql 服务。这样就相当于初始化启动 proxysql 服务了，会再次生产一个纯净的 proxysql.db 数据库文件(如果之前配置了 proxysql 相关路由规则等，则就会被抹掉)
+ProxySQL 有配置文件 `/etc/proxysql.cnf` 和配置数据库文件`/var/lib/proxysql/proxysql.db`。**这里需要特别注意**：如果存在`"proxysql.db"`文件(在`/var/lib/proxysql`目录下)，则 ProxySQL 服务只有在第一次启动时才会去读取`proxysql.cnf文件`并解析；后面启动会就不会读取`proxysql.cnf`文件了！如果想要让proxysql.cnf 文件里的配置在重启 proxysql 服务后生效(即想要让 proxysql 重启时读取并解析 proxysql.cnf配置文件)，则需要先删除 `/var/lib/proxysql/proxysql.db`数据库文件，然后再重启 proxysql 服务。这样就相当于初始化启动 proxysql 服务了，会再次生产一个纯净的 proxysql.db 数据库文件(如果之前配置了 proxysql 相关路由规则等，则就会被抹掉)
 
 #### 查看及修改配置文件
 
@@ -549,7 +549,11 @@ cd /usr/local/nginx
 mysql -uroot -P6030 -h172.31.7.119
 ```
 
-参数解释:-u   指定Doris用户名-p   指定Doris密码,我这里密码是空，所以没有-h   指定Nginx代理服务器IP-P   指定端口
+参数解释:
+> - -u   指定Doris用户名
+> - -p   指定Doris密码,我这里密码是空，所以没有
+> - -h   指定Nginx代理服务器IP
+> - -P   指定端口
 
 ```sql
 mysql -uroot -P6030 -h172.31.7.119

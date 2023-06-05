@@ -161,7 +161,9 @@ struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
     3: optional i64  byte_size
-    4: optional list<TTypeDesc> sub_types;
+    4: optional list<TTypeDesc> sub_types
+    5: optional bool result_is_nullable
+    6: optional string function_name
 }
 
 enum TAggregationType {
@@ -683,7 +685,7 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  RESOURCE_GROUPS
+  WORKLOAD_GROUPS
 }
 
 enum TIcebergQueryType {

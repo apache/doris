@@ -856,6 +856,7 @@ DEFINE_mInt32(parquet_header_max_size_mb, "1");
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
@@ -1009,6 +1010,9 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
+
+// enable set in BitmapValue
+DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 #ifdef BE_TEST
 // test s3

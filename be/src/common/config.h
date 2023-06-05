@@ -884,6 +884,8 @@ DECLARE_mInt32(parquet_header_max_size_mb);
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
 DECLARE_mInt32(parquet_column_max_buffer_mb);
+// Merge small IO, the max amplified read ratio
+DECLARE_mDouble(max_amplified_read_ratio);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
@@ -1024,6 +1026,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+
+// enable set in BitmapValue
+DECLARE_Bool(enable_set_in_bitmap_value);
 
 #ifdef BE_TEST
 // test s3
