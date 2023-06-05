@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
@@ -563,7 +564,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .build();
             }
             if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference)) {
+                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
                     if (StatisticsUtil.statsTblAvailable()) {
                         throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
                                 + "It may caused by:\n"
@@ -987,17 +988,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExpression.childStatistics(1);
     }
 
-    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, SlotReference slot) {
+    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, Column c) {
         if (tableIf instanceof SchemaTable) {
             return true;
         }
         if (tableIf instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) tableIf;
-            return StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(olapTable.getQualifiedDbName());
+            if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(olapTable.getQualifiedDbName())) {
+                return true;
+            }
         }
-        if (slot.getColumn().isPresent() && slot.getColumn().get().isVisible()) {
-            return true;
-        }
-        return false;
+        return !c.isVisible();
     }
 }

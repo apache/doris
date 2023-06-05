@@ -147,7 +147,7 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(partId);
         columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT)));
-        columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
         columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT)));

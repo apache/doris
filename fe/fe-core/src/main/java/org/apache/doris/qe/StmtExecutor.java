@@ -2421,8 +2421,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
             planner.getFragments();
             RowBatch batch;
@@ -2432,7 +2431,7 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                LOG.warn(e.getMessage(), e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2441,7 +2440,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                LOG.warn("Unexpected exception when SQL running", e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2457,9 +2456,8 @@ public class StmtExecutor {
                     }
                 }
             } catch (Exception e) {
-                LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 fetchResultSpan.end();
             }
