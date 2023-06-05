@@ -73,7 +73,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+inline StorageEngine* k_engine = nullptr;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
