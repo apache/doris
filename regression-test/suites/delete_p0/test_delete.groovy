@@ -177,4 +177,45 @@ suite("test_delete") {
     qt_check_data6 """
         select k1, v1 from delete_test_tb order by v1;
     """
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb2 """
+    sql """
+        CREATE TABLE `delete_test_tb2` (
+          `k1` int  NULL,
+          `k2` decimal(9, 2) NULL,
+          `v1` double NULL
+        )
+        UNIQUE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb2 values
+            (1, 1.12, 1.1), (2, 2.23, 2.2), (3, 3.34, 3.3), (null, 4.45, 4.4),
+            (5, null, 5.5), (null, null, 6.6);
+    """
+
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 1; """
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k2 = 2.23; """
+    qt_check_numeric2 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.3; """
+    qt_check_numeric3 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.34; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is not null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
 }
