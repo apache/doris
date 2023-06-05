@@ -42,6 +42,11 @@ public class HudiColumnValue implements ColumnValue {
     }
 
     @Override
+    public boolean isNull() {
+        return false;
+    }
+
+    @Override
     public boolean getBoolean() {
         return (boolean) inspectObject();
     }
