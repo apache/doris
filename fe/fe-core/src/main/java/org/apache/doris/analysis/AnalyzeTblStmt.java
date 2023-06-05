@@ -144,10 +144,10 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         columnName, FeNameFormat.getColumnNameRegex());
             }
+            checkColumn();
         } finally {
             table.readUnlock();
         }
-        checkColumn();
         analyzeProperties.check();
 
         // TODO support external table
@@ -160,23 +160,31 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     private void checkColumn() throws AnalysisException {
-        table.readLock();
-        try {
-            for (String colName : columnNames) {
-                Column column = table.getColumn(colName);
-                if (column == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                            colName, FeNameFormat.getColumnNameRegex());
-                }
-                if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
-                    throw new AnalysisException(String.format("Column[%s] with type[%s] is not supported to analyze",
-                            colName, column.getType().toString()));
-                }
+        boolean containsUnsupportedTytpe = false;
+        for (String colName : columnNames) {
+            Column column = table.getColumn(colName);
+            if (column == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        colName, FeNameFormat.getColumnNameRegex());
             }
-        } finally {
-            table.readUnlock();
+            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+                containsUnsupportedTytpe = true;
+            }
         }
-
+        if (containsUnsupportedTytpe) {
+            if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
+                columnNames = columnNames.stream()
+                        .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
+                                table.getColumn(c).getType()))
+                        .collect(Collectors.toList());
+            } else {
+                throw new AnalysisException(
+                        "Contains unsupported column type"
+                                + "if you want to ignore them and analyze rest"
+                                + "columns, please set session variable "
+                                + "`ignore_column_with_complex_type` to true");
+            }
+        }
     }
 
     public String getCatalogName() {
