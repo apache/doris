@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -105,12 +106,13 @@ public class StatisticsUtil {
         }
     }
 
-    public static void execUpdate(String sql) throws Exception {
+    public static QueryState execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
+            return r.connectContext.getState();
         }
     }
 
