@@ -65,10 +65,12 @@ services:
       - /data/apache-doris/fe/doris-meta/:/opt/apache-doris/fe/doris-meta
       - /data/apache-doris/fe/log/:/opt/apache-doris/fe/log
     environment:
-      - FE_SERVERS=fe1:10.0.16.15:9010
+      - FE_SERVERS=fe1:172.20.80.1:9010
       - FE_ID=1
     restart: on-failure
-    network_mode: host
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.1
 
   be:
     image: apache/doris:1.2.2-be-x86_64
@@ -76,9 +78,16 @@ services:
       - /data/apache-doris/be/storage/:/opt/apache-doris/be/storage
       - /data/apache-doris/be/log/:/opt/apache-doris/be/log
     environment:
-      - FE_SERVERS=fe1:10.0.16.15:9010
-      - BE_ADDR=10.0.16.15:9050
+      - FE_SERVERS=fe1:172.20.80.1:9010
+      - BE_ADDR=172.20.80.2:9050
     depends_on:
       - fe
     restart: on-failure
-    network_mode: host
+    networks:
+      doris_net:
+        ipv4_address: 172.20.80.2
+networks:
+  doris_net:
+    ipam:
+      config:
+        - subnet: 172.20.80.0/24
