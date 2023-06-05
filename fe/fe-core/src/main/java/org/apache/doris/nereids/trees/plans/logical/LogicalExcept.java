@@ -80,9 +80,4 @@ public class LogicalExcept extends LogicalSetOperation {
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalExcept(qualifier, newOutputs, Optional.empty(), Optional.empty(), children);
     }
-
-    @Override
-    public LogicalExcept withNewChildren(List<Plan> children) {
-        return withChildren(children);
-    }
 }

@@ -21,6 +21,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/array/function_array_binary.h"
+#include "vec/functions/array/function_array_nary.h"
 #include "vec/functions/array/function_array_set.h"
 #include "vec/functions/simple_function_factory.h"
 

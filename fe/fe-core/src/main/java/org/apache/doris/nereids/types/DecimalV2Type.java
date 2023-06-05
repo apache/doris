@@ -62,6 +62,7 @@ public class DecimalV2Type extends FractionalType {
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
             .put(TimeType.INSTANCE, DOUBLE_DECIMAL)
             .put(TimeV2Type.INSTANCE, DOUBLE_DECIMAL)
+            .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();
 
     private final int precision;
@@ -137,7 +138,7 @@ public class DecimalV2Type extends FractionalType {
 
     @Override
     public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
+        return this;
     }
 
     @Override

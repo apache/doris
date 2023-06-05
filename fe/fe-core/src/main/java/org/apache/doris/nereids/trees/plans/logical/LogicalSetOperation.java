@@ -224,7 +224,4 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     public int getArity() {
         return children.size();
     }
-
-    public abstract LogicalSetOperation withNewChildren(List<Plan> children);
-
 }

@@ -28,7 +28,7 @@ under the License.
 
 <version since="dev"></version>
 
-Workload groups can limit the use of compute and memory resources on a single be node for tasks within the group, thus achieving resource isolation.
+The workload group can limit the use of compute and memory resources on a single be node for tasks within the group. Currently, query binding to workload groups is supported.
 
 ## Workload group properties
 
@@ -44,7 +44,7 @@ Workload groups can limit the use of compute and memory resources on a single be
 ```
 experimental_enable_workload_group=true
 ```
-The system will automatically create a default workload group named ``normal`` after this configuration is enabled. 2.
+The system will automatically create a default workload group named ``normal`` after this configuration is enabled. 
 
 2. To create a workload group:
 ```
@@ -63,9 +63,38 @@ For details on creating a workload group, see [CREATE-WORKLOAD-GROUP](../sql-man
 set experimental_enable_pipeline_engine = true.
 ```
 
-4. Queries bind to workload groups. Currently, queries are mainly bound to workload groups by specifying session variables. If the user does not specify a workload group, the query will be submitted to the `normal` workload group by default.
+4. Bind the workload group.
+* Bind the user to the workload group by default by setting the user property to ``normal``.
 ```
-set workload_group = g1.
+set property 'default_workload_group' = 'g1'.
 ```
+The current user's query will use 'g1' by default.
+* Specify the workload group via the session variable, which defaults to null.
+```
+set workload_group = 'g2'.
+```
+session variable `workload_group` takes precedence over user property `default_workload_group`, in case `workload_group` is empty, the query will be bound to `default_workload_group`, in case session variable ` workload_group` is not empty, the query will be bound to `workload_group`.
 
 5. Execute the query, which will be associated with the g1 workload group.
+
+### Query queue Function
+```
+create workload group if not exists test_group
+properties (
+    "cpu_share"="10",
+    "memory_limit"="30%",
+    "max_concurrency" = "10",
+    "max_queue_size" = "20",
+    "queue_timeout" = "3000"
+);
+```
+The current workload group supports the function of querying queues, which can be specified when creating a new group. The following three parameters are required:
+* max_concurrency，the maximum number of queries allowed by the current group; Queries exceeding the maximum concurrency will enter the queue logic
+* max_queue_size，the length of the query waiting queue; When the queue is full, new queries will be rejected
+* queue_timeout，the time the query waits in the queue. If the query wait time exceeds this value, the query will be rejected, and the time unit is milliseconds
+
+It should be noted that the current queuing design is not aware of the number of FEs, and the queuing parameters only works in a single FE, for example:
+
+A Doris cluster is configured with a work load group and set max_concurrency=1,
+If there is only 1 FE in the cluster, then this workload group will only run one SQL at the same time from the Doris cluster perspective,
+If there are 3 FEs, the maximum number of query that can be run in Doris cluster is 3.

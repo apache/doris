@@ -47,22 +47,6 @@ class Trace;
 // 't' should be a Trace* pointer.
 #define ADOPT_TRACE(t) doris::ScopedAdoptTrace _adopt_trace(t);
 
-// Issue a trace message, if tracing is enabled in the current thread.
-// See Trace::SubstituteAndTrace for arguments.
-// Example:
-//  TRACE("Acquired timestamp $0", timestamp);
-#define TRACE(format, substitutions...)                                                \
-    do {                                                                               \
-        doris::Trace* _trace = doris::Trace::CurrentTrace();                           \
-        if (_trace) {                                                                  \
-            _trace->SubstituteAndTrace(__FILE__, __LINE__, (format), ##substitutions); \
-        }                                                                              \
-    } while (0)
-
-// Like the above, but takes the trace pointer as an explicit argument.
-#define TRACE_TO(trace, format, substitutions...) \
-    (trace)->SubstituteAndTrace(__FILE__, __LINE__, (format), ##substitutions)
-
 // Increment a counter associated with the current trace.
 //
 // Each trace contains a map of counters which can be used to keep
@@ -100,21 +84,6 @@ class Trace;
 //  in invocations of DoFoo().
 #define TRACE_COUNTER_SCOPE_LATENCY_US(counter_name) \
     ::doris::ScopedTraceLatencyCounter _scoped_latency(counter_name)
-
-// Construct a constant C string counter name which acts as a sort of
-// coarse-grained histogram for trace metrics.
-#define BUCKETED_COUNTER_NAME(prefix, duration_us) \
-    []() {                                         \
-        if (duration_us >= 100 * 1000) {           \
-            return prefix "_gt_100_ms";            \
-        } else if (duration_us >= 10 * 1000) {     \
-            return prefix "_10-100_ms";            \
-        } else if (duration_us >= 1000) {          \
-            return prefix "_1-10_ms";              \
-        } else {                                   \
-            return prefix "_lt_1ms";               \
-        }                                          \
-    }()
 
 // If this scope times out, make a simple trace.
 // It will log the cost time only.
