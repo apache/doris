@@ -106,6 +106,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
+    _instance_to_rpc_time[low_id] = 0;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -278,7 +279,6 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
     _instance_to_request[id]->set_node_id(_dest_node_id);
     _instance_to_request[id]->set_sender_id(_sender_id);
     _instance_to_request[id]->set_be_number(_be_number);
-    _instance_to_rpc_time[id] = 0;
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
