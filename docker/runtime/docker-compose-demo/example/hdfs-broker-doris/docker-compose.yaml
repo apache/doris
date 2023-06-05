@@ -1,0 +1,69 @@
+version: "3"
+services:
+  namenode:
+    image: singularities/hadoop:2.8
+    volumes:
+      - /data:/data
+    command: start-hadoop namenode
+    hostname: namenode
+    environment:
+      HDFS_USER: hdfsuser
+    ports:
+      - "8020:8020"
+      - "14000:14000"
+      - "50070:50070"
+      - "50075:50075"
+      - "10020:10020"
+      - "13562:13562"
+      - "19888:19888"
+  datanode:
+    image: singularities/hadoop:2.8
+    hostname: datanode
+    volumes:
+      - /data/hdfs/:/data
+    command: start-hadoop datanode namenode
+    environment:
+      HDFS_USER: hdfsuser
+    ports:
+      - "50010:50010"
+    links:
+      - namenode
+
+  fe:
+    image: apache/doris:1.2.0-fe-x86_64
+    hostname: doris-fe
+    volumes:
+      - /data/fe/doris-meta/:/data/opt/apache-doris/fe/doris-meta/
+      - /data/fe/conf/:/data/opt/apache-doris/fe/conf/
+    command:
+      - --fe_servers=fe1:10.0.16.15:9010
+      - --fe_id=1
+    restart: on-failure
+    network_mode: host
+
+  be:
+    image: apache/doris:1.2.0-be-x86_64
+    hostname: doris-be
+    volumes:
+      - /data/be/storage/:/data/opt/apache-doris/be/storage/
+      - /data/be/conf/:/data/opt/apache-doris/be/conf/
+    environment:
+      - FE_SERVERS=fe1:10.0.16.15:9010
+      - BE_ADDR=10.0.16.15:9050
+    depends_on:
+      - fe
+    restart: on-failure
+    network_mode: host
+
+  broker:
+    image: apache/doris:1.2.2-broker-x86_64
+    hostname: doris-broker
+    volumes:
+      - /data/broker/conf/:/data/opt/apache-doris/broker/conf/
+    environment:
+      - FE_SERVERS=fe1:10.0.16.15:9010
+      - BROKER_ADDR=broker:10.0.16.15:9050
+    depends_on:
+      - fe
+    restart: on-failure
+    network_mode: host
