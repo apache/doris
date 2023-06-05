@@ -247,7 +247,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
-    TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
     //           false if tablet with same tablet_id but different schema_hash exist.
@@ -290,7 +289,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("succeed to create tablet");
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
     return Status::OK();
@@ -364,7 +362,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "fail to get tablet. res=" << res;
             break;
         }
-        TRACE("add tablet to StorageEngine");
     } while (0);
 
     if (res.ok()) {
