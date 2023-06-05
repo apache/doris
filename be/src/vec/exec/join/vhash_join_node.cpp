@@ -778,8 +778,10 @@ void HashJoinNode::release_resource(RuntimeState* state) {
 }
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
-    RETURN_IF_ERROR(child(1)->open(state));
-
+    {
+        SCOPED_TIMER(_build_get_next_timer);
+        RETURN_IF_ERROR(child(1)->open(state));
+    }
     if (_should_build_hash_table) {
         bool eos = false;
         Block block;
