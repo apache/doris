@@ -88,7 +88,14 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
-    close();
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        close();
+        _runtime_state.reset();
+    } else {
+        close();
+    }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
 }
@@ -274,7 +281,6 @@ Status PlanFragmentExecutor::open() {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
-            // status = Status::MemoryAllocFailed(_cancel_msg);
             status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
