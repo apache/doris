@@ -344,9 +344,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        String tableAlias = ctx.tableAlias().strictIdentifier().getText();
-        List<String> partitions = visitIdentifierList(ctx.partition);
-        LogicalPlan query = new UnboundRelation(RelationUtil.newRelationId(), tableName);
+        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        LogicalPlan query = withTableAlias(withCheckPolicy(
+                new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
             for (RelationContext relation : ctx.relation()) {
                 // build left deep join tree
@@ -366,6 +366,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         query = withFilter(query, Optional.of(ctx.whereClause()));
         if (ctx.explain() != null) {
             query = withExplain(query, ctx.explain());
+        }
+        String tableAlias = null;
+        if (ctx.tableAlias().strictIdentifier() != null) {
+            tableAlias = ctx.tableAlias().getText();
         }
         return new DeleteCommand(tableName, tableAlias, partitions, query);
     }

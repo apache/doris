@@ -61,7 +61,7 @@ public class DeleteCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        getQueryPlan(ctx);
+        completeQueryPlan(ctx);
 
         if (explainLevel != null) {
             new ExplainCommand(explainLevel, logicalQuery).run(ctx, executor);
@@ -85,7 +85,7 @@ public class DeleteCommand extends Command implements ForwardWithSync {
     /**
      * public for test
      */
-    public void getQueryPlan(ConnectContext ctx) {
+    public void completeQueryPlan(ConnectContext ctx) {
         checkTable(ctx);
 
         if (logicalQuery instanceof ExplainCommand) {
@@ -96,7 +96,7 @@ public class DeleteCommand extends Command implements ForwardWithSync {
         // add select and insert node.
         List<NamedExpression> selectLists = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {
-            if (column.getName().equals(Column.DELETE_SIGN) && !column.isVisible()) {
+            if (column.getName().equals(Column.DELETE_SIGN)) {
                 selectLists.add(new Alias(BooleanLiteral.TRUE, BooleanLiteral.TRUE.toSql()));
             } else {
                 selectLists.add(new UnboundSlot(column.getName()));
@@ -107,6 +107,10 @@ public class DeleteCommand extends Command implements ForwardWithSync {
 
         // make UnboundTableSink
         logicalQuery = new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     @Override
