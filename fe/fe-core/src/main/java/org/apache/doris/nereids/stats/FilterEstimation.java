@@ -370,6 +370,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setNdv(intersectRange.getDistinctValues());
         double sel = leftRange.overlapPercentWith(rightRange);
         Statistics updatedStatistics = context.statistics.withSel(sel);
+        leftColumnStatisticBuilder.setCount(updatedStatistics.getRowCount());
         updatedStatistics.addColumnStats(leftExpr, leftColumnStatisticBuilder.build());
         leftExpr.accept(new ColumnStatsAdjustVisitor(), updatedStatistics);
         return updatedStatistics;
@@ -392,15 +393,17 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double sel;
         double reduceRatio = 0.25;
         double bothSideReducedRatio = 0.9;
-        if (leftStats.ndv < leftStats.originalNdv * bothSideReducedRatio
-                && rightStats.ndv < rightStats.originalNdv * bothSideReducedRatio) {
+        if (!leftStats.rangeChanged() && !rightStats.rangeChanged()
+                && leftStats.ndv < leftStats.getOriginalNdv() * bothSideReducedRatio
+                && rightStats.ndv < rightStats.getOriginalNdv() * bothSideReducedRatio) {
             double sel1;
             if (leftStats.ndv > rightStats.ndv) {
                 sel1 = 1 / StatsMathUtil.nonZeroDivisor(leftStats.ndv);
             } else {
                 sel1 = 1 / StatsMathUtil.nonZeroDivisor(rightStats.ndv);
             }
-            double sel2 = Math.min(rightStats.ndv / rightStats.originalNdv, leftStats.ndv / leftStats.originalNdv);
+            double sel2 = Math.min(rightStats.ndv / rightStats.getOriginalNdv(),
+                    leftStats.ndv / leftStats.getOriginalNdv());
             sel = sel1 * Math.pow(sel2, reduceRatio);
         } else {
             sel = 1 / StatsMathUtil.nonZeroDivisor(Math.max(leftStats.ndv, rightStats.ndv));

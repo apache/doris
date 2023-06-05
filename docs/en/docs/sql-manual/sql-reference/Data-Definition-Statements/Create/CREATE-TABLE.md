@@ -388,6 +388,15 @@ distribution_desc
         When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
 
         `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `skip_write_index_on_load`
+
+        Whether to enable skip inverted index on load for this table.
+
+        If this property is set to 'true', skip writting index (only inverted index now) on first time load and delay writting 
+        index to compaction. It can reduce CPU and IO resource usage for high throughput load.
+
+        `"skip_write_index_on_load" = "false"`
     
     * Dynamic partition related
     

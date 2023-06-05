@@ -454,7 +454,7 @@ endif()
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
-set(clucene_options -w -Wall -Wno-non-virtual-dtor)
+set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
     set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
@@ -509,8 +509,7 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-sign-compare
-                    -Wno-array-bounds)
+                    -Wno-sign-compare)
 
 if (COMPILER_GCC)
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
@@ -530,14 +529,14 @@ if (COMPILER_CLANG)
 
     add_compile_options(-fcolor-diagnostics 
                         -Wpedantic
+                        -Wunused
+                        -Wunused-command-line-argument
+                        -Wunused-exception-parameter
+                        -Wunused-volatile-lvalue
                         -Wunused-template
-                        -Wunused-private-field
-                        -Wunused-property-ivar
                         -Wunused-member-function
                         -Wunused-macros)
-    add_compile_options(-Wno-variadic-macros
-                        -Wno-gnu-zero-variadic-macro-arguments
-                        -Wno-vla-extension)
+    add_compile_options(-Wno-vla-extension)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)

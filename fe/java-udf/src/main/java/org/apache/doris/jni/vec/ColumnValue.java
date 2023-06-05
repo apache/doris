@@ -27,38 +27,40 @@ import java.util.List;
  * Column value in vector column
  */
 public interface ColumnValue {
-    public boolean getBoolean();
+    boolean isNull();
+
+    boolean getBoolean();
 
     // tinyint
-    public byte getByte();
+    byte getByte();
 
     // smallint
-    public short getShort();
+    short getShort();
 
-    public int getInt();
+    int getInt();
 
-    public float getFloat();
+    float getFloat();
 
     // bigint
-    public long getLong();
+    long getLong();
 
-    public double getDouble();
+    double getDouble();
 
-    public BigInteger getBigInteger();
+    BigInteger getBigInteger();
 
-    public BigDecimal getDecimal();
+    BigDecimal getDecimal();
 
-    public String getString();
+    String getString();
 
-    public LocalDate getDate();
+    LocalDate getDate();
 
-    public LocalDateTime getDateTime();
+    LocalDateTime getDateTime();
 
-    public byte[] getBytes();
+    byte[] getBytes();
 
-    public void unpackArray(List<ColumnValue> values);
+    void unpackArray(List<ColumnValue> values);
 
-    public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);
+    void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);
 
-    public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values);
+    void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values);
 }

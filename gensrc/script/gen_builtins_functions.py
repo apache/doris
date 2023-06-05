@@ -169,7 +169,7 @@ def generate_fe_registry_init(filename):
 
     # Generate initialization calls for each category
     for category, functions in doris_builtins_functions.visible_functions.items():
-        java_registry_file.write("        init{}Builtins(functionSet);\n".format(category.capitalize()))
+        java_registry_file.write("        init{0}Builtins(functionSet);\n".format(category.capitalize()))
 
     # add non_null_result_with_null_param_functions
     java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
@@ -199,7 +199,7 @@ def generate_fe_registry_init(filename):
     java_registry_file.close()
 
 def generate_fe_category(category, functions, java_registry_file, user_visible):
-    java_registry_file.write("    private static void init{}Builtins(FunctionSet functionSet) {{\n".format(category.capitalize()))
+    java_registry_file.write("    private static void init{0}Builtins(FunctionSet functionSet) {{\n".format(category.capitalize()))
     for function in functions:
         assert len(function) >= 4, \
             "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(function)

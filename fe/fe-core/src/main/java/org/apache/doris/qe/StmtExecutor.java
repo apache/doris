@@ -452,24 +452,26 @@ public class StmtExecutor {
         }
     }
 
-    private boolean checkBlockRules() throws AnalysisException {
-        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-
-        // limitations: partition_num, tablet_num, cardinality
-        List<ScanNode> scanNodeList = planner.getScanNodes();
-        for (ScanNode scanNode : scanNodeList) {
-            if (scanNode instanceof OlapScanNode) {
-                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                        olapScanNode.getSelectedPartitionNum().longValue(),
-                        olapScanNode.getSelectedTabletsNum(),
-                        olapScanNode.getCardinality(),
-                        context.getQualifiedUser());
-            }
+    private void checkBlockRules() throws AnalysisException {
+        if (originStmt != null) {
+            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
         }
 
-        return false;
+        // limitations: partition_num, tablet_num, cardinality
+        if (planner != null) {
+            List<ScanNode> scanNodeList = planner.getScanNodes();
+            for (ScanNode scanNode : scanNodeList) {
+                if (scanNode instanceof OlapScanNode) {
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                            olapScanNode.getSelectedPartitionNum().longValue(),
+                            olapScanNode.getSelectedTabletsNum(),
+                            olapScanNode.getCardinality(),
+                            context.getQualifiedUser());
+                }
+            }
+        }
     }
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
@@ -478,6 +480,8 @@ public class StmtExecutor {
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+
+        checkBlockRules();
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -532,9 +536,6 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
-            if (checkBlockRules()) {
-                return;
-            }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
         }
@@ -559,9 +560,9 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue) {
-            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroupQueryQueue(context.sessionVariable.workloadGroup);
+        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
+                && context.getSessionVariable().enablePipelineEngine()) {
+            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
@@ -577,34 +578,40 @@ public class StmtExecutor {
         }
 
         int retryTime = Config.max_query_retry_time;
-        for (int i = 0; i < retryTime; i++) {
-            try {
-                //reset query id for each retry
-                if (i > 0) {
-                    UUID uuid = UUID.randomUUID();
-                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                            uuid.getLeastSignificantBits());
-                    AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
-                            DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
-                    context.setQueryId(newQueryId);
+        try {
+            for (int i = 0; i < retryTime; i++) {
+                try {
+                    //reset query id for each retry
+                    if (i > 0) {
+                        UUID uuid = UUID.randomUUID();
+                        TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
+                                uuid.getLeastSignificantBits());
+                        AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
+                                DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                        context.setQueryId(newQueryId);
+                    }
+                    handleQueryStmt();
+                    break;
+                } catch (RpcException e) {
+                    if (i == retryTime - 1) {
+                        throw e;
+                    }
+                    if (!context.getMysqlChannel().isSend()) {
+                        LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    } else {
+                        throw e;
+                    }
+                } finally {
+                    // The final profile report occurs after be returns the query data, and the profile cannot be
+                    // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
+                    // for the profile before unregisterQuery().
+                    updateProfile(true);
+                    QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                 }
-                handleQueryStmt();
-                break;
-            } catch (RpcException e) {
-                if (i == retryTime - 1) {
-                    throw e;
-                }
-                if (!context.getMysqlChannel().isSend()) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
-                } else {
-                    throw e;
-                }
-            } finally {
-                // The final profile report occurs after be returns the query data, and the profile cannot be
-                // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-                // for the profile before unregisterQuery().
-                updateProfile(true);
-                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            }
+        } finally {
+            if (offerRet.isOfferSuccess()) {
+                queryQueue.poll();
             }
         }
     }
@@ -645,9 +652,6 @@ public class StmtExecutor {
                     throw e;
                 } finally {
                     queryAnalysisSpan.end();
-                    if (offerRet.isOfferSuccess()) {
-                        queryQueue.poll();
-                    }
                 }
                 if (isForwardToMaster()) {
                     if (isProxy) {
@@ -676,13 +680,9 @@ public class StmtExecutor {
                 return;
             }
 
+            // sql/sqlHash block
+            checkBlockRules();
             if (parsedStmt instanceof QueryStmt) {
-                if (!parsedStmt.isExplain()) {
-                    // sql/sqlHash block
-                    if (checkBlockRules()) {
-                        return;
-                    }
-                }
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
                 handleSetStmt();
