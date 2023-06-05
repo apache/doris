@@ -457,10 +457,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
         if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
             request.__set_strictMode(false);
-            ctx->strict_mode = false;
         } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
             request.__set_strictMode(true);
-            ctx->strict_mode = true;
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }

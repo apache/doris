@@ -1834,7 +1834,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             if (null_map[j] && !filter_bitmap->Get(row)) {
                 fmt::format_to(error_msg, "null value for not null column, type={}",
                                type.debug_string());
-                return Status::InvalidArgument(fmt::to_string(error_msg));
+                last_invalid_row = row;
+                RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
             }
         }
     }

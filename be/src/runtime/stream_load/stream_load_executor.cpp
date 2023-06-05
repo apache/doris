@@ -72,8 +72,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
     Status st;
     if (ctx->put_result.__isset.params) {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(
-                ctx->put_result.params,
-                [ctx, this](RuntimeState* state, Status* status) {
+                ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
                     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
                     ctx->commit_infos = std::move(state->tablet_commit_infos());
                     if (status->ok()) {
@@ -143,12 +142,10 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
-                },
-                ctx->strict_mode);
+                });
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(
-                ctx->put_result.pipeline_params,
-                [ctx, this](RuntimeState* state, Status* status) {
+                ctx->put_result.pipeline_params, [ctx, this](RuntimeState* state, Status* status) {
                     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
                     ctx->commit_infos = std::move(state->tablet_commit_infos());
                     if (status->ok()) {
@@ -218,8 +215,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                             this->commit_txn(ctx.get());
                         }
                     }
-                },
-                ctx->strict_mode);
+                });
     }
     if (!st.ok()) {
         // no need to check unref's return value

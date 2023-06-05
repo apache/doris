@@ -84,8 +84,7 @@ public:
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
-    PlanFragmentExecutor(ExecEnv* exec_env, const report_status_callback& report_status_cb,
-                         bool strict_mode);
+    PlanFragmentExecutor(ExecEnv* exec_env, const report_status_callback& report_status_cb);
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -170,9 +169,6 @@ private:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
-
-    // for stream load, whether strict_mode is enabled
-    bool _strict_mode;
 
     // Overall execution status. Either ok() or set to the first error status that
     // was encountered.

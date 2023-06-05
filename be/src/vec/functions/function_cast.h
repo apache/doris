@@ -1318,10 +1318,9 @@ struct ConvertThroughParsing {
 
         bool is_load = (context && context->state()->query_type() == TQueryType::type::LOAD);
         bool is_strict_insert = (context && context->state()->enable_insert_strict());
-        bool is_strict_mode = (context && context->state()->strict_mode());
         size_t current_offset = 0;
         auto status = std::visit(
-                [&](auto is_load_, auto is_strict_insert_, auto is_strict_mode_) {
+                [&](auto is_load_, auto is_strict_insert_) {
                     for (size_t i = 0; i < size; ++i) {
                         size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
                                                      ? (*offsets)[i]
@@ -1346,7 +1345,7 @@ struct ConvertThroughParsing {
                                     vec_to[i], read_buffer, local_time_zone);
                         }
                         (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
-                        if constexpr (is_load_ && (is_strict_insert_ || is_strict_mode_)) {
+                        if constexpr (is_load_ && is_strict_insert_) {
                             if (string_size != 0 && (*vec_null_map_to)[i]) {
                                 return Status::InternalError(
                                         "Invalid value in strict mode for function {}, source "
@@ -1362,8 +1361,7 @@ struct ConvertThroughParsing {
                     }
                     return Status::OK();
                 },
-                make_bool_variant(is_load), make_bool_variant(is_strict_insert),
-                make_bool_variant(is_strict_mode));
+                make_bool_variant(is_load), make_bool_variant(is_strict_insert));
 
         RETURN_IF_ERROR(status);
 

@@ -38,8 +38,8 @@ static Status s_prepare_status;
 static Status s_open_status;
 // Mock used for this unittest
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
-                                           const report_status_callback& report_status_cb, bool strict_mode)
-        : _exec_env(exec_env), _report_status_cb(report_status_cb), _strict_mode(strict_mode) {}
+                                           const report_status_callback& report_status_cb)
+        : _exec_env(exec_env), _report_status_cb(report_status_cb) {}
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {}
 
