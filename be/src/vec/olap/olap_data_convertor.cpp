@@ -38,7 +38,9 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
@@ -77,8 +79,14 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorQuantileState>();
     }
     case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
-        //if (column->agg->string) {
-        if (false) {
+        DataTypes dataTypes;
+        for (size_t i = 0; i < column.get_subtype_count(); i++) {
+            dataTypes.push_back(
+                    DataTypeFactory::instance().create_data_type(column.get_sub_column(i)));
+        }
+        auto agg_state_type = std::make_shared<vectorized::DataTypeAggState>(
+                dataTypes, column.get_result_is_nullable(), column.get_aggregation_name());
+        if (agg_state_type->get_serialized_type()->get_type_as_primitive_type() == TYPE_STRING) {
             return std::make_unique<OlapColumnDataConvertorVarChar>(false);
         }
         return std::make_unique<OlapColumnDataConvertorAggState>();

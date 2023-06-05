@@ -22,6 +22,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -49,9 +50,13 @@ namespace doris::vectorized {
 class DataTypeAggState : public DataTypeString {
 public:
     DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name)
-            : _sub_types(sub_types),
-              _result_is_nullable(result_is_nullable),
-              _function_name(function_name) {}
+            : _result_is_nullable(result_is_nullable),
+              _sub_types(sub_types),
+              _function_name(function_name) {
+        _agg_function = get_nested_function();
+        DCHECK(_agg_function != nullptr);
+        _agg_serialized_type = _agg_function->get_serialized_type();
+    }
 
     const char* get_family_name() const override { return "AggState"; }
 
@@ -91,6 +96,8 @@ public:
         for (auto type : _sub_types) {
             type->to_pb_column_meta(col_meta->add_children());
         }
+        col_meta->set_function_name(_function_name);
+        col_meta->set_result_is_nullable(_result_is_nullable);
     }
 
     AggregateFunctionPtr get_nested_function() const {
@@ -100,42 +107,32 @@ public:
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override {
-        //agg ->get_serialized_type()->get_uncompressed_serialized_bytes(column, be_exec_version);
-        //
-        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
-        return fixed_type->get_uncompressed_serialized_bytes(column, be_exec_version);
+        return _agg_serialized_type->get_uncompressed_serialized_bytes(column, be_exec_version);
     }
 
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override {
-        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
-        return fixed_type->serialize(column, buf, be_exec_version);
+        return _agg_serialized_type->serialize(column, buf, be_exec_version);
     }
 
     const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
-        auto fixed_type = std::make_shared<DataTypeFixedLengthObject>();
-        return fixed_type->deserialize(buf, column, be_exec_version);
+        return _agg_serialized_type->deserialize(buf, column, be_exec_version);
     }
 
     MutableColumnPtr create_column() const override {
-        // return agg->create_serialize_column();
-        // if (use_string) {
-        // return ColumnString::create();
-        // }
-
-        //need pass the agg sizeof data, now test case avg 16 sum 8
-        return ColumnFixedLengthObject::create(8);
+        //need pass the agg sizeof data
+        return _agg_function->create_serialize_column();
     }
 
-    DataTypeSerDeSPtr get_serde() const override {
-        // if (use_string) {
-        // return std::make_shared<DataTypeStringSerDe>();
-        // }
-        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
-    };
+    DataTypeSerDeSPtr get_serde() const override { return _agg_serialized_type->get_serde(); };
+
+    DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 
 private:
-    DataTypes _sub_types;
     bool _result_is_nullable;
+    //because the agg_state type maybe mapped to ColumnString or ColumnFixedLengthObject
+    DataTypePtr _agg_serialized_type;
+    AggregateFunctionPtr _agg_function;
+    DataTypes _sub_types;
     std::string _function_name;
 };
 
