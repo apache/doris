@@ -33,12 +33,6 @@ under the License.
 请订阅{dev,commits}@doris.apache.org邮件列表，通过发送邮件到{dev,commits}-subscribe@doris.apache.org完成订阅。
 commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往这个邮件列表。
 
-### 订阅private邮件列表
-
-订阅private@doris.apache.org通过发送邮件到private-subscribe@doris.apache.org完成订阅。
-这个订阅操作需要邮件列表的moderator进行审核才能订阅成功。
-如果你是PPMC的话, 可以通过通过[邮件列表订阅帮手](https://whimsy.apache.org/committers/subscribe)直接完成订阅。
-
 ### 关联你的 ASF 账号与 Github 账号
 
 我们用GitHub来管理我们的Issue以及用户贡献。
