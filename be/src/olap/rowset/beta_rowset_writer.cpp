@@ -497,10 +497,6 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization ||
-        !_check_and_set_is_doing_segcompaction()) {
-        return status;
-    }
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
@@ -528,9 +524,6 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
 Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
-        return Status::OK();
-    }
     if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>();
     }

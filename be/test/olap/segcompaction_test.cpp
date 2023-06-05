@@ -58,7 +58,6 @@ public:
 
     void SetUp() {
         config::enable_segcompaction = true;
-        config::enable_storage_vectorization = true;
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -203,7 +202,6 @@ private:
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema);
@@ -312,7 +310,6 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema);
@@ -456,7 +453,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     config::enable_segcompaction = true;
-    config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema);
