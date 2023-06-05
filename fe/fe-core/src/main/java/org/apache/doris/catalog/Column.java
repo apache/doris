@@ -603,6 +603,68 @@ public class Column implements Writable, GsonPostProcessable {
         return true;
     }
 
+    // distribution column compare only care about attrs which affect data,
+    // do not care about attrs, such as comment
+    public boolean equalsForDistribution(Column other) {
+        if (other == this) {
+            return true;
+        }
+
+        if (!this.name.equalsIgnoreCase(other.getName())) {
+            return false;
+        }
+        if (this.getDataType() != other.getDataType()) {
+            return false;
+        }
+        if (this.aggregationType != other.getAggregationType()) {
+            return false;
+        }
+        if (this.isAggregationTypeImplicit != other.isAggregationTypeImplicit()) {
+            return false;
+        }
+        if (this.isKey != other.isKey()) {
+            return false;
+        }
+        if (this.isAllowNull != other.isAllowNull) {
+            return false;
+        }
+        if (this.getDefaultValue() == null) {
+            if (other.getDefaultValue() != null) {
+                return false;
+            }
+        } else {
+            if (!this.getDefaultValue().equals(other.getDefaultValue())) {
+                return false;
+            }
+        }
+
+        if (this.getStrLen() != other.getStrLen()) {
+            return false;
+        }
+        if (this.getPrecision() != other.getPrecision()) {
+            return false;
+        }
+        if (this.getScale() != other.getScale()) {
+            return false;
+        }
+
+        if (!visible == other.visible) {
+            return false;
+        }
+
+        if (children.size() != other.children.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(other.getChildren().get(i))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);

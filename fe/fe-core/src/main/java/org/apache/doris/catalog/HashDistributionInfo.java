@@ -89,6 +89,18 @@ public class HashDistributionInfo extends DistributionInfo {
         return distributionInfo;
     }
 
+    public boolean sameDistributionColumns(HashDistributionInfo other) {
+        if (distributionColumns.size() != other.distributionColumns.size()) {
+            return false;
+        }
+        for (int i = 0; i < distributionColumns.size(); ++i) {
+            if (!distributionColumns.get(i).equalsForDistribution(other.distributionColumns.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public boolean equals(DistributionInfo info) {
         if (this == info) {
             return true;
@@ -99,10 +111,9 @@ public class HashDistributionInfo extends DistributionInfo {
         }
 
         HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) info;
-
         return type == hashDistributionInfo.type
                 && bucketNum == hashDistributionInfo.bucketNum
-                && distributionColumns.equals(hashDistributionInfo.distributionColumns);
+                && sameDistributionColumns(hashDistributionInfo);
     }
 
     @Override
