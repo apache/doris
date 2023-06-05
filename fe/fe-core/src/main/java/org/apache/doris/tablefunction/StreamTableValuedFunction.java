@@ -23,8 +23,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.InputStreamEntity;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Map;
 
 /**
@@ -36,17 +41,27 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction{
 
     private final HttpPut requset;
 
-    public StreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public StreamTableValuedFunction(Map<String, String> params) {
         requset = getHttpRequest(params);
         fileStatuses.add(new TBrokerFileStatus("",false,1000,false));
     }
 
-    private HttpPut getHttpRequest(Map<String, String> params){
+    private HttpPut getHttpRequest(Map<String, String> params)  {
         // for test:
        HttpPut httpPut = new HttpPut();
        httpPut.addHeader("Host","127.0.0.1:8040");
        httpPut.addHeader("column_separator",",");
        httpPut.addHeader("Expect","100-continue");
+
+       String file = "/Users/lian/Work/doris/test.csv";
+        InputStreamEntity entity = null;
+        try {
+            entity = new InputStreamEntity(Files.newInputStream(Paths.get(file)));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        httpPut.setEntity(entity);
 
        return httpPut;
     }
