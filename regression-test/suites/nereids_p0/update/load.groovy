@@ -16,10 +16,6 @@
 // under the License.
 
 suite("load") {
-    sql 'drop database if exists nereids_update_test'
-    sql 'create database nereids_update_test'
-    sql 'use nereids_update_test'
-
     sql '''
         create table t1 (
             id int,
