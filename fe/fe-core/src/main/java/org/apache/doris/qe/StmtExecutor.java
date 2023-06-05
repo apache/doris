@@ -559,9 +559,9 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue) {
-            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroupQueryQueue(context.sessionVariable.workloadGroup);
+        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
+                && context.getSessionVariable().enablePipelineEngine()) {
+            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
