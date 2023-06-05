@@ -108,15 +108,6 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * @return names of database in this catalog.
-     */
-    // public abstract List<String> listDatabaseNames(SessionContext ctx);
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
-    }
-
-    /**
      * @param dbName
      * @return names of tables in specified database
      */
@@ -315,9 +306,13 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    /**
+     * @return names of database in this catalog.
+     */
     @Override
     public List<String> getDbNames() {
-        return listDatabaseNames(null);
+        makeSureInitialized();
+        return new ArrayList<>(dbNameToId.keySet());
     }
 
     @Override
