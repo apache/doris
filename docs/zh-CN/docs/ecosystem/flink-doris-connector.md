@@ -28,7 +28,6 @@ under the License.
 
 # Flink Doris Connector
 
-> 本文档适用于flink-doris-connector 1.1.0之后的版本，1.1.0之前的版本参考[这里](https://doris.apache.org/zh-CN/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
