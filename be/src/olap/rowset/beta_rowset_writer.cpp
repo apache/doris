@@ -493,6 +493,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     RETURN_IF_ERROR(_create_segment_writer(&writer, ctx));
     RETURN_IF_ERROR(_add_block(block, &writer));
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    RETURN_IF_ERROR(ctx->generate_delete_bitmap(writer->get_segment_id()));
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
