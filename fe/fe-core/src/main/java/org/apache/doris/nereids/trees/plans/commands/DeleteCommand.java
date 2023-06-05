@@ -97,13 +97,14 @@ public class DeleteCommand extends Command implements ForwardWithSync {
         List<NamedExpression> selectLists = Lists.newArrayList();
         List<String> cols = Lists.newArrayList();
         boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
+        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equals(Column.DELETE_SIGN)) {
                 selectLists.add(new Alias(BooleanLiteral.TRUE, BooleanLiteral.TRUE.toSql()));
             } else if (column.isKey()) {
-                selectLists.add(new UnboundSlot(column.getName()));
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
-                selectLists.add(new UnboundSlot(column.getName()));
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
                 continue;
             }
