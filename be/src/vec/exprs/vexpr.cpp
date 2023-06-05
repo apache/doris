@@ -390,7 +390,8 @@ Status VExpr::get_const_col(VExprContext* context,
     int result = -1;
     Block block;
     // If block is empty, some functions will produce no result. So we insert a column with
-    // single value here.
+    // single value here. It's just a placeholder.
+    // TODO: maybe const is better
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
     RETURN_IF_ERROR(execute(context, &block, &result));
     DCHECK(result != -1);

@@ -72,7 +72,7 @@ public class PlaceHolderExpr extends LiteralExpr {
 
     @Override
     public TExprNodeType getTType() {
-        return TExprNodeType.SLOT_REF;
+        return lExpr.getTType();
     }
 
     @Override

@@ -580,8 +580,8 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
-            auto column_ptr = origin_block->get_by_position(result_column_id)
-                                      .column->convert_to_full_column_if_const();
+            auto column_ptr = origin_block->get_by_position(result_column_id).column;
+
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
             if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
                 DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
@@ -592,7 +592,9 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             }
         }
 
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
+        if (!is_mem_reuse) {
+            output_block->swap(mutable_block.to_block());
+        }
         DCHECK(output_block->rows() == rows);
     }
 
