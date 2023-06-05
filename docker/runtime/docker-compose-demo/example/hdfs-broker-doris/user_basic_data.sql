@@ -14,5 +14,7 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
-hadoop fs -mkdir -p /user/doris
-hadoop fs -put /data/user_basic_data /user/doris/user_basic_data
+
+1,zhangsan,like doris
+2,lisi,like apache
+3,wangmazi,like apache doris
