@@ -210,7 +210,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
     const int num_segments = 15;
     const uint32_t rows_per_segment = 4096;
     config::segcompaction_small_threshold = 6000; // set threshold above
-                                                  // rows_per_segment
+    // rows_per_segment
+    config::segcompaction_threshold_segment_num = 10;
     std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
@@ -241,6 +242,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -254,7 +256,6 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         ls.push_back("10047_6.dat");
         EXPECT_TRUE(check_dir(ls));
     }
-
     { // read
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
@@ -264,49 +265,48 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         std::vector<uint32_t> return_columns = {0, 1, 2};
         reader_context.return_columns = &return_columns;
         reader_context.stats = &_stats;
-
         // without predicates
         {
             RowsetReaderSharedPtr rowset_reader;
             create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
-            RowBlock* output_block;
             uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
-                EXPECT_TRUE(output_block != nullptr);
-                EXPECT_GT(output_block->row_num(), 0);
-                EXPECT_EQ(0, output_block->pos());
-                EXPECT_EQ(output_block->row_num(), output_block->limit());
-                EXPECT_EQ(return_columns, output_block->row_block_info().column_ids);
-                // after sort merge segments, k1 will be 0, 1, 2, 10, 11, 12, 20, 21, 22, ..., 40950, 40951, 40952
-                for (int i = 0; i < output_block->row_num(); ++i) {
-                    char* field1 = output_block->field_ptr(i, 0);
-                    char* field2 = output_block->field_ptr(i, 1);
-                    char* field3 = output_block->field_ptr(i, 2);
-                    // test null bit
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field1));
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field2));
-                    EXPECT_FALSE(*reinterpret_cast<bool*>(field3));
-                    uint32_t k1 = *reinterpret_cast<uint32_t*>(field1 + 1);
-                    uint32_t k2 = *reinterpret_cast<uint32_t*>(field2 + 1);
-                    uint32_t k3 = *reinterpret_cast<uint32_t*>(field3 + 1);
-                    EXPECT_EQ(100 * k3 + k2, k1);
-
+            bool eof = false;
+            while (!eof) {
+                std::shared_ptr<vectorized::Block> output_block =
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
+                s = rowset_reader->next_block(output_block.get());
+                if (s != Status::OK()) {
+                    eof = true;
+                }
+                EXPECT_GT(output_block->rows(), 0);
+                EXPECT_EQ(return_columns.size(), output_block->columns());
+                for (int i = 0; i < output_block->rows(); ++i) {
+                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
+                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
+                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    auto field1 = (*col0)[i];
+                    auto field2 = (*col1)[i];
+                    auto field3 = (*col2)[i];
+                    uint32_t k1 = *reinterpret_cast<uint32_t*>((char*)(&field1));
+                    uint32_t k2 = *reinterpret_cast<uint32_t*>((char*)(&field2));
+                    uint32_t v3 = *reinterpret_cast<uint32_t*>((char*)(&field3));
+                    EXPECT_EQ(100 * v3 + k2, k1);
                     num_rows_read++;
                 }
+                    output_block->clear();
+                }
+                EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+                EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
+                EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+                size_t total_num_rows = 0;
+                for (const auto& i : segment_num_rows) {
+                    total_num_rows += i;
+                }
+                EXPECT_EQ(total_num_rows, num_rows_read);
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
-            EXPECT_TRUE(output_block == nullptr);
-            EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
-            size_t total_num_rows = 0;
-            //EXPECT_EQ(segment_num_rows.size(), num_segments);
-            for (const auto& i : segment_num_rows) {
-                total_num_rows += i;
-            }
-            EXPECT_EQ(total_num_rows, num_rows_read);
         }
     }
-}
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     config::enable_segcompaction = true;
