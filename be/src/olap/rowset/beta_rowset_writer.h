@@ -28,6 +28,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <roaring/roaring.hh>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -106,6 +108,8 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
+
     // Maybe modified by local schema change
     vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
         return _context.schema_change_recorder.get();
@@ -122,6 +126,9 @@ public:
     Status wait_flying_segcompaction() override;
 
 private:
+    Status _do_add_block(const vectorized::Block* block,
+                         std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                         size_t row_offset, size_t input_row_num);
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer,
                       const FlushContext* flush_ctx = nullptr);
@@ -158,8 +165,11 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    std::atomic<int32_t> _num_segment;
-    std::atomic<int32_t> _num_flushed_segment;
+    std::atomic<int32_t> _next_segment_id; // the next available segment_id (offset),
+                                           // also the numer of allocated segments
+    std::atomic<int32_t> _num_segment;     // number of consecutive flushed segments
+    roaring::Roaring _segment_set;         // bitmap set to record flushed segment id
+    std::mutex _segment_set_mutex;         // mutex for _segment_set
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted

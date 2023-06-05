@@ -402,6 +402,7 @@ public class Coordinator {
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
+        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
     }
 
     public long getJobId() {
@@ -3140,6 +3141,9 @@ public class Coordinator {
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {
@@ -3243,6 +3247,9 @@ public class Coordinator {
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {

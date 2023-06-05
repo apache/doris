@@ -70,7 +70,7 @@ CteAnchor[cteId= ( CTEId#3=] )
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](curr_yr.i_brand_id = prev_yr.i_brand_id)(curr_yr.i_class_id = prev_yr.i_class_id)(curr_yr.i_category_id = prev_yr.i_category_id)(curr_yr.i_manufact_id = prev_yr.i_manufact_id)(cast((cast(cast(sales_cnt as DECIMAL(17, 2)) as DECIMAL(27, 9)) / cast(cast(sales_cnt as DECIMAL(17, 2)) as DECIMAL(27, 9))) as DECIMALV3(27, 9)) < 0.900000000)
+----------hashJoin[INNER_JOIN](curr_yr.i_brand_id = prev_yr.i_brand_id)(curr_yr.i_class_id = prev_yr.i_class_id)(curr_yr.i_category_id = prev_yr.i_category_id)(curr_yr.i_manufact_id = prev_yr.i_manufact_id)((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)
 ------------PhysicalDistribute
 --------------filter((curr_yr.d_year = 1999))
 ----------------CteConsumer[cteId= ( CTEId#3=] )

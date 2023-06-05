@@ -289,7 +289,14 @@ public class HiveMetaStoreCache {
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
         try {
-            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+            // For Tez engine, it may generate subdirectoies for "union" query.
+            // So there may be files and directories in the table directory at the same time. eg:
+            //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+            //      /user/hive/warehouse/region_tmp_union_all2/1
+            //      /user/hive/warehouse/region_tmp_union_all2/2
+            // So we need to recursively list data location.
+            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
             locatedFiles.files().forEach(result::addFile);
         } catch (Exception e) {
             // User may manually remove partition under HDFS, in this case,

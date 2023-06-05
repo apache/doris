@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -452,24 +453,26 @@ public class StmtExecutor {
         }
     }
 
-    private boolean checkBlockRules() throws AnalysisException {
-        Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
-                originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
-
-        // limitations: partition_num, tablet_num, cardinality
-        List<ScanNode> scanNodeList = planner.getScanNodes();
-        for (ScanNode scanNode : scanNodeList) {
-            if (scanNode instanceof OlapScanNode) {
-                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
-                        olapScanNode.getSelectedPartitionNum().longValue(),
-                        olapScanNode.getSelectedTabletsNum(),
-                        olapScanNode.getCardinality(),
-                        context.getQualifiedUser());
-            }
+    private void checkBlockRules() throws AnalysisException {
+        if (originStmt != null) {
+            Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
+                    originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
         }
 
-        return false;
+        // limitations: partition_num, tablet_num, cardinality
+        if (planner != null) {
+            List<ScanNode> scanNodeList = planner.getScanNodes();
+            for (ScanNode scanNode : scanNodeList) {
+                if (scanNode instanceof OlapScanNode) {
+                    OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                    Env.getCurrentEnv().getSqlBlockRuleMgr().checkLimitations(
+                            olapScanNode.getSelectedPartitionNum().longValue(),
+                            olapScanNode.getSelectedTabletsNum(),
+                            olapScanNode.getCardinality(),
+                            context.getQualifiedUser());
+                }
+            }
+        }
     }
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
@@ -478,6 +481,8 @@ public class StmtExecutor {
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+
+        checkBlockRules();
         parseByNereids();
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
@@ -531,9 +536,6 @@ public class StmtExecutor {
             } catch (Exception e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
-            }
-            if (checkBlockRules()) {
-                return;
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
@@ -676,13 +678,9 @@ public class StmtExecutor {
                 return;
             }
 
+            // sql/sqlHash block
+            checkBlockRules();
             if (parsedStmt instanceof QueryStmt) {
-                if (!parsedStmt.isExplain()) {
-                    // sql/sqlHash block
-                    if (checkBlockRules()) {
-                        return;
-                    }
-                }
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
                 handleSetStmt();
@@ -1136,7 +1134,7 @@ public class StmtExecutor {
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
-        if (parsedStmt instanceof AnalyzeStmt) {
+        if (parsedStmt instanceof AnalyzeTblStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
     }

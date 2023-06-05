@@ -39,13 +39,13 @@ Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排�
   - 支持多个条件的逻辑组合，不仅支持 AND，还支持 OR 和 not 
   - 在 esrally http 日志基准测试中，与 Elasticsearch 相比效率更高：数据导入速度提高了 4 倍，存储资源消耗减少了80%，查询速度提高了 2 倍以上
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/index/inverted-index](https://doris.apache.org/docs/dev/data-table/index/inverted-index)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/index/inverted-index](https://doris.apache.org/zh-CN/docs/dev/data-table/index/inverted-index)
 
 - 动态 Schema 表（实验性功能）
   - 自动推断半结构化 JSON 数据的字段名称和类型
   - 根据写入的数据动态拓展相应数据表的 Schema。
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/dynamic-schema-table](https://doris.apache.org/docs/dev/data-table/dynamic-schema-table)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/dynamic-schema-table](https://doris.apache.org/zh-CN/docs/dev/data-table/dynamic-schema-table)
 
 - 复杂数据类型
   - JSONB 数据类型通过 simdjson 获得更高效的首次数据解析速度
@@ -60,21 +60,21 @@ Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排�
 - 使用 PreparedStatement 缓存已编译的查询计划
 - 在单台 16 Core 64G 内存 4*1T 硬盘规格的云服务器上实现了单节点 30000 QPS 的并发表现，较过去版本提升超 20倍
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/docs/dev/query-acceleration/hight-concurrent-point-query)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query)
 
 ### 3. Vertical Compaction（默认开启）
 
 - 将 Rowset 按照列切分为列组，按列合并数据，单次合并只需要加载部分列的数据，因此能够极大减少合并过程中的内存占用，提高压缩的执行速度。
 - 在实际测试中，Vertical Compaction 使用内存仅为原有 Compaction 算法的 1/10，Compaction 速率提升 15%。
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/best-practice/compaction/#vertical-compaction](https://doris.apache.org/docs/dev/query-acceleration/hight-concurrent-point-query)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/best-practice/compaction/#vertical-compaction](https://doris.apache.org/zh-CN/docs/dev/advanced/best-practice/compaction/#vertical-compaction)
 
 ### 4. 冷热数据分离
 
 - 用户可以通过 SQL 设置冷热数据策略，从而将历史数据转移到对象存储等廉价存储中，以降低存储成本。
 - 冷数据仍然可以被直接访问，Doris 提供了本地缓存以提高冷数据的访问效率。
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation](https://doris.apache.org/docs/dev/advanced/cold_hot_separation)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation](https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation)
 
 
 ### 5. Pipeline 执行引擎（默认未开启）
@@ -83,7 +83,7 @@ Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排�
 - 自适应负载：采用多级反馈队列来调度查询优先级。在混合负载场景中，每个查询都可以公平地分配到一个固定的线程调度时间片，从而确保 Doris 可以在不同的负载下具有更稳定的性能表现。
 - 可控的线程数目：Pipeline 执行引擎默认的执行线程数目为 CPU 和核数，Doris 启动了对应的执行线程池进行执行线程的管理。用户的 SQL 执行和线程进行了解绑，对于线程的资源使用更加可控。
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine](https://doris.apache.org/docs/dev/query-acceleration/pipeline-execution-engine)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine)
 
 ### 6. 基于代价模型的全新查询优化器 Nereids （默认未开启）
 
@@ -92,7 +92,7 @@ Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排�
 - 更健壮：新优化器的所有优化规则，均在逻辑执行计划树上完成。当查询语法语义解析完成后，变转换为一颗树状结构。相比于旧优化器的内部数据结构更为合理、统一。以子查询处理为例，新优化器基于新的数据结构，避免了旧优化器中众多规则对于子查询的单独处理。进而减少了优化规则逻辑错误的可能。
 - 更灵活：新优化器的架构设计更合理，更现代。可以方便的扩展优化规则和处理阶段。能够更为迅速的响应用户的需求。
 
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids](https://doris.apache.org/docs/dev/query-acceleration/nereids)
+	参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids)
 
 # 行为变更
 

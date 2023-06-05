@@ -21,6 +21,7 @@ import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
+import org.apache.doris.external.jdbc.JdbcClientConfig;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -78,9 +79,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
         }
         String jdbcUrl = properties.getOrDefault(JdbcResource.JDBC_URL, "");
-        String oceanbaseMode = properties.getOrDefault(JdbcResource.OCEANBASE_MODE, "");
         if (!Strings.isNullOrEmpty(jdbcUrl)) {
-            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl, oceanbaseMode);
+            jdbcUrl = JdbcResource.handleJdbcUrl(jdbcUrl);
             properties.put(JdbcResource.JDBC_URL, jdbcUrl);
         }
 
@@ -127,15 +127,20 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 
-    public String getOceanBaseMode() {
-        return catalogProperty.getOrDefault(JdbcResource.OCEANBASE_MODE, "");
-    }
-
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(),
-                getDriverClass(), getOnlySpecifiedDatabase(), getLowerCaseTableNames(),
-                getOceanBaseMode(), getIncludeDatabaseMap(), getExcludeDatabaseMap());
+        JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
+                .setUser(getJdbcUser())
+                .setPassword(getJdbcPasswd())
+                .setJdbcUrl(getJdbcUrl())
+                .setDriverUrl(getDriverUrl())
+                .setDriverClass(getDriverClass())
+                .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
+                .setIsLowerCaseTableNames(getLowerCaseTableNames())
+                .setIncludeDatabaseMap(getIncludeDatabaseMap())
+                .setExcludeDatabaseMap(getExcludeDatabaseMap());
+
+        jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
 
     protected List<String> listDatabaseNames() {
