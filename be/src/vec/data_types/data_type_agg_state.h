@@ -88,6 +88,8 @@ public:
         for (auto type : _sub_types) {
             type->to_pb_column_meta(col_meta->add_children());
         }
+        col_meta->set_function_name(_function_name);
+        col_meta->set_result_is_nullable(_result_is_nullable);
     }
 
     AggregateFunctionPtr get_nested_function() const {
