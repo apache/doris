@@ -553,7 +553,6 @@ public class MTMVJobManager {
         return mtmvJobManager;
     }
 
-    // for test only
     public MTMVTaskManager getTaskManager() {
         return taskManager;
     }
