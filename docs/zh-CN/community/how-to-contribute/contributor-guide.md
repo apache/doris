@@ -33,12 +33,6 @@ under the License.
 请订阅{dev,commits}@doris.apache.org邮件列表，通过发送邮件到{dev,commits}-subscribe@doris.apache.org完成订阅。
 commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往这个邮件列表。
 
-### 关联你的 ASF 账号与 Github 账号
-
-我们用GitHub来管理我们的Issue以及用户贡献。
-所以你需要把你的ASF账号与GitHub账号进行关联来获得[Doris仓库](https://github.com/apache/doris)的写入权限。
-通过在[Gitbox](https://gitbox.apache.org/setup/)完成操作后，你就可以对GitHub仓库中的Issue，PR进行管理。
-
 ## Code Review指南
 
 1. 始终保持一个较高的标准来进行review，这样才能更好地保证整个产品的质量。
