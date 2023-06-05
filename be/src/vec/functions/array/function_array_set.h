@@ -28,16 +28,13 @@
 
 namespace doris::vectorized {
 
-enum class SetOperation { UNION, EXCEPT, INTERSECT };
+enum class SetOperation { UNION, EXCEPT };
 
 template <typename Set, typename Element>
 struct UnionAction;
 
 template <typename Set, typename Element>
 struct ExceptAction;
-
-template <typename Set, typename Element>
-struct IntersectAction;
 
 template <typename Set, typename Element, SetOperation operation>
 struct ActionImpl;
@@ -50,11 +47,6 @@ struct ActionImpl<Set, Element, SetOperation::UNION> {
 template <typename Set, typename Element>
 struct ActionImpl<Set, Element, SetOperation::EXCEPT> {
     using Action = ExceptAction<Set, Element>;
-};
-
-template <typename Set, typename Element>
-struct ActionImpl<Set, Element, SetOperation::INTERSECT> {
-    using Action = IntersectAction<Set, Element>;
 };
 
 template <SetOperation operation, typename ColumnType>
