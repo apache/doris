@@ -294,8 +294,8 @@ protected:
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
     //so we could add those counter/timer in faker profile, and those will not display in web profile.
-    std::shared_ptr<RuntimeProfile> _faker_runtime_profile =
-            std::make_shared<RuntimeProfile>("faker profile");
+    std::unique_ptr<RuntimeProfile> _faker_runtime_profile =
+            std::make_unique<RuntimeProfile>("faker profile");
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be
