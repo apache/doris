@@ -1010,6 +1010,10 @@ DECLARE_Int32(max_depth_of_expr_tree);
 // Report a tablet as bad when io errors occurs more than this value.
 DECLARE_mInt64(max_tablet_io_errors);
 
+// Report a tablet as bad when its path not found
+DECLARE_mInt32(tablet_path_check_interval_seconds);
+DECLARE_mInt32(tablet_path_check_batch_size);
+
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB

@@ -167,6 +167,11 @@ Status StorageEngine::start_bg_threads() {
             &_tablet_checkpoint_tasks_producer_thread));
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "tablet_path_check_thread",
+            [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
+    LOG(INFO) << "tablet path check thread started";
+
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "fd_cache_clean_thread",
@@ -393,6 +398,91 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_tablet_path_check_callback() {
+    struct CheckInfo {
+        int64_t seq;
+        int32_t tablet_index;
+    };
+
+    int64_t cur_seq = 1;
+    std::unordered_map<int64_t, CheckInfo> tablet_check_infos;
+    int64_t interval = config::tablet_path_check_interval_seconds;
+
+    do {
+        interval = config::tablet_path_check_interval_seconds;
+        int32_t batch_size = config::tablet_path_check_batch_size;
+        if (batch_size <= 0) {
+            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                break;
+            }
+            continue;
+        }
+
+        auto all_tablets = _tablet_manager->get_all_tablet(
+                [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
+
+        int32_t small_seq_count = 0;
+        for (int32_t i = 0; i < static_cast<int32_t>(all_tablets.size()); i++) {
+            auto tablet_id = all_tablets[i]->tablet_id();
+            auto iter = tablet_check_infos.find(tablet_id);
+            if (iter == tablet_check_infos.end()) {
+                tablet_check_infos.insert(std::make_pair(tablet_id, CheckInfo {cur_seq, i}));
+            } else {
+                iter->second.tablet_index = i;
+                if (iter->second.seq < cur_seq) {
+                    small_seq_count++;
+                }
+            }
+        }
+
+        auto big_seq = cur_seq;
+        if (small_seq_count <= batch_size) {
+            cur_seq++;
+        }
+
+        if (small_seq_count > batch_size) {
+            small_seq_count = batch_size;
+        }
+        auto big_seq_count = batch_size - small_seq_count;
+
+        int check_count = 0;
+        for (auto iter = tablet_check_infos.begin(); iter != tablet_check_infos.end();) {
+            auto& check_info = iter->second;
+            if (check_info.tablet_index < 0) {
+                iter = tablet_check_infos.erase(iter);
+            } else {
+                bool check_path = false;
+
+                if (check_info.seq < big_seq) {
+                    if (small_seq_count > 0) {
+                        small_seq_count--;
+                        check_path = true;
+                    }
+                } else if (check_info.seq == big_seq) {
+                    if (big_seq_count > 0) {
+                        big_seq_count--;
+                        check_path = true;
+                    }
+                }
+
+                if (check_path) {
+                    all_tablets[check_info.tablet_index]->check_tablet_path_exists();
+                    check_info.seq = cur_seq;
+                    check_count++;
+                }
+
+                //clear the tablet index for next check
+                check_info.tablet_index = -1;
+                iter++;
+            }
+        }
+
+        LOG(INFO) << "check tablet path exists, total tablet count: " << all_tablets.size()
+                  << ", check path count: " << check_count << ", check seq: " << cur_seq;
+
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

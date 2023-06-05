@@ -233,6 +233,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _last_checkpoint_time(0),
           _cumulative_compaction_type(cumulative_compaction_type),
           _is_clone_occurred(false),
+          _is_tablet_path_exists(true),
           _last_missed_version(-1),
           _last_missed_time_s(0) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
@@ -1175,6 +1176,17 @@ void Tablet::delete_all_files() {
     }
 }
 
+void Tablet::check_tablet_path_exists() {
+    if (!tablet_path().empty()) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(tablet_path(), ec)) {
+            _is_tablet_path_exists.store(true, std::memory_order_relaxed);
+        } else if (ec.value() == ENOENT || ec.value() == 0) {
+            _is_tablet_path_exists.store(false, std::memory_order_relaxed);
+        }
+    }
+}
+
 bool Tablet::check_path(const std::string& path_to_check) const {
     std::shared_lock rdlock(_meta_lock);
     if (path_to_check == _tablet_path) {
@@ -1606,11 +1618,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
             tablet_info->__set_used(false);
         }
 
-        if (enable_path_check && !tablet_path().empty()) {
-            std::error_code ec;
-            // tablet path not exists or is a regular file
-            if (!std::filesystem::is_directory(tablet_path(), ec) &&
-                (ec.value() == ENOENT || ec.value() == 0)) {
+        if (enable_path_check) {
+            if (!_is_tablet_path_exists.exchange(true, std::memory_order_relaxed)) {
                 LOG(INFO) << "report " << full_name() << " as bad, tablet directory not found";
                 tablet_info->__set_used(false);
             }

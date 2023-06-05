@@ -246,6 +246,8 @@ public:
 
     void delete_all_files();
 
+    void check_tablet_path_exists();
+
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
 
@@ -629,6 +631,9 @@ private:
 
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
+
+    // use a seperate thread to check all tablets paths existance
+    std::atomic<bool> _is_tablet_path_exists;
 
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
