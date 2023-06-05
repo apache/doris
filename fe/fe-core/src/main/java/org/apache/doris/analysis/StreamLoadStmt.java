@@ -305,22 +305,22 @@ public class StreamLoadStmt implements LoadTaskInfo {
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
-        if (Strings.isNullOrEmpty(properties.get(Property.COLUMNS))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.COLUMNS))) {
             setColumnToColumnExpr(properties.get(Property.COLUMNS));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.WHERE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.WHERE))) {
             whereExpr = parseWhereExpr(properties.get(Property.WHERE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.COLUMN_SEPARATOR))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.COLUMN_SEPARATOR))) {
             setColumnSeparator(properties.get(Property.COLUMN_SEPARATOR));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.LINE_DELIMITER))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.LINE_DELIMITER))) {
             setLineDelimiter(properties.get(Property.LINE_DELIMITER));
         }
         if (request.isSetHeaderType()) {
             headerType = request.getHeaderType();
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.PARTITIONS))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.PARTITIONS))) {
             String[] partNames = properties.get(Property.PARTITIONS).trim().split("\\s*,\\s*");
             if (properties.get(Property.TEMP_PARTITIONS) != null) {
                 partitions = new PartitionNames(true, Lists.newArrayList(partNames));
@@ -337,19 +337,19 @@ public class StreamLoadStmt implements LoadTaskInfo {
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.NEGATIVE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.NEGATIVE))) {
             negative = Boolean.parseBoolean(properties.get(Property.NEGATIVE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.TIMEOUT))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.TIMEOUT))) {
             timeout = Integer.parseInt(properties.get(Property.TIMEOUT));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.STRICT_MODE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.STRICT_MODE))) {
             strictMode = Boolean.parseBoolean(properties.get(Property.STRICT_MODE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.TIMEZONE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.TIMEZONE))) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(properties.get(Property.TIMEZONE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.EXEC_MEM_LIMIT))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.EXEC_MEM_LIMIT))) {
             execMemLimit = Long.parseLong(properties.get(Property.EXEC_MEM_LIMIT));
         }
         if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
@@ -364,44 +364,44 @@ public class StreamLoadStmt implements LoadTaskInfo {
             fuzzyParse = Boolean.parseBoolean(properties.get(Property.FUZZY_PARSE));
             readJsonByLine = Boolean.parseBoolean(properties.get(Property.READ_JSON_BY_LINE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.MERGE_TYPE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.MERGE_TYPE))) {
             try {
                 mergeType = LoadTask.MergeType.valueOf(properties.get(Property.MERGE_TYPE).toString());
             } catch (IllegalArgumentException e) {
                 throw new UserException("unknown merge type " + properties.get(Property.MERGE_TYPE).toString());
             }
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.DELETE_CONDITION))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.DELETE_CONDITION))) {
             deleteCondition = parseWhereExpr(properties.get(Property.DELETE_CONDITION));
         }
         if (negative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL))) {
             sequenceCol = properties.get(Property.FUNCTION_COLUMN + "." + Property.SEQUENCE_COL);
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.SEND_BATCH_PARALLELISM))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.SEND_BATCH_PARALLELISM))) {
             sendBatchParallelism = Integer.parseInt(properties.get(Property.SEND_BATCH_PARALLELISM));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.MAX_FILTER_RATIO))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.MAX_FILTER_RATIO))) {
             maxFilterRatio = Double.parseDouble(properties.get(Property.MAX_FILTER_RATIO));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.LOAD_TO_SINGLE_TABLET))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.LOAD_TO_SINGLE_TABLET))) {
             loadToSingleTablet = Boolean.parseBoolean(properties.get(Property.LOAD_TO_SINGLE_TABLET));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.HIDDEN_COLUMNS))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.HIDDEN_COLUMNS))) {
             hiddenColumns = Arrays.asList(properties.get(Property.HIDDEN_COLUMNS).replaceAll("\\s+", "").split(","));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.TRIM_DOUBLE_QUOTES))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.TRIM_DOUBLE_QUOTES))) {
             trimDoubleQuotes = Boolean.parseBoolean(properties.get(Property.TRIM_DOUBLE_QUOTES));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.SKIP_LINES))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.SKIP_LINES))) {
             skipLines = Integer.parseInt(properties.get(Property.SKIP_LINES));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.ENABLE_PROFILE))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.ENABLE_PROFILE))) {
             enableProfile = Boolean.parseBoolean(properties.get(Property.ENABLE_PROFILE));
         }
-        if (Strings.isNullOrEmpty(properties.get(Property.PARTIAL_COLUMNS))) {
+        if (!Strings.isNullOrEmpty(properties.get(Property.PARTIAL_COLUMNS))) {
             isPartialUpdate = Boolean.parseBoolean(properties.get(Property.PARTIAL_COLUMNS));
         }
     }
