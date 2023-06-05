@@ -86,7 +86,6 @@ Status Compaction::execute_compact() {
 }
 
 Status Compaction::do_compaction(int64_t permits) {
-    TRACE("start to do compaction");
     uint32_t checksum_before;
     uint32_t checksum_after;
     if (config::enable_compaction_checksum) {
@@ -270,7 +269,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     if (handle_ordered_data_compaction()) {
         RETURN_IF_ERROR(modify_rowsets());
-        TRACE("modify rowsets finished");
 
         int64_t now = UnixMillis();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
@@ -300,7 +298,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
         Tablet::add_pending_remote_rowset(_output_rs_writer->rowset_id().to_string());
     }
-    TRACE("prepare finished");
 
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
@@ -328,7 +325,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                      << ", output_version=" << _output_version;
         return res;
     }
-    TRACE("merge rowsets finished");
     TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
     TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
 
@@ -342,11 +338,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
     TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
-    TRACE("output rowset built");
 
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));
-    TRACE("check correctness finished");
 
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
         OlapStopWatch inverted_watch;
@@ -414,7 +408,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets(&stats));
-    TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
     int64_t now = UnixMillis();

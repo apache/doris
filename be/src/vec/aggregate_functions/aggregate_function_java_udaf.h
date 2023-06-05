@@ -270,8 +270,8 @@ public:
             } catch (std::bad_alloc const& e) {                                                    \
                 throw doris::Exception(                                                            \
                         ErrorCode::INTERNAL_ERROR,                                                 \
-                        "memory allocate failed in column string, buffer:{},size:{}",              \
-                        increase_buffer_size, buffer_size);                                        \
+                        "memory allocate failed in column string, buffer:{},size:{},reason:{}",    \
+                        increase_buffer_size, buffer_size, e.what());                              \
             }                                                                                      \
             *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
@@ -317,10 +317,10 @@ public:
                     chars.resize(buffer_size);                                                     \
                     offsets.resize(buffer_size);                                                   \
                 } catch (std::bad_alloc const& e) {                                                \
-                    throw doris::Exception(                                                        \
-                            ErrorCode::INTERNAL_ERROR,                                             \
-                            "memory allocate failed in array column string, buffer:{},size:{}",    \
-                            increase_buffer_size, buffer_size);                                    \
+                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,                              \
+                                           "memory allocate failed in array column string, "       \
+                                           "buffer:{},size:{},reason:{}",                          \
+                                           increase_buffer_size, buffer_size, e.what());           \
                 }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                    \
@@ -342,10 +342,10 @@ public:
                     null_map_data.resize(buffer_size);                                             \
                     data_column->resize(buffer_size);                                              \
                 } catch (std::bad_alloc const& e) {                                                \
-                    throw doris::Exception(                                                        \
-                            ErrorCode::INTERNAL_ERROR,                                             \
-                            "memory allocate failed in array number column, buffer:{},size:{}",    \
-                            increase_buffer_size, buffer_size);                                    \
+                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,                              \
+                                           "memory allocate failed in array number column, "       \
+                                           "buffer:{},size:{},reason:{}",                          \
+                                           increase_buffer_size, buffer_size, e.what());           \
                 }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer =                                                             \

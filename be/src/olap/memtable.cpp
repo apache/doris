@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <pdqsort.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -249,13 +250,32 @@ void MemTable::_put_into_output(vectorized::Block& in_block) {
     _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                    row_pos_vec.data() + in_block.rows());
 }
-int MemTable::_sort() {
+
+size_t MemTable::_sort() {
     SCOPED_RAW_TIMER(&_stat.sort_ns);
     _stat.sort_times++;
-    _vec_row_comparator->set_block(&_input_mutable_block);
-    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     size_t same_keys_num = 0;
+    // sort new rows
+    Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
+    for (size_t i = 0; i < _schema->num_key_columns(); i++) {
+        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+            return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+        };
+        _sort_one_column(_row_in_blocks, tie, cmp);
+    }
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
+    // sort extra round by _row_pos to make the sort stable
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(_row_in_blocks.begin(), iter.left()),
+                std::next(_row_in_blocks.begin(), iter.right()),
+                [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                    return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
+                });
+        same_keys_num += iter.right() - iter.left();
+    }
+    // merge new rows and old rows
+    _vec_row_comparator->set_block(&_input_mutable_block);
     auto cmp_func = [this, is_dup, &same_keys_num](const RowInBlock* l,
                                                    const RowInBlock* r) -> bool {
         auto value = (*(this->_vec_row_comparator))(l, r);
@@ -266,12 +286,24 @@ int MemTable::_sort() {
             return value < 0;
         }
     };
-    // sort new rows
-    std::sort(new_row_it, _row_in_blocks.end(), cmp_func);
-    // merge new rows and old rows
+    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
     return same_keys_num;
+}
+
+void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                                std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
+                std::next(row_in_blocks.begin(), iter.right()),
+                [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
+        tie[iter.left()] = 0;
+        for (int i = iter.left() + 1; i < iter.right(); i++) {
+            tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
+        }
+    }
 }
 
 template <bool is_final>
@@ -379,7 +411,7 @@ void MemTable::shrink_memtable_by_agg() {
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
         _put_into_output(in_block);
@@ -418,12 +450,12 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
-    auto rowset = _rowset_writer->build_tmp();
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-    std::vector<segment_v2::SegmentSharedPtr> segments;
     if (atomic_num_segments_before_flush >= atomic_num_segments_after_flush) {
         return Status::OK();
     }
+    auto rowset = _rowset_writer->build_tmp();
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(atomic_num_segments_before_flush,
                                                atomic_num_segments_after_flush, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
@@ -465,7 +497,7 @@ Status MemTable::flush() {
 
 Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
@@ -483,9 +515,14 @@ Status MemTable::_do_flush() {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
+    ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
     return Status::OK();
+}
+
+void MemTable::assign_segment_id() {
+    _segment_id = std::optional<int32_t> {_rowset_writer->allocate_segment_id()};
 }
 
 Status MemTable::close() {

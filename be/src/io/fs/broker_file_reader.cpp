@@ -67,7 +67,7 @@ Status BrokerFileReader::close() {
         try {
             try {
                 (*_client)->closeReader(response, request);
-            } catch (apache::thrift::transport::TTransportException& e) {
+            } catch (apache::thrift::transport::TTransportException&) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 RETURN_IF_ERROR((*_client).reopen());
                 (*_client)->closeReader(response, request);

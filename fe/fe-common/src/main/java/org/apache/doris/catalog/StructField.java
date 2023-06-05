@@ -23,11 +23,8 @@ import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
-/**
- * TODO: Support comments for struct fields. The Metastore does not properly store
- * comments of struct fields. We set comment to null to avoid compatibility issues.
- */
 public class StructField {
     @SerializedName(value = "name")
     protected final String name;
@@ -55,6 +52,10 @@ public class StructField {
 
     public StructField(String name, Type type) {
         this(name, type, null, true);
+    }
+
+    public StructField(String name, Type type, String comment) {
+        this(name, type, comment, true);
     }
 
     public StructField(Type type) {
@@ -96,7 +97,7 @@ public class StructField {
         if (type != null) {
             sb.append(":").append(typeSql);
         }
-        if (comment != null) {
+        if (StringUtils.isNotBlank(comment)) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
@@ -116,7 +117,7 @@ public class StructField {
             typeStr = typeStr.substring(lpad);
             sb.append(":").append(typeStr);
         }
-        if (comment != null) {
+        if (StringUtils.isNotBlank(comment)) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
@@ -143,9 +144,6 @@ public class StructField {
     public void toThrift(TTypeDesc container, TTypeNode node) {
         TStructField field = new TStructField();
         field.setName(name);
-        if (comment != null) {
-            field.setComment(comment);
-        }
         field.setContainsNull(containsNull);
         node.struct_fields.add(field);
         type.toThrift(container);
