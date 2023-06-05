@@ -23,10 +23,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -62,7 +62,7 @@ import java.util.Objects;
  *  insert into t1 (c1, c3) select t2.c1, t2.c3 * 100 from t1 join t2 inner join t3 on t2.id = t3.id where t1.id = t2.id
  */
 public class UpdateCommand extends Command implements ForwardWithSync {
-    private final List<Pair<List<String>, Expression>> assignments;
+    private final List<EqualTo> assignments;
     private final List<String> nameParts;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
@@ -71,7 +71,7 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     /**
      * constructor
      */
-    public UpdateCommand(List<String> nameParts, List<Pair<List<String>, Expression>> assignments,
+    public UpdateCommand(List<String> nameParts, List<EqualTo> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
@@ -104,8 +104,9 @@ public class UpdateCommand extends Command implements ForwardWithSync {
         }
 
         Map<String, Expression> colNameToExpression = Maps.newHashMap();
-        for (Pair<List<String>, Expression> pair : assignments) {
-            colNameToExpression.put(pair.first.get(pair.first.size() - 1), pair.second);
+        for (EqualTo equalTo : assignments) {
+            List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+            colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
         for (Column column : targetTable.getFullSchema()) {

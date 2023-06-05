@@ -1345,12 +1345,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Pair<List<String>, Expression> visitUpdateAssignment(UpdateAssignmentContext ctx) {
-        return Pair.of(visitMultipartIdentifier(ctx.multipartIdentifier()), getExpression(ctx.expression()));
+    public EqualTo visitUpdateAssignment(UpdateAssignmentContext ctx) {
+        return new EqualTo(new UnboundSlot(visitMultipartIdentifier(ctx.multipartIdentifier())),
+                getExpression(ctx.expression()));
     }
 
     @Override
-    public List<Pair<List<String>, Expression>> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
+    public List<EqualTo> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
         return ctx.assignments.stream()
                 .map(this::visitUpdateAssignment)
                 .collect(Collectors.toList());
