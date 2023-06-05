@@ -39,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -70,8 +71,10 @@ public class UpdateCommand extends Command implements ForwardWithSync {
     public UpdateCommand(List<String> nameParts, List<Pair<List<String>, Expression>> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
-        this.nameParts = Objects.requireNonNull(nameParts, "tableName is required in update command");
-        this.assignments = Objects.requireNonNull(assignments, "assignment is required in update command");
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
+                "tableName is required in update command"));
+        this.assignments = ImmutableList.copyOf(Objects.requireNonNull(assignments,
+                "assignment is required in update command"));
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
     }
 
