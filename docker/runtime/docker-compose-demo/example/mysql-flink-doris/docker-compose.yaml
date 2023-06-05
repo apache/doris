@@ -1,0 +1,68 @@
+version: "3"
+services:
+  mysql:
+    image: mysql:8.0.31
+    volumes:
+      - /data/mysql/:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: doris-test
+      MYSQL_PASSWORD: 123456
+    command:
+      --character-set-server=utf8
+    hostname: mysql
+    ports:
+      - "3306:3306"
+
+  jobmanager:
+    image: apache/flink:1.15-scala_2.12
+    volumes:
+      - /data/flink/job/flink-doris-connector-1.15-1.2.1.jar:/opt/flink/lib/flink-doris-connector-1.15-1.2.1.jar
+      - /data/flink/job/flink-sql-connector-mysql-cdc-2.2.1.jar:/opt/flink/lib/flink-sql-connector-mysql-cdc-2.2.1.jar
+    expose:
+      - "6123"
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+
+  taskmanager:
+    image: apache/flink:1.15-scala_2.12
+    volumes:
+      - /data/flink/task/flink-doris-connector-1.15-1.2.1.jar:/opt/flink/lib/flink-doris-connector-1.15-1.2.1.jar
+      - /data/flink/task/flink-sql-connector-mysql-cdc-2.2.1.jar:/opt/flink/lib/flink-sql-connector-mysql-cdc-2.2.1.jar
+    expose:
+      - "6121"
+      - "6122"
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    links:
+      - "jobmanager:jobmanager"
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+
+  fe:
+    image: apache/doris:1.2.2-fe-x86_64
+    volumes:
+      - /data/apache-doris/fe/doris-meta/:/opt/apache-doris/fe/doris-meta
+      - /data/apache-doris/fe/log/:/opt/apache-doris/fe/log
+    environment:
+      - FE_SERVERS=fe1:10.0.16.15:9010
+      - FE_ID=1
+    restart: on-failure
+    network_mode: host
+
+  be:
+    image: apache/doris:1.2.2-be-x86_64
+    volumes:
+      - /data/apache-doris/be/storage/:/opt/apache-doris/be/storage
+      - /data/apache-doris/be/log/:/opt/apache-doris/be/log
+    environment:
+      - FE_SERVERS=fe1:10.0.16.15:9010
+      - BE_ADDR=10.0.16.15:9050
+    depends_on:
+      - fe
+    restart: on-failure
+    network_mode: host
