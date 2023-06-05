@@ -94,9 +94,9 @@ private:
         constexpr bool ignore_null = JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN ||
                                      JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                                      JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN;
+        _left_block_start_pos = _left_block_pos;
 
         MutableBlock mutable_join_block(&_join_block);
-
         while (_join_block.rows() < state->batch_size() && !_matched_rows_done) {
             // If this left block is exhausted or empty, we need to pull data from left child.
             if (_left_block_pos == _left_block.rows()) {
@@ -112,13 +112,23 @@ private:
             // We should try to join rows if there still are some rows from probe side.
             if (!_matched_rows_done && _current_build_pos < _build_blocks.size()) {
                 do {
+                    if (_current_build_pos == _build_blocks.size()) {
+                        if (_left_block_pos + 1 < _left_block.rows()) {
+                            if constexpr (set_probe_side_flag) {
+                                _probe_offset_stack.push(mutable_join_block.rows());
+                            }
+                            _reset_with_next_probe_row();
+                        } else {
+                            break;
+                        }
+                    }
+
                     const auto& now_process_build_block = _build_blocks[_current_build_pos++];
                     if constexpr (set_build_side_flag) {
-                        _offset_stack.push(mutable_join_block.rows());
+                        _build_offset_stack.push(mutable_join_block.rows());
                     }
                     _process_left_child_block(mutable_join_block, now_process_build_block);
-                } while (_join_block.rows() < state->batch_size() &&
-                         _current_build_pos < _build_blocks.size());
+                } while (_join_block.rows() < state->batch_size());
             }
 
             if constexpr (set_probe_side_flag) {
@@ -221,7 +231,7 @@ private:
     // Visited flags for each row in build side.
     MutableColumns _build_side_visited_flags;
     // Visited flags for current row in probe side.
-    bool _cur_probe_row_visited_flags;
+    std::vector<int8_t> _cur_probe_row_visited_flags;
     size_t _current_build_pos = 0;
 
     size_t _num_probe_side_columns = 0;
@@ -238,6 +248,7 @@ private:
     // is responsible for.
     Block _left_block;
 
+    int _left_block_start_pos = 0;
     int _left_block_pos; // current scan pos in _left_block
     bool _left_side_eos; // if true, left child has no more rows to process
 
@@ -249,7 +260,8 @@ private:
     VExprContextSPtrs _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
     bool _need_more_input_data = true;
-    std::stack<uint16_t> _offset_stack;
+    std::stack<uint16_t> _build_offset_stack;
+    std::stack<uint16_t> _probe_offset_stack;
     VExprContextSPtrs _join_conjuncts;
 
     friend struct RuntimeFilterBuild;
