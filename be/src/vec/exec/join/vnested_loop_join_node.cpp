@@ -232,6 +232,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
     COUNTER_UPDATE(_probe_rows_counter, block->rows());
     _cur_probe_row_visited_flags.resize(block->rows(), 0);
+    _left_block_pos = 0;
     _need_more_input_data = false;
     _left_side_eos = eos;
 

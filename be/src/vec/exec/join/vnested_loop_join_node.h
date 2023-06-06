@@ -95,19 +95,19 @@ private:
                                      JoinOpType::value == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                                      JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN;
         _left_block_start_pos = _left_block_pos;
+        DCHECK(!_need_more_input_data);
 
         MutableBlock mutable_join_block(&_join_block);
         while (_join_block.rows() < state->batch_size() && !_matched_rows_done) {
-            // If this left block is exhausted or empty, we need to pull data from left child.
-            if (_left_block_pos == _left_block.rows()) {
-                if (_left_side_eos) {
-                    _matched_rows_done = true;
-                } else {
-                    _left_block_pos = 0;
-                    _need_more_input_data = true;
-                    return Status::OK();
-                }
-            }
+//            // If this left block is exhausted or empty, we need to pull data from left child.
+//            if (_left_block_pos == _left_block.rows()) {
+//                if (_left_side_eos) {
+//                    _matched_rows_done = true;
+//                } else {
+//                    _need_more_input_data = true;
+//                    return Status::OK();
+//                }
+//            }
 
             // We should try to join rows if there still are some rows from probe side.
             if (!_matched_rows_done && _current_build_pos < _build_blocks.size()) {
@@ -119,6 +119,7 @@ private:
                             }
                             _reset_with_next_probe_row();
                         } else {
+                            _need_more_input_data = true;
                             break;
                         }
                     }
@@ -146,12 +147,11 @@ private:
                 // `_current_build_pos == _build_blocks.size()`, means all rows from build
                 // side have been joined with the current probe row, we should output current
                 // probe row with null from build side.
-                if (_current_build_pos == _build_blocks.size()) {
+                if (_current_build_pos == _build_blocks.size() || _left_block_pos > _left_block_start_pos) {
                     if (!_matched_rows_done) {
                         _finalize_current_phase<false,
                                                 JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
                                 mutable_join_block, state->batch_size());
-                        _reset_with_next_probe_row();
                     }
                     break;
                 }
