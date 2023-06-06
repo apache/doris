@@ -402,15 +402,14 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
 }
 
 void StorageEngine::_tablet_path_check_callback() {
-    struct CheckInfo {
-        int64_t seq;
-        int32_t tablet_index;
+    struct TabletIdComparator {
+        bool operator()(Tablet* a, Tablet* b) { return a->tablet_id() < b->tablet_id(); }
     };
 
-    int64_t cur_seq = 1;
-    std::unordered_map<int64_t, CheckInfo> tablet_check_infos;
-    int64_t interval = config::tablet_path_check_interval_seconds;
+    using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
+    int64_t last_tablet_id;
 
+    int64_t interval;
     do {
         interval = config::tablet_path_check_interval_seconds;
         int32_t batch_size = config::tablet_path_check_batch_size;
@@ -421,67 +420,57 @@ void StorageEngine::_tablet_path_check_callback() {
             continue;
         }
 
+        LOG(INFO) << "start to check tablet path";
+
         auto all_tablets = _tablet_manager->get_all_tablet(
                 [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
 
-        int32_t small_seq_count = 0;
-        for (int32_t i = 0; i < static_cast<int32_t>(all_tablets.size()); i++) {
-            auto tablet_id = all_tablets[i]->tablet_id();
-            auto iter = tablet_check_infos.find(tablet_id);
-            if (iter == tablet_check_infos.end()) {
-                tablet_check_infos.insert(std::make_pair(tablet_id, CheckInfo {cur_seq, i}));
-            } else {
-                iter->second.tablet_index = i;
-                if (iter->second.seq < cur_seq) {
-                    small_seq_count++;
+        TabletQueue big_id_tablets;
+        TabletQueue small_id_tablets;
+        for (auto tablet : all_tablets) {
+            auto tablet_id = tablet->tablet_id();
+            TabletQueue* belong_tablets = nullptr;
+            if (tablet_id > last_tablet_id) {
+                if (big_id_tablets.size() < batch_size ||
+                    big_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &big_id_tablets;
+                }
+            } else if (big_id_tablets.size() < batch_size) {
+                if (small_id_tablets.size() < batch_size ||
+                    small_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &small_id_tablets;
+                }
+            }
+            if (belong_tablets != nullptr) {
+                belong_tablets->push(tablet.get());
+                if (belong_tablets->size() > batch_size) {
+                    belong_tablets->pop();
                 }
             }
         }
 
-        auto big_seq = cur_seq;
-        if (small_seq_count <= batch_size) {
-            cur_seq++;
+        int32_t need_small_id_tablet_size =
+                batch_size - static_cast<int32_t>(big_id_tablets.size());
+
+        if (!big_id_tablets.empty()) {
+            last_tablet_id = big_id_tablets.top()->tablet_id();
+        }
+        while (!big_id_tablets.empty()) {
+            big_id_tablets.top()->check_tablet_path_exists();
+            big_id_tablets.pop();
         }
 
-        if (small_seq_count > batch_size) {
-            small_seq_count = batch_size;
-        }
-        auto big_seq_count = batch_size - small_seq_count;
+        if (!small_id_tablets.empty() && need_small_id_tablet_size > 0) {
+            while (static_cast<int32_t>(small_id_tablets.size()) > need_small_id_tablet_size) {
+                small_id_tablets.pop();
+            }
 
-        int check_count = 0;
-        for (auto iter = tablet_check_infos.begin(); iter != tablet_check_infos.end();) {
-            auto& check_info = iter->second;
-            if (check_info.tablet_index < 0) {
-                iter = tablet_check_infos.erase(iter);
-            } else {
-                bool check_path = false;
-
-                if (check_info.seq < big_seq) {
-                    if (small_seq_count > 0) {
-                        small_seq_count--;
-                        check_path = true;
-                    }
-                } else if (check_info.seq == big_seq) {
-                    if (big_seq_count > 0) {
-                        big_seq_count--;
-                        check_path = true;
-                    }
-                }
-
-                if (check_path) {
-                    all_tablets[check_info.tablet_index]->check_tablet_path_exists();
-                    check_info.seq = cur_seq;
-                    check_count++;
-                }
-
-                //clear the tablet index for next check
-                check_info.tablet_index = -1;
-                iter++;
+            last_tablet_id = small_id_tablets.top()->tablet_id();
+            while (!small_id_tablets.empty()) {
+                small_id_tablets.top()->check_tablet_path_exists();
+                small_id_tablets.pop();
             }
         }
-
-        LOG(INFO) << "check tablet path exists, total tablet count: " << all_tablets.size()
-                  << ", check path count: " << check_count << ", check seq: " << cur_seq;
 
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
