@@ -458,6 +458,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
+    _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
+    _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -745,14 +747,15 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
