@@ -28,7 +28,6 @@ services:
       - 9031:9030
     volumes:
       - /data/fe-01/doris-meta:/opt/apache-doris/fe/doris-meta
-      - /data/fe-01/conf:/opt/apache-doris/fe/conf
       - /data/fe-01/log:/opt/apache-doris/fe/log
     networks:
       doris_net:
@@ -45,7 +44,6 @@ services:
       - 9032:9030
     volumes:
       - /data/fe-02/doris-meta:/opt/apache-doris/fe/doris-meta
-      - /data/fe-02/conf:/opt/apache-doris/fe/conf
       - /data/fe-02/log:/opt/apache-doris/fe/log
     networks:
       doris_net:
@@ -62,7 +60,6 @@ services:
       - 9033:9030
     volumes:
       - /data/fe-03/doris-meta:/opt/apache-doris/fe/doris-meta
-      - /data/fe-03/conf:/opt/apache-doris/fe/conf
       - /data/fe-03/log:/opt/apache-doris/fe/log
     networks:
       doris_net:
@@ -82,7 +79,6 @@ services:
       - 8041:8040
     volumes:
       - /data/be-01/storage:/opt/apache-doris/be/storage
-      - /data/be-01/conf:/opt/apache-doris/be/conf
       - /data/be-01/script:/docker-entrypoint-initdb.d
       - /data/be-01/log:/opt/apache-doris/be/log
     networks:
@@ -103,7 +99,6 @@ services:
       - 8042:8040
     volumes:
       - /data/be-02/storage:/opt/apache-doris/be/storage
-      - /data/be-02/conf:/opt/apache-doris/be/conf
       - /data/be-02/script:/docker-entrypoint-initdb.d
       - /data/be-02/log:/opt/apache-doris/be/log
     networks:
@@ -124,7 +119,6 @@ services:
       - 8043:8040
     volumes:
       - /data/be-03/storage:/opt/apache-doris/be/storage
-      - /data/be-03/conf:/opt/apache-doris/be/conf
       - /data/be-03/script:/docker-entrypoint-initdb.d
       - /data/be-03/log:/opt/apache-doris/be/log
     networks:
