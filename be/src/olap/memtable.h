@@ -216,8 +216,7 @@ private:
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
-    Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
-                                   int64_t atomic_num_segments_after_flush);
+    Status _generate_delete_bitmap(int32_t segment_id);
 
     // serialize block to row store format and append serialized data into row store column
     // in block
