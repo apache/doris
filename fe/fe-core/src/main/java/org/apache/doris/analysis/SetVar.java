@@ -43,7 +43,8 @@ public class SetVar {
         SET_LDAP_PASS_VAR,
         SET_NAMES_VAR,
         SET_TRANSACTION,
-        SET_USER_PROPERTY_VAR
+        SET_USER_PROPERTY_VAR,
+        SET_USER_DEFINED_VAR,
     }
 
     private String variable;
@@ -75,12 +76,34 @@ public class SetVar {
         }
     }
 
+    public SetVar(SetType setType, String variable, Expr value, SetVarType varType) {
+        this.type = setType;
+        this.varType = varType;
+        this.variable = variable;
+        this.value = value;
+        if (value instanceof LiteralExpr) {
+            this.result = (LiteralExpr) value;
+        }
+    }
+
     public String getVariable() {
         return variable;
     }
 
-    public LiteralExpr getValue() {
+    public Expr getValue() {
+        return value;
+    }
+
+    public void setValue(Expr value) {
+        this.value = value;
+    }
+
+    public LiteralExpr getResult() {
         return result;
+    }
+
+    public void setResult(LiteralExpr result) {
+        this.result = result;
     }
 
     public SetType getType() {
@@ -144,7 +167,7 @@ public class SetVar {
         }
 
         if (getVariable().equalsIgnoreCase(SessionVariable.PREFER_JOIN_METHOD)) {
-            String value = getValue().getStringValue();
+            String value = getResult().getStringValue();
             if (!value.equalsIgnoreCase("broadcast") && !value.equalsIgnoreCase("shuffle")) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
                         SessionVariable.PREFER_JOIN_METHOD, value);
@@ -153,11 +176,11 @@ public class SetVar {
 
         // Check variable time_zone value is valid
         if (getVariable().equalsIgnoreCase(SessionVariable.TIME_ZONE)) {
-            this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
+            this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getResult().getStringValue()));
             this.result = (LiteralExpr) this.value;
         }
         if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
-            int instanceNum = Integer.parseInt(getValue().getStringValue());
+            int instanceNum = Integer.parseInt(getResult().getStringValue());
             if (instanceNum > Config.max_instance_num) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
                         SessionVariable.PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
@@ -165,11 +188,11 @@ public class SetVar {
             }
         }
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
-            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;
         }
         if (getVariable().equalsIgnoreCase(SessionVariable.SCAN_QUEUE_MEM_LIMIT)) {
-            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
+            this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;
         }
         if (getVariable().equalsIgnoreCase("is_report_success")) {

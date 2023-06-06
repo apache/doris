@@ -32,33 +32,37 @@ import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Strings;
 
+import java.math.BigDecimal;
 import java.util.Objects;
 
-// System variable
+// Variable expr: including the system variable and user define variable.
 // Converted to StringLiteral in analyze, if this variable is not exist, throw AnalysisException.
-public class SysVariableDesc extends Expr {
+public class VariableExpr extends Expr {
     private String name;
     private SetType setType;
+    private boolean isNull;
     private boolean boolValue;
     private long intValue;
     private double floatValue;
+    private BigDecimal decimalValue;
     private String strValue;
 
     private LiteralExpr literalExpr;
 
-    public SysVariableDesc(String name) {
+    public VariableExpr(String name) {
         this(name, SetType.SESSION);
     }
 
-    public SysVariableDesc(String name, SetType setType) {
+    public VariableExpr(String name, SetType setType) {
         this.name = name;
         this.setType = setType;
     }
 
-    protected SysVariableDesc(SysVariableDesc other) {
+    protected VariableExpr(VariableExpr other) {
         super(other);
         name = other.name;
         setType = other.setType;
+        isNull = other.isNull;
         boolValue = other.boolValue;
         intValue = other.intValue;
         floatValue = other.floatValue;
@@ -67,18 +71,22 @@ public class SysVariableDesc extends Expr {
 
     @Override
     public Expr clone() {
-        return new SysVariableDesc(this);
+        return new VariableExpr(this);
     }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
-        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
-            setType(Type.VARCHAR);
-            try {
-                setStringValue(VariableVarConverters.decode(name, intValue));
-            } catch (DdlException e) {
-                ErrorReport.reportAnalysisException(e.getMessage());
+        if (setType == SetType.USER) {
+            VariableMgr.fillValueForUserDefinedVar(this);
+        } else {
+            VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
+            if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
+                setType(Type.VARCHAR);
+                try {
+                    setStringValue(VariableVarConverters.decode(name, intValue));
+                } catch (DdlException e) {
+                    ErrorReport.reportAnalysisException(e.getMessage());
+                }
             }
         }
     }
@@ -89,6 +97,14 @@ public class SysVariableDesc extends Expr {
 
     public SetType getSetType() {
         return setType;
+    }
+
+    public void setIsNull() {
+        isNull = true;
+    }
+
+    public boolean isNull() {
+        return isNull;
     }
 
     public void setBoolValue(boolean value) {
@@ -104,6 +120,11 @@ public class SysVariableDesc extends Expr {
     public void setFloatValue(double value) {
         this.floatValue = value;
         this.literalExpr = new FloatLiteral(value);
+    }
+
+    public void setDecimalValue(BigDecimal value) {
+        this.decimalValue = value;
+        this.literalExpr = new DecimalLiteral(value);
     }
 
     public void setStringValue(String value) {
@@ -164,9 +185,14 @@ public class SysVariableDesc extends Expr {
 
     @Override
     public String toSqlImpl() {
-        StringBuilder sb = new StringBuilder("@@");
-        if (setType == SetType.GLOBAL) {
-            sb.append("GLOBAL.");
+        StringBuilder sb = new StringBuilder();
+        if (setType == SetType.USER) {
+            sb.append("@");
+        } else {
+            sb.append("@@");
+            if (setType == SetType.GLOBAL) {
+                sb.append("GLOBAL.");
+            }
         }
         sb.append(name);
         return sb.toString();
@@ -182,16 +208,16 @@ public class SysVariableDesc extends Expr {
         if (this == obj) {
             return true;
         }
-        if (!(obj instanceof SysVariableDesc)) {
+        if (!(obj instanceof VariableExpr)) {
             return false;
         }
-        if (!name.equals(((SysVariableDesc) obj).getName())) {
+        if (!name.equals(((VariableExpr) obj).getName())) {
             return false;
         }
-        if (!setType.equals(((SysVariableDesc) obj).getSetType())) {
+        if (!setType.equals(((VariableExpr) obj).getSetType())) {
             return false;
         }
 
-        return Objects.equals(literalExpr, ((SysVariableDesc) obj).getLiteralExpr());
+        return Objects.equals(literalExpr, ((VariableExpr) obj).getLiteralExpr());
     }
 }
