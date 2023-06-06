@@ -18,12 +18,11 @@
 suite("test_subquery") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use nereids_p0_test_db"
         qt_sql1 """
             select c1, c3, m2 from 
                 (select c1, c3, max(c2) m2 from 
                     (select c1, c2, c3 from 
-                        (select k3 c1, k2 c2, max(k1) c3 from test 
+                        (select k3 c1, k2 c2, max(k1) c3 from nereids_test_query_db.test 
                          group by 1, 2 order by 1 desc, 2 desc limit 5) x 
                     ) x2 group by c1, c3 limit 10
                 ) t 
@@ -31,17 +30,17 @@ suite("test_subquery") {
             """
 
         qt_sql2 """
-        with base as (select k1, k2 from test as t where k1 in (select k1 from baseall
+        with base as (select k1, k2 from nereids_test_query_db.test as t where k1 in (select k1 from nereids_test_query_db.baseall
         where k7 = 'wangjuoo4' group by 1 having count(distinct k7) > 0)) select * from base limit 10;
         """
 
         qt_sql3 """
-        SELECT k1 FROM test GROUP BY k1 HAVING k1 IN (SELECT k1 FROM baseall WHERE
-        k2 >= (SELECT min(k3) FROM bigtable WHERE k2 = baseall.k2)) order by k1;
+        SELECT k1 FROM nereids_test_query_db.test GROUP BY k1 HAVING k1 IN (SELECT k1 FROM nereids_test_query_db.baseall WHERE
+        k2 >= (SELECT min(k3) FROM nereids_test_query_db.bigtable WHERE k2 = baseall.k2)) order by k1;
         """
 
         qt_sql4 """
         select /*+SET_VAR(enable_projection=false) */
-        count() from (select k2, k1 from baseall order by k1 limit 1) a;
+        count() from (select k2, k1 from nereids_test_query_db.baseall order by k1 limit 1) a;
         """
 }

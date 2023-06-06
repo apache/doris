@@ -22,8 +22,6 @@
 suite("load") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use nereids_p0_test_db"
-
     def tables=["test_join", "full_join_table", "test_bucket_shuffle_join", "table_1", "table_2", "table_3", "left_table", "right_table"]
 
     for (String table in tables) {

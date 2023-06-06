@@ -19,8 +19,9 @@ suite("test_query_except") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     // test query except, depend on query_test_data_load.groovy
-    sql "use nereids_p0_test_db"
+    sql "use nereids_test_query_db"
     qt_select_except1 """
-                      SELECT * FROM (SELECT k1 FROM baseall EXCEPT SELECT k1 FROM test) a ORDER BY k1
+                      SELECT * FROM (SELECT k1 FROM baseall
+                                     EXCEPT SELECT k1 FROM test) a ORDER BY k1
                       """
 }

@@ -18,7 +18,6 @@
 suite("test_approx_count_distinct") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use nereids_p0_test_db"
-    qt_select "select approx_count_distinct(k1) from baseall"
-    qt_select "select approx_count_distinct(k1) from baseall"
+    qt_select "select approx_count_distinct(k1) from nereids_test_query_db.baseall"
+    qt_select "select approx_count_distinct(k1) from nereids_test_query_db.baseall"
 }

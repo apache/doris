@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("load") {
+suite("load_nereids_test_query_db") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     // init query case data
-    def dbName = "nereids_p0_test_db"
+    def dbName = "nereids_test_query_db"
     sql "DROP DATABASE IF EXISTS ${dbName}"
     sql "CREATE DATABASE ${dbName}"
     sql "USE $dbName"
