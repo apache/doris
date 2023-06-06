@@ -64,4 +64,9 @@ public class UnifiedLoadStmt extends DdlStmt {
     public StatementBase getProxyStmt() {
         return proxyStmt;
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return proxyStmt.getRedirectStatus();
+    }
 }
