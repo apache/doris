@@ -77,13 +77,13 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (value instanceof Double) {
             return new DoubleLiteral((Double) value);
         } else if (value instanceof BigDecimal) {
-            return new DecimalLiteral((BigDecimal) value);
-        } else if (value instanceof Boolean) {
             if (Config.enable_decimal_conversion) {
                 return new DecimalV3Literal((BigDecimal) value);
             } else {
                 return new DecimalLiteral((BigDecimal) value);
             }
+        } else if (value instanceof Boolean) {
+            return BooleanLiteral.of((Boolean) value);
         } else if (value instanceof String) {
             return new StringLiteral((String) value);
         } else {
