@@ -101,7 +101,7 @@ public class ConstantExpressTest {
 
         testConstantExpressResult(
                 "select UNIX_TIMESTAMP(\"1970-01-01 08:00:01\");",
-                "");
+                "1");
 
         testConstantExpressResult(
                 "select now();",
