@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
@@ -46,12 +48,14 @@ import java.util.Set;
 public class CheckAnalysis implements AnalysisRuleFactory {
 
     private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
-            UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.of(
-                    LogicalFilter.class, ImmutableSet.of(
-                            AggregateFunction.class,
-                            GroupingScalarFunction.class,
-                            WindowExpression.class)
-    );
+            UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.<Class<? extends LogicalPlan>,
+                Set<Class<? extends Expression>>>builder()
+            .put(LogicalFilter.class, ImmutableSet.of(
+                AggregateFunction.class,
+                GroupingScalarFunction.class,
+                WindowExpression.class))
+            .put(LogicalJoin.class, ImmutableSet.of(SubqueryExpr.class))
+            .build();
 
     @Override
     public List<Rule> buildRules() {
