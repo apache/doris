@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
+import org.apache.doris.nereids.rules.analysis.UdfBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -89,7 +90,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
         // bind function, we select builtin function first, if not found, consider it's an alias function.
         // FunctionRegistry only support builtin functions.
-        FunctionRegistry functionRegistry = context.getConnectContext().getEnv().getFunctionRegistry();
         String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
