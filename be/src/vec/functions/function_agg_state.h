@@ -70,7 +70,9 @@ public:
         for (size_t i = 0; i < arguments.size(); i++) {
             DataTypePtr signature =
                     assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
-            ColumnPtr column = block.get_by_position(arguments[i]).column;
+            ColumnPtr column =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            save_columns.push_back(column);
 
             if (!signature->is_nullable() && column->is_nullable()) {
                 return Status::InternalError(
