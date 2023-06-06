@@ -344,6 +344,9 @@ inline bool is_array(const DataTypePtr& data_type) {
 inline bool is_map(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_map();
 }
+inline bool is_struct(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_struct();
+}
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();
 }
