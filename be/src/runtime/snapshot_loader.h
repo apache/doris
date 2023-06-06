@@ -80,7 +80,7 @@ public:
                     std::vector<int64_t>* downloaded_tablet_ids);
 
     Status remote_http_download(const std::vector<TRemoteTabletSnapshot>& remote_tablets,
-                                       std::vector<int64_t>* downloaded_tablet_ids);
+                                std::vector<int64_t>* downloaded_tablet_ids);
 
     Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
 
