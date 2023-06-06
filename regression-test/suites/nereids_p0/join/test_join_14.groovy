@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join_13", "nereids_p0") {
+suite("test_join_14", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql 'set parallel_fragment_exec_instance_num = 2;'

@@ -123,7 +123,7 @@ suite("test_join", "nereids_p0") {
     List selected =  ["a.k1, b.k1, a.k2, b.k2, a.k3, b.k3", "count(a.k1), count(b.k1), count(a.k2), count(b.k2), count(*)"]
     List join_types = ["inner", "left outer", "right outer", ""]
 
-    for( i in selected) {
+    for (i in selected) {
         qt_join28"""select ${i} from ${tbName1} a join ${tbName2} b 
                 on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
         qt_join29"""select ${i} from ${tbName1} a join ${tbName2} b 
@@ -224,6 +224,8 @@ suite("test_join", "nereids_p0") {
        <=> ifnull(b.k5,null) order by a.k1, a.k2, a.k3, b.k1, b.k2"""
     sql"drop table ${table_1}"
     sql"drop table ${table_2}"
+
+
 
     // join null string
     def table_3 = "table_join_null_string_1"
