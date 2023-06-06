@@ -125,7 +125,7 @@ struct OpenMapImpl<operation, ColumnString> {
                     auto& dst_col = static_cast<ColumnString&>(*dst.nested_col);
                     StringRef key = entry.get_first();
                     ++dst_off;
-                    dst_col.insert_data(key.data, key.size);
+                    dst_col.insert_data(key.data(), key.size());
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);
                     }
