@@ -143,9 +143,5 @@ suite("test_es_query_no_http_url", "p0") {
         // es8
         sql """switch es8"""
         order_qt_sql81 """select * from test1 where test2='text#1'"""
-
-        sql """drop catalog if exists es6;"""
-        sql """drop catalog if exists es7;"""
-        sql """drop catalog if exists es8;"""
     }
 }

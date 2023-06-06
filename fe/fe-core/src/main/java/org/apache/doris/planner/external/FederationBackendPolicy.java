@@ -66,6 +66,10 @@ public class FederationBackendPolicy {
                 .assignExpectBeNum(Config.min_backend_num_for_external_table)
                 .addPreLocations(preLocations)
                 .build();
+        init(policy);
+    }
+
+    public void init(BeSelectionPolicy policy) throws UserException {
         backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
