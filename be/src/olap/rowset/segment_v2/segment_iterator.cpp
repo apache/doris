@@ -1262,9 +1262,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->get_filter_id() != -1) {
-                    _filter_info_id.push_back(predicate);
-                }
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1642,8 +1640,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto p : _filter_info_id) {
         _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
     }
-    _opts.stats->short_circuit_cond_input_rows += original_size;
-    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 
