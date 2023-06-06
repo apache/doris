@@ -334,7 +334,7 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
 
-## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
+## 使用FlinkSQL通过CDC接入Doris示例（支持Insert/Update/Delete事件）
 ```sql
 -- enable checkpoint
 SET 'execution.checkpointing.interval' = '10s';
@@ -372,6 +372,57 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## 使用FlinkCDC接入多表或整库示例
+### 语法
+```
+<FLINK_HOME>/bin/flink run \
+    -c org.apache.doris.flink.tools.cdc.CdcTools \
+    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+    mysql-sync-database \
+    --database <doris-database-name> \
+    [--job-name <flink-job-name>] \
+    [--table-prefix <doris-table-prefix>] \
+    [--table-suffix <doris-table-suffix>] \
+    [--including-tables <mysql-table-name|name-regular-expr>] \
+    [--excluding-tables <mysql-table-name|name-regular-expr>] \
+    --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
+    --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
+    [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
+```
+
+- **--job-name** Flink任务名称, 非必需。
+- **--database** 同步到Doris的数据库名。
+- **--table-prefix**  Doris表前缀名，例如 --table-prefix ods_。
+- **--table-suffix** 同上，Doris表的后缀名。
+- **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
+- **--excluding-tables** 不需要同步的表，用法同上。
+- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。
+- **--sink-conf** Doris Sink 的所有配置，可以在这里查看完整的配置项。
+- **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
+
+### 示例
+```
+<FLINK_HOME>/bin/flink run \
+    -Dexecution.checkpointing.interval=10s \
+    -Dparallelism.default=1 \
+    -c org.apache.doris.flink.tools.cdc.CdcTools \
+    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+    mysql-sync-database \
+    --database test_db \
+    --mysql-conf hostname=127.0.0.1 \
+    --mysql-conf username=root \
+    --mysql-conf password=123456 \
+    --mysql-conf database-name=mysql_db \
+    --including-tables "tbl1|test.*" \
+    --sink-conf fenodes=127.0.0.1:8030 \
+    --sink-conf username=root \
+    --sink-conf password=123456 \
+    --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+    --sink-conf sink.label-prefix=label \
+    --table-conf replication_num=1 
+```
+
 
 ## 使用FlinkCDC更新Key列
 一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
