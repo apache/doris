@@ -206,7 +206,7 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNamePk}
-                            WHERE
+                            GROUP BY
                             l_returnflag,
                             l_linestatus
                             ORDER BY
@@ -226,7 +226,7 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNameUk}
-                            WHERE
+                            GROUP BY
                             l_returnflag,
                             l_linestatus
                             ORDER BY
