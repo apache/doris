@@ -1519,7 +1519,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         }
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id
-                  << ", canceled all node channels due to error: " << status;
+                  << ", cancelled all node channels due to error: " << status;
     }
 
     // Sender join() must put after node channels mark_close/cancel.

@@ -46,7 +46,7 @@ public:
     void push_free_block(std::unique_ptr<vectorized::Block> output_block, int child_idx = 0);
 
     void set_finish(int child_idx = 0);
-    void set_canceled(int child_idx = 0); // should set before finish
+    void set_cancelled(int child_idx = 0); // should set before finish
     bool is_finish(int child_idx = 0);
     bool is_all_finish();
 
@@ -69,7 +69,7 @@ private:
     //how many deque will be init, always will be one
     int _child_count = 0;
     std::deque<std::atomic<bool>> _is_finished;
-    std::deque<std::atomic<bool>> _is_canceled;
+    std::deque<std::atomic<bool>> _is_cancelled;
     // int64_t just for counter of profile
     std::deque<std::atomic<int64_t>> _cur_bytes_in_queue;
     std::deque<std::atomic<uint32_t>> _cur_blocks_nums_in_queue;

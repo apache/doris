@@ -91,7 +91,7 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_cancelled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
@@ -122,7 +122,7 @@ public:
     Status execute();
 
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
-    bool is_canceled() { return _cancelled; }
+    bool is_cancelled() { return _cancelled; }
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
@@ -311,7 +311,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
-    INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
+    INT_UGAUGE_METRIC_REGISTER(_entity, timeout_cancelled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() { return _fragment_map.size(); });
 
     auto s = Thread::create(
@@ -1009,19 +1009,19 @@ void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCan
     }
 }
 
-bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
+bool FragmentMgr::query_is_cancelled(const TUniqueId& query_id) {
     std::lock_guard<std::mutex> lock(_lock);
     auto ctx = _query_ctx_map.find(query_id);
     if (ctx != _query_ctx_map.end()) {
         for (auto it : ctx->second->fragment_ids) {
             auto exec_state_iter = _fragment_map.find(it);
             if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
-                return exec_state_iter->second->is_canceled();
+                return exec_state_iter->second->is_cancelled();
             }
 
             auto pipeline_ctx_iter = _pipeline_map.find(it);
             if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
-                return pipeline_ctx_iter->second->is_canceled();
+                return pipeline_ctx_iter->second->is_cancelled();
             }
         }
     }
@@ -1049,7 +1049,7 @@ void FragmentMgr::cancel_worker() {
                 }
             }
         }
-        timeout_canceled_fragment_count->increment(to_cancel.size());
+        timeout_cancelled_fragment_count->increment(to_cancel.size());
         for (auto& id : to_cancel) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "

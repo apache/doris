@@ -78,7 +78,7 @@ public:
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     // should be protected by lock?
-    bool is_canceled() const { return _runtime_state->is_cancelled(); }
+    bool is_cancelled() const { return _runtime_state->is_cancelled(); }
 
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 

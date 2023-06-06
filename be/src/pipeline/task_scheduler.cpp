@@ -117,12 +117,12 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks,
                                    PipelineTaskState::PENDING_FINISH);
                 }
-            } else if (task->fragment_context()->is_canceled()) {
+            } else if (task->fragment_context()->is_cancelled()) {
                 std::string task_ds;
 #ifndef NDEBUG
                 task_ds = task->debug_string();
 #endif
-                LOG(WARNING) << "Canceled, query_id=" << print_id(task->query_context()->query_id)
+                LOG(WARNING) << "Cancelled, query_id=" << print_id(task->query_context()->query_id)
                              << ", instance_id="
                              << print_id(task->fragment_context()->get_fragment_instance_id())
                              << (task_ds.empty() ? "" : task_ds);
@@ -252,27 +252,27 @@ void TaskScheduler::_do_work(size_t index) {
         auto* fragment_ctx = task->fragment_context();
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
-        bool canceled = fragment_ctx->is_canceled();
+        bool cancelled = fragment_ctx->is_cancelled();
 
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(!task->is_pending_finish()) << "must not pending close " << task->debug_string();
             _try_close_task(task,
-                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED);
+                            cancelled ? PipelineTaskState::CANCELLED : PipelineTaskState::FINISHED);
             continue;
         }
         DCHECK(check_state != PipelineTaskState::FINISHED &&
-               check_state != PipelineTaskState::CANCELED)
+               check_state != PipelineTaskState::CANCELLED)
                 << "task already finish";
 
-        if (canceled) {
+        if (cancelled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
 
-            // If pipeline is canceled caused by memory limit, we should send report to FE in order
+            // If pipeline is cancelled caused by memory limit, we should send report to FE in order
             // to cancel all pipeline tasks in this query
             fragment_ctx->send_report(true);
-            _try_close_task(task, PipelineTaskState::CANCELED);
+            _try_close_task(task, PipelineTaskState::CANCELLED);
             continue;
         }
 
@@ -287,7 +287,7 @@ void TaskScheduler::_do_work(size_t index) {
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
             fragment_ctx->send_report(true);
-            _try_close_task(task, PipelineTaskState::CANCELED);
+            _try_close_task(task, PipelineTaskState::CANCELLED);
             continue;
         }
 
@@ -299,7 +299,7 @@ void TaskScheduler::_do_work(size_t index) {
                 // execute failed，cancel all fragment
                 fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                      "finalize fail:" + status.to_string());
-                _try_close_task(task, PipelineTaskState::CANCELED);
+                _try_close_task(task, PipelineTaskState::CANCELLED);
             } else {
                 task->finish_p_dependency();
                 _try_close_task(task, PipelineTaskState::FINISHED);
@@ -326,7 +326,7 @@ void TaskScheduler::_do_work(size_t index) {
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
-    // state only should be CANCELED or FINISHED
+    // state only should be CANCELLED or FINISHED
     task->try_close();
     if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
@@ -343,7 +343,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         }
         task->set_state(state);
         // TODO: rethink the logic
-        if (state == PipelineTaskState::CANCELED) {
+        if (state == PipelineTaskState::CANCELLED) {
             task->finish_p_dependency();
         }
         task->fragment_context()->close_a_pipeline();

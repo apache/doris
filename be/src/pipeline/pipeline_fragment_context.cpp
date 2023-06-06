@@ -186,7 +186,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 }
 
 PipelinePtr PipelineFragmentContext::add_pipeline() {
-    // _prepared、_submitted, _canceled should do not add pipeline
+    // _prepared、_submitted, _cancelled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     _pipelines.emplace_back(pipeline);

@@ -74,7 +74,7 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
 Status StreamingAggSinkOperator::close(RuntimeState* state) {
     if (_data_queue && !_data_queue->is_finish()) {
         // finish should be set, if not set here means error.
-        _data_queue->set_canceled();
+        _data_queue->set_cancelled();
     }
     if (_data_queue) {
         COUNTER_SET(_queue_size_counter, _data_queue->max_size_of_queue());

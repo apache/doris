@@ -58,7 +58,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                     doris::MemInfo::refresh_interval_memory_growth += size;
                     break;
                 }
-                if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+                if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_cancelled(
                             doris::thread_context()->task_id())) {
                     wait_milliseconds = 0;
                     break;
@@ -72,7 +72,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
                     LOG(INFO) << fmt::format(
-                            "Query:{} canceled asyn, after waiting for memory 5s, {}.",
+                            "Query:{} cancel async, after waiting for memory 5s, {}.",
                             print_id(doris::thread_context()->task_id()), err_msg);
                     doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
                 } else {
@@ -106,7 +106,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
         if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query()) {
             doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
             if (!doris::enable_thread_catch_bad_alloc) {
-                LOG(INFO) << fmt::format("Query:{} canceled asyn, {}.",
+                LOG(INFO) << fmt::format("Query:{} cancelled async, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
                 doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
             } else {

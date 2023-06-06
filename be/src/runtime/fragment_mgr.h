@@ -113,7 +113,7 @@ public:
     void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
                       const std::string& msg = "");
 
-    bool query_is_canceled(const TUniqueId& query_id);
+    bool query_is_cancelled(const TUniqueId& query_id);
 
     void cancel_worker();
 
@@ -178,7 +178,7 @@ private:
     std::unique_ptr<ThreadPool> _thread_pool;
 
     std::shared_ptr<MetricEntity> _entity = nullptr;
-    UIntGauge* timeout_canceled_fragment_count = nullptr;
+    UIntGauge* timeout_cancelled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
 };

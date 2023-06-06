@@ -37,14 +37,14 @@ DataQueue::DataQueue(int child_count) {
     _queue_blocks_lock.resize(child_count);
     _free_blocks_lock.resize(child_count);
     _is_finished.resize(child_count);
-    _is_canceled.resize(child_count);
+    _is_cancelled.resize(child_count);
     _cur_bytes_in_queue.resize(child_count);
     _cur_blocks_nums_in_queue.resize(child_count);
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
         _free_blocks_lock[i].reset(new std::mutex());
         _is_finished[i] = false;
-        _is_canceled[i] = false;
+        _is_cancelled[i] = false;
         _cur_bytes_in_queue[i] = 0;
         _cur_blocks_nums_in_queue[i] = 0;
     }
@@ -98,8 +98,8 @@ bool DataQueue::remaining_has_data() {
 //will be set idx in remaining_has_data function
 Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* output_block,
                                        int* child_idx) {
-    if (_is_canceled[_flag_queue_idx]) {
-        return Status::InternalError("Current queue of idx {} have beed canceled: ",
+    if (_is_cancelled[_flag_queue_idx]) {
+        return Status::InternalError("Current queue of idx {} have beed cancelled: ",
                                      _flag_queue_idx);
     }
 
@@ -141,9 +141,9 @@ void DataQueue::set_finish(int child_idx) {
     _is_finished[child_idx] = true;
 }
 
-void DataQueue::set_canceled(int child_idx) {
+void DataQueue::set_cancelled(int child_idx) {
     DCHECK(!_is_finished[child_idx]);
-    _is_canceled[child_idx] = true;
+    _is_cancelled[child_idx] = true;
     _is_finished[child_idx] = true;
 }
 

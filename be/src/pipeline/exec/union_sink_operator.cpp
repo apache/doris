@@ -89,7 +89,7 @@ Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
 Status UnionSinkOperator::close(RuntimeState* state) {
     if (_data_queue && !_data_queue->is_finish(_cur_child_id)) {
         // finish should be set, if not set here means error.
-        _data_queue->set_canceled(_cur_child_id);
+        _data_queue->set_cancelled(_cur_child_id);
     }
     return StreamingOperator::close(state);
 }

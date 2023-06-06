@@ -1154,7 +1154,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                    << rs_reader->version().second;
     }
 
-    // XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
+    // XXX:The SchemaChange state should not be cancelled at this time, because the new Delta has to be converted to the old and new Schema version
     return process_alter_exit();
 }
 

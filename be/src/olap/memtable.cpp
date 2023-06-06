@@ -154,7 +154,7 @@ MemTable::~MemTable() {
                 continue;
             }
             // We should release agg_places here, because they are not released when a
-            // load is canceled.
+            // load is cancelled.
             for (size_t i = _schema->num_key_columns(); i < _num_columns; ++i) {
                 auto function = _agg_functions[i];
                 DCHECK(function != nullptr);

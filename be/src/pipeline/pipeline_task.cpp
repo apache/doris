@@ -118,7 +118,7 @@ bool PipelineTask::has_dependency() {
     if (_dependency_finish) {
         return false;
     }
-    if (_fragment_context->is_canceled()) {
+    if (_fragment_context->is_cancelled()) {
         _dependency_finish = true;
         return false;
     }
@@ -193,7 +193,7 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
-    while (!_fragment_context->is_canceled()) {
+    while (!_fragment_context->is_cancelled()) {
         if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;

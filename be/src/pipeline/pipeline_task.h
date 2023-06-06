@@ -49,7 +49,7 @@ namespace doris::pipeline {
  *
  *                 |-----------------------------------------------------|
  *                 |---|                  transfer 2    transfer 3       |   transfer 4
- *                     |-------> BLOCKED ------------|                   |---------------------------------------> CANCELED
+ *                     |-------> BLOCKED ------------|                   |---------------------------------------> CANCELLED
  *              |------|                             |                   | transfer 5           transfer 6|
  * NOT_READY ---| transfer 0                         |-----> RUNNABLE ---|---------> PENDING_FINISH ------|
  *              |                                    |          ^        |                      transfer 7|
@@ -61,9 +61,9 @@ namespace doris::pipeline {
  * transfer 1 (NOT_READY -> RUNNABLE): this pipeline task has no incomplete dependencies
  * transfer 2 (BLOCKED -> RUNNABLE): runnable condition for this pipeline task is met (e.g. get a new block from rpc)
  * transfer 3 (RUNNABLE -> BLOCKED): runnable condition for this pipeline task is not met (e.g. sink operator send a block by RPC and wait for a response)
- * transfer 4 (RUNNABLE -> CANCELED): current fragment is cancelled
+ * transfer 4 (RUNNABLE -> CANCELLED): current fragment is cancelled
  * transfer 5 (RUNNABLE -> PENDING_FINISH): this pipeline task completed but wait for releasing resources hold by itself
- * transfer 6 (PENDING_FINISH -> CANCELED): current fragment is cancelled
+ * transfer 6 (PENDING_FINISH -> CANCELLED): current fragment is cancelled
  * transfer 7 (PENDING_FINISH -> FINISHED): this pipeline task completed and resources hold by itself have been released already
  * transfer 8 (RUNNABLE -> FINISHED): this pipeline task completed and no resource need to be released
  * transfer 9 (RUNNABLE -> RUNNABLE): this pipeline task yields CPU and re-enters the runnable queue if it is runnable and has occupied CPU for a max time slice
@@ -77,7 +77,7 @@ enum class PipelineTaskState : uint8_t {
     PENDING_FINISH =
             5, // compute task is over, but still hold resource. like some scan and sink task
     FINISHED = 6,
-    CANCELED = 7,
+    CANCELLED = 7,
     BLOCKED_FOR_RF = 8,
 };
 
@@ -97,8 +97,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
         return "PENDING_FINISH";
     case PipelineTaskState::FINISHED:
         return "FINISHED";
-    case PipelineTaskState::CANCELED:
-        return "CANCELED";
+    case PipelineTaskState::CANCELLED:
+        return "CANCELLED";
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
     }
