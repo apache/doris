@@ -47,9 +47,10 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.1.1     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1     | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
 
 ## 编译与安装
 
@@ -309,8 +310,9 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 | sink.properties.*                | --                 | N        | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' 定义列分隔符，  'sink.properties.escape_delimiters' = 'true' 特殊字符作为分隔符,'\x01'会被转换为二进制的0x01  <br/><br/>JSON格式导入<br/>'sink.properties.format' = 'json' 'sink.properties.read_json_by_line' = 'true' |
 | sink.enable-delete               | TRUE               | N        | 是否启用删除。此选项需要 Doris 表开启批量删除功能(Doris0.15+版本默认开启)，只支持 Unique 模型。 |
 | sink.enable-2pc                  | TRUE               | N        | 是否开启两阶段提交(2pc)，默认为true，保证Exactly-Once语义。关于两阶段提交可参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
-
-
+| sink.buffer-size                 | 1MB                | N        | 写数据缓存buffer大小，单位字节。不建议修改，默认配置即可     |
+| sink.buffer-count                | 3                  | N        | 写数据缓存buffer个数。不建议修改，默认配置即可               |
+| sink.max-retries                 | 3                  | N        | Commit失败后的最大重试次数，默认3次                          |
 
 ## Doris 和 Flink 列类型映射关系
 
