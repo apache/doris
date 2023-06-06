@@ -38,9 +38,9 @@ import java.util.List;
 public class ToDays extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE)
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE)
     );
 
     /**
