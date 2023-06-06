@@ -1961,6 +1961,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
+        tResult.setEnableInsertStrict(enableInsertStrict);
+
         return tResult;
     }
 
