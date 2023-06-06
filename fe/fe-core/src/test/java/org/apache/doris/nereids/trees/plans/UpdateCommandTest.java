@@ -69,14 +69,14 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testSimpleUpdate() throws AnalysisException {
+    public void testSimpleUpdate() {
         String sql = "update t1 set v1 = v1 + 2, v2 = v1 * 2 where k1 = 3";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.completeQueryPlan(connectContext);
-        PlanChecker.from(connectContext, command.getLogicalQuery())
-                .analyze(command.getLogicalQuery())
+        LogicalPlan plan = command.getLogicalQuery(connectContext);
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
                 .rewrite()
                 .matches(
                         logicalOlapTableSink(
@@ -90,15 +90,15 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testFromClauseUpdate() throws AnalysisException {
+    public void testFromClauseUpdate() {
         String sql = "update t1 a set v1 = t2.v1 + 2, v2 = a.v1 * 2 "
                 + "from src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof UpdateCommand);
         UpdateCommand command = ((UpdateCommand) parsed);
-        command.completeQueryPlan(connectContext);
-        PlanChecker.from(connectContext, command.getLogicalQuery())
-                .analyze(command.getLogicalQuery())
+        LogicalPlan plan = command.getLogicalQuery(connectContext);
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
                 .rewrite()
                 .matches(
                         logicalOlapTableSink(

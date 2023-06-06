@@ -71,7 +71,7 @@ public class ExplainCommand extends Command implements NoForward {
         if (!(logicalPlan instanceof Explainable)) {
             throw new AnalysisException("explain a plan cannot be explained");
         }
-        explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan());
+        explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan(ctx));
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
         logicalPlanAdapter.setIsExplain(new ExplainOptions(level));
         executor.setParsedStmt(logicalPlanAdapter);

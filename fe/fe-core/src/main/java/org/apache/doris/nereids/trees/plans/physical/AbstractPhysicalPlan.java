@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.Optional;
@@ -57,7 +58,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     }
 
     @Override
-    public Plan getExplainPlan() {
+    public Plan getExplainPlan(ConnectContext ctx) {
         return this;
     }
 }

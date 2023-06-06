@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -85,15 +86,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        completeQueryPlan(ctx);
-
-        new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
+        new InsertIntoTableCommand(getLogicalQuery(ctx), null).run(ctx, executor);
     }
 
-    /**
-     * public for test
-     */
-    public void completeQueryPlan(ConnectContext ctx) throws AnalysisException {
+    private void completeQueryPlan(ConnectContext ctx) throws AnalysisException {
         checkTable(ctx);
 
         Map<String, Expression> colNameToExpression = Maps.newHashMap();
@@ -102,6 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
+        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
             if (!column.isVisible()) {
                 continue;
@@ -112,10 +109,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         ? ((NamedExpression) expr)
                         : new Alias(expr, expr.toSql()));
             } else {
-                selectItems.add(new UnboundSlot(
-                        tableAlias != null
-                                ? tableAlias
-                                : targetTable.getName(), column.getName()));
+                selectItems.add(new UnboundSlot(tableName, column.getName()));
             }
         }
 
@@ -143,14 +137,23 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
     }
 
-    public LogicalPlan getLogicalQuery() {
-        return logicalQuery;
+    /**
+     * compute complete logical query
+     */
+    public LogicalPlan getLogicalQuery(ConnectContext ctx) {
+        return Suppliers.memoize(() -> {
+            try {
+                completeQueryPlan(ctx);
+            } catch (AnalysisException e) {
+                throw new RuntimeException(e);
+            }
+            return logicalQuery;
+        }).get();
     }
 
     @Override
-    public Plan getExplainPlan() throws Exception {
-        completeQueryPlan(ConnectContext.get());
-        return getLogicalQuery();
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return getLogicalQuery(ctx);
     }
 
     @Override

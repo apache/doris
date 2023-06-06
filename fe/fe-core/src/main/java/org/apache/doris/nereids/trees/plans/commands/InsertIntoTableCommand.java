@@ -154,7 +154,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     }
 
     @Override
-    public Plan getExplainPlan() {
+    public Plan getExplainPlan(ConnectContext ctx) {
         return this.logicalQuery;
     }
 

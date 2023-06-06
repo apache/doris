@@ -320,7 +320,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitUpdate(UpdateContext ctx) {
+    public LogicalPlan visitUpdate(UpdateContext ctx) {
         LogicalPlan query = withCheckPolicy(new UnboundRelation(
                 RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());

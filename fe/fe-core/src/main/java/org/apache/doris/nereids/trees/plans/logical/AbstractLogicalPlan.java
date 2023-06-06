@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -66,7 +67,7 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
     }
 
     @Override
-    public Plan getExplainPlan() {
+    public Plan getExplainPlan(ConnectContext ctx) {
         return this;
     }
 }

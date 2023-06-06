@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.qe.ConnectContext;
+
 /**
  * plan can be explained.
  */
 public interface Explainable {
-    Plan getExplainPlan() throws Exception;
+    Plan getExplainPlan(ConnectContext ctx) throws Exception;
 }
