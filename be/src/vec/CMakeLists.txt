@@ -216,6 +216,7 @@ set(VEC_FILES
   functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
+  functions/function_struct_element.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
