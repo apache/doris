@@ -62,6 +62,7 @@
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/paimon_reader.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -599,6 +600,13 @@ Status VFileScanner::_get_next_reader() {
                         mc_desc, _file_slot_descs, range, _state, _profile);
                 init_status = mc_reader->init_reader(_colname_to_value_range);
                 _cur_reader = std::move(mc_reader);
+            }
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                _cur_reader =
+                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((PaimonJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
             }
             break;
         }
