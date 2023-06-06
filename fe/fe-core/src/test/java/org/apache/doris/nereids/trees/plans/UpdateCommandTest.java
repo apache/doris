@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
