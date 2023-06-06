@@ -163,9 +163,9 @@ _main() {
         if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
           add_priority_networks $PRIORITY_NETWORKS
           node_role_conf
+          show_be_args
+          register_be_to_fe
         fi
-        show_be_args
-        register_be_to_fe
         check_be_status
         doris_note "Ready to start BE！"
         start_be.sh &
