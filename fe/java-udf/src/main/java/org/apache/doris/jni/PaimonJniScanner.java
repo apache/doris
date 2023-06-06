@@ -46,6 +46,7 @@ import org.apache.paimon.table.source.TableRead;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
 
 
@@ -104,7 +105,8 @@ public class PaimonJniScanner extends JniScanner {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        ReadBuilder readBuilder = table.newReadBuilder();
+        ReadBuilder readBuilder = table.newReadBuilder()
+                                    .withProjection(Arrays.stream(ids).mapToInt(Integer::parseInt).toArray());
         TableRead read = readBuilder.newRead();
         reader = read.createReader(paimonInputSplit.split());
     }
@@ -118,13 +120,13 @@ public class PaimonJniScanner extends JniScanner {
     protected int getNext() throws IOException {
         int rows = 0;
         try {
-            RecordReader.RecordIterator batch;
+            RecordReader.RecordIterator<InternalRow> batch;
             while ((batch = reader.readBatch()) != null) {
                 Object record;
                 while ((record = batch.next()) != null) {
                     columnValue.setOffsetRow((ColumnarRow) record);
                     for (int i = 0; i < ids.length; i++) {
-                        columnValue.setIdx(Integer.parseInt(ids[i]));
+                        columnValue.setIdx(i);
                         appendData(i, columnValue);
                     }
                     rows++;
