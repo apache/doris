@@ -434,6 +434,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
     _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
     _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
@@ -457,6 +458,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
+    _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
+    _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -744,14 +747,15 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
@@ -777,8 +781,10 @@ void HashJoinNode::release_resource(RuntimeState* state) {
 }
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
-    RETURN_IF_ERROR(child(1)->open(state));
-
+    {
+        SCOPED_TIMER(_build_get_next_timer);
+        RETURN_IF_ERROR(child(1)->open(state));
+    }
     if (_should_build_hash_table) {
         bool eos = false;
         Block block;
@@ -787,14 +793,15 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         while (!eos && !_short_circuit_for_null_in_probe_side) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
-
-            RETURN_IF_ERROR(child(1)->get_next_after_projects(
-                    state, &block, &eos,
-                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                      ExecNode::get_next,
-                              _children[1], std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)));
-
+            {
+                SCOPED_TIMER(_build_get_next_timer);
+                RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[1], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)));
+            }
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
         RETURN_IF_ERROR(child(1)->close(state));
