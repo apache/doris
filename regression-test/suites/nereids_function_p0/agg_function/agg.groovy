@@ -2735,4 +2735,6 @@ suite("nereids_agg_fn") {
 	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test'''
 
+	qt_max_null "select max(null) from fn_test;"
+
 }
