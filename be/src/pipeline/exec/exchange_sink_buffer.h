@@ -32,8 +32,8 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
-#include "service/backend_options.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 
 namespace doris {
 class PTransmitDataParams;
