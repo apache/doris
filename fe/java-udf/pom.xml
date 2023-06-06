@@ -37,6 +37,7 @@ under the License.
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <hudi.version>0.12.2</hudi.version>
+        <paimon.version>0.4-SNAPSHOT</paimon.version>
     </properties>
 
     <dependencies>
@@ -49,6 +50,21 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-bundle</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-2.3</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+        <dependency>
+            <artifactId>hive-common</artifactId>
+            <groupId>org.apache.hive</groupId>
+            <version>2.3.9</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -162,10 +178,7 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
-        </dependency>
+
     </dependencies>
     <build>
         <finalName>java-udf</finalName>
