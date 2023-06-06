@@ -1793,7 +1793,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-有些场景下集群出现了不可恢复的元数据问题，且数据的visibleversion 已经和be 不匹配，
+有些场景下集群出现了不可恢复的元数据问题，且数据的visibleversion已经和be不匹配，
 
 这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
 
