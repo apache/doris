@@ -68,6 +68,9 @@ private:
     RuntimeState* _state = nullptr;
     PipelineFragmentContext* _context;
     int _mult_cast_id = -1;
+
+    RuntimeProfile::Counter* _max_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _min_rpc_timer = nullptr;
 };
 
 } // namespace pipeline
