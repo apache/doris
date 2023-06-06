@@ -50,8 +50,6 @@ struct PageReadOptions {
     BlockCompressionCodec* codec = nullptr;
     // used to collect IO metrics
     OlapReaderStatistics* stats = nullptr;
-    // whether to verify page checksum
-    bool verify_checksum = true;
     // whether to use page cache in read path
     bool use_page_cache = false;
     // if true, use DURABLE CachePriority in page cache

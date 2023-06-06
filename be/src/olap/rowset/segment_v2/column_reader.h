@@ -74,10 +74,10 @@ class RowRanges;
 class ZoneMapIndexReader;
 
 struct ColumnReaderOptions {
-    // whether verify checksum when read page
-    bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    bool use_page_cache = false;
 };
 
 struct ColumnIteratorOptions {
@@ -173,7 +173,9 @@ public:
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
 
-    void disable_index_meta_cache() { _use_index_page_cache = false; }
+    void update_opts(const ColumnIteratorOptions& opts) {
+        _opts.use_page_cache = opts.use_page_cache;
+    }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
@@ -223,8 +225,6 @@ private:
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
-
-    bool _use_index_page_cache;
 
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;

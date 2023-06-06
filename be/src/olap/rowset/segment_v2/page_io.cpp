@@ -154,13 +154,11 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         opts.stats->compressed_bytes_read += page_size;
     }
 
-    if (opts.verify_checksum) {
-        uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
-        uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
-        if (expect != actual) {
-            return Status::Corruption("Bad page: checksum mismatch (actual={} vs expect={})",
-                                      actual, expect);
-        }
+    uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
+    uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
+    if (expect != actual) {
+        return Status::Corruption("Bad page: checksum mismatch (actual={} vs expect={})", actual,
+                                  expect);
     }
 
     // remove checksum suffix

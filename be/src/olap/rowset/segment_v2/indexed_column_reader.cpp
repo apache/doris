@@ -35,8 +35,6 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
-using strings::Substitute;
-
 Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     _use_page_cache = use_page_cache;
     _kept_in_memory = kept_in_memory;
