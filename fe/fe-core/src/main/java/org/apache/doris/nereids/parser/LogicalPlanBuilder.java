@@ -102,6 +102,9 @@ import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
 import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
+import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
+import org.apache.doris.nereids.DorisParser.UpdateContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -210,6 +213,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -313,6 +317,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return withExplain(sink, ctx.explain());
         }
         return new InsertIntoTableCommand(sink, labelName);
+    }
+
+    @Override
+    public LogicalPlan visitUpdate(UpdateContext ctx) {
+        LogicalPlan query = withCheckPolicy(new UnboundRelation(
+                RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
+        query = withTableAlias(query, ctx.tableAlias());
+        if (ctx.fromClause() != null) {
+            query = withRelations(query, ctx.fromClause());
+        }
+        query = withFilter(query, Optional.of(ctx.whereClause()));
+        String tableAlias = null;
+        if (ctx.tableAlias().strictIdentifier() != null) {
+            tableAlias = ctx.tableAlias().getText();
+        }
+        return withExplain(new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query), ctx.explain());
     }
 
     /**
@@ -1269,25 +1290,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan left = null;
-            for (RelationContext relation : ctx.relation()) {
-                // build left deep join tree
-                LogicalPlan right = visitRelation(relation);
-                left = (left == null) ? right :
-                        new LogicalJoin<>(
-                                JoinType.CROSS_JOIN,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                JoinHint.NONE,
-                                Optional.empty(),
-                                left,
-                                right);
-                left = withJoinRelations(left, relation);
-                // TODO: pivot and lateral view
-            }
-            return left;
-        });
+        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx));
     }
 
     /* ********************************************************************************************
@@ -1317,6 +1320,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.ident.stream()
             .map(RuleContext::getText)
             .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public EqualTo visitUpdateAssignment(UpdateAssignmentContext ctx) {
+        return new EqualTo(new UnboundSlot(visitMultipartIdentifier(ctx.multipartIdentifier())),
+                getExpression(ctx.expression()));
+    }
+
+    @Override
+    public List<EqualTo> visitUpdateAssignmentSeq(UpdateAssignmentSeqContext ctx) {
+        return ctx.assignments.stream()
+                .map(this::visitUpdateAssignment)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -1625,6 +1641,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
         });
+    }
+
+    private LogicalPlan withRelations(LogicalPlan inputPlan, FromClauseContext ctx) {
+        LogicalPlan left = inputPlan;
+        for (RelationContext relation : ctx.relation()) {
+            // build left deep join tree
+            LogicalPlan right = visitRelation(relation);
+            left = (left == null) ? right :
+                    new LogicalJoin<>(
+                            JoinType.CROSS_JOIN,
+                            ExpressionUtils.EMPTY_CONDITION,
+                            ExpressionUtils.EMPTY_CONDITION,
+                            JoinHint.NONE,
+                            Optional.empty(),
+                            left,
+                            right);
+            left = withJoinRelations(left, relation);
+            // TODO: pivot and lateral view
+        }
+        return left;
     }
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
