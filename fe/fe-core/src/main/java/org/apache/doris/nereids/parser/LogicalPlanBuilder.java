@@ -37,6 +37,7 @@ import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.CreateFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
+import org.apache.doris.nereids.DorisParser.PropertyContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
@@ -209,6 +211,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -303,6 +306,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
         return withExplain(plan, ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitCreateFunction(CreateFunctionContext ctx) {
+        return new CreateFunctionCommand(
+                ctx.GLOBAL() != null,
+                ctx.AGGREGATE() != null,
+                ctx.ALIAS() != null,
+                visitMultipartIdentifier(ctx.funcName),
+                visitIdentifierList(ctx.argTypes),
+                ctx.retType.getText(),
+                ctx.interType.getText(),
+                visitIdentifierList(ctx.params),
+                getExpression(ctx.expression()),
+                ctx.properties.stream().map(this::visitProperty)
+                        .collect(Collectors.toMap(pair -> pair.first, pair -> pair.second, (v1, v2) -> v2))
+        );
     }
 
     @Override
@@ -1333,6 +1353,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.assignments.stream()
                 .map(this::visitUpdateAssignment)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Pair<String, String> visitProperty(PropertyContext ctx) {
+        return Pair.of(ctx.key.getText(), ctx.value.getText());
     }
 
     /**

@@ -112,6 +112,24 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C> {
         return visit(command, context);
     }
 
+    public R visitExplainCommand(ExplainCommand explain, C context) {
+        return visitCommand(explain, context);
+    }
+
+    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
+        return visitCommand(createPolicy, context);
+    }
+
+    public R visitCreateFunctionCommand(CreateFunctionCommand createFunctionCommand,
+            C context) {
+        return visitCommand(createFunctionCommand, context);
+    }
+
+    public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
+            C context) {
+        return visit(insertIntoSelectCommand, context);
+    }
+
     // *******************************
     // Logical plans
     // *******************************

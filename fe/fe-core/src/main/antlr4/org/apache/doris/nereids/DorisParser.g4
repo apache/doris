@@ -40,7 +40,7 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | CREATE GLOBAL? AGGREGATE? ALIAS? FUNCTION funcName=identifier
+    | CREATE GLOBAL? AGGREGATE? ALIAS? FUNCTION funcName=multipartIdentifier
         argTypes=identifierList
         (RETURN retType=identifier)?
         (INTERMEDIATE interType=identifier)?
@@ -271,6 +271,7 @@ tvfPropertyItem : identifier | constant ;
 
 property
     : key=STRING EQ value=STRING
+    ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
