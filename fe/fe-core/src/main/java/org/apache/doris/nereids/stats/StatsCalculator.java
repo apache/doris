@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -109,6 +111,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
@@ -558,12 +561,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
-            if (cache == ColumnStatistic.UNKNOWN && !colName.equals("__DORIS_DELETE_SIGN__")) {
-                if (forbidUnknownColStats) {
+            if (cache.isUnKnown) {
+                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference)) {
                     if (StatisticsUtil.statsTblAvailable()) {
-                        throw new AnalysisException("column stats for " + colName
-                                + " is unknown,"
-                                + " `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
+                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
+                                + "It may caused by:\n"
+                                + "\n"
+                                + "1. This column never got analyzed\n"
+                                + "2. This table is empty\n"
+                                + "3. Stats load failed caused by unstable of backends,"
+                                + "and FE cached the unknown stats by default in this scenario\n"
+                                + "4. There is a bug, please report it to Doris community\n"
+                                + "\n"
+                                + "If an unknown stats for this column is tolerable,"
+                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
+                                + " ignore this error and keep planning.", table.getName(), colName));
                     } else {
                         throw new AnalysisException("BE is not available!");
                     }
@@ -966,5 +978,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
         return groupExpression.childStatistics(1);
+    }
+
+    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, SlotReference slot) {
+        if (tableIf instanceof SchemaTable) {
+            return true;
+        }
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            return StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(olapTable.getQualifiedDbName());
+        }
+        if (slot.getColumn().isPresent() && slot.getColumn().get().isVisible()) {
+            return true;
+        }
+        return false;
     }
 }
