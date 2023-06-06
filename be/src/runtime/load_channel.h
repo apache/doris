@@ -128,6 +128,7 @@ protected:
     Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
                        const PTabletWriterAddBlockRequest& request,
                        PTabletWriterAddBlockResult* response) {
+        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(
@@ -163,6 +164,7 @@ private:
     RuntimeProfile::Counter* _add_batch_times = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
     RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
+    RuntimeProfile::Counter* _handle_eos_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;

@@ -50,9 +50,11 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.PrivilegedAction;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -74,34 +76,60 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (dfsFileSystem != null) {
             return dfsFileSystem;
         }
-        String username = properties.get(HdfsResource.HADOOP_USER_NAME);
+
         Configuration conf = new HdfsConfiguration();
-        boolean isSecurityEnabled = false;
         for (Map.Entry<String, String> propEntry : properties.entrySet()) {
             conf.set(propEntry.getKey(), propEntry.getValue());
-            if (propEntry.getKey().equals(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
-                    && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                isSecurityEnabled = true;
-            }
         }
-        try {
-            if (isSecurityEnabled) {
-                UserGroupInformation.setConfiguration(conf);
-                UserGroupInformation.loginUserFromKeytab(
-                        properties.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL),
-                        properties.get(HdfsResource.HADOOP_KERBEROS_KEYTAB));
+
+        UserGroupInformation ugi = getUgi(conf);
+        AtomicReference<Exception> exception = new AtomicReference<>();
+
+        dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
+            try {
+                String username = properties.get(HdfsResource.HADOOP_USER_NAME);
+                if (username == null) {
+                    return FileSystem.get(new Path(remotePath).toUri(), conf);
+                } else {
+                    return FileSystem.get(new Path(remotePath).toUri(), conf, username);
+                }
+            } catch (Exception e) {
+                exception.set(e);
+                return null;
             }
-            if (username == null) {
-                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
-            } else {
-                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf, username);
-            }
-        } catch (Exception e) {
-            LOG.error("errors while connect to " + remotePath, e);
-            throw new UserException("errors while connect to " + remotePath, e);
+        });
+
+        if (dfsFileSystem == null) {
+            LOG.error("errors while connect to " + remotePath, exception.get());
+            throw new UserException("errors while connect to " + remotePath, exception.get());
         }
         operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
+    }
+
+    private UserGroupInformation getUgi(Configuration conf) throws UserException {
+        String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            conf.set("hadoop.security.authorization", "true");
+            UserGroupInformation.setConfiguration(conf);
+            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
+            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+            try {
+                UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
+                UserGroupInformation.setLoginUser(ugi);
+                LOG.info("kerberos authentication successful");
+                return ugi;
+            } catch (IOException e) {
+                throw new UserException(e);
+            }
+        } else {
+            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
+            if (hadoopUserName == null) {
+                hadoopUserName = "hadoop";
+                LOG.warn("hadoop.username is unset, use default user: hadoop");
+            }
+            return UserGroupInformation.createRemoteUser(hadoopUserName);
+        }
     }
 
     @Override
@@ -450,3 +478,4 @@ public class DFSFileSystem extends RemoteFileSystem {
         return new Status(Status.ErrCode.COMMON_ERROR, "mkdir is not implemented.");
     }
 }
+

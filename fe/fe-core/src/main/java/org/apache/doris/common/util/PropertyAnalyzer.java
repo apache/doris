@@ -121,7 +121,11 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
+
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
+
+    public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
     public static final String PROPERTIES_MUTABLE = "mutable";
 
@@ -133,6 +137,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
+
+    public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
+                                                                        "enable_duplicate_without_keys_by_default";
 
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
@@ -505,6 +512,45 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        // set enable single replica compaction false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
+                            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT
+                + " must be `true` or `false`");
+    }
+
     public static Boolean analyzeStoreRowColumn(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -521,6 +567,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_STORE_ROW_COLUMN
+                + " must be `true` or `false`");
+    }
+
+    public static Boolean analyzeSkipWriteIndexOnLoad(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        // set skip_write_index_on_load false by default
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
     }
 

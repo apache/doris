@@ -336,6 +336,10 @@ public class ExpressionUtils {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }
 
+    public static boolean hasOnlyMetricType(List<Expression> children) {
+        return children.stream().anyMatch(c -> c.getDataType().isOnlyMetricType());
+    }
+
     public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
     }

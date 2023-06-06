@@ -185,6 +185,9 @@ member: uid=jack,ou=aidp,dc=domain,dc=com
 
 假如jack还属于LDAP组doris_qa、doris_pm；Doris存在role：doris_rd、doris_qa、doris_pm，在使用LDAP验证登录后，用户不但具有该账户原有的权限，还将获得role doris_rd、doris_qa和doris_pm的权限。
 
+### LDAP信息缓存
+为了避免频繁访问LDAP服务，Doris会将LDAP信息缓存到内存中，可以通过ldap.conf中的`ldap_user_cache_timeout_s`配置项指定LDAP用户的缓存时间，默认为12小时；在修改了LDAP服务中的信息或者修改了Doris中LDAP用户组对应的Role权限后，可能因为缓存而没有及时生效，可以通过refresh ldap语句刷新缓存，详细查看[REFRESH-LDAP](../../sql-manual/sql-reference/Utility-Statements/REFRESH-LDAP.md)。
+
 ## LDAP验证的局限
 
 - 目前Doris的LDAP功能只支持明文密码验证，即用户登录时，密码在client与fe之间、fe与LDAP服务之间以明文的形式传输。

@@ -430,6 +430,7 @@ terminal String
     KW_LARGEINT,
     KW_LAST,
     KW_LATERAL,
+    KW_LDAP,
     KW_LDAP_ADMIN_PASSWORD,
     KW_LEFT,
     KW_LESS,
@@ -625,6 +626,7 @@ terminal String
     KW_WHITELIST,
     KW_WITH,
     KW_WORK,
+    KW_WORKLOAD,
     KW_WRITE,
     KW_YEAR,
     KW_MTMV,
@@ -928,7 +930,6 @@ nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
 nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
 nonterminal MVRefreshInfo opt_mv_refersh_info;
 nonterminal PartitionDesc opt_mv_partition;
-nonterminal Boolean opt_sync;
 
 
 precedence nonassoc COMMA;
@@ -1197,6 +1198,14 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
+    | KW_REFRESH KW_LDAP KW_ALL
+    {:
+        RESULT = new RefreshLdapStmt(true, "");
+    :}
+    | KW_REFRESH KW_LDAP opt_user:user
+    {:
+        RESULT = new RefreshLdapStmt(false, user);
+    :}
     ;
 
 clean_stmt ::=
@@ -1298,9 +1307,9 @@ alter_stmt ::=
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
     :}
-    | KW_ALTER KW_RESOURCE KW_GROUP ident_or_text:resourceGroupName opt_properties:properties
+    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
-        RESULT = new AlterResourceGroupStmt(resourceGroupName, properties);
+        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
     :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
@@ -1929,10 +1938,10 @@ create_stmt ::=
     {:
         RESULT = new CreateResourceStmt(false, ifNotExists, resourceName, properties);
     :}
-    /* resource group*/
-    | KW_CREATE KW_RESOURCE KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:resourceGroupName opt_properties:properties
+    /* workload group*/
+    | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
     {:
-        RESULT = new CreateResourceGroupStmt(ifNotExists, resourceGroupName, properties);
+        RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2778,7 +2787,7 @@ show_create_reporitory_stmt ::=
 // analyze statment
 analyze_stmt ::=
     // statistics
-    KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols
+    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols
       opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
@@ -2786,23 +2795,16 @@ analyze_stmt ::=
         }
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
-        }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
         }
         // Rule: If no type is specified, see if there is a specified column
         if (!properties.containsKey("analysis.type")) {
-            if ((cols == null)) {
-                properties.put("analysis.type", "INDEX");
-            } else {
-                properties.put("analysis.type", "COLUMN");
-            }
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeTblStmt(tbl, cols, analyzeProperties);
     :}
-    // histogram
-    | KW_ANALYZE opt_sync:sync KW_TABLE table_name:tbl opt_col_list:cols KW_UPDATE KW_HISTOGRAM
-      opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
             properties = Maps.newHashMap();
@@ -2810,12 +2812,28 @@ analyze_stmt ::=
         for (Map<String, String> property : withAnalysisProperties) {
             properties.putAll(property);
         }
-        if (!properties.containsKey("sync")) {
-            properties.put("sync", String.valueOf(sync));
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
         }
-        // TODO: Support materialized view
-        properties.put("analysis.type", "HISTOGRAM");
-        RESULT = new AnalyzeStmt(tbl, cols, properties);
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(ctlName, dbName, analyzeProperties);
+    :}
+    | KW_ANALYZE KW_DATABASE ident:dbName
+          opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
+    {:
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        for (Map<String, String> property : withAnalysisProperties) {
+            properties.putAll(property);
+        }
+        // Rule: If no type is specified, see if there is a specified column
+        if (!properties.containsKey("analysis.type")) {
+            properties.put("analysis.type", "FUNDAMENTALS");
+        }
+        AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
+        RESULT = new AnalyzeDBStmt(null, dbName, analyzeProperties);
     :}
     ;
 
@@ -2968,9 +2986,9 @@ drop_stmt ::=
     {:
         RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
-    | KW_DROP KW_RESOURCE KW_GROUP opt_if_exists:ifExists ident_or_text:resourceGroupName
+    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
-        RESULT = new DropResourceGroupStmt(ifExists, resourceGroupName);
+        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
     :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
@@ -3000,6 +3018,10 @@ drop_stmt ::=
     | KW_DROP KW_EXPIRED KW_STATS
     {:
         RESULT = new DropStatsStmt(true);
+    :}
+    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
+    {:
+        RESULT = new DropAnalyzeJobStmt(job_id);
     :}
     ;
 
@@ -3462,6 +3484,13 @@ column_definition ::=
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
         RESULT = columnDef;
     :}
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    {:
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
+        columnDef.setGenericAggregationName(aggType);
+        columnDef.setGenericAggregationArguments(list);
+        RESULT = columnDef;
+    :}
     ;
 
 index_definition ::=
@@ -3869,9 +3898,9 @@ show_param ::=
     {:
         RESULT = new ShowResourcesStmt(parser.where, orderByClause, limitClause);
     :}
-    | KW_RESOURCE KW_GROUPS
+    | KW_WORKLOAD KW_GROUPS
     {:
-        RESULT = new ShowResourceGroupsStmt();
+        RESULT = new ShowWorkloadGroupsStmt();
     :}
     | KW_BACKENDS
     {:
@@ -3995,6 +4024,10 @@ show_param ::=
     | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+    :}
+    | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
+    {:
+        RESULT = new ShowAnalyzeTaskStatus(jobId);
     :}
     | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
@@ -4881,9 +4914,9 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetVar(variable, expr);
     :}
-    | AT ident_or_text:var equal literal:expr
+    | AT ident_or_text:var equal expr:expr
     {:
-        RESULT = new SetVar(var, expr);
+        RESULT = new SetUserDefinedVar(var, expr);
     :}
     /* Ident */
     | AT AT variable_name:variable equal set_expr_or_default:expr
@@ -5800,6 +5833,12 @@ with_analysis_properties ::=
             put("period.seconds", String.valueOf(periodInSec.intValue()));
         }};
     :}
+    | KW_HISTOGRAM
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("analysis.type", "HISTOGRAM");
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -6328,8 +6367,8 @@ map_expr ::=
   ;
 
 struct_field ::=
-  ident:name COLON type:type
-  {: RESULT = new StructField(name, type); :}
+  ident:name COLON type:type opt_comment:comment
+  {: RESULT = new StructField(name, type, comment); :}
   ;
 
 struct_field_list ::=
@@ -6359,13 +6398,17 @@ exists_predicate ::=
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
+  | AT ident:l
+  {:
+    RESULT = new VariableExpr(l, SetType.USER);
+  :}
   | AT AT ident:l
   {:
-    RESULT = new SysVariableDesc(l);
+    RESULT = new VariableExpr(l);
   :}
   | AT AT var_ident_type:type ident:l
   {:
-    RESULT = new SysVariableDesc(l, type);
+    RESULT = new VariableExpr(l, type);
   :}
   | literal:l
   {: RESULT = l; :}
@@ -6382,11 +6425,11 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATE, new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATEV2, new StringLiteral(l)); :}
   | KW_TIMESTAMP STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATETIME, new StringLiteral(l)); :}
   | KW_EXTRACT LPAREN function_name:fn_name KW_FROM func_arg_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, exprs); :}
   //| function_name:fn_name LPAREN RPAREN
@@ -7092,16 +7135,6 @@ type_func_name_keyword ::=
     {: RESULT = id; :}
     ;
 
-opt_sync ::=
-    {:
-        RESULT = false;
-    :}
-    | KW_SYNC
-    {:
-        RESULT = true;
-    :}
-    ;
-
 // Keyword that we allow for identifiers
 keyword ::=
     KW_AFTER:id
@@ -7339,6 +7372,8 @@ keyword ::=
     | KW_PASSWORD_HISTORY:id
     {: RESULT = id; :}
     | KW_PASSWORD_LOCK_TIME:id
+    {: RESULT = id; :}
+    | KW_LDAP:id
     {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}

@@ -51,7 +51,7 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
 
-                if (!checkTopN4PartitionLimitPushDown(topn, windowExprId)) {
+                if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
@@ -71,7 +71,7 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
 
-                if (!checkTopN4PartitionLimitPushDown(topn, windowExprId)) {
+                if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
@@ -96,7 +96,7 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
         return windowExpr.getExprId();
     }
 
-    private boolean checkTopN4PartitionLimitPushDown(LogicalTopN<?> topn, ExprId slotRefID) {
+    private boolean checkTopNForPartitionLimitPushDown(LogicalTopN<?> topn, ExprId slotRefID) {
         List<OrderKey> orderKeys = topn.getOrderKeys();
         if (orderKeys.size() != 1) {
             return false;

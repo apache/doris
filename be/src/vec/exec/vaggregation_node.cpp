@@ -668,13 +668,12 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         const auto column_type = block_schema[i].type;
         if (!column_type->equals(*data_types[i])) {
             if (!is_array(remove_nullable(column_type))) {
-                DCHECK(column_type->is_nullable());
-                DCHECK(!data_types[i]->is_nullable())
-                        << " column type: " << column_type->get_name()
-                        << ", data type: " << data_types[i]->get_name();
-                DCHECK(remove_nullable(column_type)->equals(*data_types[i]))
-                        << " column type: " << remove_nullable(column_type)->get_name()
-                        << ", data type: " << data_types[i]->get_name();
+                if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
+                    !remove_nullable(column_type)->equals(*data_types[i])) {
+                    return Status::InternalError(
+                            "column_type not match data_types, column_type={}, data_types={}",
+                            column_type->get_name(), data_types[i]->get_name());
+                }
             }
 
             ColumnPtr ptr = std::move(columns[i]);

@@ -143,7 +143,14 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
-    _call_back(_runtime_state.get(), &_exec_status);
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        _call_back(_runtime_state.get(), &_exec_status);
+        _runtime_state.reset();
+    } else {
+        _call_back(_runtime_state.get(), &_exec_status);
+    }
     DCHECK(!_report_thread_active);
 }
 

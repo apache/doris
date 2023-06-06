@@ -161,7 +161,9 @@ struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
     3: optional i64  byte_size
-    4: optional list<TTypeDesc> sub_types;
+    4: optional list<TTypeDesc> sub_types
+    5: optional bool result_is_nullable
+    6: optional string function_name
 }
 
 enum TAggregationType {
@@ -617,6 +619,14 @@ struct TBackend {
     3: required TPort http_port
 }
 
+struct TReplicaInfo {
+    1: required string host
+    2: required TPort  be_port
+    3: required TPort  http_port
+    4: required TPort  brpc_port
+    5: required TReplicaId replica_id
+}
+
 struct TResourceInfo {
     1: required string user
     2: required string group
@@ -635,6 +645,7 @@ enum TFileType {
     FILE_STREAM,    // file content is streaming in the buffer
     FILE_S3,
     FILE_HDFS,
+    FILE_NET,       // read file by network, such as http
 }
 
 struct TTabletCommitInfo {
@@ -675,7 +686,7 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  RESOURCE_GROUPS
+  WORKLOAD_GROUPS
 }
 
 enum TIcebergQueryType {

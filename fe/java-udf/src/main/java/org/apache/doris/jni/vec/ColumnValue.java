@@ -18,6 +18,7 @@
 package org.apache.doris.jni.vec;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,36 +27,40 @@ import java.util.List;
  * Column value in vector column
  */
 public interface ColumnValue {
-    public boolean getBoolean();
+    boolean isNull();
+
+    boolean getBoolean();
 
     // tinyint
-    public byte getByte();
+    byte getByte();
 
     // smallint
-    public short getShort();
+    short getShort();
 
-    public int getInt();
+    int getInt();
 
-    public float getFloat();
+    float getFloat();
 
     // bigint
-    public long getLong();
+    long getLong();
 
-    public double getDouble();
+    double getDouble();
 
-    public BigDecimal getDecimal();
+    BigInteger getBigInteger();
 
-    public String getString();
+    BigDecimal getDecimal();
 
-    public LocalDate getDate();
+    String getString();
 
-    public LocalDateTime getDateTime();
+    LocalDate getDate();
 
-    public byte[] getBytes();
+    LocalDateTime getDateTime();
 
-    public void unpackArray(List<ColumnValue> values);
+    byte[] getBytes();
 
-    public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);
+    void unpackArray(List<ColumnValue> values);
 
-    public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values);
+    void unpackMap(List<ColumnValue> keys, List<ColumnValue> values);
+
+    void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values);
 }

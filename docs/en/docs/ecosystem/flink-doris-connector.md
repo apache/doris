@@ -26,7 +26,6 @@ under the License.
 
 # Flink Doris Connector
 
-> This document applies to flink-doris-connector versions after 1.1.0, for versions before 1.1.0 refer to [here](https://doris.apache.org/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
