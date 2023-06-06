@@ -122,17 +122,23 @@ A
 -- !sql --
 AB
 
--- !sql --
+-- !sql_instr --
 2
 
--- !sql --
+-- !sql_instr --
 0
 
--- !sql --
+-- !sql_instr --
 \N
 
--- !sql --
+-- !sql_instr --
 \N
+
+-- !sql_instr --
+1
+
+-- !sql_instr --
+5
 
 -- !sql --
 abc123
@@ -152,11 +158,17 @@ doris
 -- !sql --
 3
 
--- !sql --
+-- !sql_locate --
 4
 
--- !sql --
+-- !sql_locate --
 0
+
+-- !sql_locate --
+1
+
+-- !sql_locate --
+5
 
 -- !sql --
 xyxhi

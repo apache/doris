@@ -40,9 +40,9 @@ import java.util.List;
  */
 public class DaysAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
-    //When enable_date_conversion is true, we prefer to V2 signature.
+    // When enable_date_conversion is true, we prefer to V2 signature.
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
-    public static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
+    private static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
