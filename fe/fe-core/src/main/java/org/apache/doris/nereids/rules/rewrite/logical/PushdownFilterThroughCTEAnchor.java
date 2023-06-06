@@ -21,7 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 /**
@@ -31,10 +31,10 @@ public class PushdownFilterThroughCTEAnchor extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalCTEAnchor()).thenApply(ctx -> {
-            LogicalFilter<LogicalCTEAnchor<Plan, Plan>> filter = ctx.root;
-            LogicalCTEAnchor<Plan, Plan> anchor = filter.child();
-            return anchor.withChildren(anchor.left(), filter.withChildren((Plan) anchor.right()));
+        return logicalFilter(logicalCTE()).thenApply(ctx -> {
+            LogicalFilter<LogicalCTE<Plan>> filter = ctx.root;
+            LogicalCTE<Plan> anchor = filter.child();
+            return anchor.withChildren(filter.withChildren(anchor.child()));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_CTE_ANCHOR);
     }
 }
