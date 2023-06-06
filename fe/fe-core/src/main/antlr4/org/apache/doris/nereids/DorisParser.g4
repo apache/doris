@@ -40,6 +40,12 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | CREATE GLOBAL? AGGREGATE? ALIAS? FUNCTION funcName=identifier
+        argTypes=identifierList
+        (RETURN retType=identifier)?
+        (INTERMEDIATE interType=identifier)?
+        (WITH PARAMETER params=identifierList AS expression)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)*)?         #createFunction
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -262,6 +268,9 @@ tvfProperty
     ;
 
 tvfPropertyItem : identifier | constant ;
+
+property
+    : key=STRING EQ value=STRING
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
