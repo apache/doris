@@ -40,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -48,6 +47,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * update command
@@ -66,14 +66,14 @@ import java.util.Objects;
 public class UpdateCommand extends Command implements ForwardWithSync, Explainable {
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
-    private final String tableAlias;
-    private LogicalPlan logicalQuery;
+    private final @Nullable String tableAlias;
+    private final LogicalPlan logicalQuery;
     private OlapTable targetTable;
 
     /**
      * constructor
      */
-    public UpdateCommand(List<String> nameParts, String tableAlias, List<EqualTo> assignments,
+    public UpdateCommand(List<String> nameParts, @Nullable String tableAlias, List<EqualTo> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
@@ -86,10 +86,13 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(getLogicalQuery(ctx), null).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), null).run(ctx, executor);
     }
 
-    private void completeQueryPlan(ConnectContext ctx) throws AnalysisException {
+    /**
+     * add LogicalOlapTableSink node, public for test.
+     */
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) throws AnalysisException {
         checkTable(ctx);
 
         Map<String, Expression> colNameToExpression = Maps.newHashMap();
@@ -116,7 +119,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
 
         // make UnboundTableSink
-        logicalQuery = new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {
@@ -137,23 +140,13 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
     }
 
-    /**
-     * compute complete logical query
-     */
-    public LogicalPlan getLogicalQuery(ConnectContext ctx) {
-        return Suppliers.memoize(() -> {
-            try {
-                completeQueryPlan(ctx);
-            } catch (AnalysisException e) {
-                throw new RuntimeException(e);
-            }
-            return logicalQuery;
-        }).get();
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) throws AnalysisException {
+        return completeQueryPlan(ctx, logicalQuery);
     }
 
-    @Override
-    public Plan getExplainPlan(ConnectContext ctx) {
-        return getLogicalQuery(ctx);
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     @Override

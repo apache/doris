@@ -45,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * insert into select command implementation
@@ -59,14 +60,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
-    private final String labelName;
+    private final @Nullable String labelName;
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, String labelName) {
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, @Nullable String labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery,
                 "logicalQuery cannot be null in InsertIntoTableCommand");
