@@ -544,7 +544,7 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
     if constexpr (SetProbeSideFlag) {
         int end = filter.size();
-        for (int i = _left_block_pos == _left_block.rows() ? _left_block_pos - 1: _left_block_pos;
+        for (int i = _left_block_pos == _left_block.rows() ? _left_block_pos - 1 : _left_block_pos;
              i >= _left_block_start_pos; i--) {
             int offset = 0;
             if (!_probe_offset_stack.empty()) {
