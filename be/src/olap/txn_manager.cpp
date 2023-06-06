@@ -198,14 +198,18 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
-        DCHECK(it != txn_tablet_map.end());
         if (it == txn_tablet_map.end()) {
             LOG(WARNING) << "transaction_id: " << transaction_id
                          << " partition_id: " << partition_id << " may be cleared";
             return;
         }
         auto load_itr = it->second.find(tablet_info);
-        DCHECK(load_itr != it->second.end());
+        if (load_itr == it->second.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " tablet_id: " << tablet_id
+                         << " may be cleared";
+            return;
+        }
         TabletTxnInfo& load_info = load_itr->second;
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
