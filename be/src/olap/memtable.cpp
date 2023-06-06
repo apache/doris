@@ -443,21 +443,16 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
-                                         int64_t atomic_num_segments_after_flush) {
+Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_stat.delete_bitmap_ns);
     // generate delete bitmap, build a tmp rowset and load recent segment
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
-    if (atomic_num_segments_before_flush >= atomic_num_segments_after_flush) {
-        return Status::OK();
-    }
     auto rowset = _rowset_writer->build_tmp();
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_IF_ERROR(beta_rowset->load_segments(atomic_num_segments_before_flush,
-                                               atomic_num_segments_after_flush, &segments));
+    RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -477,15 +472,9 @@ Status MemTable::flush() {
     // The id of new segment is set by the _num_segment of beta_rowset_writer,
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
     // and use the ids to load segment data file for calc delete bitmap.
-    int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush()));
-    int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
-    if (!_tablet_schema->is_partial_update()) {
-        RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
-                                                atomic_num_segments_after_flush));
-    }
     _delta_writer_callback(_stat);
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -514,6 +503,11 @@ Status MemTable::_do_flush() {
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
+    }
+    if (!_tablet_schema->is_partial_update()) {
+        ctx.generate_delete_bitmap = [this](size_t segment_id) {
+            return _generate_delete_bitmap(segment_id);
+        };
     }
     ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
