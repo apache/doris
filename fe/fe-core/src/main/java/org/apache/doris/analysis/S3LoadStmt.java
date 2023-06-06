@@ -325,6 +325,13 @@ public class S3LoadStmt extends NativeInsertStmt {
                         }
                 )).values());
 
+        // deal with the case that column in target table but not in tvf
+        columnExprList.removeIf(desc ->
+                !funtionGenTableColNames.contains(desc.getColumnName())
+                        && Objects.nonNull(targetTable.getColumn(desc.getColumnName()))
+                        && desc.isColumn()
+        );
+
         Map<String, Expr> columnExprMap = columnExprList.stream()
                 // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
                 .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
@@ -368,11 +375,6 @@ public class S3LoadStmt extends NativeInsertStmt {
         columnExprList.forEach(desc -> {
             if (!desc.isColumn()) {
                 selectList.addItem(new SelectListItem(desc.getExpr(), desc.getColumnName()));
-                return;
-            }
-
-            if (!funtionGenTableColNames.contains(desc.getColumnName())) {
-                selectList.addItem(new SelectListItem(new DefaultValueExpr(), desc.getColumnName()));
                 return;
             }
 
