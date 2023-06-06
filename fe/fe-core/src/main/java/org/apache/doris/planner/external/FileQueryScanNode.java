@@ -38,6 +38,8 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -279,6 +281,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (fileSplit instanceof IcebergSplit) {
                 // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
+            } else if (fileSplit instanceof PaimonSplit) {
+                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             }
 
             // if (fileSplit instanceof HudiSplit) {
