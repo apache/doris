@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -46,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -75,6 +77,8 @@ public class S3LoadStmt extends NativeInsertStmt {
      * with mapping from col name to csv-format-tvf-style col name (c1, c2, c3...)
      */
     private Map<String, String> selectColNameToCsvColName;
+
+    private Set<String> funtionGenTableColNames;
 
     public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
@@ -189,6 +193,21 @@ public class S3LoadStmt extends NativeInsertStmt {
         analyzeColumns(analyzer);
     }
 
+    @Override
+    public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)
+            throws AnalysisException {
+
+        super.getTables(analyzer, tableMap, parentViewNameSet);
+        final List<TableIf> tables = Lists.newArrayList(tableMap.values());
+        Preconditions.checkState(tables.size() == 2,
+                "table map should only contain the unique function generated table and the unique target table");
+        funtionGenTableColNames = tables.get(0)
+                .getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet());
+    }
+
     // ------------------------------------ columns mapping ------------------------------------
 
     private void analyzeColumns(Analyzer analyzer) throws AnalysisException {
@@ -281,6 +300,7 @@ public class S3LoadStmt extends NativeInsertStmt {
 
     private List<ImportColumnDesc> filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
         Preconditions.checkNotNull(targetTable, "target table is unset");
+
         // remove all `tmp` columns, which are not in target table
         columnExprList.removeIf(
                 Predicates.and(ImportColumnDesc::isColumn,
@@ -296,12 +316,12 @@ public class S3LoadStmt extends NativeInsertStmt {
                         (lhs, rhs) -> {
                             if (lhs.getExpr() != null && rhs.getExpr() == null) {
                                 return lhs;
-                            } else if (lhs.getExpr() == null && rhs.getExpr() != null) {
-                                return rhs;
-                            } else {
-                                throw new IllegalArgumentException(
-                                        String.format("column `%s` specified twice", lhs.getColumnName()));
                             }
+                            if (lhs.getExpr() == null && rhs.getExpr() != null) {
+                                return rhs;
+                            }
+                            throw new IllegalArgumentException(
+                                    String.format("column `%s` specified twice", lhs.getColumnName()));
                         }
                 )).values());
 
@@ -346,16 +366,22 @@ public class S3LoadStmt extends NativeInsertStmt {
         LOG.info("select list:{}", columnExprList);
         final SelectList selectList = new SelectList();
         columnExprList.forEach(desc -> {
-            if (desc.isColumn()) {
-                if (isCsvFormat) {
-                    // use csv-style-column name and target column name as alias
-                    final Expr slotRef = new SlotRef(null, selectColNameToCsvColName.get(desc.getColumnName()));
-                    selectList.addItem(new SelectListItem(slotRef, desc.getColumnName()));
-                } else {
-                    selectList.addItem(new SelectListItem(new SlotRef(null, desc.getColumnName()), null));
-                }
-            } else {
+            if (!desc.isColumn()) {
                 selectList.addItem(new SelectListItem(desc.getExpr(), desc.getColumnName()));
+                return;
+            }
+
+            if (!funtionGenTableColNames.contains(desc.getColumnName())) {
+                selectList.addItem(new SelectListItem(new DefaultValueExpr(), desc.getColumnName()));
+                return;
+            }
+
+            if (isCsvFormat) {
+                // use csv-style-column name and target column name as alias
+                final Expr slotRef = new SlotRef(null, selectColNameToCsvColName.get(desc.getColumnName()));
+                selectList.addItem(new SelectListItem(slotRef, desc.getColumnName()));
+            } else {
+                selectList.addItem(new SelectListItem(new SlotRef(null, desc.getColumnName()), null));
             }
         });
         ((SelectStmt) getQueryStmt()).resetSelectList(selectList);
