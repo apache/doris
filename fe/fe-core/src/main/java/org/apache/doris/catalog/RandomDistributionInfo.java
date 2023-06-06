@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -28,7 +30,7 @@ import java.io.IOException;
  * Random partition.
  */
 public class RandomDistributionInfo extends DistributionInfo {
-    
+    @SerializedName(value = "bucketNum")
     private int bucketNum;
 
     public RandomDistributionInfo() {
