@@ -398,7 +398,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
 - **--excluding-tables** 不需要同步的表，用法同上。
 - **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。
-- **--sink-conf** Doris Sink 的所有配置，可以在这里查看完整的配置项。
+- **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
 
 ### 示例
