@@ -249,6 +249,8 @@ public class MTMVJobManager {
                 if (!isReplay) {
                     // log job before submit any task.
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
+                }
+                if (Env.getCurrentEnv().isMaster()) {
                     ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                             MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                     periodFutureMap.put(job.getId(), future);
@@ -263,6 +265,8 @@ public class MTMVJobManager {
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
+                }
+                if (Env.getCurrentEnv().isMaster()) {
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
                 }
