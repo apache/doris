@@ -596,7 +596,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
-                    next_operator_builder_id(), node->child(1)->row_desc());
+                    next_operator_builder_id(), node->child(1)->row_desc(), node->child(1));
             new_pipe->add_operator(builder);
         }
         OperatorBuilderPtr join_sink =
