@@ -196,6 +196,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.io_ctx.file_cache_stats = &read_context->stats->file_cache_stats;
     _read_options.runtime_state = read_context->runtime_state;
     _read_options.output_columns = read_context->output_columns;
 
