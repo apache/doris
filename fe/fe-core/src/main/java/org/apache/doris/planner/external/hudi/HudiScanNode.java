@@ -102,11 +102,11 @@ public class HudiScanNode extends HiveScanNode {
         }
         computeColumnFilter();
         initBackendPolicy();
+        initSchemaParams();
         if (table instanceof HMSExternalTable) {
             source = new HudiHMSSource((HMSExternalTable) table, desc, columnNameToRange);
         }
         Preconditions.checkNotNull(source);
-        initSchemaParams();
     }
 
 
