@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_struct_functions_by_literal") {
-    // struct constructor
-    qt_sql "select struct(1, 2, 3)"
-    qt_sql "select struct(1, 1000, 10000000000)"
-    qt_sql "select struct('a', 1, 'doris', 'aaaaa', 1.32)"
-    qt_sql "select struct(1, 'a', null)"
-    qt_sql "select struct(null, null, null)"
+package org.apache.doris.catalog;
 
-    qt_sql "select named_struct('f1', 1, 'f2', 2, 'f3', 3)"
-    qt_sql "select named_struct('f1', 1, 'f2', 1000, 'f3', 10000000000)"
-    qt_sql "select named_struct('f1', 1, 'f2', 'doris', 'f3', 1.32)"
-    qt_sql "select named_struct('f1', null, 'f2', null, 'f3', null)"
+/**
+ *  Describes a AnyElementType type, used for SQL function return type,
+ *   NOT used for table column type.
+ */
+public class AnyElementType extends AnyType {
 
-    qt_sql "select struct_element(named_struct('f1', 1, 'f2', 2, 'f3', 3), 'f1')"
-    qt_sql "select struct_element(named_struct('f1', 1, 'f2', 1000, 'f3', 10000000000), 3)"
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof AnyElementType;
+    }
+
+    @Override
+    public boolean matchesType(Type t) {
+        return true;
+    }
 }

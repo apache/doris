@@ -823,6 +823,9 @@ public class ScalarType extends Type {
         if (equals(t)) {
             return true;
         }
+        if (t.isAnyType()) {
+            return t.matchesType(this);
+        }
         if (!t.isScalarType()) {
             return false;
         }
