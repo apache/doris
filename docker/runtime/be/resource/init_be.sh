@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -55,7 +55,6 @@ _is_sourced() {
 }
 
 docker_setup_env() {
-  sysctl -w vm.max_map_count=2000000
   declare -g DATABASE_ALREADY_EXISTS
   if [ -d "${DORIS_HOME}/be/storage/data" ]; then
     DATABASE_ALREADY_EXISTS='true'
