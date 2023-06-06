@@ -136,15 +136,12 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
-    }
-
-    // FIXME: modify by zhaochun
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
+        if (value == null) {
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+        } else {
+            msg.string_literal = new TStringLiteral(value);
+            msg.node_type = TExprNodeType.STRING_LITERAL;
+        }
     }
 
     @Override
