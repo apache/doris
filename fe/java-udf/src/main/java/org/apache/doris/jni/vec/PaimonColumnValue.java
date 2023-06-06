@@ -105,6 +105,11 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     @Override
+    public boolean isNull() {
+        return true;
+    }
+
+    @Override
     public byte[] getBytes() {
         return record.getBinary(idx);
     }
