@@ -25,9 +25,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
- * Push project through CTEAnchor.
+ * Push project through CTE.
  */
-public class PushdownProjectThroughCTEAnchor extends OneRewriteRuleFactory {
+public class PushdownProjectThroughCTE extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
@@ -35,6 +35,6 @@ public class PushdownProjectThroughCTEAnchor extends OneRewriteRuleFactory {
             LogicalProject<LogicalCTE<Plan>> project = ctx.root;
             LogicalCTE<Plan> anchor = project.child();
             return anchor.withChildren(project.withChildren(anchor.child()));
-        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_CTE_ANCHOR);
+        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_CTE);
     }
 }
