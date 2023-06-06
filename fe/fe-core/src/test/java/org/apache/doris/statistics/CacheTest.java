@@ -62,10 +62,10 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
+        Assertions.assertTrue(c.isUnKnown);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
+        Assertions.assertTrue(c.isUnKnown);
     }
 
     @Test
@@ -126,7 +126,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+        Assertions.assertTrue(columnStatistic.isUnKnown);
         Thread.sleep(1000);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);

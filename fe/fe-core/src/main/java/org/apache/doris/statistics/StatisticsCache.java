@@ -204,7 +204,7 @@ public class StatisticsCache {
                         return Optional.of(c);
                     }
                 };
-                if (c == ColumnStatistic.UNKNOWN) {
+                if (c.isUnKnown) {
                     continue;
                 }
                 columnStatisticsCache.put(k, f);
