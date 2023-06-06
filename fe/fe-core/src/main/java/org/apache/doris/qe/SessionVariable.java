@@ -914,7 +914,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
-    
+
     @VariableMgr.VarAttr(name = ENABLE_FOLD_UNFIXED_FN)
     public boolean enableFoldUnfixedFn = true;
 
@@ -1714,11 +1714,11 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnablePartitionTopN(boolean enablePartitionTopN) {
         this.enablePartitionTopN = enablePartitionTopN;
     }
-    
+
     public boolean isEnableFoldUnfixedFn() {
         return enableFoldUnfixedFn;
     }
-    
+
     public void setEnableFoldUnfixedFn(boolean enableFoldUnfixedFn) {
         this.enableFoldUnfixedFn = enableFoldUnfixedFn;
     }
