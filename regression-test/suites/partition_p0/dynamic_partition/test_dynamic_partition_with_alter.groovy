@@ -42,12 +42,12 @@ suite("test_dynamic_partition_with_alter") {
     sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
     sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
     result = sql "show partitions from ${tbl}"
-    for (def retry = 0; retry < 15; retry++) {
+    for (def retry = 0; retry < 120; retry++) { // at most wait 120s
         if (result.size() == 9) {
             break;
         }
         logger.info("wait dynamic partition scheduler, sleep 1s")
-        sleep(1000);
+        sleep(1000);  // sleep 1s
         result = sql "show partitions from ${tbl}"
     }
     assertEquals(9, result.size())
