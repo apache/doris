@@ -612,9 +612,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
         if constexpr (SetProbeSideFlag) {
             std::stack<uint16_t> empty;
             _probe_offset_stack.swap(empty);
-            for (int i = _left_block_start_pos; i <= _left_block_pos; i++) {
-                _cur_probe_row_visited_flags[i] = 1;
-            }
+            std::fill(_cur_probe_row_visited_flags.begin(), _cur_probe_row_visited_flags.end(), 1);
         }
         if (!materialize) {
             CLEAR_BLOCK
