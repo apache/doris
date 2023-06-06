@@ -26,7 +26,6 @@ import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
-import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVCheckpointData;
@@ -216,11 +215,9 @@ public class MTMVJobManager {
                 periodFutureMap.put(job.getId(), future);
                 periodNum++;
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
-                if (job.getRetryPolicy() == TaskRetryPolicy.ALWAYS || job.getRetryPolicy() == TaskRetryPolicy.TIMES) {
-                    MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
-                    submitJobTask(job.getName(), executeOption);
-                    onceNum++;
-                }
+                MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
+                submitJobTask(job.getName(), executeOption);
+                onceNum++;
             }
         }
         LOG.info("Register {} period jobs and {} once jobs in the total {} jobs.", periodNum, onceNum, num);
@@ -249,8 +246,6 @@ public class MTMVJobManager {
                 if (!isReplay) {
                     // log job before submit any task.
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
-                }
-                if (Env.getCurrentEnv().isMaster()) {
                     ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                             MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                     periodFutureMap.put(job.getId(), future);
@@ -265,8 +260,6 @@ public class MTMVJobManager {
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
-                }
-                if (Env.getCurrentEnv().isMaster()) {
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
                 }
