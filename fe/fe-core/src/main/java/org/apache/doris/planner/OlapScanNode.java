@@ -101,6 +101,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -765,6 +766,28 @@ public class OlapScanNode extends ScanNode {
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 replicas.clear();
                 replicas.add(replica);
+            }
+            final long coolDownReplicaId = tablet.getCooldownReplicaId();
+            // we prefer to query using cooldown replica to make sure the cache is fully utilized
+            // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
+            // is now under cooldown
+            // first time we choose BE A, and A will download data into cache while the other two's cache is empty
+            // second time we choose BE B, this time B will be cached, C is still empty
+            // third time we choose BE C, after this time all replica is cached
+            // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
+            if (-1L != coolDownReplicaId) {
+                final Optional<Replica> replicaOptional = replicas.stream()
+                                .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                replicaOptional.ifPresent(
+                        r -> {
+                            Backend backend = Env.getCurrentSystemInfo()
+                                    .getBackend(r.getBackendId());
+                            if (backend != null && backend.isAlive()) {
+                                replicas.clear();
+                                replicas.add(r);
+                            }
+                        }
+                );
             }
             boolean tabletIsNull = true;
             boolean collectedStat = false;
