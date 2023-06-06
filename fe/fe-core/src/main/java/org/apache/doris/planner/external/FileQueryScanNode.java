@@ -101,6 +101,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
+    @Override
     public void init() throws UserException {
         doInitialize();
     }
@@ -108,10 +109,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Init scan provider and schema related params.
     protected void doInitialize() throws UserException {
         Preconditions.checkNotNull(desc);
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
+        if (desc.getTable() instanceof ExternalTable) {
+            ExternalTable table = (ExternalTable) desc.getTable();
+            if (table.isView()) {
+                throw new AnalysisException(
+                        String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                                table.getName()));
+            }
         }
         computeColumnFilter();
         initBackendPolicy();
@@ -142,11 +146,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    protected void initBackendPolicy() throws UserException {
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
     }
 
     /**
@@ -211,6 +210,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setColumnIdxs(columnIdxs);
     }
 
+    @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = getSplits();
