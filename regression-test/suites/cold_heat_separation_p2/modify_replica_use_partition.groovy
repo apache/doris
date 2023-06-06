@@ -34,7 +34,7 @@ suite("modify_replica_use_partition") {
     // data_sizes is one arrayList<Long>, t is tablet
     def fetchDataSize = { data_sizes, t ->
         def tabletId = t[0]
-        String meta_url = t[16]
+        String meta_url = t[17]
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
