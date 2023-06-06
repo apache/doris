@@ -77,7 +77,10 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
-            if (unfixedFn.contains(fn.getFunctionName().getFunction())) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && ConnectContext.get().getSessionVariable().isEnableFoldUnfixedFn()
+                    && unfixedFn.contains(fn.getFunctionName().getFunction())) {
                 return constExpr;
             }
 
