@@ -1069,6 +1069,9 @@ public:
         if (_context.bitmap_filter_func) {
             _context.bitmap_filter_func->set_filter_id(id);
         }
+        if (_context.hybrid_set) {
+            _context.hybrid_set->set_filter_id(id);
+        }
     }
 
 private:
