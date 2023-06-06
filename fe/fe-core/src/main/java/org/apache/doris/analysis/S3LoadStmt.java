@@ -78,7 +78,7 @@ public class S3LoadStmt extends NativeInsertStmt {
      */
     private Map<String, String> selectColNameToCsvColName;
 
-    private Set<String> funtionGenTableColNames;
+    private Set<String> functionGenTableColNames;
 
     public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
@@ -201,7 +201,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         final List<TableIf> tables = Lists.newArrayList(tableMap.values());
         Preconditions.checkState(tables.size() == 2,
                 "table map should only contain the unique function generated table and the unique target table");
-        funtionGenTableColNames = tables.get(0)
+        functionGenTableColNames = tables.get(0)
                 .getBaseSchema()
                 .stream()
                 .map(Column::getName)
@@ -309,7 +309,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                 Predicates.and(
                         ImportColumnDesc::isColumn,
                         desc -> Objects.isNull(targetTable.getColumn(desc.getColumnName())),
-                        desc -> funtionGenTableColNames.contains(desc.getColumnName())
+                        desc -> functionGenTableColNames.contains(desc.getColumnName())
                 )
         );
 
@@ -333,7 +333,7 @@ public class S3LoadStmt extends NativeInsertStmt {
 
         // deal with the case that column in target table but not in tvf
         columnExprList.removeIf(desc ->
-                !funtionGenTableColNames.contains(desc.getColumnName())
+                !functionGenTableColNames.contains(desc.getColumnName())
                         && Objects.nonNull(targetTable.getColumn(desc.getColumnName()))
                         && desc.isColumn()
         );

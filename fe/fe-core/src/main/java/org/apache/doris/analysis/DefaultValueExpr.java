@@ -38,6 +38,6 @@ public class DefaultValueExpr extends Expr {
 
     @Override
     public Expr clone() {
-        return this;
+        return null;
     }
 }
