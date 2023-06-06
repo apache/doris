@@ -216,6 +216,7 @@ set(VEC_FILES
   functions/array/function_array_count.cpp
   functions/function_map.cpp
   functions/function_struct.cpp
+  functions/function_struct_element.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -352,6 +353,8 @@ set(VEC_FILES
   exec/format/parquet/bool_rle_decoder.cpp
   exec/jni_connector.cpp
   exec/scan/jni_reader.cpp
+  exec/scan/paimon_reader.cpp
+  exec/scan/max_compute_jni_reader.cpp
   )
 
 if (WITH_MYSQL)

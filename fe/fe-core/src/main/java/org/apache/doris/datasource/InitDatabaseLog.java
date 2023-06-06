@@ -39,6 +39,7 @@ public class InitDatabaseLog implements Writable {
         JDBC,
         MAX_COMPUTE,
         HUDI,
+        PAIMON,
         TEST,
         UNKNOWN;
     }

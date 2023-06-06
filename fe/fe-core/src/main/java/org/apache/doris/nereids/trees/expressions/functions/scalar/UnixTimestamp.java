@@ -41,12 +41,12 @@ import java.util.List;
 public class UnixTimestamp extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
     );

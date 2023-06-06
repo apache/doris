@@ -1014,6 +1014,8 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
+    int64_t receive_time = GetCurrentTimeNanos();
+    response->set_receive_time(receive_time);
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);

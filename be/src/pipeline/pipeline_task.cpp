@@ -219,11 +219,13 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
+            if (!status.is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(status);
+            }
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 break;
             }
-            RETURN_IF_ERROR(status);
         }
     }
 

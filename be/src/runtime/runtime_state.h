@@ -409,6 +409,10 @@ public:
                        : 0;
     }
 
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    }
+
 private:
     Status create_error_log_file();
 
