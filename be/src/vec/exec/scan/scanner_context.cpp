@@ -355,13 +355,14 @@ bool ScannerContext::no_schedule() {
 std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, sacnners: {}, blocks in queue: {},"
-            " status: {}, _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _num_running_scanners: {}, _num_scheduling_ctx: {}, _max_thread_num: {},"
+            " status: {}, _should_stop: {}, _is_finished: {}, _status_error: {}, free blocks: {},"
+            " limit: {}, _num_running_scanners: {}, _num_unfinished_scanners: {}, "
+            "_num_scheduling_ctx: {}, _max_thread_num: {},"
             " _block_per_scanner: {}, _cur_bytes_in_queue: {}, MAX_BYTE_OF_QUEUE: {}",
             ctx_id, _scanners.size(), _blocks_queue.size(), status().ok(), _should_stop,
-            _is_finished, _free_blocks.size_approx(), limit, _num_running_scanners,
-            _num_scheduling_ctx, _max_thread_num, _block_per_scanner, _cur_bytes_in_queue,
-            _max_bytes_in_queue);
+            _is_finished, _status_error, _free_blocks.size_approx(), limit, _num_running_scanners,
+            _num_unfinished_scanners, _num_scheduling_ctx, _max_thread_num, _block_per_scanner,
+            _cur_bytes_in_queue, _max_bytes_in_queue);
 }
 
 void ScannerContext::reschedule_scanner_ctx() {

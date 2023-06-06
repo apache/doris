@@ -309,6 +309,7 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
+            VLOG_DEBUG << task->debug_string();
             _blocked_task_scheduler->add_blocked_task(task);
             break;
         case PipelineTaskState::RUNNABLE:
@@ -322,6 +323,8 @@ void TaskScheduler::_do_work(size_t index) {
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
+    // state only should be CANCELED or FINISHED
+    VLOG_DEBUG << task->debug_string();
     auto status = task->try_close();
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
         // Call `close` if `try_close` failed to make sure allocated resources are released

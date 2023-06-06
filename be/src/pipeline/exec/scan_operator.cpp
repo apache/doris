@@ -40,7 +40,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(ScanOperator, SourceOperator)
 
 bool ScanOperator::can_read() {
-    if (!_node->_opened) {
+    if (!_node->_opened) { // 要创建 scanner ctx或者 scanner ctx已经创建好
         if (_node->_should_create_scanner || _node->ready_to_open()) {
             return true;
         } else {
@@ -76,12 +76,14 @@ bool ScanOperator::runtime_filters_are_ready_or_timeout() {
 
 std::string ScanOperator::debug_string() const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
-                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
+    fmt::format_to(debug_string_buffer,
+                   "{}, scanner_ctx is null: {} , _should_create_scanner: {}, _node->_opened: {}, "
+                   "_node->_context_queue_id",
+                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr,
+                   _node->_should_create_scanner, _node->_opened, _node->_context_queue_id);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}, num_scheduling_ctx = {} ",
-                       _node->_scanner_ctx->get_num_running_scanners(),
-                       _node->_scanner_ctx->get_num_scheduling_ctx());
+        fmt::format_to(debug_string_buffer, ", scanner_ctx = {} ",
+                       _node->_scanner_ctx->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }

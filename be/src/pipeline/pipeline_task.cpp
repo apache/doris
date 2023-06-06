@@ -121,6 +121,8 @@ void PipelineTask::_init_profile() {
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
     _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
+    _block_by_dependency_counts = ADD_COUNTER(_task_profile, "NumBlockedByDepTimes", TUnit::UNIT);
+    _block_by_rf_counts = ADD_COUNTER(_task_profile, "NumBlockedByRfTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
@@ -384,9 +386,12 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_source_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
-            COUNTER_UPDATE(_block_by_sink_counts, 1);
+            COUNTER_UPDATE(_block_by_sink_counts, 1)
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
+            COUNTER_UPDATE(_block_by_rf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_block_by_dependency_counts, 1);
         }
     }
 

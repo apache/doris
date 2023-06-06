@@ -301,6 +301,8 @@ protected:
     RuntimeProfile::Counter* _block_counts;
     RuntimeProfile::Counter* _block_by_source_counts;
     RuntimeProfile::Counter* _block_by_sink_counts;
+    RuntimeProfile::Counter* _block_by_dependency_counts;
+    RuntimeProfile::Counter* _block_by_rf_counts;
     RuntimeProfile::Counter* _schedule_counts;
     MonotonicStopWatch _wait_source_watcher;
     RuntimeProfile::Counter* _wait_source_timer;
