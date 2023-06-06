@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -49,7 +48,7 @@ public class JdbcTableSink extends DataSink {
     public JdbcTableSink(JdbcTable jdbcTable) {
         resourceName = jdbcTable.getResourceName();
         jdbcType = jdbcTable.getJdbcTableType();
-        externalTableName = OdbcTable.databaseProperName(jdbcType, jdbcTable.getExternalTableName());
+        externalTableName = JdbcTable.databaseProperName(jdbcType, jdbcTable.getExternalTableName());
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
         jdbcUrl = jdbcTable.getJdbcUrl();
         jdbcUser = jdbcTable.getJdbcUser();

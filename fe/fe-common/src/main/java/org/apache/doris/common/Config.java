@@ -1767,6 +1767,12 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
+     * enable use odbc table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_odbc_table = false;
+
+    /**
      * This is used whether to push down function to MYSQL in external Table with query sql
      * like odbc, jdbc for mysql table
      */
