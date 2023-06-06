@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
@@ -36,7 +37,7 @@ public class OdbcTableSink extends DataSink {
         connectString = odbcTable.getConnectString();
         originTblName = odbcTable.getName();
         odbcType = odbcTable.getOdbcTableType();
-        tblName = odbcTable.databaseProperName(odbcType, odbcTable.getOdbcTableName());
+        tblName = JdbcTable.databaseProperName(odbcType, odbcTable.getOdbcTableName());
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
     }
 

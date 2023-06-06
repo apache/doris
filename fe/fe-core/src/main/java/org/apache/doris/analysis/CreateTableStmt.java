@@ -626,6 +626,10 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
                 || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
+            if (engineName.equals("odbc") && !Config.enable_odbc_table) {
+                throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
+                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
+            }
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
