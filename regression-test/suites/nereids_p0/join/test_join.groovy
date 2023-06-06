@@ -224,8 +224,6 @@ suite("test_join", "nereids_p0") {
     sql"drop table ${table_1}"
     sql"drop table ${table_2}"
 
-
-
     // join null string
     def table_3 = "table_join_null_string_1"
     def table_4 = "table_join_null_string_2"

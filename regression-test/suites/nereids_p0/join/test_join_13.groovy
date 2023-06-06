@@ -29,6 +29,7 @@ suite("test_join_13", "nereids_p0") {
     List selected = ["a.k1, b.k1, a.k2, b.k2, a.k3, b.k3", "count(a.k1), count(b.k1), count(a.k2), count(b.k2), count(*)"]
 
     // right semi join
+    List left_selected = ["a.k1, a.k2, a.k3, a.k4, a.k5", "count(a.k1), count(a.k2), count(a.k4), count(a.k3), count(*)"]
     List right_selected = ["b.k1, b.k2, b.k3, b.k4, b.k5", "count(b.k1), count(b.k2), count(b.k4), count(b.k3), count(*)"]
     for (s in right_selected){
         def res23 = sql"""select ${s} from ${tbName1} a right semi join ${tbName1} b 

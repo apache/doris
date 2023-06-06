@@ -27,6 +27,7 @@ suite("test_join_13", "nereids_p0") {
     def empty_name = "empty"
 
     List selected = ["a.k1, b.k1, a.k2, b.k2, a.k3, b.k3", "count(a.k1), count(b.k1), count(a.k2), count(b.k2), count(*)"]
+    List join_types = ["inner", "left outer", "right outer", ""]
 
     // complex join
     String col = "k1"
