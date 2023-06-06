@@ -260,6 +260,10 @@ public class Coordinator {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    public void setTWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
+    }
+
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
@@ -351,7 +355,6 @@ public class Coordinator {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
-        this.tWorkloadGroups = analyzer == null ? null : analyzer.getWorkloadGroups();
         this.executionProfile = new ExecutionProfile(queryId, fragments.size());
 
     }
