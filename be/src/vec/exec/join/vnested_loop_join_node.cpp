@@ -231,7 +231,8 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 
 Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
     COUNTER_UPDATE(_probe_rows_counter, block->rows());
-    _cur_probe_row_visited_flags.resize(block->rows(), 0);
+    _cur_probe_row_visited_flags.resize(block->rows());
+    std::fill(_cur_probe_row_visited_flags.begin(), _cur_probe_row_visited_flags.end(), 0);
     _left_block_pos = 0;
     _need_more_input_data = false;
     _left_side_eos = eos;
@@ -288,22 +289,24 @@ void VNestedLoopJoinNode::_append_left_data_with_null(MutableBlock& mutable_bloc
             DCHECK(_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
             assert_cast<ColumnNullable*>(dst_columns[i].get())
                     ->get_nested_column_ptr()
-                    ->insert_many_from(*src_column.column, _left_block_pos, 1);
+                    ->insert_range_from(*src_column.column, _left_block_start_pos,
+                                        _left_side_process_count);
             assert_cast<ColumnNullable*>(dst_columns[i].get())
                     ->get_null_map_column()
                     .get_data()
                     .resize_fill(origin_sz + 1, 0);
         } else {
-            dst_columns[i]->insert_many_from(*src_column.column, _left_block_pos, 1);
+            dst_columns[i]->insert_range_from(*src_column.column, _left_block_start_pos,
+                                              _left_side_process_count);
         }
     }
     for (size_t i = 0; i < _num_build_side_columns; ++i) {
-        dst_columns[_num_probe_side_columns + i]->insert_default();
+        dst_columns[_num_probe_side_columns + i]->insert_many_defaults(_left_side_process_count);
     }
     IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
                                          *dst_columns[dst_columns.size() - 1])
                                          .get_data();
-    mark_data.resize_fill(mark_data.size() + 1, 0);
+    mark_data.resize_fill(mark_data.size() + _left_side_process_count, 0);
 }
 
 void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
@@ -458,35 +461,13 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
         }
         _output_null_idx_build_side = i;
     } else {
-        //        if constexpr (IsSemi) {
-        //            if (!_cur_probe_row_visited_flags && !_is_mark_join) {
-        //                return;
-        //            }
-        //        } else {
-        //            if (_cur_probe_row_visited_flags && !_is_mark_join) {
-        //                return;
-        //            }
-        //        }
-
-        //        if (_is_mark_join) {
-        //            IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-        //                                                 *dst_columns[dst_columns.size() - 1])
-        //                                                 .get_data();
-        //            mark_data.resize_fill(mark_data.size() + 1,
-        //                                  (IsSemi && !_cur_probe_row_visited_flags) ||
-        //                                                  (!IsSemi && _cur_probe_row_visited_flags)
-        //                                          ? 0
-        //                                          : 1);
-        //        }
-        auto new_size = column_size;
-        for (int i = _left_block_start_pos; i <= _left_block_pos; ++i) {
-            new_size += _cur_probe_row_visited_flags[i] == IsSemi;
-        }
-
-        if (new_size > column_size) {
-            DCHECK_LT(_left_block_pos, _left_block.rows());
-            for (int j = _left_block_start_pos; j <= _left_block_pos; ++j) {
+        if (!_is_mark_join) {
+            auto new_size = column_size;
+            DCHECK_LE(_left_block_start_pos + _left_side_process_count, _left_block.rows());
+            for (int j = _left_block_start_pos;
+                 j < _left_block_start_pos + _left_side_process_count; ++j) {
                 if (_cur_probe_row_visited_flags[j] == IsSemi) {
+                    new_size++;
                     for (size_t i = 0; i < _num_probe_side_columns; ++i) {
                         const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
                         if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
@@ -504,11 +485,28 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
                     }
                 }
             }
-            for (size_t i = 0; i < _num_build_side_columns; ++i) {
-                dst_columns[_num_probe_side_columns + i]->insert_many_defaults(new_size -
-                                                                               column_size);
+            if (new_size > column_size) {
+                for (size_t i = 0; i < _num_build_side_columns; ++i) {
+                    dst_columns[_num_probe_side_columns + i]->insert_many_defaults(new_size -
+                                                                                   column_size);
+                }
+                _resize_fill_tuple_is_null_column(new_size, 0, 1);
             }
-            _resize_fill_tuple_is_null_column(new_size, 0, 1);
+        } else {
+            IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                                 *dst_columns[dst_columns.size() - 1])
+                                                 .get_data();
+            mark_data.reserve(mark_data.size() + _left_side_process_count);
+            DCHECK_LT(_left_block_pos, _left_block.rows());
+            for (int j = _left_block_start_pos;
+                 j < _left_block_start_pos + _left_side_process_count; ++j) {
+                mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
+                for (size_t i = 0; i < _num_probe_side_columns; ++i) {
+                    const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
+                    DCHECK(_join_op != TJoinOp::FULL_OUTER_JOIN);
+                    dst_columns[i]->insert_from(*src_column.column, j);
+                }
+            }
         }
     }
 }
@@ -546,14 +544,17 @@ void VNestedLoopJoinNode::_do_filtering_and_update_visited_flags_impl(
     }
     if constexpr (SetProbeSideFlag) {
         int end = filter.size();
-        for (int i = _left_block_pos; i >= _left_block_start_pos; i--) {
+        for (int i = _left_block_pos == _left_block.rows() ? _left_block_pos - 1: _left_block_pos;
+             i >= _left_block_start_pos; i--) {
             int offset = 0;
             if (!_probe_offset_stack.empty()) {
                 offset = _probe_offset_stack.top();
                 _probe_offset_stack.pop();
             }
-            _cur_probe_row_visited_flags[i] =
-                    simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1) ? 1 : 0;
+            if (!_cur_probe_row_visited_flags[i]) {
+                _cur_probe_row_visited_flags[i] =
+                        simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1) ? 1 : 0;
+            }
             end = offset;
         }
     }
@@ -583,6 +584,11 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 
         if (can_filter_all) {
             CLEAR_BLOCK
+            std::stack<uint16_t> empty1;
+            _probe_offset_stack.swap(empty1);
+
+            std::stack<uint16_t> empty2;
+            _build_offset_stack.swap(empty2);
         } else {
             _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
                                                         SetProbeSideFlag>(
@@ -700,7 +706,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 }
 
 bool VNestedLoopJoinNode::need_more_input_data() const {
-    return _need_more_input_data and !_left_side_eos;
+    return _need_more_input_data and !_left_side_eos and _join_block.rows() == 0;
 }
 
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
