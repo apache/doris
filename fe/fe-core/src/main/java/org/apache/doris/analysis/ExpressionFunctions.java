@@ -58,7 +58,7 @@ public enum ExpressionFunctions {
     public Expr evalExpr(Expr constExpr) {
         // Function's arg are all LiteralExpr.
         for (Expr child : constExpr.getChildren()) {
-            if (!(child instanceof LiteralExpr) && !(child instanceof SysVariableDesc)) {
+            if (!(child instanceof LiteralExpr) && !(child instanceof VariableExpr)) {
                 return constExpr;
             }
         }
@@ -115,8 +115,8 @@ public enum ExpressionFunctions {
                     return constExpr;
                 }
             }
-        } else if (constExpr instanceof SysVariableDesc) {
-            return ((SysVariableDesc) constExpr).getLiteralExpr();
+        } else if (constExpr instanceof VariableExpr) {
+            return ((VariableExpr) constExpr).getLiteralExpr();
         }
         return constExpr;
     }

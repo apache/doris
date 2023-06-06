@@ -17,45 +17,23 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.thrift.TVarType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 
-// Set statement type.
-public enum SetType {
-    DEFAULT("DEFAULT"),
-    GLOBAL("GLOBAL"),
-    SESSION("SESSION"),
-    USER("USER");
-
-    private String desc;
-
-    SetType(String desc) {
-        this.desc = desc;
-    }
-
-    public TVarType toThrift() {
-        switch (this) {
-            case GLOBAL:
-                return TVarType.GLOBAL;
-            default:
-                return TVarType.SESSION;
-        }
-    }
-
-    public static SetType fromThrift(TVarType tType) {
-        switch (tType) {
-            case GLOBAL:
-                return SetType.GLOBAL;
-            default:
-                return SetType.SESSION;
-        }
-    }
-
-    public String toSql() {
-        return desc;
+public class SetUserDefinedVar extends SetVar {
+    public SetUserDefinedVar(String variable, Expr value) {
+        super(SetType.USER, variable, value, SetVarType.SET_USER_DEFINED_VAR);
     }
 
     @Override
-    public String toString() {
-        return toSql();
+    public void analyze(Analyzer analyzer) throws AnalysisException  {
+        Expr expression = getValue();
+        if (expression instanceof NullLiteral) {
+            setResult(NullLiteral.create(ScalarType.NULL));
+        } else if (expression instanceof LiteralExpr) {
+            setResult((LiteralExpr) expression);
+        } else {
+            throw new AnalysisException("Unsupported to set the non-literal for user defined variables.");
+        }
     }
 }
