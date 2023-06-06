@@ -386,7 +386,7 @@ public class HMSExternalTable extends ExternalTable {
         ColumnStatistic cache = Config.enable_stats
                 ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
                 : ColumnStatistic.UNKNOWN;
-        if (cache == ColumnStatistic.UNKNOWN) {
+        if (cache.isUnKnown) {
             return 1;
         } else {
             return (long) cache.count;
