@@ -26,11 +26,11 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class SysVariableDescTest {
+public class VariableExprTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        SysVariableDesc desc = new SysVariableDesc("version_comment");
+        VariableExpr desc = new VariableExpr("version_comment");
         desc.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         Assert.assertEquals("@@version_comment", desc.toSql());
         Assert.assertEquals("version_comment", desc.getName());
@@ -45,7 +45,7 @@ public class SysVariableDescTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoVar() throws AnalysisException {
-        SysVariableDesc desc = new SysVariableDesc("zcPrivate");
+        VariableExpr desc = new VariableExpr("zcPrivate");
         desc.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         Assert.fail("No exception throws.");
     }

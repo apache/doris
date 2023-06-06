@@ -633,7 +633,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitUserVariable(UserVariableContext ctx) {
-        throw new ParseException("Unsupported user variable :" + ctx.getText(), ctx);
+        String name = ctx.identifierOrText().getText();
+        return VariableMgr.getLiteralForUserVar(name);
     }
 
     /**
