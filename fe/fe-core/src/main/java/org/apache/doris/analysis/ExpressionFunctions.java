@@ -79,7 +79,7 @@ public enum ExpressionFunctions {
             Function fn = constExpr.getFn();
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
-                    && ConnectContext.get().getSessionVariable().isEnableFoldUnfixedFn()
+                    && !ConnectContext.get().getSessionVariable().isEnableFoldUnfixedFn()
                     && unfixedFn.contains(fn.getFunctionName().getFunction())) {
                 return constExpr;
             }
