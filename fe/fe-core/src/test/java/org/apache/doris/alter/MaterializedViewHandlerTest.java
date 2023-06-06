@@ -299,8 +299,6 @@ public class MaterializedViewHandlerTest {
         String mvName = "mv_1";
         new Expectations() {
             {
-                olapTable.getState();
-                result = OlapTable.OlapTableState.NORMAL;
                 olapTable.getName();
                 result = "table1";
                 olapTable.hasMaterializedIndex(mvName);
