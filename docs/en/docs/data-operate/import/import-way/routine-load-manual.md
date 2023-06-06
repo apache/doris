@@ -142,40 +142,126 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 >
 >"strict_mode" = "true"
 
-3. Example of importing data in Json format
+[3. Example of importing data in Json format](#Example_of_importing_data_in_Json_format)
 
-   Routine Load only supports the following two types of json formats
+  The json format imported by Routine Load only supports the following two types:
 
-   The first one has only one record and is a json object.
+- Only one record and it is a json object:
 
-```json
-{"category":"a9jadhx","author":"test","price":895}
+When using **single table import** (that is, specifying the table name through ON TABLE_NAME), the json data format is as follows.
+  ```
+  {"category":"a9jadhx","author":"test","price":895}
+  ```
+When using **dynamic/multi-table import**  (i.e. not specifying a specific table name), the JSON data format is as follows.
+
+  ```
+  table_name|{"category":"a9jadhx","author":"test","price":895}
+  ```
+
+
+Assuming we need to import data into two tables, `user_address` and `user_info`, the message format is as follows.
+
+eg: user_address data format
+
+```
+    user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
+ ```
+eg: user_info data format
+```
+    user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
 ```
 
-The second one is a json array, which can contain multiple records
+- The second type is a JSON array that can contain multiple records.
 
-```json
-[
-    {   
-        "category":"11",
-        "author":"4avc",
-        "price":895,
-        "timestamp":1589191587
-    },
-    {
-        "category":"22",
-        "author":"2avc",
-        "price":895,
-        "timestamp":1589191487
-    },
-    {
-        "category":"33",
-        "author":"3avc",
-        "price":342,
-        "timestamp":1589191387
-    }
-]
+When using **single table import** (that is, specifying the table name through ON TABLE_NAME), the json data format is as follows.
+
+   ```json
+   [
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+   ]
+   ```
+When using **dynamic/multi-table import**  (i.e. not specifying a specific table name), the JSON data format is as follows.
+
 ```
+   table_name|[
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"Los Angeles, CA, USA",
+           "timestamp":1589191587
+       }
+   ]
+```
+Similarly, taking the tables `user_address` and `user_info` as examples, the message format would be as follows.
+
+eg: user_address data format
+```
+     user_address|[
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+     ]
+```
+eg: user_info data format
+```
+        user_info|[
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"Los Angeles, CA, USA",
+             "timestamp":1589191587
+         }
+   ```
 
 Create the Doris data table to be imported
 

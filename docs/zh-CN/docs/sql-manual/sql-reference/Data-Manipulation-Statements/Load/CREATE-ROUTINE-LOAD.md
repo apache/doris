@@ -35,7 +35,7 @@ CREATE ROUTINE LOAD
 
 例行导入（Routine Load）功能，支持用户提交一个常驻的导入任务，通过不断的从指定的数据源读取数据，将数据导入到 Doris 中。
 
-目前仅支持通过无认证或者 SSL 认证方式，从 Kakfa 导入 CSV 或 Json 格式的数据。
+目前仅支持通过无认证或者 SSL 认证方式，从 Kakfa 导入 CSV 或 Json 格式的数据。 [导入Json格式数据使用示例](../../../../data-operate/import/import-way/routine-load-manual.md#导入Json格式数据使用示例)
 
 语法：
 
@@ -56,10 +56,11 @@ FROM data_source [data_source_properties]
 - `tbl_name` 
 
   指定需要导入的表的名称，可选参数，如果不指定，则采用动态表的方式，这个时候需要 Kafka 中的数据包含表名的信息。
-  目前仅支持从 Kafka 的 Value 中获取表名，且需要符合这种格式：`table_name|{"table_name": "tbl_name", "data": "data"}`, 
-  其中 `tbl_name` 为表名，以 `|` 作为表名和表数据的分隔符。
+  目前仅支持从 Kafka 的 Value 中获取表名，且需要符合这种格式：以 json 为例：`table_name|{"col1": "val1", "col2": "val2"}`, 
+  其中 `tbl_name` 为表名，以 `|` 作为表名和表数据的分隔符。csv 格式的数据也是类似的，如：`table_name|val1,val2,val3`。注意，这里的 
+  `table_name` 必须和 Doris 中的表名一致，否则会导致导入失败.
   
-    tips: 动态表不支持 `columns_mapping` 参数。如果你的表结构和 Doris 中的表结构一致，且存在大量的表信息需要导入，那么这种方式将是不二选择。
+   tips: 动态表不支持 `columns_mapping` 参数。如果你的表结构和 Doris 中的表结构一致，且存在大量的表信息需要导入，那么这种方式将是不二选择。
 
 - `merge_type`
 

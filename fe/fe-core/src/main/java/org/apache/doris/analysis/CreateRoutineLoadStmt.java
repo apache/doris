@@ -361,6 +361,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
+                    if (isMultiTable) {
+                        throw new AnalysisException("Multi-table load does not support setting columns info");
+                    }
                     // check columns info
                     if (importColumnsStmt != null) {
                         throw new AnalysisException("repeat setting of columns info");

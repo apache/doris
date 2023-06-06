@@ -1371,7 +1371,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(TimeUtils.longToTimeString(endTimestamp));
             row.add(database.map(Database::getFullName).orElse(String.valueOf(dbId)));
             if (isMultiTable) {
-                row.add("multi_table");
+                row.add("");
             } else {
                 row.add(table.map(Table::getName).orElse(String.valueOf(tableId)));
             }

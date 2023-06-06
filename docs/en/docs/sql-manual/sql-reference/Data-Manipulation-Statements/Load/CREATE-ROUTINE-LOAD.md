@@ -34,7 +34,7 @@ CREATE ROUTINE LOAD
 
 The Routine Load function allows users to submit a resident import task, and import data into Doris by continuously reading data from a specified data source.
 
-Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication.
+Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication. [Example of importing data in Json format](../../../../data-operate/import/import-way/routine-load-manual.md#Example_of_importing_data_in_Json_format)
 
 grammar:
 
@@ -54,14 +54,15 @@ FROM data_source [data_source_properties]
 - `tbl_name`
 
   Specifies the name of the table to be imported.Optional parameter, If not specified, the dynamic table method will 
-  be used, which requires the data in Kafka to contain table name information. Currently, only getting the table name 
-  from the value of Kafka is supported and it needs to meet this format:
-  `table_name|{"table_name": "tbl_name","data": "data"}`, where `tbl_name` is the table name and `|` is used as the 
-  separator between table name and table data.
+  be used, which requires the data in Kafka to contain table name information. Currently, only the table name can be 
+  obtained from the Kafka value, and it needs to conform to the format of "table_name|{"col1": "val1", "col2": "val2"}" 
+  for JSON data. The "tbl_name" represents the table name, and "|" is used as the delimiter between the table name and 
+  the table data. The same format applies to CSV data, such as "table_name|val1,val2,val3". It is important to note that 
+  the "table_name" must be consistent with the table name in Doris, otherwise it may cause import failures.
 
-Tips: The `columns_mapping` parameter is not supported for dynamic tables. If your table structure is consistent with 
-the table structure in Doris and there is a large amount of table information to be imported, this method will be the 
-best choice.
+  Tips: The `columns_mapping` parameter is not supported for dynamic tables. If your table structure is consistent with 
+  the table structure in Doris and there is a large amount of table information to be imported, this method will be the 
+  best choice.
 
 - `merge_type`
 
