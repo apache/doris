@@ -221,6 +221,9 @@ public class S3LoadStmt extends NativeInsertStmt {
             return;
         }
         columnExprList = filterColumns(columnExprList);
+        if (CollectionUtils.isEmpty(columnExprList)) {
+            return;
+        }
         resetTargetColumnNames(columnExprList);
         resetSelectList(columnExprList);
     }
@@ -303,11 +306,14 @@ public class S3LoadStmt extends NativeInsertStmt {
 
         // remove all `tmp` columns, which are not in target table
         columnExprList.removeIf(
-                Predicates.and(ImportColumnDesc::isColumn,
-                        columnDesc -> Objects.isNull(targetTable.getColumn(columnDesc.getColumnName())))
+                Predicates.and(
+                        ImportColumnDesc::isColumn,
+                        desc -> Objects.isNull(targetTable.getColumn(desc.getColumnName())),
+                        desc -> funtionGenTableColNames.contains(desc.getColumnName())
+                )
         );
 
-        // to deal with the case like:
+        // deal with the case like:
         // (k1, k2) SET(k1 = `upper(k1)`)
         columnExprList = Lists.newArrayList(columnExprList.stream()
                 .collect(Collectors.toMap(
@@ -333,7 +339,7 @@ public class S3LoadStmt extends NativeInsertStmt {
         );
 
         Map<String, Expr> columnExprMap = columnExprList.stream()
-                // do not use Collector.toMap because ImportColumnDesc::getExpr may be null
+                // not using Collector.toMap because ImportColumnDesc::getExpr may be null
                 .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
                         (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
         checkUnspecifiedCols(columnExprMap);
