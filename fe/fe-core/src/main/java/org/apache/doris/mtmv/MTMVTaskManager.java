@@ -318,9 +318,6 @@ public class MTMVTaskManager {
     }
 
     public void replayCreateJobTask(MTMVTask task) {
-        if (MTMVUtils.getNowTimeStamp() > task.getExpireTime()) {
-            return;
-        }
         addHistory(task);
     }
 
