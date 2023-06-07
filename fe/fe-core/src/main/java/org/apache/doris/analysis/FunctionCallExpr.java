@@ -1575,6 +1575,16 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        // if the input arg is not nullable, so the function of is_null/is_not_null
+        // result is very certain and there is no need to look at data in column.
+        // just given a literal, so that BE could deal with it as const
+        if ((fn.getFunctionName().getFunction().equals("is_null_pred")
+                || fn.getFunctionName().getFunction().equals("is_not_null_pred"))
+                && getChild(0).isNullable() == false) {
+            LiteralExpr literal = LiteralExpr.create("0", Type.TINYINT);
+            this.setChild(0, literal);
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("named_struct")) {
             if ((children.size() & 1) == 1) {
                 throw new AnalysisException("named_struct can't be odd parameters, need even parameters: "
