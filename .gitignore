@@ -102,7 +102,6 @@ tools/single-node-cluster/fe*
 tools/tpcds-tools/TPC-DS_Tools_*.zip
 tools/tpcds-tools/bin/DSGen-software*
 tools/tpcds-tools/bin/tpcds-data/
-fe/fe-core/src/main/java/org/apache/doris/thrift/
 
 # be-ut
 data_test
