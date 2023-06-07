@@ -83,7 +83,7 @@ public:
 
     Status finish(IndexedColumnMetaPB* meta);
 
-    uint64_t disk_size() const {return _disk_size;}
+    uint64_t disk_size() const { return _disk_size; }
 
 private:
     Status _finish_current_data_page(size_t& num_val);
