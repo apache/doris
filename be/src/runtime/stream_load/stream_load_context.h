@@ -170,6 +170,7 @@ public:
     std::shared_ptr<io::StreamLoadPipe> pipe;
 
     TStreamLoadPutResult put_result;
+    TStreamLoadMultiTablePutResult multi_table_put_result;
 
     std::vector<TTabletCommitInfo> commit_infos;
 
@@ -209,6 +210,12 @@ public:
 
     // csv with header type
     std::string header_type = "";
+
+    // is this load single-stream-multi-table?
+    bool is_multi_table = false;
+
+    // for single-stream-multi-table, we have table list
+    std::vector<std::string> table_list;
 
 public:
     ExecEnv* exec_env() { return _exec_env; }

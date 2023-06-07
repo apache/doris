@@ -40,6 +40,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "io/fs/kafka_consumer_pipe.h"
+#include "io/fs/multi_table_pipe.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
 #include "runtime/message_body_sink.h"
@@ -207,8 +208,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.max_batch_size) {
         ctx->max_batch_size = task.max_batch_size;
     }
+    if (task.__isset.is_multi_table && task.is_multi_table) {
+        ctx->is_multi_table = true;
+    }
 
-    // set execute plan params
+    // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;
     TStatus tstatus;
     tstatus.status_code = TStatusCode::OK;
@@ -288,7 +292,12 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     std::shared_ptr<io::StreamLoadPipe> pipe;
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
-        pipe = std::make_shared<io::KafkaConsumerPipe>();
+        if (ctx->is_multi_table) {
+            LOG(INFO) << "recv single-stream-multi-table request, ctx=" << ctx->brief();
+            pipe = std::make_shared<io::MultiTablePipe>(ctx);
+        } else {
+            pipe = std::make_shared<io::KafkaConsumerPipe>();
+        }
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
         if (!st.ok()) {
@@ -312,17 +321,28 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
 
+    if (!ctx->is_multi_table) {
+        // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
-    // execute plan fragment, async
-    HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
-                 "failed to execute plan fragment");
+        // execute plan fragment, async
+        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
+                     "failed to execute plan fragment");
 #else
-    // only for test
-    HANDLE_ERROR(_execute_plan_for_test(ctx), "test failed");
+        // only for test
+        HANDLE_ERROR(_execute_plan_for_test(ctx), "test failed");
 #endif
+    }
 
     // start to consume, this may block a while
     HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
+
+    if (ctx->is_multi_table) {
+        // plan the rest of unplanned data
+        auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
+        multi_table_pipe->request_and_exec_plans();
+        // need memory order
+        multi_table_pipe->set_consume_finished();
+    }
 
     // wait for all consumers finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
@@ -335,7 +355,6 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
-
     // commit kafka offset
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {
