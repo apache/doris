@@ -1,6 +1,8 @@
 #include "tools/build_segment_tool/builder_scanner_memtable.h"
+#include <gen_cpp/Exprs_types.h>
 #include <cstddef>
 #include <filesystem>
+#include <ostream>
 #include <utility>
 
 #include "exec/tablet_info.h"
@@ -231,39 +233,92 @@ void BuilderScannerMemtable::init_desc_table() {
 }
 
 void BuilderScannerMemtable::create_expr_info() {
-    TTypeDesc varchar_type;
-    {
-        TTypeNode node;
-        node.__set_type(TTypeNodeType::SCALAR);
-        TScalarType scalar_type;
-        scalar_type.__set_type(TPrimitiveType::VARCHAR);
-        scalar_type.__set_len(65535);
-        node.__set_scalar_type(scalar_type);
-        varchar_type.types.push_back(node);
-    }
+    // TTypeDesc varchar_type;
+    // {
+    //     TTypeNode node;
+    //     node.__set_type(TTypeNodeType::SCALAR);
+    //     TScalarType scalar_type;
+    //     scalar_type.__set_type(TPrimitiveType::VARCHAR);
+    //     scalar_type.__set_len(65535);
+    //     node.__set_scalar_type(scalar_type);
+    //     varchar_type.types.push_back(node);
+    // }
     for (int i = 0; i < _tablet->num_columns(); i++) {
         auto col = _tablet->tablet_schema()->column(i);
+        TTypeDesc type;
+        {
+            TTypeNode node;
+            node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType scalar_type;
+            scalar_type.__set_type(getPrimitiveType(col.type()));
+            if (getPrimitiveType(col.type()) == TPrimitiveType::VARCHAR) {
+                scalar_type.__set_len(col.length());
+            }
+            node.__set_scalar_type(scalar_type);
+            type.types.emplace_back(node);
+        }
+        // expr_of_dest_slot
+        {
+            TExprNode slot_ref;
+            slot_ref.node_type = TExprNodeType::SLOT_REF;
+            slot_ref.type = type;
+            slot_ref.num_children = 0;
+            slot_ref.slot_ref.slot_id = _tablet->num_columns() + i;
+            slot_ref.slot_ref.tuple_id = 1;
+            slot_ref.__isset.slot_ref = true;
 
-        TExprNode slot_ref;
-        slot_ref.node_type = TExprNodeType::SLOT_REF;
-        slot_ref.type = varchar_type;
-        slot_ref.num_children = 0;
-        slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = _tablet->num_columns() + i;
-        slot_ref.slot_ref.tuple_id = 1;
+            TExpr expr;
+            expr.nodes.push_back(slot_ref);
+            _params.expr_of_dest_slot.emplace(i, expr);
+        }
 
-        TExpr expr;
-        expr.nodes.push_back(slot_ref);
-        _params.expr_of_dest_slot.emplace(i, expr);
+        // default_value_of_src_slot
+        {
+            TExprNode node;
+            if (col.has_default_value()) {
+                node.node_type = TExprNodeType::STRING_LITERAL;
+                node.string_literal = TStringLiteral();
+                node.string_literal.__set_value(col.default_value());
+
+            } else {
+                if (col.is_nullable()) {
+                  node.node_type = TExprNodeType::NULL_LITERAL;
+                } else {
+                    continue;
+                }
+            }
+            node.type = type;
+            node.num_children = 0;
+            TExpr expr;
+            expr.nodes.push_back(node);
+            _params.default_value_of_src_slot.emplace(i + _tablet->num_columns(), expr);
+        }
+        
+        // _params.dest_sid_to_src_sid_without_trans.emplace(i, _tablet->num_columns() + i);
 
         TFileScanSlotInfo slotInfo;
         slotInfo.slot_id = _tablet->num_columns() + i;
         slotInfo.is_file_slot = true;
         _params.required_slots.push_back(slotInfo);
-        // _params.src_slot_ids.push_back(_tablet->num_columns() + i);
     }
 
-    // _params.__isset.expr_of_dest_slot = true;
+    
+    {
+        TExpr tExpr;
+        for (int i = 0; i < _tablet->num_columns(); i++) {
+            auto col = _tablet->tablet_schema()->column(i);
+            TExpr expr;
+            
+            
+
+            
+
+            _params.default_value_of_src_slot.emplace(
+                _tablet->num_columns() + i, expr);
+        }
+    }
+
+    _params.__isset.expr_of_dest_slot = true;
     _params.__set_dest_tuple_id(TUPLE_ID_DST);
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
     _params.format_type = TFileFormatType::FORMAT_PARQUET;
@@ -277,25 +332,11 @@ void BuilderScannerMemtable::build_scan_ranges(std::vector<TFileRangeDesc>& rang
                                                const std::vector<std::filesystem::directory_entry>& files) {
     LOG(INFO) << "build scan ranges for files size:" << files.size() << " file_type:" << _file_type;
     for (const auto& file : files) {
-        TFileRangeDesc range;
-        /*
-        range.start_offset = 0;
-        range.size = -1;
-        range.format_type = TFileFormatType::FORMAT_PARQUET;
-        range.splittable = true;
-
-        range.path = file;
-        range.file_type = TFileType::FILE_LOCAL;
-        */
-        
+        TFileRangeDesc range;        
         range.path = file.path();
         range.start_offset = 0;
         range.size = file.file_size();
         range.file_size = range.size;
-        // range.file_size = ;
-        // range.columns_from_path =;
-        // range.columns_from_path_keys=;
-
         ranges.push_back(range);
     }
 
@@ -358,7 +399,7 @@ void BuilderScannerMemtable::doSegmentBuild(const std::vector<std::filesystem::d
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer,
                       _runtime_state.runtime_profile(), load_id);
-    status = delta_writer->init(); // here we are
+    status = delta_writer->init();
     if (!status.ok()) { 
         LOG(FATAL) << "delta_writer init fail:" << status.to_string();
     }
@@ -381,6 +422,7 @@ void BuilderScannerMemtable::doSegmentBuild(const std::vector<std::filesystem::d
 
     while (!eof) {
         status = scan_node.get_next(&_runtime_state, &block, &eof);
+        LOG(INFO) << block << std::endl;
         if (!status.ok()) {
             LOG(FATAL) << "scan error: " << status.to_string();
             break;

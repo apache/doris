@@ -78,6 +78,10 @@ public:
         _slot_desc.slotType.types[0].scalar_type.__set_len(len);
         return *this;
     }
+    TSlotDescriptorBuilder& length(int len) {
+        _slot_desc.slotType.types[0].scalar_type.__set_len(len);
+        return *this;
+    }
     TSlotDescriptorBuilder& nullable(bool nullable) {
         _slot_desc.nullIndicatorByte = (nullable) ? 0 : -1;
         return *this;
