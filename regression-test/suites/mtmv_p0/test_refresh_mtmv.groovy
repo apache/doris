@@ -97,14 +97,14 @@ suite("test_refresh_mtmv") {
         """
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvNameDemand} COMPLETE
-        """
-        waitingMTMVTaskFinished(mvName)
+        REFRESH MATERIALIZED VIEW ${mvNameDemand} COMPLETE
+    """
+    waitingMTMVTaskFinished(mvName)
 
     def show_task_result = sql "SHOW MTMV TASK ON ${mvNameDemand}"
     assertEquals 1, show_task_result.size(), show_task_result.toString()
 
     sql """
-            DROP MATERIALIZED VIEW ${mvNameDemand}
-        """
+        DROP MATERIALIZED VIEW ${mvNameDemand}
+    """
 }
