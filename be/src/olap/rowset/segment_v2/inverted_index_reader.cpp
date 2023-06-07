@@ -73,6 +73,13 @@
 namespace doris {
 namespace segment_v2 {
 
+bool InvertedIndexReader::_is_range_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY);
+}
+
 bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
     return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
@@ -491,8 +498,15 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                                     result.add(docid);
                                 });
     } catch (const CLuceneError& e) {
-        LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        if (_is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
+            LOG(WARNING) << "range query term exceeds limits, try to downgrade from inverted index,"
+                         << "column name:" << column_name << " search_str:" << search_str;
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
+        } else {
+            LOG(WARNING) << "CLuceneError occured, error msg: " << e.what()
+                         << "column name:" << column_name << " search_str:" << search_str;
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        }
     }
 
     // add to cache
@@ -875,7 +889,7 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
             LOG(INFO) << "hit count: " << hit_count << ", bkd inverted reached limit "
                       << query_bkd_limit_percent << "%, segment num rows: " << segment_num_rows;
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT>();
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
         }
     }
 
