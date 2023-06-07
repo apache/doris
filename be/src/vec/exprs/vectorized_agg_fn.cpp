@@ -273,6 +273,7 @@ std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exp
 std::string AggFnEvaluator::debug_string() const {
     std::stringstream out;
     out << "AggFnEvaluator(";
+    out << _fn.signature;
     out << ")";
     return out.str();
 }
