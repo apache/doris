@@ -29,6 +29,7 @@
 #include "io/fs/file_reader_options.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/multi_table_pipe.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
@@ -144,12 +145,24 @@ Status FileFactory::create_file_reader(RuntimeProfile* profile,
 }
 
 // file scan node/stream load pipe
-Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader) {
+Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
+                                       const TUniqueId& fragment_instance_id) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
+
     *file_reader = stream_load_ctx->pipe;
+
+    if (file_reader->get() != nullptr) {
+        auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
+        if (multi_table_pipe != nullptr) {
+            *file_reader = multi_table_pipe->getPipe(fragment_instance_id);
+            LOG(INFO) << "create pipe reader for fragment instance: " << fragment_instance_id
+                      << " pipe: " << (*file_reader).get();
+        }
+    }
+
     return Status::OK();
 }
 

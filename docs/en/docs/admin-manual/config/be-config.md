@@ -718,6 +718,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
 
+#### `multi_table_batch_plan_threshold`
+
+* Type: int32
+* Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
+* Default value: 200
+
 #### `single_replica_load_download_num_workers`
 
 * Type: int32
