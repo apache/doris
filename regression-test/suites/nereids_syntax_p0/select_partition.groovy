@@ -60,4 +60,32 @@ suite("query_on_specific_partition") {
     qt_sql """select * from t_p temporary partitions(tp1);"""
 
     qt_sql """select * from t_p temporary partition tp1;"""
+
+    sql """
+        CREATE TABLE IF NOT EXISTS test_iot (
+                `test_int` int NOT NULL,
+                `test_varchar` varchar(150) NULL,
+        `test_text` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`test_int`)
+        PARTITION BY LIST (`test_int`)
+        (
+                PARTITION p1 VALUES IN ("1","2","3"),
+                        PARTITION p2 VALUES IN ("4","5","6")
+        )
+        DISTRIBUTED BY HASH(`test_int`) BUCKETS 3
+        PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+        )
+    """
+
+    sql """
+        INSERT INTO test_iot VALUES(1,'aaa','aaa'),(4,'ccc','ccc');
+    """
+
+    qt_sql """
+        SELECT * FROM test_iot PARTITION p1;
+    """
 }

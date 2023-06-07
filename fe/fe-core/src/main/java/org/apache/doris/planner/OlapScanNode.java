@@ -111,7 +111,6 @@ public class OlapScanNode extends ScanNode {
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
 
-    private List<TScanRangeLocations> result = new ArrayList<>();
     /*
      * When the field value is ON, the storage engine can return the data directly
      * without pre-aggregation.
@@ -569,7 +568,7 @@ public class OlapScanNode extends ScanNode {
     public void init() throws UserException {
         selectedPartitionNum = selectedPartitionIds.size();
         try {
-            getScanRangeLocations();
+            createScanRangeLocations();
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
@@ -603,7 +602,7 @@ public class OlapScanNode extends ScanNode {
         // prepare stmt evaluate lazily in Coordinator execute
         if (!isFromPrepareStmt) {
             try {
-                getScanRangeLocations();
+                createScanRangeLocations();
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -730,7 +729,7 @@ public class OlapScanNode extends ScanNode {
                     visibleVersionStr = String.valueOf(visibleVersion);
                 }
             }
-            TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
+            TScanRangeLocations locations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
             paloRange.setSchemaHash("0");
@@ -796,7 +795,7 @@ public class OlapScanNode extends ScanNode {
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
                 scanRangeLocation.setBackendId(replica.getBackendId());
-                scanRangeLocations.addToLocations(scanRangeLocation);
+                locations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
 
@@ -817,11 +816,11 @@ public class OlapScanNode extends ScanNode {
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
-            scanRangeLocations.setScanRange(scanRange);
+            locations.setScanRange(scanRange);
 
-            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), scanRangeLocations);
+            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), locations);
 
-            result.add(scanRangeLocations);
+            scanRangeLocations.add(locations);
         }
 
         if (tablets.size() == 0) {
@@ -884,11 +883,13 @@ public class OlapScanNode extends ScanNode {
         final RollupSelector rollupSelector = new RollupSelector(analyzer, desc, olapTable);
         selectedIndexId = rollupSelector.selectBestRollup(selectedPartitionIds, conjuncts, isPreAggregation);
         updateSlotUniqueId();
-        LOG.debug("select best roll up cost: {} ms, best index id: {}",
-                (System.currentTimeMillis() - start), selectedIndexId);
+        LOG.debug("select best roll up cost: {} ms, best index id: {}", (System.currentTimeMillis() - start),
+                selectedIndexId);
     }
 
-    private void getScanRangeLocations() throws UserException {
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = Lists.newArrayList();
         if (selectedPartitionIds.size() == 0) {
             desc.setCardinality(0);
             return;
@@ -1088,7 +1089,7 @@ public class OlapScanNode extends ScanNode {
      */
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return result;
+        return scanRangeLocations;
     }
 
     // Only called when Coordinator exec in high performance point query
@@ -1100,14 +1101,13 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
-        result.clear();
         bucketSeq2locations.clear();
         try {
-            getScanRangeLocations();
+            createScanRangeLocations();
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        return result;
+        return scanRangeLocations;
     }
 
     public void setDescTable(DescriptorTable descTable) {
@@ -1207,11 +1207,11 @@ public class OlapScanNode extends ScanNode {
         // so here we need count distinct be_num to do the work. make sure get right instance
         if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
             int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            long numBackend = result.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
-                        .map(loc -> loc.backend_id).distinct().count();
+            long numBackend = scanRangeLocations.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
+                    .map(loc -> loc.backend_id).distinct().count();
             return (int) (parallelInstance * numBackend);
         }
-        return result.size();
+        return scanRangeLocations.size();
     }
 
     @Override
@@ -1351,22 +1351,6 @@ public class OlapScanNode extends ScanNode {
         if (shouldColoScan) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
-    }
-
-    // export some tablets
-    public static OlapScanNode createOlapScanNodeByLocation(
-            PlanNodeId id, TupleDescriptor desc, String planNodeName, List<TScanRangeLocations> locationsList) {
-        OlapScanNode olapScanNode = new OlapScanNode(id, desc, planNodeName);
-        olapScanNode.numInstances = 1;
-
-        olapScanNode.selectedIndexId = olapScanNode.olapTable.getBaseIndexId();
-        olapScanNode.selectedPartitionNum = 1;
-        olapScanNode.selectedTabletsNum = 1;
-        olapScanNode.totalTabletsNum = 1;
-        olapScanNode.setIsPreAggregation(false, "Export job");
-        olapScanNode.result.addAll(locationsList);
-
-        return olapScanNode;
     }
 
     public void collectColumns(Analyzer analyzer, Set<String> equivalenceColumns, Set<String> unequivalenceColumns) {

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -105,15 +106,6 @@ public abstract class ExternalCatalog
 
     public void setDefaultProps() {
         // set some default properties when creating catalog
-    }
-
-    /**
-     * @return names of database in this catalog.
-     */
-    // public abstract List<String> listDatabaseNames(SessionContext ctx);
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
     }
 
     /**
@@ -315,9 +307,13 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    /**
+     * @return names of database in this catalog.
+     */
     @Override
     public List<String> getDbNames() {
-        return listDatabaseNames(null);
+        makeSureInitialized();
+        return new ArrayList<>(dbNameToId.keySet());
     }
 
     @Override
@@ -453,6 +449,8 @@ public abstract class ExternalCatalog
                 //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
+            case PAIMON:
+                return new PaimonExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }

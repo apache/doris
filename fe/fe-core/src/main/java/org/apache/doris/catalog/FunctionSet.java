@@ -37,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -1155,11 +1156,20 @@ public class FunctionSet<T> {
     }
 
     public Function resolveInferenceFunction(Function inferenceFunction, Function requestFunction) {
-        Type[] args = requestFunction.getArgs();
-        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), args);
+        Type[] inputArgs = requestFunction.getArgs();
+        Type[] inferArgs = inferenceFunction.getArgs();
+        Type[] newTypes = Arrays.copyOf(inputArgs, inputArgs.length);
+        for (int i = 0; i < inferArgs.length; ++i) {
+            Type inferType = inferArgs[i];
+            Type inputType = inputArgs[i];
+            if (!inferType.isAnyType()) {
+                newTypes[i] = inputType;
+            }
+        }
+        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), newTypes);
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
-            return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()), newRetType, f.hasVarArgs(),
+            return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(newTypes), newRetType, f.hasVarArgs(),
                     f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
         }
         return null;

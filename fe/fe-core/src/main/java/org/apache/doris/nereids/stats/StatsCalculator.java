@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -104,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -551,6 +554,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+            if (cache.avgSizeByte <= 0) {
+                cache = new ColumnStatisticBuilder(cache)
+                        .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
+                        .build();
+            }
             if (cache == ColumnStatistic.UNKNOWN && !colName.equals("__DORIS_DELETE_SIGN__")) {
                 if (forbidUnknownColStats) {
                     if (StatisticsUtil.statsTblAvailable()) {
@@ -571,11 +579,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
-                totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                        && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                    totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                }
             }
             columnStatisticMap.put(slotReference, cache);
-            totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-            totalHistogramMap.put(table.getName() + colName, histogram);
+            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
+                totalHistogramMap.put(table.getName() + colName, histogram);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
@@ -830,6 +844,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> childColumnStats = stats.columnStatistics();
         Map<Expression, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
                 .map(expr -> {
+                    //estimate rank()
+                    if (expr instanceof Alias && expr.child(0) instanceof WindowExpression
+                            && ((WindowExpression) expr.child(0)).getFunction() instanceof Rank) {
+                        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();
+                        colBuilder.setNdv(stats.getRowCount())
+                                .setOriginal(null)
+                                .setCount(stats.getRowCount())
+                                .setMinValue(0)
+                                .setMaxValue(stats.getRowCount());
+                        return Pair.of(expr.toSlot(), colBuilder.build());
+                    }
+                    //estimate other expressions
                     ColumnStatistic value = null;
                     Set<Slot> slots = expr.getInputSlots();
                     if (slots.isEmpty()) {

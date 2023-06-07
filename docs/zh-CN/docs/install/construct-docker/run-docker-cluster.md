@@ -116,7 +116,6 @@ docker run -itd \
 -p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
--v /data/fe/conf:/opt/apache-doris/fe/conf \
 -v /data/fe/log:/opt/apache-doris/fe/log \
 --network=doris-network \
 --ip=172.20.80.2 \
@@ -128,7 +127,6 @@ docker run -itd \
 --env BE_ADDR="172.20.80.3:9050" \
 -p 8040:8040 \
 -v /data/be/storage:/opt/apache-doris/be/storage \
--v /data/be/conf:/opt/apache-doris/be/conf \
 -v /data/be/log:/opt/apache-doris/be/log \
 --network=doris-network \
 --ip=172.20.80.3 \
@@ -156,7 +154,6 @@ services:
       - 9030:9030
     volumes:
       - /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta
-      - /data/fe/conf:/opt/apache-doris/fe/conf
       - /data/fe/log:/opt/apache-doris/fe/log
     networks:
       doris_net:
@@ -174,7 +171,6 @@ services:
       - 8040:8040
     volumes:
       - /data/be/storage:/opt/apache-doris/be/storage
-      - /data/be/conf:/opt/apache-doris/be/conf
       - /data/be/script:/docker-entrypoint-initdb.d
       - /data/be/log:/opt/apache-doris/be/log
     networks:

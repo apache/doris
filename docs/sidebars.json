@@ -311,6 +311,7 @@
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last_index",
+                                "sql-manual/sql-functions/array-functions/array_first",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_count",
@@ -499,7 +500,8 @@
                             "label": "Struct Functions",
                             "items": [
                                 "sql-manual/sql-functions/struct-functions/struct",
-                                "sql-manual/sql-functions/struct-functions/named_struct"
+                                "sql-manual/sql-functions/struct-functions/named_struct",
+                                "sql-manual/sql-functions/struct-functions/struct_element"
                             ]
                         },
                         {

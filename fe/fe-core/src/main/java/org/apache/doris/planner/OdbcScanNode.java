@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -41,7 +42,6 @@ import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -55,7 +55,7 @@ import java.util.List;
 /**
  * Full scan of an ODBC table.
  */
-public class OdbcScanNode extends ScanNode {
+public class OdbcScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(OdbcScanNode.class);
 
     // Now some database have different function call like doris, now doris do not
@@ -85,6 +85,25 @@ public class OdbcScanNode extends ScanNode {
                 return filter;
             }
         }
+        if (tableType.equals(TOdbcTableType.TRINO) && expr.contains(DateLiteral.class)
+                && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
+                    .get(1).getType().isDateV2()) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "date '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+            if (children.get(1).isConstant() && (children.get(1).getType().isDatetime() || children
+                    .get(1).getType().isDatetimeV2())) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "timestamp '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+        }
+
         return expr.toMySql();
     }
 
@@ -100,17 +119,11 @@ public class OdbcScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE);
+        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE, false);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
         this.tbl = tbl;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeStats(analyzer);
     }
 
     @Override
@@ -124,6 +137,12 @@ public class OdbcScanNode extends ScanNode {
         // Convert predicates to Odbc columns and filters.
         createOdbcColumns(analyzer);
         createOdbcFilters(analyzer);
+        createScanRangeLocations();
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }
 
     @Override
@@ -227,20 +246,6 @@ public class OdbcScanNode extends ScanNode {
         odbcScanNode.setQueryString(getOdbcQueryStr());
 
         msg.odbc_scan_node = odbcScanNode;
-    }
-
-    /**
-     * We query Odbc Meta to get request's data location
-     * extra result info will pass to backend ScanNode
-     */
-    @Override
-    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
-    }
-
-    @Override
-    public int getNumInstances() {
-        return 1;
     }
 
     @Override

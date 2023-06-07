@@ -41,10 +41,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
@@ -74,6 +78,7 @@ public abstract class ScanNode extends PlanNode {
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
     protected Analyzer analyzer;
+    protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -128,6 +133,8 @@ public abstract class ScanNode extends PlanNode {
         }
     }
 
+    protected abstract void createScanRangeLocations() throws UserException;
+
     /**
      * Returns all scan ranges plus their locations. Needs to be preceded by a call to
      * finalize().
@@ -170,7 +177,10 @@ public abstract class ScanNode extends PlanNode {
     }
 
     public void computeColumnFilter() {
-        computeColumnFilter(desc.getTable().getBaseSchema());
+        // for load scan node, table is null
+        if (desc.getTable() != null) {
+            computeColumnFilter(desc.getTable().getBaseSchema());
+        }
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
@@ -592,5 +602,18 @@ public abstract class ScanNode extends PlanNode {
             }
         }
         return delta;
+    }
+
+    // Create a single scan range locations for the given backend policy.
+    // Used for those scan nodes which do not require data location.
+    public static TScanRangeLocations createSingleScanRangeLocations(FederationBackendPolicy backendPolicy) {
+        TScanRangeLocations scanRangeLocation = new TScanRangeLocations();
+        scanRangeLocation.setScanRange(new TScanRange());
+        TScanRangeLocation location = new TScanRangeLocation();
+        Backend be = backendPolicy.getNextBe();
+        location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+        location.setBackendId(be.getId());
+        scanRangeLocation.addToLocations(location);
+        return scanRangeLocation;
     }
 }
