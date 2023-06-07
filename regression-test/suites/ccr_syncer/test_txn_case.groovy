@@ -14,8 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 suite("test_txn_case") {
 
+    // TODO: bugfix
     def fullPriv = ["SELECT_PRIV"/*, "LOAD_PRIV"*/, "ALTER_PRIV", "CREATE_PRIV", "DROP_PRIV"]
     def nowPriv = []
     def recursionPriv = { fullPrivList, idx, nowPrivList, num, callback ->
@@ -147,7 +149,7 @@ suite("test_txn_case") {
     syncer.context.passwd = "123456"
     assertTrue(syncer.beginTxn("${txnTableName}") == false)
 
-    // TODO: deadlinefen
+    // TODO: bugfix
     // Recursively selecting privileges, 
     // if not all privileges are obtained, txn should not be began
     logger.info("=== Test 3.3: Begin a txn with low priv user case ===")
@@ -216,17 +218,20 @@ suite("test_txn_case") {
 
 
     logger.info("=== Test 4.2: Wrong commit info case ===")
+    // TODO: bugfix
     // def originCommitInfos = syncer.resetCommitInfos()
     // syncer.context.addCommitInfo(-1, -1)
     // assertTrue(syncer.commitTxn()) == false)
 
 
     logger.info("=== Test 4.3: Empty commit info case ===")
+    // TODO: bugfix
     // assertTrue(syncer.commitTxn() == false)
 
 
     logger.info("=== Test 4.4: duplicate txnId case ===")
-    def lastCommitInfo = syncer.copyCommitInfos()
+    // TODO: bugfix
+    // def lastCommitInfo = syncer.copyCommitInfos()
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion("${txnTableName}"))
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
@@ -289,9 +294,5 @@ suite("test_txn_case") {
     syncer.context.user = context.config.feSyncerUser
     syncer.context.passwd = context.config.feSyncerPassword
     syncer.closeBackendClients()
-
-
-
-
     
 }

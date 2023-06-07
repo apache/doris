@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_multi_buckets") {
-// context_check
+suite("test_binlog_config_change") {
+
     def syncer = getSyncer()
-    def tableName = "tbl_multi_buckets"
+    def tableName = "tbl_binlog_config_change"
     def test_num = 0
     def insert_num = 5
 
@@ -31,7 +31,7 @@ suite("test_multi_buckets") {
         )
         ENGINE=OLAP
         UNIQUE KEY(`test`, `id`)
-        DISTRIBUTED BY HASH(id) BUCKETS 3
+        DISTRIBUTED BY HASH(id) BUCKETS 1 
         PROPERTIES ( 
             "replication_allocation" = "tag.location.default: 1"
         )
@@ -40,43 +40,27 @@ suite("test_multi_buckets") {
 
     target_sql "DROP TABLE IF EXISTS ${tableName}"
     target_sql """
-               CREATE TABLE if NOT EXISTS ${tableName} 
-               (
-                   `test` INT,
-                   `id` INT
-               )
-               ENGINE=OLAP
-               UNIQUE KEY(`test`, `id`)
-               DISTRIBUTED BY HASH(id) BUCKETS 3
-               PROPERTIES ( 
-                   "replication_allocation" = "tag.location.default: 1"
-               )
-               """
+        CREATE TABLE if NOT EXISTS ${tableName} 
+        (
+            `test` INT,
+            `id` INT
+        )
+        ENGINE=OLAP
+        UNIQUE KEY(`test`, `id`)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 
+        PROPERTIES ( 
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
     assertTrue(syncer.getTargetMeta("${tableName}"))
 
-    // test 1: blank row set case
-    logger.info("=== Test 1: Blank row set case ===")
+    // test 1: target cluster follow source cluster
+    logger.info("=== Test 1: Target cluster follow source cluster case ===")
     test_num = 1
-    sql """
-        INSERT INTO ${tableName} VALUES (${test_num}, 0)
-        """
-    assertTrue(syncer.getBinlog("${tableName}"))
-    assertTrue(syncer.beginTxn("${tableName}"))
-    assertTrue(syncer.getBackendClients())
-    assertTrue(syncer.ingestBinlog())
-    assertTrue(syncer.commitTxn())
-    syncer.closeBackendClients()
-    assertTrue(syncer.checkTargetVersion("${tableName}"))
-    def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
-
-    // test 2: upsert case
-    logger.info("=== Test 2: Upsert case ===")
-    test_num = 2
     for (int index = 0; index < insert_num; index++) {
         sql """
             INSERT INTO ${tableName} VALUES (${test_num}, ${index})
-        """
+            """
         assertTrue(syncer.getBinlog("${tableName}"))
         assertTrue(syncer.beginTxn("${tableName}"))
         assertTrue(syncer.getBackendClients())
@@ -86,7 +70,37 @@ suite("test_multi_buckets") {
         syncer.closeBackendClients()
     }
 
-    res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
+    def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
     assertTrue(res.size() == insert_num)
+
+    // TODO: bugfix
+    // test 2: source cluster disable and re-enable binlog
+    // target_sql "DROP TABLE IF EXISTS ${tableName}"
+    // target_sql """
+    //     CREATE TABLE if NOT EXISTS ${tableName} 
+    //     (
+    //         `test` INT,
+    //         `id` INT
+    //     )
+    //     ENGINE=OLAP
+    //     UNIQUE KEY(`test`, `id`)
+    //     DISTRIBUTED BY HASH(id) BUCKETS 1 
+    //     PROPERTIES ( 
+    //         "replication_allocation" = "tag.location.default: 1"
+    //     )
+    // """
+    // sql """ALTER TABLE ${tableName} set ("binlog.enable" = "false")"""
+    // sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
+
+    // syncer.context.seq = -1
+
+    // assertTrue(syncer.getBinlog("${tableName}"))
+    // assertTrue(syncer.beginTxn("${tableName}"))
+    // assertTrue(syncer.ingestBinlog("${tableName}"))
+    // assertTrue(syncer.commitTxn())
+    // assertTrue(syncer.checkTargetVersion("${tableName}"))
+
+    // res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
+    // assertTrue(res.size() == insert_num)
 
 }
