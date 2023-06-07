@@ -307,18 +307,21 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
+        Status st;
         if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
-            data_type =
-                    DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
+            CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
+                                    slot->type(), slot->is_nullable()),
+                            st);
         } else {
-            data_type = DataTypeFactory::instance().create_data_type(it->second, true);
+            CATCH_EXCEPTION(
+                    data_type = DataTypeFactory::instance().create_data_type(it->second, true), st);
         }
-        if (data_type == nullptr) {
-            return Status::NotSupported("Not support data type {} for column {}",
+        if (!st) {
+            return Status::NotSupported("Not support data type {} for column {}, reason {}",
                                         it == _name_to_col_type.end() ? slot->type().debug_string()
                                                                       : it->second.debug_string(),
-                                        slot->col_name());
+                                        slot->col_name(), st.to_string());
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
