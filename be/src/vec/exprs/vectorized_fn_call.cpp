@@ -138,9 +138,6 @@ void VectorizedFnCall::close(RuntimeState* state, VExprContext* context,
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
-    LOG(INFO)<<"VectorizedFnCall::execute: "<<_expr_name<<" "<<is_constant();
-    LOG(INFO)<<block->dump_structure();
-    LOG(INFO)<<block->dump_data();
     // TODO: not execute const expr again, but use the const column in function context
     vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
@@ -149,9 +146,7 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
         arguments[i] = column_id;
     }
     RETURN_IF_ERROR(check_constant(*block, arguments));
-    LOG(INFO)<<"debug_string() "<<debug_string() ;
-    LOG(INFO)<<block->dump_structure();
-    LOG(INFO)<<block->dump_data();
+
     // call function
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
