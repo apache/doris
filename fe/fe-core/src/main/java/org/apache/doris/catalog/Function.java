@@ -541,11 +541,6 @@ public class Function implements Writable {
             fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
         }
 
-        if (realReturnType.isAggStateType()) {
-            realReturnType = Expr.createAggStateType(((AggStateType) realReturnType), Arrays.asList(realArgTypes),
-                    Arrays.asList(realArgTypeNullables));
-        }
-
         // For types with different precisions and scales, return type only indicates a
         // type with default
         // precision and scale so we need to transform it to the correct type.
