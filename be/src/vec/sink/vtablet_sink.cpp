@@ -720,9 +720,8 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
     auto load_pressure_wait_time = _load_pressure_wait_time.load();
     if (UNLIKELY(load_pressure_wait_time > 0)) {
-        SCOPED_ATOMIC_TIMER(&_load_pressure_block_ns);
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(std::min(load_pressure_wait_time, 400)));
+        bthread_usleep(load_pressure_wait_time);
+        _load_pressure_block_ns.fetch_add(load_pressure_wait_time);
         _load_pressure_wait_time = 0;
     }
 
@@ -1539,8 +1538,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                         [&index_channel, &state, &node_add_batch_counter_map, &serialize_batch_ns,
                          &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
                          &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                         &total_wait_exec_time_ns, &wait_exec_time,
-                         &total_add_batch_num, &load_pressure_time_ns](const std::shared_ptr<VNodeChannel>& ch) {
+                         &total_wait_exec_time_ns, &wait_exec_time, &total_add_batch_num,
+                         &load_pressure_time_ns](const std::shared_ptr<VNodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
                                 auto err_msg = s.to_string();
