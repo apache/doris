@@ -37,7 +37,7 @@ The date parameter is a valid date expression.
 
 The expr parameter is the interval you want to add.
 
-Sweet, sweet, sweet
+The type parameter can be the following values: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND
 
 ### example
 

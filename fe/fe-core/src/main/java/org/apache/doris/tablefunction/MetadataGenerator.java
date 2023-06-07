@@ -17,7 +17,6 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -74,8 +73,8 @@ public class MetadataGenerator {
             case BACKENDS:
                 result = backendsMetadataResult(params);
                 break;
-            case RESOURCE_GROUPS:
-                result = resourceGroupsMetadataResult(params);
+            case WORKLOAD_GROUPS:
+                result = workloadGroupsMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -146,8 +145,8 @@ public class MetadataGenerator {
             return errorResult("backends metadata param is not set.");
         }
         TBackendsMetadataParams backendsParam = params.getBackendsMetadataParams();
-        final SystemInfoService clusterInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = clusterInfoService.getBackendIds(false);
+        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        List<Long> backendIds = systemInfoService.getAllBackendIds(false);
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         long start = System.currentTimeMillis();
@@ -155,7 +154,7 @@ public class MetadataGenerator {
 
         List<TRow> dataBatch = Lists.newArrayList();
         for (long backendId : backendIds) {
-            Backend backend = clusterInfoService.getBackend(backendId);
+            Backend backend = systemInfoService.getBackend(backendId);
             if (backend == null) {
                 continue;
             }
@@ -166,7 +165,6 @@ public class MetadataGenerator {
 
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(backendId));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
             trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
             if (Strings.isNullOrEmpty(backendsParam.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
@@ -177,18 +175,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastStartTime())));
             trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(backend.getLastUpdateMs())));
             trow.addToColumnValue(new TCell().setBoolVal(backend.isAlive()));
-
-            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
-                trow.addToColumnValue(new TCell().setBoolVal(false));
-                trow.addToColumnValue(new TCell().setBoolVal(true));
-            } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
-                trow.addToColumnValue(new TCell().setBoolVal(true));
-                trow.addToColumnValue(new TCell().setBoolVal(false));
-            } else {
-                trow.addToColumnValue(new TCell().setBoolVal(false));
-                trow.addToColumnValue(new TCell().setBoolVal(false));
-            }
+            trow.addToColumnValue(new TCell().setBoolVal(backend.isDecommissioned()));
             trow.addToColumnValue(new TCell().setLongVal(tabletNum));
 
             // capacity
@@ -242,12 +229,12 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult resourceGroupsMetadataResult(TMetadataTableRequestParams params) {
-        List<List<String>> resourceGroupsInfo = Env.getCurrentEnv().getResourceGroupMgr()
+    private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TMetadataTableRequestParams params) {
+        List<List<String>> workloadGroupsInfo = Env.getCurrentEnv().getWorkloadGroupMgr()
                 .getResourcesInfo();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (List<String> rGroupsInfo : resourceGroupsInfo) {
+        for (List<String> rGroupsInfo : workloadGroupsInfo) {
             TRow trow = new TRow();
             Long id = Long.valueOf(rGroupsInfo.get(0));
             trow.addToColumnValue(new TCell().setLongVal(id));
@@ -303,3 +290,4 @@ public class MetadataGenerator {
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 }
+

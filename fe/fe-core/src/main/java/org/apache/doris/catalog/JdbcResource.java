@@ -94,7 +94,6 @@ public class JdbcResource extends Resource {
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
-    public static final String OCEANBASE_MODE = "oceanbase_mode";
     public static final String CHECK_SUM = "checksum";
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -105,14 +104,12 @@ public class JdbcResource extends Resource {
             TYPE,
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
-            OCEANBASE_MODE,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
-            OCEANBASE_MODE,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST
     ).build();
@@ -124,7 +121,6 @@ public class JdbcResource extends Resource {
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(OCEANBASE_MODE, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
     }
@@ -153,7 +149,7 @@ public class JdbcResource extends Resource {
         for (String propertyKey : ALL_PROPERTIES) {
             replaceIfEffectiveValue(this.configs, propertyKey, properties.get(propertyKey));
         }
-        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL), getProperty(OCEANBASE_MODE)));
+        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
 
@@ -186,7 +182,7 @@ public class JdbcResource extends Resource {
                 throw new DdlException("JdbcResource Missing " + property + " in properties");
             }
         }
-        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL), getProperty(OCEANBASE_MODE)));
+        this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }
 
@@ -269,7 +265,7 @@ public class JdbcResource extends Resource {
         }
     }
 
-    public static String parseDbType(String url, String oceanbaseMode) throws DdlException {
+    public static String parseDbType(String url) throws DdlException {
         if (url.startsWith(JDBC_MYSQL) || url.startsWith(JDBC_MARIADB)) {
             return MYSQL;
         } else if (url.startsWith(JDBC_POSTGRESQL)) {
@@ -287,27 +283,17 @@ public class JdbcResource extends Resource {
         } else if (url.startsWith(JDBC_PRESTO)) {
             return PRESTO;
         } else if (url.startsWith(JDBC_OCEANBASE)) {
-            if (oceanbaseMode == null || oceanbaseMode.isEmpty()) {
-                throw new DdlException("OceanBase mode must be specified for OceanBase databases"
-                        + "(either 'mysql' or 'oracle')");
-            }
-            if (oceanbaseMode.equalsIgnoreCase("mysql")) {
-                return OCEANBASE;
-            } else if (oceanbaseMode.equalsIgnoreCase("oracle")) {
-                return OCEANBASE_ORACLE;
-            } else {
-                throw new DdlException("Invalid OceanBase mode: " + oceanbaseMode + ". Must be 'mysql' or 'oracle'");
-            }
+            return OCEANBASE;
         } else if (url.startsWith(JDBC_NEBULA)) {
             return NEBULA;
         }
         throw new DdlException("Unsupported jdbc database type, please check jdbcUrl: " + url);
     }
 
-    public static String handleJdbcUrl(String jdbcUrl, String oceanbaseMode) throws DdlException {
+    public static String handleJdbcUrl(String jdbcUrl) throws DdlException {
         // delete all space in jdbcUrl
         String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
-        String dbType = parseDbType(newJdbcUrl, oceanbaseMode);
+        String dbType = parseDbType(newJdbcUrl);
         if (dbType.equals(MYSQL) || dbType.equals(OCEANBASE)) {
             // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
@@ -322,6 +308,10 @@ public class JdbcResource extends Resource {
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
             newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
+            if (dbType.equals(OCEANBASE)) {
+                // set useCursorFetch to true
+                newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            }
         }
         if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");

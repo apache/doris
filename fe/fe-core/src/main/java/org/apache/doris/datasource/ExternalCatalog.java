@@ -27,6 +27,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -39,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -47,7 +49,6 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -55,6 +56,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -71,10 +73,10 @@ public abstract class ExternalCatalog
     protected long id;
     @SerializedName(value = "name")
     protected String name;
-    @SerializedName(value = "type")
+    // TODO: Keep this to compatible with older version meta data. Need to remove after several DORIS versions.
     protected String type;
-    // TODO: replace type with log type
-    protected final InitCatalogLog.Type logType;
+    @SerializedName(value = "logType")
+    protected InitCatalogLog.Type logType;
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty;
@@ -90,24 +92,20 @@ public abstract class ExternalCatalog
     private ExternalSchemaCache schemaCache;
     private String comment;
 
-    public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType) {
+    public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType, String comment) {
         this.id = catalogId;
         this.name = name;
         this.logType = logType;
+        this.comment = com.google.common.base.Strings.nullToEmpty(comment);
     }
 
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+                + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    /**
-     * @return names of database in this catalog.
-     */
-    // public abstract List<String> listDatabaseNames(SessionContext ctx);
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
+    public void setDefaultProps() {
+        // set some default properties when creating catalog
     }
 
     /**
@@ -297,7 +295,7 @@ public abstract class ExternalCatalog
 
     @Override
     public String getType() {
-        return type;
+        return logType.name().toLowerCase(Locale.ROOT);
     }
 
     @Override
@@ -309,9 +307,13 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    /**
+     * @return names of database in this catalog.
+     */
     @Override
     public List<String> getDbNames() {
-        return listDatabaseNames(null);
+        makeSureInitialized();
+        return new ArrayList<>(dbNameToId.keySet());
     }
 
     @Override
@@ -443,8 +445,12 @@ public abstract class ExternalCatalog
                 return new IcebergExternalDatabase(this, dbId, dbName);
             case MAX_COMPUTE:
                 return new MaxComputeExternalDatabase(this, dbId, dbName);
+            //case HUDI:
+                //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
+            case PAIMON:
+                return new PaimonExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }
@@ -478,6 +484,19 @@ public abstract class ExternalCatalog
         objectCreated = false;
         if (this instanceof HMSExternalCatalog) {
             ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
+        }
+        // TODO: This code is to compatible with older version of metadata.
+        //  Could only remove after all users upgrate to the new version.
+        if (logType == null) {
+            if (type == null) {
+                logType = InitCatalogLog.Type.UNKNOWN;
+            } else {
+                try {
+                    logType = InitCatalogLog.Type.valueOf(type.toUpperCase(Locale.ROOT));
+                } catch (Exception e) {
+                    logType = InitCatalogLog.Type.UNKNOWN;
+                }
+            }
         }
     }
 

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
@@ -67,6 +67,18 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+    }
+
+    private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
+
+    static {
+        SUPPORTED_HUDI_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
@@ -136,8 +148,7 @@ public class HMSExternalTable extends ExternalTable {
             return false;
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null
-                && inputFormatName.equalsIgnoreCase("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
     }
 
     /**
@@ -274,7 +285,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
@@ -341,6 +352,8 @@ public class HMSExternalTable extends ExternalTable {
         List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
         if (dlaType.equals(DLAType.ICEBERG)) {
             columns = getIcebergSchema(schema);
+        } else if (dlaType.equals(DLAType.HUDI)) {
+            columns = getHudiSchema(schema);
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
@@ -354,12 +367,26 @@ public class HMSExternalTable extends ExternalTable {
         return columns;
     }
 
+
+    public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
+        org.apache.avro.Schema schema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        for (FieldSchema field : hmsSchema) {
+            tmpSchema.add(new Column(field.getName(),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
+                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
+                    true, null, field.getComment(), true, null,
+                    schema.getIndexNamed(field.getName()), null));
+        }
+        return tmpSchema;
+    }
+
     @Override
     public long estimatedRowCount() {
         ColumnStatistic cache = Config.enable_stats
                 ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
                 : ColumnStatistic.UNKNOWN;
-        if (cache == ColumnStatistic.UNKNOWN) {
+        if (cache.isUnKnown) {
             return 1;
         } else {
             return (long) cache.count;
@@ -373,9 +400,10 @@ public class HMSExternalTable extends ExternalTable {
         for (FieldSchema field : hmsSchema) {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                    IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
-                    true, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
+                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
+                    true, null,
+                    true, false, null, field.getComment(), true, null,
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
         }
         return tmpSchema;
     }

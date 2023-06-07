@@ -161,7 +161,9 @@ struct TTypeDesc {
     1: list<TTypeNode> types
     2: optional bool is_nullable
     3: optional i64  byte_size
-    4: optional list<TTypeDesc> sub_types;
+    4: optional list<TTypeDesc> sub_types
+    5: optional bool result_is_nullable
+    6: optional string function_name
 }
 
 enum TAggregationType {
@@ -223,7 +225,7 @@ enum TStmtType {
   QUERY,
   DDL,  // Data definition, e.g. CREATE TABLE (includes read-only functions e.g. SHOW)
   DML,  // Data modification e.g. INSERT
-  EXPLAIN   // EXPLAIN 
+  EXPLAIN   // EXPLAIN
 }
 
 // level of verboseness for "explain" output
@@ -449,7 +451,7 @@ struct TJavaUdfExecutorCtorParams {
   9: optional i64 output_intermediate_state_ptr
 
   10: optional i64 batch_size_ptr
-  
+
   // this is used to pass place or places to FE, which could help us call jni
   // only once and can process a batch size data in JAVA-Udaf
   11: optional i64 input_places_ptr
@@ -574,7 +576,7 @@ enum TLoadJobState {
     LOADING,
     FINISHED,
     CANCELLED
-}   
+}
 
 enum TEtlState {
 	RUNNING,
@@ -617,6 +619,14 @@ struct TBackend {
     3: required TPort http_port
 }
 
+struct TReplicaInfo {
+    1: required string host
+    2: required TPort  be_port
+    3: required TPort  http_port
+    4: required TPort  brpc_port
+    5: required TReplicaId replica_id
+}
+
 struct TResourceInfo {
     1: required string user
     2: required string group
@@ -635,6 +645,7 @@ enum TFileType {
     FILE_STREAM,    // file content is streaming in the buffer
     FILE_S3,
     FILE_HDFS,
+    FILE_NET,       // read file by network, such as http
 }
 
 struct TTabletCommitInfo {
@@ -642,7 +653,7 @@ struct TTabletCommitInfo {
     2: required i64 backendId
     // Every load job should check if the global dict is valid, if the global dict
     // is invalid then should sent the invalid column names to FE
-    3: optional list<string> invalid_dict_cols  
+    3: optional list<string> invalid_dict_cols
 }
 
 struct TErrorTabletInfo {
@@ -659,6 +670,7 @@ enum TLoadType {
 enum TLoadSourceType {
     RAW,
     KAFKA,
+    MULTI_TABLE,
 }
 
 enum TMergeType {
@@ -669,13 +681,13 @@ enum TMergeType {
 
 enum TSortType {
     LEXICAL,
-    ZORDER, 
+    ZORDER,
 }
 
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  RESOURCE_GROUPS
+  WORKLOAD_GROUPS
 }
 
 enum TIcebergQueryType {

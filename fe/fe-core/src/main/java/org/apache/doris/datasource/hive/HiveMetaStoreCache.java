@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.external.hive.util.HiveUtil;
@@ -72,6 +73,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -286,8 +288,26 @@ public class HiveMetaStoreCache {
         FileCacheValue result = new FileCacheValue();
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
-        RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-        locatedFiles.files().forEach(result::addFile);
+        try {
+            // For Tez engine, it may generate subdirectoies for "union" query.
+            // So there may be files and directories in the table directory at the same time. eg:
+            //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+            //      /user/hive/warehouse/region_tmp_union_all2/1
+            //      /user/hive/warehouse/region_tmp_union_all2/2
+            // So we need to recursively list data location.
+            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
+            locatedFiles.files().forEach(result::addFile);
+        } catch (Exception e) {
+            // User may manually remove partition under HDFS, in this case,
+            // Hive doesn't aware that the removed partition is missing.
+            // Here is to support this case without throw an exception.
+            if (e.getCause() instanceof FileNotFoundException) {
+                LOG.warn(String.format("File %s not exist.", location));
+            } else {
+                throw e;
+            }
+        }
         result.setPartitionValues(partitionValues);
         return result;
     }
@@ -296,7 +316,7 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = convertToS3IfNecessary(key.location);
+            String finalLocation = S3Util.convertToS3IfNecessary(key.location);
             JobConf jobConf = getJobConf();
             // For Tez engine, it may generate subdirectories for "union" query.
             // So there may be files and directories in the table directory at the same time. eg:
@@ -343,23 +363,6 @@ public class HiveMetaStoreCache {
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
-    }
-
-    // convert oss:// to s3://
-    private String convertToS3IfNecessary(String location) {
-        LOG.debug("try convert location to s3 prefix: " + location);
-        if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
-            int pos = location.indexOf("://");
-            if (pos == -1) {
-                throw new RuntimeException("No '://' found in location: " + location);
-            }
-            return "s3" + location.substring(pos);
-        }
-        return location;
     }
 
     private JobConf getJobConf() {

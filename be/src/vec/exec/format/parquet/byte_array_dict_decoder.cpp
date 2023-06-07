@@ -29,6 +29,8 @@
 
 namespace doris::vectorized {
 
+constexpr int MAX_STRINGS_OVERFLOW_SIZE = 128;
+
 Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);

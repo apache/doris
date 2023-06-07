@@ -33,12 +33,16 @@
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
+#include "vec/aggregate_functions/aggregate_function_state_merge.h"
+#include "vec/aggregate_functions/aggregate_function_state_union.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -50,6 +54,14 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
+
+template <class FunctionType>
+AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
+                                            DataTypePtr return_type) {
+    return FunctionType::create(
+            assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_nested_function(),
+            argument_types, return_type);
+}
 
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
@@ -82,9 +94,9 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {
         ++node_idx;
-        VExpr* expr = nullptr;
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_tree_from_thrift(pool, desc.nodes, &node_idx, &expr, &ctx));
+        VExprSPtr expr;
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
         agg_fn_evaluator->_input_exprs_ctxs.push_back(ctx);
     }
 
@@ -143,6 +155,27 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
+    } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
+        if (argument_types.size() != 1) {
+            return Status::InternalError("Agg state Function must input 1 argument but get {}",
+                                         argument_types.size());
+        }
+        if (argument_types[0]->is_nullable()) {
+            return Status::InternalError("Agg state function input type must be not nullable");
+        }
+        if (argument_types[0]->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            return Status::InternalError(
+                    "Agg state function input type must be agg_state but get {}",
+                    argument_types[0]->get_family_name());
+        }
+        if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
+            _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
+        } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
+            _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
+        } else {
+            return Status::InternalError(
+                    "Aggregate Function {} is not endwith '_merge' or '_union'", _fn.signature);
+        }
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, argument_types, _data_type->is_nullable());

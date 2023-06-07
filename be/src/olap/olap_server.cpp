@@ -40,6 +40,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/Types_constants.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
@@ -51,17 +55,23 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/task/index_builder.h"
+#include "runtime/client_cache.h"
+#include "service/brpc.h"
 #include "service/point_query_executor.h"
+#include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -74,6 +84,9 @@ using io::Path;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
+
+static const uint64_t DEFAULT_SEED = 104729;
+static const uint64_t MOD_PRIME = 7652413;
 
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
@@ -108,6 +121,11 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
+    ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+            .set_min_threads(config::max_single_replica_compaction_threads)
+            .set_max_threads(config::max_single_replica_compaction_threads)
+            .build(&_single_replica_compaction_thread_pool);
+
     if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
@@ -125,6 +143,12 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_compaction_tasks_producer_callback(); },
             &_compaction_tasks_producer_thread));
     LOG(INFO) << "compaction tasks producer thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "_update_replica_infos_thread",
+            [this]() { this->_update_replica_infos_callback(); }, &_update_replica_infos_thread));
+    LOG(INFO) << "tablet replicas info update thread started";
+
     int32_t max_checkpoint_thread_num = config::max_meta_checkpoint_threads;
     if (max_checkpoint_thread_num < 0) {
         max_checkpoint_thread_num = data_dirs.size();
@@ -142,6 +166,11 @@ Status StorageEngine::start_bg_threads() {
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
             &_tablet_checkpoint_tasks_producer_thread));
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "tablet_path_check_thread",
+            [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
+    LOG(INFO) << "tablet path check thread started";
 
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
@@ -215,9 +244,6 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_fd_cache_clean_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         interval = config::cache_clean_interval;
@@ -239,9 +265,6 @@ void StorageEngine::_start_clean_lookup_cache() {
 }
 
 void StorageEngine::_garbage_sweeper_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     uint32_t max_interval = config::max_garbage_sweep_interval;
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
@@ -282,10 +305,6 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 }
 
 void StorageEngine::_disk_stat_monitor_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int32_t interval = config::disk_stat_monitor_interval;
     do {
         _start_disk_stat_monitor();
@@ -317,9 +336,6 @@ void StorageEngine::check_cumulative_compaction_config() {
 }
 
 void StorageEngine::_unused_rowset_monitor_thread_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     int32_t interval = config::unused_rowset_monitor_interval;
     do {
         start_delete_unused_rowset();
@@ -334,10 +350,6 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
 }
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     LOG(INFO) << "try to start path gc thread!";
     int32_t interval = config::path_gc_check_interval_second;
     do {
@@ -357,10 +369,6 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int32_t interval = config::path_scan_interval_second;
     do {
         LOG(INFO) << "try to perform path scan!";
@@ -379,10 +387,6 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
@@ -394,6 +398,80 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_tablet_path_check_callback() {
+    struct TabletIdComparator {
+        bool operator()(Tablet* a, Tablet* b) { return a->tablet_id() < b->tablet_id(); }
+    };
+
+    using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
+    int64_t last_tablet_id;
+
+    int64_t interval;
+    do {
+        interval = config::tablet_path_check_interval_seconds;
+        int32_t batch_size = config::tablet_path_check_batch_size;
+        if (batch_size <= 0) {
+            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                break;
+            }
+            continue;
+        }
+
+        LOG(INFO) << "start to check tablet path";
+
+        auto all_tablets = _tablet_manager->get_all_tablet(
+                [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
+
+        TabletQueue big_id_tablets;
+        TabletQueue small_id_tablets;
+        for (auto tablet : all_tablets) {
+            auto tablet_id = tablet->tablet_id();
+            TabletQueue* belong_tablets = nullptr;
+            if (tablet_id > last_tablet_id) {
+                if (big_id_tablets.size() < batch_size ||
+                    big_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &big_id_tablets;
+                }
+            } else if (big_id_tablets.size() < batch_size) {
+                if (small_id_tablets.size() < batch_size ||
+                    small_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &small_id_tablets;
+                }
+            }
+            if (belong_tablets != nullptr) {
+                belong_tablets->push(tablet.get());
+                if (belong_tablets->size() > batch_size) {
+                    belong_tablets->pop();
+                }
+            }
+        }
+
+        int32_t need_small_id_tablet_size =
+                batch_size - static_cast<int32_t>(big_id_tablets.size());
+
+        if (!big_id_tablets.empty()) {
+            last_tablet_id = big_id_tablets.top()->tablet_id();
+        }
+        while (!big_id_tablets.empty()) {
+            big_id_tablets.top()->check_tablet_path_exists();
+            big_id_tablets.pop();
+        }
+
+        if (!small_id_tablets.empty() && need_small_id_tablet_size > 0) {
+            while (static_cast<int32_t>(small_id_tablets.size()) > need_small_id_tablet_size) {
+                small_id_tablets.pop();
+            }
+
+            last_tablet_id = small_id_tablets.top()->tablet_id();
+            while (!small_id_tablets.empty()) {
+                small_id_tablets.top()->check_tablet_path_exists();
+                small_id_tablets.pop();
+            }
+        }
+
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
@@ -435,12 +513,32 @@ void StorageEngine::_adjust_compaction_thread_num() {
                         << " to " << config::max_cumu_compaction_threads;
         }
     }
+
+    if (_single_replica_compaction_thread_pool->max_threads() !=
+        config::max_single_replica_compaction_threads) {
+        int old_max_threads = _single_replica_compaction_thread_pool->max_threads();
+        Status status = _single_replica_compaction_thread_pool->set_max_threads(
+                config::max_single_replica_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update single replica compaction thread pool max_threads from "
+                        << old_max_threads << " to "
+                        << config::max_single_replica_compaction_threads;
+        }
+    }
+    if (_single_replica_compaction_thread_pool->min_threads() !=
+        config::max_single_replica_compaction_threads) {
+        int old_min_threads = _single_replica_compaction_thread_pool->min_threads();
+        Status status = _single_replica_compaction_thread_pool->set_min_threads(
+                config::max_single_replica_compaction_threads);
+        if (status.ok()) {
+            VLOG_NOTICE << "update single replica compaction thread pool min_threads from "
+                        << old_min_threads << " to "
+                        << config::max_single_replica_compaction_threads;
+        }
+    }
 }
 
 void StorageEngine::_compaction_tasks_producer_callback() {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
     LOG(INFO) << "try to start compaction producer process!";
 
     std::unordered_set<TTabletId> tablet_submitted_cumu;
@@ -530,6 +628,153 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             interval = 5000; // 5s to check disable_auto_compaction
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
+}
+
+void StorageEngine::_update_replica_infos_callback() {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+    LOG(INFO) << "start to update replica infos!";
+
+    int64_t interval = config::update_replica_infos_interval_seconds;
+    do {
+        auto all_tablets = _tablet_manager->get_all_tablet([](Tablet* t) {
+            return t->is_used() && t->tablet_state() == TABLET_RUNNING &&
+                   !t->tablet_meta()->tablet_schema()->disable_auto_compaction() &&
+                   t->tablet_meta()->tablet_schema()->enable_single_replica_compaction();
+        });
+        TMasterInfo* master_info = ExecEnv::GetInstance()->master_info();
+        if (master_info == nullptr) {
+            LOG(WARNING) << "Have not get FE Master heartbeat yet";
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            continue;
+        }
+        TNetworkAddress master_addr = master_info->network_address;
+        if (master_addr.hostname == "" || master_addr.port == 0) {
+            LOG(WARNING) << "Have not get FE Master heartbeat yet";
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            continue;
+        }
+
+        int start = 0;
+        int tablet_size = all_tablets.size();
+        while (start < tablet_size) {
+            int batch_size = std::min(100, tablet_size - start);
+            int end = start + batch_size;
+            TGetTabletReplicaInfosRequest request;
+            TGetTabletReplicaInfosResult result;
+            for (int i = start; i < end; i++) {
+                request.tablet_ids.emplace_back(all_tablets[i]->tablet_id());
+            }
+            Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                    master_addr.hostname, master_addr.port,
+                    [&request, &result](FrontendServiceConnection& client) {
+                        client->getTabletReplicaInfos(result, request);
+                    });
+
+            if (!rpc_st.ok()) {
+                LOG(WARNING) << "Failed to get tablet replica infos, encounter rpc failure, "
+                                "tablet start: "
+                             << start << " end: " << end;
+                continue;
+            }
+
+            std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+            for (const auto& it : result.tablet_replica_infos) {
+                auto tablet_id = it.first;
+                auto tablet = _tablet_manager->get_tablet(tablet_id);
+                if (tablet == nullptr) {
+                    VLOG_CRITICAL << "tablet ptr is nullptr";
+                    continue;
+                }
+
+                VLOG_NOTICE << tablet_id << " tablet has " << it.second.size() << " replicas";
+                uint64_t min_modulo = MOD_PRIME;
+                TReplicaInfo peer_replica;
+                for (const auto& replica : it.second) {
+                    int64_t peer_replica_id = replica.replica_id;
+                    uint64_t modulo = HashUtil::hash64(&peer_replica_id, sizeof(peer_replica_id),
+                                                       DEFAULT_SEED) %
+                                      MOD_PRIME;
+                    if (modulo < min_modulo) {
+                        peer_replica = replica;
+                        min_modulo = modulo;
+                    }
+                }
+                VLOG_NOTICE << "tablet " << tablet_id << ", peer replica host is "
+                            << peer_replica.host;
+                _peer_replica_infos[tablet_id] = peer_replica;
+            }
+            _token = result.token;
+            VLOG_NOTICE << "get tablet replica infos from fe, size is " << end - start
+                        << " token = " << result.token;
+            start = end;
+        }
+        interval = config::update_replica_infos_interval_seconds;
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tablet,
+                                                             CompactionType compaction_type) {
+    // For single replica compaction, the local version to be merged is determined based on the version fetched from the peer replica.
+    // Therefore, it is currently not possible to determine whether it should be a base compaction or cumulative compaction.
+    // As a result, the tablet needs to be pushed to both the _tablet_submitted_cumu_compaction and the _tablet_submitted_base_compaction simultaneously.
+    bool already_exist =
+            _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+    if (already_exist) {
+        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
+                                    tablet->tablet_id());
+    }
+
+    already_exist = _push_tablet_into_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
+    if (already_exist) {
+        _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
+                                    tablet->tablet_id());
+    }
+    Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
+    auto clean_single_replica_compaction = [tablet, this]() {
+        tablet->reset_single_replica_compaction();
+        _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
+        _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
+    };
+
+    if (st.ok()) {
+        auto submit_st = _single_replica_compaction_thread_pool->submit_func(
+                [tablet, compaction_type, clean_single_replica_compaction]() {
+                    tablet->execute_single_replica_compaction(compaction_type);
+                    clean_single_replica_compaction();
+                });
+        if (!submit_st.ok()) {
+            clean_single_replica_compaction();
+            return Status::InternalError(
+                    "failed to submit single replica compaction task to thread pool, "
+                    "tablet_id={} ",
+                    tablet->tablet_id());
+        }
+        return Status::OK();
+    } else {
+        clean_single_replica_compaction();
+        return Status::InternalError(
+                "failed to prepare single replica compaction task tablet_id={} ",
+                tablet->tablet_id());
+    }
+}
+
+void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
+                                               PGetTabletVersionsResponse* response) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(request->tablet_id());
+    if (tablet == nullptr) {
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        return;
+    }
+    std::vector<Version> local_versions = tablet->get_all_versions();
+    for (const auto& local_version : local_versions) {
+        auto version = response->add_versions();
+        version->set_first(local_version.first);
+        version->set_second(local_version.second);
+    }
+    response->mutable_status()->set_status_code(0);
 }
 
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
@@ -665,6 +910,18 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force) {
+    if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
+        should_fetch_from_peer(tablet->tablet_id())) {
+        VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
+                      << tablet->tablet_id();
+        Status st = _submit_single_replica_compaction_task(tablet, compaction_type);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to submit single replica compaction task for tablet: "
+                         << tablet->tablet_id() << ", err: " << st;
+        }
+
+        return Status::OK();
+    }
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist(
@@ -736,6 +993,27 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
                                                  SegCompactionCandidatesSharedPtr segments) {
     return _seg_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+}
+
+Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
+    auto tablet_id = request.tablet_id;
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet: " << tablet_id << " not exist";
+        return Status::InternalError("tablet not exist, tablet_id={}.", tablet_id);
+    }
+
+    IndexBuilderSharedPtr index_builder =
+            std::make_shared<IndexBuilder>(tablet, request.columns, request.indexes_desc,
+                                           request.alter_inverted_indexes, request.is_drop_op);
+    RETURN_IF_ERROR(_handle_index_change(index_builder));
+    return Status::OK();
+}
+
+Status StorageEngine::_handle_index_change(IndexBuilderSharedPtr index_builder) {
+    RETURN_IF_ERROR(index_builder->init());
+    RETURN_IF_ERROR(index_builder->do_build_inverted_index());
+    return Status::OK();
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {

@@ -124,7 +124,7 @@ DEFINE_mString(process_full_gc_size, "20%");
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DEFINE_mBool(enable_query_memroy_overcommit, "true");
+DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -330,6 +330,7 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "10");
+DEFINE_mInt32(max_single_replica_compaction_threads, "10");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -370,6 +371,9 @@ DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
 
+// sleep interval in second after update replica infos
+DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
+
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 DEFINE_mInt32(compaction_task_num_per_disk, "2");
@@ -387,6 +391,9 @@ DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 DEFINE_mInt32(base_compaction_trace_threshold, "60");
 DEFINE_mInt32(cumulative_compaction_trace_threshold, "10");
 DEFINE_mBool(disable_compaction_trace_log, "true");
+
+// Interval to picking rowset to compact, in seconds
+DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
@@ -508,7 +515,7 @@ DEFINE_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "false");
+DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -777,6 +784,10 @@ DEFINE_String(kafka_broker_version_fallback, "0.10.0");
 // Change this size to 0 to fix it temporarily.
 DEFINE_Int32(routine_load_consumer_pool_size, "10");
 
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
@@ -849,6 +860,7 @@ DEFINE_mInt32(parquet_header_max_size_mb, "1");
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
@@ -986,6 +998,10 @@ DEFINE_Int32(max_depth_of_expr_tree, "600");
 // Report a tablet as bad when io errors occurs more than this value.
 DEFINE_mInt64(max_tablet_io_errors, "-1");
 
+// Report a tablet as bad when its path not found
+DEFINE_mInt32(tablet_path_check_interval_seconds, "60");
+DEFINE_mInt32(tablet_path_check_batch_size, "1000");
+
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
@@ -997,6 +1013,14 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mInt32(schema_cache_capacity, "1024");
+DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
+
+// enable feature binlog, default false
+DEFINE_Bool(enable_feature_binlog, "false");
+
+// enable set in BitmapValue
+DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 #ifdef BE_TEST
 // test s3

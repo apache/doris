@@ -60,8 +60,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     template <typename SrcFieldType>
     using DstFieldType =
             typename NumberTraits::ResultOfSubtraction<SrcFieldType, SrcFieldType>::Type;

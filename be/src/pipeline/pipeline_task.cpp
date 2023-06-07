@@ -42,6 +42,14 @@ class TaskGroup;
 
 namespace doris::pipeline {
 
+void PipelineTask::_fresh_profile_counter() {
+    COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
+    COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
+    COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
+    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+}
+
 void PipelineTask::_init_profile() {
     std::stringstream ss;
     ss << "PipelineTask"
@@ -210,7 +218,11 @@ Status PipelineTask::execute(bool* eos) {
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            RETURN_IF_ERROR(_sink->sink(_state, block, _data_state));
+            auto status = _sink->sink(_state, block, _data_state);
+            if (!status.is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(status);
+            }
+            *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 break;
             }
@@ -255,12 +267,8 @@ Status PipelineTask::close() {
         }
     }
     if (_opened) {
-        COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
-        COUNTER_UPDATE(_schedule_counts, _schedule_time);
-        COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
-        COUNTER_UPDATE(_close_timer, close_ns);
+        _fresh_profile_counter();
+        COUNTER_SET(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
@@ -296,8 +304,13 @@ void PipelineTask::set_state(PipelineTaskState state) {
     _cur_state = state;
 }
 
-std::string PipelineTask::debug_string() const {
+std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    std::stringstream profile_ss;
+    _fresh_profile_counter();
+    _task_profile->pretty_print(&profile_ss, "");
+
+    fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {

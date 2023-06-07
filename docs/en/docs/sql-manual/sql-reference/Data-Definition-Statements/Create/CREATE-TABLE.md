@@ -1,7 +1,9 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "en"
+    "language": "en",
+    "toc_min_heading_level": 2,
+    "toc_max_heading_level": 4
 }
 ---
 
@@ -46,7 +48,7 @@ distribution_desc
 [extra_properties]
 ```
 
-* `column_definition_list`
+#### column_definition_list
 
     Column definition list:
 
@@ -146,7 +148,7 @@ distribution_desc
             v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
             ```
 
-* `index_definition_list`
+#### index_definition_list
 
     Index list definition:
 
@@ -168,13 +170,13 @@ distribution_desc
         ...
         ```
 
-* `engine_type`
+#### engine_type
 
     Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) document. Example:
 
     `ENGINE=olap`
 
-* `keys_type`
+#### keys_type
 
     Data model.
 
@@ -186,6 +188,10 @@ distribution_desc
     * AGGREGATE KEY: The specified column is the dimension column.
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
+    <version since="2.0">
+    NOTE: when set table property `"enable_duplicate_without_keys_by_default" = "true"`, will create a duplicate model without sorting columns and prefix indexes by default.
+    </version>
+
     Example:
 
     ```
@@ -194,7 +200,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
 
-* `table_comment`
+#### table_comment
 
     Table notes. Example:
 
@@ -202,7 +208,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_info`
+#### partition_info
 
     Partition information supports three writing methods:
 
@@ -241,8 +247,18 @@ distribution_desc
         ```
     
 </version>
+
+
+    4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
+
+        ```
+        PARTITION BY RANGE(int_col)
+        (
+            FROM (1) TO (100) INTERVAL 10
+        )
+        ```
     
-* `distribution_desc`
+#### distribution_desc
 
     Define the data bucketing method.
 
@@ -257,7 +273,7 @@ distribution_desc
        Explain:
        Use random numbers for bucketing.
 
-* `rollup_list`
+#### rollup_list
 
     Multiple materialized views (ROLLUP) can be created at the same time as the table is built.
 
@@ -276,7 +292,7 @@ distribution_desc
         )
         ```
 
-* `properties`
+#### properties
 
     Set table properties. The following attributes are currently supported:
 
@@ -358,6 +374,29 @@ distribution_desc
         If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
 
         `"disable_auto_compaction" = "false"`
+
+    * `enable_single_replica_compaction`
+
+        Whether to enable single replica compaction for this table.
+
+        If this property is set to 'true', all replicas of the tablet will only have one replica performing compaction, while the others fetch rowsets from that replica.
+
+        `"enable_single_replica_compaction" = "false"`
+
+    * `enable_duplicate_without_keys_by_default`
+
+        When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
+
+        `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `skip_write_index_on_load`
+
+        Whether to enable skip inverted index on load for this table.
+
+        If this property is set to 'true', skip writting index (only inverted index now) on first time load and delay writting 
+        index to compaction. It can reduce CPU and IO resource usage for high throughput load.
+
+        `"skip_write_index_on_load" = "false"`
     
     * Dynamic partition related
     
@@ -660,8 +699,49 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
             "replication_num" = "1"
         );
 ```
+```
+        CREATE TABLE create_table_multi_partion_integer
+        (
+            k1 BIGINT,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM (1) TO (100) INTERVAL 10
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
 
 NOTE: Multi Partition can be mixed with conventional manual creation of partitions. When using, you need to limit the partition column to only one, The default maximum number of partitions created in multi partition is 4096, This parameter can be adjusted in fe configuration `max_multi_partition_num`.
+
+</version>
+
+<version since="2.0">
+
+14. Add a duplicate without sorting column table
+
+```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 DATE,
+        k2 DECIMAL(10, 2) DEFAULT "10.5",
+        k3 CHAR(10) COMMENT "string column",
+        k4 INT NOT NULL DEFAULT "1" COMMENT "int column"
+    )
+    COMMENT "duplicate without keys"
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2020-02-01"),
+        PARTITION p2 VALUES LESS THAN ("2020-03-01"),
+        PARTITION p3 VALUES LESS THAN ("2020-04-01")
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_num" = "1",
+        "enable_duplicate_without_keys_by_default" = "true"
+    );
+```
 
 </version>
 

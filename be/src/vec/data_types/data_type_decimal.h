@@ -232,8 +232,6 @@ public:
         return DecimalField<T>(val, scale);
     }
 
-    bool can_be_promoted() const override { return true; }
-    DataTypePtr promote_numeric_type() const override;
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
 
@@ -256,7 +254,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>();
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale);
     };
 
     /// Decimal specific
@@ -478,7 +476,7 @@ void convert_decimal_cols(
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         for (size_t i = 0; i < sz; i++) {
-            vec_to[i] = vec_from[i] / multiplier;
+            vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
         }
     }
 

@@ -31,11 +31,12 @@ import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -51,13 +52,24 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX = new ImmutableMap.Builder<String, Integer>()
-            .put("committed_at", 0)
-            .put("snapshot_id", 1)
-            .put("parent_id", 2)
-            .put("operation", 3)
-            .put("manifest_list", 4)
-            .build();
+    private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
+            new Column("committed_at", PrimitiveType.DATETIMEV2, false),
+            new Column("snapshot_id", PrimitiveType.BIGINT, false),
+            new Column("parent_id", PrimitiveType.BIGINT, false),
+            new Column("operation", PrimitiveType.STRING, false),
+            // todo: compress manifest_list string
+            new Column("manifest_list", PrimitiveType.STRING, false));
+
+
+    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA_SNAPSHOT.size(); i++) {
+            builder.put(SCHEMA_SNAPSHOT.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     public static Integer getColumnIndexFromColumnName(String columnName) {
         return COLUMN_TO_INDEX.get(columnName.toLowerCase());
@@ -132,21 +144,15 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     /**
      * The tvf can register columns of metadata table
      * The data is provided by getIcebergMetadataTable in FrontendService
-     * @see org.apache.doris.service.FrontendServiceImpl
+     *
      * @return metadata columns
+     * @see org.apache.doris.service.FrontendServiceImpl
      */
     @Override
-    public List<Column> getTableColumns() throws AnalysisException {
-        List<Column> resColumns = new ArrayList<>();
+    public List<Column> getTableColumns() {
         if (queryType == TIcebergQueryType.SNAPSHOTS) {
-            resColumns.add(new Column("committed_at", PrimitiveType.DATETIMEV2, false));
-            resColumns.add(new Column("snapshot_id", PrimitiveType.BIGINT, false));
-            resColumns.add(new Column("parent_id", PrimitiveType.BIGINT, false));
-            resColumns.add(new Column("operation", PrimitiveType.STRING, false));
-            // todo: compress manifest_list string
-            resColumns.add(new Column("manifest_list", PrimitiveType.STRING, false));
-            // resColumns.add(new Column("summary", PrimitiveType.MAP, false));
+            return SCHEMA_SNAPSHOT;
         }
-        return resColumns;
+        return Lists.newArrayList();
     }
 }

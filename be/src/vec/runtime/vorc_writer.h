@@ -75,8 +75,8 @@ private:
 class VOrcWriterWrapper final : public VFileWriterWrapper {
 public:
     VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                      const std::vector<VExprContext*>& output_vexpr_ctxs,
-                      const std::string& schema, bool output_object_data);
+                      const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
+                      bool output_object_data);
 
     ~VOrcWriterWrapper() = default;
 

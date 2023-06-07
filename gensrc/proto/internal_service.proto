@@ -53,6 +53,7 @@ message PTransmitDataParams {
 
 message PTransmitDataResult {
     optional PStatus status = 1;
+    optional int64 receive_time = 2;
 };
 
 message PTabletWithPartition {
@@ -85,6 +86,7 @@ message PTabletWriterOpenRequest {
     optional string sender_ip = 11 [default = ""];
     optional bool is_vectorized = 12 [default = false];
     optional int64 backend_id = 13 [default = -1];
+    optional bool enable_profile = 14 [default = false];
 };
 
 message PTabletWriterOpenResult {
@@ -629,6 +631,7 @@ message PMultiGetRequest {
     optional int32 be_exec_version = 4;
     optional bool fetch_row_store = 5;
     optional PUniqueId query_id = 6;
+    repeated ColumnPB column_desc = 7;
 };
 
 message PMultiGetResponse {
@@ -660,6 +663,19 @@ message PFetchColIdsResponse {
     };
     optional PStatus status = 1;
     repeated PFetchColIdsResultEntry entries = 2;
+};
+
+message PGetTabletVersionsRequest {
+    required int64 tablet_id = 1;
+};
+
+message PGetTabletVersionsResponse {
+    message PVersion {
+        required int64 first = 1;
+        required int64 second = 2;
+    };
+    required PStatus status = 1;
+    repeated PVersion versions = 2;
 };
 
 service PBackendService {
@@ -699,5 +715,6 @@ service PBackendService {
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
+    rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
 };
 

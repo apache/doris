@@ -176,7 +176,7 @@ struct TQueryOptions {
   51: optional bool enable_new_shuffle_hash_method
 
   52: optional i32 be_exec_version = 0
-  
+
   53: optional i32 partitioned_hash_join_rows_threshold = 0
 
   54: optional bool enable_share_hash_table_for_broadcast_join
@@ -196,7 +196,7 @@ struct TQueryOptions {
   60: optional i32 partitioned_hash_agg_rows_threshold = 0
 
   61: optional bool enable_file_cache = false
-  
+
   62: optional i32 insert_timeout = 14400
 
   63: optional i32 execution_timeout = 3600
@@ -221,8 +221,12 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
+
+  74: optional bool enable_scan_node_run_serial = false; 
+
+  75: optional bool enable_insert_strict = false;
 }
-    
+
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -303,7 +307,7 @@ struct TQueryGlobals {
   1: required string now_string
 
   // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
-  // this query to calculate time zone relative function 
+  // this query to calculate time zone relative function
   2: optional i64 timestamp_ms
 
   // time_zone is the timezone this query used.
@@ -415,6 +419,7 @@ struct TExecPlanFragmentParams {
   21: optional bool build_hash_table_for_broadcast_join = false;
 
   22: optional list<Types.TUniqueId> instances_sharing_hash_table;
+  23: optional string table_name;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -589,7 +594,7 @@ struct TPipelineInstanceParams {
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
 }
 
-struct TPipelineResourceGroup {
+struct TPipelineWorkloadGroup {
   1: optional i64 id
   2: optional string name
   3: optional map<string, string> properties
@@ -624,7 +629,8 @@ struct TPipelineFragmentParams {
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
   24: list<TPipelineInstanceParams> local_params
-  26: optional list<TPipelineResourceGroup> resource_groups
+  26: optional list<TPipelineWorkloadGroup> workload_groups
+  27: optional TTxnParams txn_conf
 }
 
 struct TPipelineFragmentParamsList {

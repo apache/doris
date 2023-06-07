@@ -608,14 +608,30 @@ public:
         }
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+            DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
+                                                         << ", column.size():" << column.size();
+            auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+            auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+            for (size_t i = begin; i <= end; ++i) {
+                this->data(place).change_if_better(data[i], arena);
+            }
+        } else {
+            Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+        }
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         IColumn& to) const override {
+        if constexpr (Data::IsFixedLength) {
+            auto& col = assert_cast<ColumnFixedLengthObject&>(to);
             col.resize(1);
             *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
         } else {
-            Base::serialize_without_key_to_column(place, dst);
+            Base::serialize_without_key_to_column(place, to);
         }
     }
 

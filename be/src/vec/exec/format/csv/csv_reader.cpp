@@ -36,7 +36,6 @@
 #include "exec/decompressor.h"
 #include "exec/line_reader.h"
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
@@ -167,7 +166,8 @@ Status CsvReader::init_reader(bool is_load) {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
+                                                        _state->fragment_instance_id()));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         reader_options.modification_time =

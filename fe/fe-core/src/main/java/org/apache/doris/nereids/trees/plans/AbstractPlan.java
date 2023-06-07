@@ -52,6 +52,7 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
+    public static final String FRAGMENT_ID = "fragment";
     private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(CounterEvent.class,
             EventChannel.getDefaultChannel()
                     .addEnhancers(new AddCounterEventEnhancer())
@@ -162,11 +163,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public List<Slot> getOutput() {
         return getLogicalProperties().getOutput();
-    }
-
-    @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        return getLogicalProperties().getNonUserVisibleOutput();
     }
 
     @Override

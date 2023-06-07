@@ -70,6 +70,8 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
     _sink->registe_channels(_sink_buffer.get());
+    _max_rpc_timer = ADD_TIMER(_sink->profile(), "MaxRpcTime");
+    _min_rpc_timer = ADD_TIMER(_sink->profile(), "MinRpcTime");
     return Status::OK();
 }
 
@@ -82,6 +84,11 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 }
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
+    int64_t max_rpc_time = 0;
+    int64_t min_rpc_time = 0;
+    _sink_buffer->get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    _max_rpc_timer->set(max_rpc_time);
+    _min_rpc_timer->set(min_rpc_time);
     RETURN_IF_ERROR(DataSinkOperator::close(state));
     _sink_buffer->close();
     return Status::OK();
