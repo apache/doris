@@ -233,6 +233,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _last_checkpoint_time(0),
           _cumulative_compaction_type(cumulative_compaction_type),
           _is_clone_occurred(false),
+          _is_tablet_path_exists(true),
           _last_missed_version(-1),
           _last_missed_time_s(0) {
     // construct _timestamped_versioned_tracker from rs and stale rs meta
@@ -1175,6 +1176,17 @@ void Tablet::delete_all_files() {
     }
 }
 
+void Tablet::check_tablet_path_exists() {
+    if (!tablet_path().empty()) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(tablet_path(), ec)) {
+            _is_tablet_path_exists.store(true, std::memory_order_relaxed);
+        } else if (ec.value() == ENOENT || ec.value() == 0) {
+            _is_tablet_path_exists.store(false, std::memory_order_relaxed);
+        }
+    }
+}
+
 bool Tablet::check_path(const std::string& path_to_check) const {
     std::shared_lock rdlock(_meta_lock);
     if (path_to_check == _tablet_path) {
@@ -1548,7 +1560,8 @@ bool Tablet::_contains_rowset(const RowsetId rowset_id) {
 // need check if consecutive version missing in full report
 // alter tablet will ignore this check
 void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
-                                      bool enable_consecutive_missing_check) {
+                                      bool enable_consecutive_missing_check,
+                                      bool enable_path_check) {
     std::shared_lock rdlock(_meta_lock);
     tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
     tablet_info->__set_schema_hash(_tablet_meta->schema_hash());
@@ -1598,10 +1611,19 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // and perform state modification operations.
     }
 
-    if ((has_version_cross || is_io_error_too_times()) && tablet_state() == TABLET_RUNNING) {
-        LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
-                  << ", ioe times=" << get_io_error_times();
-        tablet_info->__set_used(false);
+    if (tablet_state() == TABLET_RUNNING) {
+        if (has_version_cross || is_io_error_too_times()) {
+            LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
+                      << ", ioe times=" << get_io_error_times();
+            tablet_info->__set_used(false);
+        }
+
+        if (enable_path_check) {
+            if (!_is_tablet_path_exists.exchange(true, std::memory_order_relaxed)) {
+                LOG(INFO) << "report " << full_name() << " as bad, tablet directory not found";
+                tablet_info->__set_used(false);
+            }
+        }
     }
 
     if (tablet_state() == TABLET_SHUTDOWN) {
