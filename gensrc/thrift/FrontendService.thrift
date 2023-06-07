@@ -983,6 +983,52 @@ struct TGetTabletReplicaInfosResult {
     3: optional string token
 }
 
+enum TSnapshotType {
+    REMOTE = 0,
+    LOCAL  = 1,
+}
+
+struct TGetSnapshotRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string token
+    7: optional string label_name
+    8: optional string snapshot_name
+    9: optional TSnapshotType snapshot_type
+}
+
+struct TGetSnapshotResult {
+    1: optional Status.TStatus status
+    2: optional binary meta
+    3: optional binary job_info
+}
+
+struct TTableRef {
+    1: optional string table
+}
+
+struct TRestoreSnapshotRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string token
+    7: optional string label_name
+    8: optional string repo_name
+    9: optional list<TTableRef> table_refs
+    10: optional map<string, string> properties
+    11: optional binary meta
+    12: optional binary job_info
+}
+
+struct TRestoreSnapshotResult {
+    1: optional Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1015,6 +1061,8 @@ service FrontendService {
     TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
     TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
+    TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
+    TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
 
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
