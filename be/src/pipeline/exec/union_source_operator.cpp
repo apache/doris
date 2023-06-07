@@ -83,11 +83,15 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
             std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
     //have exectue const expr, queue have no data any more, and child could be colsed
-    source_state = ((!_need_read_for_const_expr && !_data_queue->remaining_has_data() &&
-                     _data_queue->is_all_finish()) ||
-                    eos)
-                           ? SourceState::FINISHED
-                           : SourceState::DEPEND_ON_SOURCE;
+    if (eos || (!_need_read_for_const_expr && !_data_queue->remaining_has_data() &&
+                _data_queue->is_all_finish())) {
+        source_state = SourceState::FINISHED;
+    } else if (_need_read_for_const_expr || _data_queue->remaining_has_data()) {
+        source_state = SourceState::MORE_DATA;
+    } else {
+        source_state = SourceState::DEPEND_ON_SOURCE;
+    }
+
     return Status::OK();
 }
 } // namespace pipeline

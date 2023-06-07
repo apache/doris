@@ -29,17 +29,17 @@
 namespace doris {
 namespace pipeline {
 
-DataQueue::DataQueue(int child_count) {
-    _child_count = child_count;
-    _flag_queue_idx = 0;
-    _queue_blocks.resize(child_count);
-    _free_blocks.resize(child_count);
-    _queue_blocks_lock.resize(child_count);
-    _free_blocks_lock.resize(child_count);
-    _is_finished.resize(child_count);
-    _is_canceled.resize(child_count);
-    _cur_bytes_in_queue.resize(child_count);
-    _cur_blocks_nums_in_queue.resize(child_count);
+DataQueue::DataQueue(int child_count)
+        : _queue_blocks_lock(child_count),
+          _queue_blocks(child_count),
+          _free_blocks_lock(child_count),
+          _free_blocks(child_count),
+          _child_count(child_count),
+          _is_finished(child_count),
+          _is_canceled(child_count),
+          _cur_bytes_in_queue(child_count),
+          _cur_blocks_nums_in_queue(child_count),
+          _flag_queue_idx(0) {
     for (int i = 0; i < child_count; ++i) {
         _queue_blocks_lock[i].reset(new std::mutex());
         _free_blocks_lock[i].reset(new std::mutex());

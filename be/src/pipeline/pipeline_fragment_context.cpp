@@ -107,19 +107,6 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
-namespace apache {
-namespace thrift {
-class TException;
-
-namespace transport {
-class TTransportException;
-} // namespace transport
-} // namespace thrift
-} // namespace apache
-
-using apache::thrift::transport::TTransportException;
-using apache::thrift::TException;
-
 namespace doris::pipeline {
 
 PipelineFragmentContext::PipelineFragmentContext(
