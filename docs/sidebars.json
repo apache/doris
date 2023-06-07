@@ -206,6 +206,7 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
