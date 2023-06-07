@@ -407,13 +407,17 @@ void StorageEngine::_tablet_path_check_callback() {
     };
 
     using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
-    int64_t last_tablet_id;
+    int64_t last_tablet_id = 0;
 
     int64_t interval;
     do {
         interval = config::tablet_path_check_interval_seconds;
         int32_t batch_size = config::tablet_path_check_batch_size;
-        if (batch_size <= 0) {
+        if (interval <= 10 || batch_size <= 0) {
+            if (interval <= 0) {
+                interval = 10;
+            }
+
             if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
                 break;
             }
