@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`INT DATE_ADD(DATETIME date, INTERVAL expr type)`
+`DATETIME DATE_ADD(DATETIME date, INTERVAL expr type)`
 
 
 Adds a specified time interval to the date.
@@ -37,7 +37,7 @@ The date parameter is a valid date expression.
 
 The expr parameter is the interval you want to add.
 
-Sweet, sweet, sweet
+The type parameter can be the following values: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND
 
 ### example
 
