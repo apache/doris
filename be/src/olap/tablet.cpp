@@ -192,7 +192,7 @@ WriteCooldownMetaExecutors::WriteCooldownMetaExecutors(size_t executor_nums)
     }
 }
 
-void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletSharedPtr tablet) {
+void WriteCooldownMetaExecutors::submit(TabletSharedPtr tablet) {
     auto tablet_id = tablet->tablet_id();
 
     {
