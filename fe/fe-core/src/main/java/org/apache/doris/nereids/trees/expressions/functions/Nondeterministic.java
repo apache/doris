@@ -29,8 +29,8 @@ import org.apache.doris.qe.ConnectContext;
 public interface Nondeterministic extends ExpressionTrait {
     @Override
     default boolean foldable() {
-        return ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable() != null
-                && ConnectContext.get().getSessionVariable().isEnableFoldUnfixedFn();
+        return ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn();
     }
 }
