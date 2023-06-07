@@ -44,6 +44,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "thrift/protocol/TDebugProtocol.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -359,6 +360,10 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.commitInfos = std::move(ctx->commit_infos);
     request.__isset.commitInfos = true;
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+    request.tbls = ctx->table_list;
+    request.__isset.tbls = true;
+
+    VLOG_DEBUG << "commit txn request:" << apache::thrift::ThriftDebugString(request);
 
     // set attachment if has
     TTxnCommitAttachment attachment;
@@ -417,6 +422,8 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.__set_reason(ctx->status.to_string());
+    request.tbls = ctx->table_list;
+    request.__isset.tbls = true;
 
     // set attachment if has
     TTxnCommitAttachment attachment;

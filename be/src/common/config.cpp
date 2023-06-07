@@ -784,6 +784,10 @@ DEFINE_String(kafka_broker_version_fallback, "0.10.0");
 // Change this size to 0 to fix it temporarily.
 DEFINE_Int32(routine_load_consumer_pool_size, "10");
 
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
