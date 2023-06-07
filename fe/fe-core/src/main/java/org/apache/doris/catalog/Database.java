@@ -121,6 +121,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
+    @SerializedName(value = "binlogConfig")
+    private BinlogConfig binlogConfig = new BinlogConfig();
+
     public Database() {
         this(0, null);
     }
@@ -641,6 +644,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
                     String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
         } else {
             transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
@@ -839,6 +843,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public Map<Long, Table> getIdToTable() {
         return new HashMap<>(idToTable);
+    }
+
+    public void updateDbProperties(Map<String, String> properties) {
+        dbProperties.updateProperties(properties);
+        binlogConfig = dbProperties.getBinlogConfig();
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        return binlogConfig;
     }
 
     public String toJson() {

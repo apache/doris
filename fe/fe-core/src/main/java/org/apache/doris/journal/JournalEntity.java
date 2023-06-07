@@ -61,6 +61,7 @@ import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -594,7 +595,8 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DYNAMIC_PARTITION:
             case OperationType.OP_MODIFY_IN_MEMORY:
-            case OperationType.OP_MODIFY_REPLICATION_NUM: {
+            case OperationType.OP_MODIFY_REPLICATION_NUM:
+            case OperationType.OP_UPDATE_BINLOG_CONFIG: {
                 data = ModifyTablePropertyOperationLog.read(in);
                 isRead = true;
                 break;
@@ -814,6 +816,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_ANALYSIS_TASK: {
                 data = AnalyzeDeletionLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                data = AlterDatabasePropertyInfo.read(in);
                 isRead = true;
                 break;
             }

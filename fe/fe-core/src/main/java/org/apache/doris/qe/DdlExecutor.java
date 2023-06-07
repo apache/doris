@@ -292,7 +292,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
-            throw new DdlException("Not implemented yet");
+            env.alterDatabaseProperty((AlterDatabasePropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
             env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {

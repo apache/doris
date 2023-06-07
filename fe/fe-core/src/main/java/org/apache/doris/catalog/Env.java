@@ -31,6 +31,7 @@ import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -2728,6 +2729,15 @@ public class Env {
         getInternalCatalog().replayAlterDatabaseQuota(dbName, quota, quotaType);
     }
 
+    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
+        getInternalCatalog().alterDatabaseProperty(stmt);
+    }
+
+    public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
+            throws MetaNotFoundException {
+        getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);
+    }
+
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
         getInternalCatalog().renameDatabase(stmt);
     }
@@ -4490,7 +4500,7 @@ public class Env {
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
                 newBinlogConfig.toProperties());
-        editLog.logModifyInMemory(info);
+        editLog.logUpdateBinlogConfig(info);
     }
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
