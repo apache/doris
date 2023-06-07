@@ -383,6 +383,45 @@ Flink CDC底层的采集工具是Debezium，Debezium内部使用op字段来标�
 ### 使用
 Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL侧执行Update主键列的语句(`update  student set id = '1002' where id = '1001'`)，即可修改Doris中的数据。
 
+## 使用Flink根据指定列删除数据
+
+一般Kafka中的消息会使用特定字段来标记操作类型，比如{"op_type":"delete",data:{...}}。针对这类数据，希望将op_type=delete的数据删除掉。
+
+DorisSink默认会根据RowKind来区分事件的类型，通常这种在cdc情况下可以直接获取到事件类型，对隐藏列\_\__DORIS_DELETE_SIGN\__\_进行赋值达到删除的目的，而Kafka则需要根据业务逻辑判断，显示的传入隐藏列的值。
+
+### 使用
+
+```sql
+-- 比如上游数据: {"op_type":"delete",data:{"id":1,"name":"zhangsan"}}
+CREATE TABLE KAFKA_SOURCE(
+  data STRING,
+  op_type STRING
+) WITH (
+  'connector' = 'kafka',
+  ...
+);
+
+CREATE TABLE DORIS_SINK(
+  id INT,
+  name STRING,
+  __DORIS_DELETE_SIGN__ INT
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'db.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.enable-delete' = 'false',        -- false表示不从RowKind获取事件类型
+  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
+);
+
+INSERT INTO KAFKA_SOURCE
+SELECT json_value(data,'$.id') as id,
+json_value(data,'$.name') as name, 
+if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
+from KAFKA_SOURCE;
+```
+
 ## Java示例
 
 `samples/doris-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/)

@@ -388,6 +388,45 @@ For the update of the primary key column, FlinkCDC will send DELETE and INSERT e
 ### Example
 The Flink program can refer to the CDC synchronization example above. After the task is successfully submitted, execute the Update primary key column statement (`update student set id = '1002' where id = '1001'`) on the MySQL side to modify the data in Doris .
 
+## Use Flink to delete data based on specified columns
+
+Generally, messages in Kafka use specific fields to mark the operation type, such as {"op_type":"delete",data:{...}}. For this type of data, it is hoped that the data with op_type=delete will be deleted.
+
+By default, DorisSink will distinguish the type of event based on RowKind. Usually, in the case of cdc, the event type can be obtained directly, and the hidden column \_\__DORIS_DELETE_SIGN\__\_ is assigned to achieve the purpose of deletion, while Kafka needs to be based on business logic. Judgment, display the value passed in to the hidden column.
+
+### Example
+
+```sql
+-- Such as upstream data: {"op_type":"delete",data:{"id":1,"name":"zhangsan"}}
+CREATE TABLE KAFKA_SOURCE(
+  data STRING,
+  op_type STRING
+) WITH (
+  'connector' = 'kafka',
+  ...
+);
+
+CREATE TABLE DORIS_SINK(
+  id INT,
+  name STRING,
+  __DORIS_DELETE_SIGN__ INT
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'db.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.enable-delete' = 'false',        -- false means not to get the event type from RowKind
+  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
+);
+
+INSERT INTO KAFKA_SOURCE
+SELECT json_value(data,'$.id') as id,
+json_value(data,'$.name') as name, 
+if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
+from KAFKA_SOURCE;
+```
+
 ## Java example
 
 `samples/doris-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/doris/tree/master/samples/doris-demo/)
