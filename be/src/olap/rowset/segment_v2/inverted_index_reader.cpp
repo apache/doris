@@ -499,7 +499,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                                 });
     } catch (const CLuceneError& e) {
         if (_is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
-            LOG(INFO) << "range query term exceeds limits, try to downgrade from inverted index,"
+            LOG(WARNING) << "range query term exceeds limits, try to downgrade from inverted index,"
                       << "column name:" << column_name << " search_str:" << search_str;
             return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
         } else {
