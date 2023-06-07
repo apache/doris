@@ -97,6 +97,11 @@ Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
+Status IDataType::from_json(simdjson::ondemand::value& json_value, IColumn* column) const {
+    LOG(FATAL) << fmt::format("Data type {} from_json not implement.", get_name());
+    return Status::OK();
+}
+
 void IDataType::insert_default_into(IColumn& column) const {
     column.insert_default();
 }

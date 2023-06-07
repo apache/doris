@@ -80,6 +80,20 @@ void DataTypeNullable::to_string(const IColumn& column, size_t row_num,
     }
 }
 
+Status DataTypeNullable::from_json(simdjson::ondemand::value& json_value, IColumn* column) const {
+    DCHECK(is_complex_type(nested_data_type));
+    Status st = Status::OK();
+    auto* null_column = assert_cast<ColumnNullable*>(column);
+    if (json_value.is_null()) {
+        null_column->get_nested_column().insert_default();
+        null_column->get_null_map_data().push_back(1);
+    } else if (st = nested_data_type->from_json(json_value, &null_column->get_nested_column());
+               st.ok()) {
+        null_column->get_null_map_data().push_back(0);
+    }
+    return st;
+}
+
 Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* null_column = assert_cast<ColumnNullable*>(column);
     if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&

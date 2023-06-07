@@ -188,77 +188,49 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     return str;
 }
 
-bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
-    StringRef element(rb.position(), 0);
-    has_quota = false;
-    if (rb.eof()) {
-        return false;
-    }
+Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* column) const {
+    CHECK(json_value.type() == simdjson::ondemand::json_type::array);
+    simdjson::ondemand::array outer_array = json_value.get_array();
+    auto* array_column = assert_cast<ColumnArray*>(column);
+    auto& offsets = array_column->get_offsets();
+    IColumn& nested_column = array_column->get_data();
+    DCHECK(nested_column.is_nullable());
+    auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
 
-    // ltrim
-    while (!rb.eof() && isspace(*rb.position())) {
-        ++rb.position();
-        element.data = rb.position();
-    }
-
-    // parse string
-    if (*rb.position() == '"' || *rb.position() == '\'') {
-        const char str_sep = *rb.position();
-        size_t str_len = 1;
-        // search until next '"' or '\''
-        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-            ++str_len;
+    size_t element_num = 0;
+    for (auto it = outer_array.begin(); it != outer_array.end(); ++it) {
+        Status st;
+        try {
+            if (is_complex_type(remove_nullable(nested))) {
+                simdjson::ondemand::value val;
+                (*it).get(val);
+                st = nested->from_json(val, &nested_null_col);
+            } else {
+                std::string_view sv = (*it).raw_json_token().value();
+                ReadBuffer nested_rb(const_cast<char*>(sv.data()), sv.size());
+                st = nested->from_string(nested_rb, &nested_column);
+            }
+            if (st != Status::OK()) {
+                // we should do array element column revert if error
+                nested_column.pop_back(element_num);
+                return st;
+            }
+        } catch (simdjson::simdjson_error& e) {
+            nested_column.pop_back(element_num);
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg, "Parse json data failed. code: {}, error info: {}", e.error(),
+                           e.what());
+            return Status::InternalError(error_msg.data());
         }
-        // invalid string
-        if (str_len >= rb.count()) {
-            rb.position() = rb.end();
-            return false;
-        }
-        has_quota = true;
-        rb.position() += str_len + 1;
-        element.size += str_len + 1;
+        ++element_num;
     }
-
-    // parse array element until array separator ',' or end ']'
-    while (!rb.eof() && (*rb.position() != ',') && (rb.count() != 1 || *rb.position() != ']')) {
-        // invalid elements such as ["123" 456,"789" 777]
-        // correct elements such as ["123"    ,"789"    ]
-        if (has_quota && !isspace(*rb.position())) {
-            return false;
-        }
-        ++rb.position();
-        ++element.size;
-    }
-    // invalid array element
-    if (rb.eof()) {
-        return false;
-    }
-    // adjust read buffer position to first char of next array element
-    ++rb.position();
-
-    // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
-    }
-
-    // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
-    }
-    output = element;
-    return true;
+    offsets.push_back(offsets.back() + element_num);
+    return Status::OK();
 }
 
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
+    // check staff
     DCHECK(!rb.eof());
-    // only support one level now
-    auto* array_column = assert_cast<ColumnArray*>(column);
-    auto& offsets = array_column->get_offsets();
-
-    IColumn& nested_column = array_column->get_data();
-    DCHECK(nested_column.is_nullable());
     if (*rb.position() != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        *rb.position());
@@ -267,56 +239,16 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
                                        *(rb.end() - 1));
     }
-    // empty array []
-    if (rb.count() == 2) {
-        offsets.push_back(offsets.back());
-        return Status::OK();
-    }
-    ++rb.position();
-
-    size_t element_num = 0;
-    // parse array element until end of array
-    while (!rb.eof()) {
-        StringRef element(rb.position(), rb.count());
-        bool has_quota = false;
-        if (!next_element_from_string(rb, element, has_quota)) {
-            // we should do array element column revert if error
-            nested_column.pop_back(element_num);
-            return Status::InvalidArgument("Cannot read array element from text '{}'",
-                                           element.to_string());
-        }
-
-        // handle empty element
-        if (element.size == 0) {
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(0);
-            ++element_num;
-            continue;
-        }
-
-        // handle null element, need to distinguish null and "null"
-        if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
-            // insert null
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(1);
-            ++element_num;
-            continue;
-        }
-
-        // handle normal element
-        ReadBuffer read_buffer(const_cast<char*>(element.data), element.size);
-        auto st = nested->from_string(read_buffer, &nested_column);
-        if (!st.ok()) {
-            // we should do array element column revert if error
-            nested_column.pop_back(element_num);
-            return st;
-        }
-        ++element_num;
-    }
-    offsets.push_back(offsets.back() + element_num);
-    return Status::OK();
+    // json parser
+    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser =
+            std::make_unique<simdjson::ondemand::parser>();
+    size_t _padded_size = rb.count() + simdjson::SIMDJSON_PADDING;
+    std::string _simdjson_ondemand_padding_buffer;
+    _simdjson_ondemand_padding_buffer.resize(_padded_size);
+    memcpy(&_simdjson_ondemand_padding_buffer.front(), rb.position(), rb.count());
+    simdjson::ondemand::document array_doc = _ondemand_json_parser->iterate(
+            std::string_view(_simdjson_ondemand_padding_buffer.data(), rb.count()), _padded_size);
+    auto value = array_doc.get_value();
+    return from_json(value.value(), column);
 }
-
 } // namespace doris::vectorized

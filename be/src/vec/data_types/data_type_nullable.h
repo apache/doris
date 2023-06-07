@@ -117,6 +117,7 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    Status from_json(simdjson::ondemand::value& json_value, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }

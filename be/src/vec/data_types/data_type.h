@@ -35,6 +35,7 @@
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/json/simd_json_parser.h"
 
 namespace doris {
 class PColumnMeta;
@@ -82,6 +83,9 @@ public:
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
+    // use for complex type nested complex type using simdjson parse
+    // now we just support array nested array , later we support map/struct...
+    virtual Status from_json(simdjson::ondemand::value& json_value, IColumn* column) const;
 
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde() const = 0;
