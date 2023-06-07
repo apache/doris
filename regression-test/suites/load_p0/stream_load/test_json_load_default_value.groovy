@@ -27,7 +27,8 @@ suite("test_json_load_default_value", "p0") {
                         id INT NOT NULL DEFAULT '0',
                         country VARCHAR(32) NULL DEFAULT 'default_country',
                         city VARCHAR(32) NULL DEFAULT 'default_city',
-                        code BIGINT DEFAULT '1111')
+                        code BIGINT DEFAULT '1111',
+                        date_time DATETIME DEFAULT CURRENT_TIMESTAMP)
                         DISTRIBUTED BY RANDOM BUCKETS 10
                         PROPERTIES("replication_num" = "1");
                         """
@@ -54,22 +55,22 @@ suite("test_json_load_default_value", "p0") {
 
     // case1: import simple json lack one column
     try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call(testTable)
         load_json_data.call('true', '', 'json', '', 'simple_json.json')
         sql "sync"
-        qt_select1 "select * from ${testTable} order by id"
+        qt_select1 "select id, country, city, code from ${testTable} order by id"
+        qt_select2 "select count(1) from ${testTable} where date_time is not null"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
     // case2: import json lack one column of rows
     try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call(testTable)
         load_json_data.call('true', '', 'json', '', 'simple_json2_lack_one_column.json')
         sql "sync"
-        qt_select2 "select * from ${testTable} order by id"
+        qt_select3 "select id, country, city, code from ${testTable} order by id"
+        qt_select4 "select count(1) from ${testTable} where date_time is not null"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

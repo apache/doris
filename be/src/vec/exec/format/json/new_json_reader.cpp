@@ -809,7 +809,6 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
     for (auto slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -845,6 +844,8 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
@@ -853,24 +854,6 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                                           "", valid));
         return Status::OK();
     }
-    ctx_idx = 0;
-    int nullcount = 0;
-    // fill missing slot
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-            ++nullcount;
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
-    }
-    // There is at least one valid value here
-    DCHECK(nullcount < block.columns());
     *valid = true;
     return Status::OK();
 }
@@ -959,7 +942,6 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                                                  Block& block, bool* valid) {
     int ctx_idx = 0;
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
     for (auto slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -995,6 +977,8 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
@@ -1003,19 +987,6 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                 objectValue, "All fields is null or not matched, this is a invalid row.", "",
                 valid));
         return Status::OK();
-    }
-    ctx_idx = 0;
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
     }
     return Status::OK();
 }
@@ -1374,6 +1345,25 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
     return Status::OK();
 }
 
+size_t NewJsonReader::_column_index(const StringRef& name, size_t key_index) {
+    /// Optimization by caching the order of fields (which is almost always the same)
+    /// and a quick check to match the next expected field, instead of searching the hash table.
+    if (_prev_positions.size() > key_index && _prev_positions[key_index] &&
+        name == _prev_positions[key_index]->get_first()) {
+        return _prev_positions[key_index]->get_second();
+    } else {
+        auto* it = _slot_desc_index.find(name);
+        if (it) {
+            if (key_index < _prev_positions.size()) {
+                _prev_positions[key_index] = it;
+            }
+            return it->get_second();
+        } else {
+            return size_t(-1);
+        }
+    }
+}
+
 Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* value, Block& block,
                                                  const std::vector<SlotDescriptor*>& slot_descs,
                                                  bool* valid) {
@@ -1381,33 +1371,27 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     _seen_columns.assign(block.columns(), false);
     size_t cur_row_count = block.rows();
     bool has_valid_value = false;
-    for (size_t i = 0; i < slot_descs.size(); ++i) {
-        auto slot_desc = slot_descs[i];
-        if (!slot_desc->is_materialized()) {
+    // iterate through object, simdjson::ondemond will parsing on the fly
+    size_t key_index = 0;
+    for (auto field : *value) {
+        std::string_view key = field.unescaped_key();
+        StringRef name_ref(key.data(), key.size());
+        const size_t column_index = _column_index(name_ref, key_index++);
+        if (UNLIKELY(ssize_t(column_index) < 0)) {
+            // This key is not exist in slot desc, just ignore
             continue;
         }
-        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
-        auto field = value->find_field_unordered(slot_desc->col_name());
-        if (field.type().error() == simdjson::error_code::NO_SUCH_FIELD) {
-            // not found, filling with default value
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
-            }
-        } else {
-            simdjson::ondemand::value val = field.value();
-            RETURN_IF_ERROR(_simdjson_write_data_to_column(val, slot_desc, column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
-            }
-            has_valid_value = true;
+        simdjson::ondemand::value val = field.value();
+        auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
+        RETURN_IF_ERROR(
+                _simdjson_write_data_to_column(val, slot_descs[column_index], column_ptr, valid));
+        if (!(*valid)) {
+            return Status::OK();
         }
+        _seen_columns[column_index] = true;
+        has_valid_value = true;
     }
     if (!has_valid_value) {
-        for (int i = 0; i < block.columns(); ++i) {
-            auto column = block.get_by_position(i).column->assume_mutable();
-            column->pop_back(1);
-        }
         RETURN_IF_ERROR(
                 _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
         return Status::OK();
@@ -1426,7 +1410,10 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            if (!(*valid)) {
+                return Status::OK();
+            }
             ++nullcount;
         }
         DCHECK(column_ptr->size() == cur_row_count + 1);
@@ -1664,7 +1651,6 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Block& block, bool* valid) {
     // write by jsonpath
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
     for (size_t i = 0; i < slot_descs.size(); i++) {
         auto slot_desc = slot_descs[i];
         if (!slot_desc->is_materialized()) {
@@ -1695,6 +1681,8 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
@@ -1703,25 +1691,6 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
         return Status::OK();
     }
-
-    // fill missing slot
-    int ctx_idx = 0;
-    int nullcount = 0;
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-            ++nullcount;
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
-    }
-    // There is at least one valid value here
-    DCHECK(nullcount < block.columns());
     *valid = true;
     return Status::OK();
 }
