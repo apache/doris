@@ -39,7 +39,7 @@ class SyncerUtils {
     }
 
     private static String newLabel(SyncerContext context, String table) {
-        return String.format("ccr_sync_job:%s:%s:%d", context.db, table, context.seq,)
+        return String.format("ccr_sync_job:%s:%s:%d", context.db, table, context.seq)
     }
 
     static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
