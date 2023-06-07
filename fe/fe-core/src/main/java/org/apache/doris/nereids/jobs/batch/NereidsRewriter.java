@@ -72,11 +72,9 @@ import org.apache.doris.nereids.rules.rewrite.logical.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownLimit;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.SemiJoinCommute;
@@ -126,10 +124,6 @@ public class NereidsRewriter extends BatchRewriteJob {
                             new ExtractSingleTableExpressionFromDisjunction()
                     )
             ),
-
-            topic("Rewrite CTE", topDown(
-                    new PushdownFilterThroughCTEAnchor(),
-                    new PushdownProjectThroughCTEAnchor())),
 
             topic("Subquery unnesting",
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),

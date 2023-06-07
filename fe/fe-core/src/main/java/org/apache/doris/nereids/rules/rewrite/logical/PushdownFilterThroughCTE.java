@@ -21,20 +21,20 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 /**
- * Push project through CTEAnchor.
+ * Push filter through CTE.
  */
-public class PushdownProjectThroughCTEAnchor extends OneRewriteRuleFactory {
+public class PushdownFilterThroughCTE extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalCTEAnchor()).thenApply(ctx -> {
-            LogicalProject<LogicalCTEAnchor<Plan, Plan>> project = ctx.root;
-            LogicalCTEAnchor<Plan, Plan> anchor = project.child();
-            return anchor.withChildren(anchor.child(0), project.withChildren(anchor.child(1)));
-        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_CTE_ANCHOR);
+        return logicalFilter(logicalCTE()).thenApply(ctx -> {
+            LogicalFilter<LogicalCTE<Plan>> filter = ctx.root;
+            LogicalCTE<Plan> anchor = filter.child();
+            return anchor.withChildren(filter.withChildren(anchor.child()));
+        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_CTE);
     }
 }
