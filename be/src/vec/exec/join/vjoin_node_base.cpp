@@ -146,7 +146,9 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             null_column.get_nested_column().insert_range_from(from, 0, rows);
             null_column.get_null_map_column().get_data().resize_fill(rows, 0);
         } else {
-            to->insert_range_from(from, 0, rows);
+            if (!to->try_to_move_from(from)) {
+                to->insert_range_from(from, 0, rows);
+            }
         }
     };
     if (rows != 0) {

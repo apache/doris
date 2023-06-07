@@ -338,6 +338,13 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
+    bool try_to_move_from(const IColumn& src) override {
+        const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
+        this->resize(src_vec.size());
+        data = std::move((Container&)(src_vec.get_data()));
+        return true;
+    };
+
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 

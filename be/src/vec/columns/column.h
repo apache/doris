@@ -233,6 +233,8 @@ public:
     /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
+    virtual bool try_to_move_from(const IColumn& src) { return false; };
+
     /// Appends one element from other column with the same type multiple times.
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
