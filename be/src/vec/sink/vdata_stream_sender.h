@@ -108,6 +108,7 @@ public:
 
 protected:
     friend class Channel;
+    friend class PipChannel;
     friend class pipeline::ExchangeSinkBuffer;
 
     void _roll_pb_block();
@@ -437,6 +438,8 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false) override {
+        SCOPED_TIMER(_parent->_brpc_send_timer);
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         std::unique_ptr<PBlock> pblock_ptr;
         pblock_ptr.reset(block);
 
@@ -454,6 +457,8 @@ public:
     }
 
     Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+        SCOPED_TIMER(_parent->_brpc_send_timer);
+        COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
@@ -472,7 +477,7 @@ public:
         if (is_local()) {
             return send_local_block(eos);
         }
-
+        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         auto block_ptr = std::make_unique<PBlock>();
         if (_mutable_block) {
             auto block = _mutable_block->to_block();
