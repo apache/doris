@@ -65,7 +65,7 @@ void TabletReader::ReaderParams::check_validation() const {
 
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
-    ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
+    ss << "tablet=" << tablet->full_name() << " reader_type=" << int(reader_type)
        << " aggregation=" << aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
@@ -121,7 +121,7 @@ Status TabletReader::init(const ReaderParams& read_params) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
-                     << ", reader type:" << read_params.reader_type
+                     << ", reader type:" << int(read_params.reader_type)
                      << ", version:" << read_params.version;
     }
     return res;
@@ -194,7 +194,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -222,7 +222,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.use_topn_opt = read_params.use_topn_opt;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_vconjunct_ctx_ptr = read_params.filter_block_vconjunct_ctx_ptr;
+    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
@@ -243,8 +243,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
-    _reader_context.common_vexpr_ctxs_pushdown = read_params.common_vexpr_ctxs_pushdown;
+    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
+    _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
 
     return Status::OK();
@@ -302,7 +302,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {
@@ -322,11 +322,11 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
-    } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-                read_params.reader_type == READER_SEGMENT_COMPACTION ||
-                read_params.reader_type == READER_BASE_COMPACTION ||
-                read_params.reader_type == READER_COLD_DATA_COMPACTION ||
-                read_params.reader_type == READER_ALTER_TABLE) &&
+    } else if ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -336,7 +336,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 _value_cids.push_back(id);
             }
         }
-    } else if (read_params.reader_type == READER_CHECKSUM) {
+    } else if (read_params.reader_type == ReaderType::READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
             if (_tablet_schema->column(id).is_key()) {
@@ -346,7 +346,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else {
-        LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
+        LOG(WARNING) << "fail to init return columns. [reader_type=" << int(read_params.reader_type)
                      << " return_columns_size=" << read_params.return_columns.size() << "]";
         return Status::Error<INVALID_ARGUMENT>();
     }
@@ -603,17 +603,17 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-        read_params.reader_type == READER_SEGMENT_COMPACTION) {
+    if (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
         return Status::OK();
     }
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == READER_BASE_COMPACTION ||
-        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
-        read_params.reader_type == READER_CHECKSUM) {
+    if (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_CHECKSUM) {
         _filter_delete = true;
     }
 
@@ -643,13 +643,12 @@ Status TabletReader::init_reader_params_and_create_block(
             tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        auto& delete_preds = tablet->delete_predicates();
-        std::copy(delete_preds.cbegin(), delete_preds.cend(),
-                  std::inserter(reader_params->delete_predicates,
-                                reader_params->delete_predicates.begin()));
-    }
+
+    auto& delete_preds = tablet->delete_predicates();
+    std::copy(delete_preds.cbegin(), delete_preds.cend(),
+              std::inserter(reader_params->delete_predicates,
+                            reader_params->delete_predicates.begin()));
+
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_pb : reader_params->delete_predicates) {
         merge_tablet_schema->merge_dropped_columns(tablet->tablet_schema(del_pred_pb->version()));

@@ -117,7 +117,8 @@ std::string SlotDescriptor::debug_string() const {
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
-        : _name(tdesc.tableName),
+        : _table_type(tdesc.tableType),
+          _name(tdesc.tableName),
           _database(tdesc.dbName),
           _table_id(tdesc.id),
           _num_cols(tdesc.numCols),
@@ -176,6 +177,23 @@ IcebergTableDescriptor::~IcebergTableDescriptor() {}
 std::string IcebergTableDescriptor::debug_string() const {
     std::stringstream out;
     out << "IcebergTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _region(tdesc.mcTable.region),
+          _project(tdesc.mcTable.project),
+          _table(tdesc.mcTable.table),
+          _access_key(tdesc.mcTable.access_key),
+          _secret_key(tdesc.mcTable.secret_key),
+          _public_access(tdesc.mcTable.public_access) {}
+
+MaxComputeTableDescriptor::~MaxComputeTableDescriptor() {}
+
+std::string MaxComputeTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "MaxComputeTable(" << TableDescriptor::debug_string() << ")";
     return out.str();
 }
 
@@ -517,11 +535,11 @@ std::string RowDescriptor::debug_string() const {
     return ss.str();
 }
 
-int RowDescriptor::get_column_id(int slot_id) const {
+int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const {
     int column_id_counter = 0;
     for (const auto tuple_desc : _tuple_desc_map) {
         for (const auto slot : tuple_desc->slots()) {
-            if (!slot->need_materialize()) {
+            if (!force_materialize_slot && !slot->need_materialize()) {
                 continue;
             }
             if (slot->id() == slot_id) {
@@ -572,6 +590,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::JDBC_TABLE:
             desc = pool->add(new JdbcTableDescriptor(tdesc));
+            break;
+        case TTableType::MAX_COMPUTE_TABLE:
+            desc = pool->add(new MaxComputeTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

@@ -66,7 +66,7 @@ ReasonOfStateChanged: The reason for the job state change
 
 * State
 
-      There are the following 4 states:
+      There are the following 5 states:
       * NEED_SCHEDULE: The job is waiting to be scheduled
       * RUNNING: The job is running
       * PAUSED: The job is paused

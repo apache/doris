@@ -40,6 +40,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
@@ -230,7 +231,22 @@ Status ExecEnv::_init_mem_env() {
     }
     int32_t index_percentage = config::index_page_cache_percentage;
     uint32_t num_shards = config::storage_page_cache_shard_size;
-    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
+    if ((num_shards & (num_shards - 1)) != 0) {
+        int old_num_shards = num_shards;
+        num_shards = BitUtil::RoundUpToPowerOfTwo(num_shards);
+        LOG(WARNING) << "num_shards should be power of two, but got " << old_num_shards
+                     << ". Rounded up to " << num_shards
+                     << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
+                        "conf file to be a power of two for better performance.";
+    }
+    int64_t pk_storage_page_cache_limit =
+            ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && pk_storage_page_cache_limit > MemInfo::mem_limit() / 2) {
+        pk_storage_page_cache_limit = storage_cache_limit / 2;
+    }
+    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage,
+                                          pk_storage_page_cache_limit, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
@@ -263,6 +279,8 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
+
+    SchemaCache::create_global_instance(config::schema_cache_capacity);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -373,7 +391,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_load_path_mgr);
-    SAFE_DELETE(_master_info);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_pipeline_task_group_scheduler);
     SAFE_DELETE(_fragment_mgr);
@@ -386,6 +403,18 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    // Master Info is a thrift object, it could be the last one to deconstruct.
+    // Master info should be deconstruct later than fragment manager, because fragment will
+    // access master_info.backend id to access some info. If there is a running query and master
+    // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
+    SAFE_DELETE(_master_info);
+
+    _send_batch_thread_pool.reset(nullptr);
+    _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _send_report_thread_pool.reset(nullptr);
+    _join_node_thread_pool.reset(nullptr);
+    _serial_download_cache_thread_token.reset(nullptr);
+    _download_cache_thread_pool.reset(nullptr);
 
     _is_init = false;
 }

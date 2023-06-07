@@ -211,6 +211,13 @@ public class UdfUtils {
                             && scalarType.isSetScale());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
                             scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
+                        || scalarType.getType() == TPrimitiveType.DECIMAL64
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
+                            scalarType.getScale());
                 } else {
                     type = ScalarType.createType(
                             PrimitiveType.fromThrift(scalarType.getType()));
@@ -538,6 +545,12 @@ public class UdfUtils {
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
+    public static long convertToDateTimeV2(
+            int year, int month, int day, int hour, int minute, int second, int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
     public static long convertToDateTimeV2(Object obj, Class clz) {
         if (LocalDateTime.class.equals(clz)) {
             LocalDateTime date = (LocalDateTime) obj;
@@ -546,11 +559,11 @@ public class UdfUtils {
         } else if (org.joda.time.DateTime.class.equals(clz)) {
             org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
             return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute());
+                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
         } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
             org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
             return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute());
+                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
         } else {
             return 0;
         }

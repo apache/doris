@@ -205,7 +205,6 @@ When Trino is mapped, Doris's Database corresponds to a Schema in Trino that spe
 
 9. OceanBase
 
-<<<<<<< HEAD
 <version since="dev"></version>
 
 ```sql
@@ -215,18 +214,7 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
     "password"="123456",
     "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
     "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
-    "oceanbase_mode" = "mysql"
-)
-
-CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
-    "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Drive",
-    "oceanbase_mode" = "oracle"
+    "driver_class" = "com.oceanbase.jdbc.Driver"
 )
 ```
 
@@ -241,9 +229,9 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 | `driver_class `           | Yes             |               | JDBC Driver Class                                  |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
 | `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
-| `oceanbase_mode`          | No              | ""            | When the connected external data source is OceanBase, the mode must be specified as mysql or oracle                        |
 | `include_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive. |
 | `exclude_database_list` | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
+
 > `driver_url` can be specified in three ways:
 >
 > 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
@@ -256,10 +244,10 @@ CREATE CATALOG jdbc_oceanbase_oracle PROPERTIES (
 > When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
 >
 > `include_database_list`:
-> When `only_specified_database=true`, only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > `exclude_database_list`:
-> When `only_specified_database=true`, specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+> It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
 >
 > When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 >
@@ -379,7 +367,9 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | int                                    | INT         |                                                              |
 | bigint                                 | BIGINT      |                                                              |
 | real                                   | FLOAT       |                                                              |
-| float/money/smallmoney                 | DOUBLE      |                                                              |
+| float                 | DOUBLE      |                                                              |
+| money | DECIMAL(19,4) | |
+| smallmoney | DECIMAL(10,4) | |
 | decimal/numeric                        | DECIMAL     |                                                              |
 | date                                   | DATE        |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2  |                                                              |
@@ -470,8 +460,8 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
 | real                                                 | FLOAT                    |                                                                                                                    |
 | double                                               | DOUBLE                   |                                                                                                                    |
-| date                                                 | DATE/DATEV2              | JDBC CATLOG uses Datev2 type default when connecting Trino                                                         |
-| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATLOG uses DATETIMEV2 type default when connecting Trino                                                     |
+| date                                                 | DATE/DATEV2              | JDBC CATALOG uses Datev2 type default when connecting Trino                                                        |
+| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATALOG uses DATETIMEV2 type default when connecting Trino                                                    |
 | varchar                                              | TEXT                     |                                                                                                                    |
 | char                                                 | CHAR                     |                                                                                                                    |
 | <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |
@@ -534,7 +524,7 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
    ```
 
-   Such errors occur because the `driver_class` has been wrongly put when creating the Resource. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
+   Such errors occur because the `driver_class` has been wrongly put when creating the catalog. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
 
 5. How to fix communication link failures?
 

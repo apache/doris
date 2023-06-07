@@ -34,7 +34,7 @@ suite("modify_replica_use_partition") {
     // data_sizes is one arrayList<Long>, t is tablet
     def fetchDataSize = { data_sizes, t ->
         def tabletId = t[0]
-        String meta_url = t[16]
+        String meta_url = t[17]
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -265,12 +265,12 @@ suite("modify_replica_use_partition") {
     def iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][17]
+        def dst = tablets[idx][18]
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][17]
+            dst = tablets[idx + x][18]
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")
@@ -485,12 +485,12 @@ suite("modify_replica_use_partition") {
     iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][17]
+        def dst = tablets[idx][18]
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][17]
+            dst = tablets[idx + x][18]
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")

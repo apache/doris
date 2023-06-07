@@ -201,7 +201,7 @@ private:
 
     using PatternActions = PODArrayWithStackMemory<PatternAction, 64>;
 
-    Derived& derived() { return static_cast<Derived&>(*this); }
+    Derived& derived() { return assert_cast<Derived&>(*this); }
 
     void parse_pattern() {
         actions.clear();
@@ -606,7 +606,7 @@ public:
         this->data(place).init(pattern, arg_count);
 
         const auto& timestamp =
-                static_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
+                assert_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
         typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
                 events;
 

@@ -78,6 +78,9 @@ suite("test_map_export", "export") {
     qt_select_count """SELECT COUNT(m) FROM ${testTable}"""
 
     def outFilePath = """${context.file.parent}/test_map_export"""
+    def outFile = "/tmp"
+    def urlHost = ""
+    def csvFiles = ""
     logger.info("test_map_export the outFilePath=" + outFilePath)
     // map select into outfile
     try {
@@ -87,9 +90,15 @@ suite("test_map_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-                    SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFilePath}/";
+        result = sql """
+                    SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFile}/";
         """
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        csvFiles = "${outFile}${filePrifix}*.csv"
+        scpFiles ("root", urlHost, csvFiles, outFilePath);
+
         File[] files = path.listFiles()
         assert files.length == 1
 
@@ -128,5 +137,7 @@ suite("test_map_export", "export") {
             }
             path.delete();
         }
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 }

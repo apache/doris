@@ -48,15 +48,15 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
 
     for (const TExpr& texpr : tnode.table_function_node.fnCallExprList) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, texpr, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(texpr, ctx));
         _vfn_ctxs.push_back(ctx);
 
-        VExpr* root = ctx->root();
+        auto root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
         RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
-        fn->set_vexpr_context(ctx);
+        fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
     _fn_num = _fns.size();
@@ -133,22 +133,17 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
 }
 
 Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
-                                 "VTableFunctionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_CANCELLED(state);
 
     // if child_block is empty, get data from child.
     while (need_more_input_data()) {
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                child(0)->get_next_after_projects(
-                        state, &_child_block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                child(0)->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                state, &_child_block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, Block*, bool*)) & ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         RETURN_IF_ERROR(push(state, &_child_block, _child_eos));
     }
@@ -241,8 +236,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     }
 
     // 3. eval conjuncts
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();

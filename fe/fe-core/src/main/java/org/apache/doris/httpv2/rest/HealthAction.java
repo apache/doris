@@ -40,8 +40,8 @@ public class HealthAction extends RestBaseController {
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("total_backend_num", Env.getCurrentSystemInfo().getBackendIds(false).size());
-        result.put("online_backend_num", Env.getCurrentSystemInfo().getBackendIds(true).size());
+        result.put("total_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(false).size());
+        result.put("online_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(true).size());
         return ResponseEntityBuilder.ok(result);
     }
 }

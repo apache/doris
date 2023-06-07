@@ -19,15 +19,18 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import lombok.Getter;
+import org.apache.commons.collections.MapUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -62,17 +65,17 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private final LabelName labelName;
     private final Map<String, String> jobProperties;
-    private final RoutineLoadDataSourceProperties dataSourceProperties;
+    private final Map<String, String> dataSourceMapProperties;
 
     // save analyzed job properties.
     // analyzed data source properties are saved in dataSourceProperties.
     private Map<String, String> analyzedJobProperties = Maps.newHashMap();
 
     public AlterRoutineLoadStmt(LabelName labelName, Map<String, String> jobProperties,
-                                RoutineLoadDataSourceProperties dataSourceProperties) {
+                                Map<String, String> dataSourceProperties) {
         this.labelName = labelName;
         this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
-        this.dataSourceProperties = dataSourceProperties;
+        this.dataSourceMapProperties = dataSourceProperties != null ? dataSourceProperties : Maps.newHashMap();
     }
 
     public String getDbName() {
@@ -88,12 +91,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     public boolean hasDataSourceProperty() {
-        return dataSourceProperties.hasAnalyzedProperties();
+        return MapUtils.isNotEmpty(dataSourceMapProperties);
     }
 
-    public RoutineLoadDataSourceProperties getDataSourceProperties() {
-        return dataSourceProperties;
+    public Map<String, String> getDataSourceMapProperties() {
+        return dataSourceMapProperties;
     }
+
+    @Getter
+    public AbstractDataSourceProperties dataSourceProperties;
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -106,7 +112,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         // check data source properties
         checkDataSourceProperties();
 
-        if (analyzedJobProperties.isEmpty() && !dataSourceProperties.hasAnalyzedProperties()) {
+        if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)) {
             throw new AnalysisException("No properties are specified");
         }
     }
@@ -200,13 +206,15 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     }
 
     private void checkDataSourceProperties() throws UserException {
-        if (!FeConstants.runningUnitTest) {
-            RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
-                    .checkPrivAndGetJob(getDbName(), getLabel());
-            dataSourceProperties.setTimezone(job.getTimezone());
-        } else {
-            dataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
+        if (MapUtils.isEmpty(dataSourceMapProperties)) {
+            return;
         }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getLabel());
+        this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
+                .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties);
+        dataSourceProperties.setAlter(true);
+        dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();
     }
 }

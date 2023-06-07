@@ -47,6 +47,7 @@ const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
 const char* UDAF_EXECUTOR_RESULT_SIGNATURE = "(JJ)Z";
+const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 // Calling Java method about those signature means: "(argument-types)return-type"
 // https://www.iitk.ac.in/esc101/05Aug/tutorial/native1.1/implementing/method.html
 
@@ -219,6 +220,13 @@ public:
         return JniUtil::GetJniExceptionMsg(env);
     }
 
+    Status reset(int64_t place) {
+        JNIEnv* env = nullptr;
+        RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf reset function");
+        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_reset_id, place);
+        return JniUtil::GetJniExceptionMsg(env);
+    }
+
     void read(BufferReadable& buf) { read_binary(serialize_data, buf); }
 
     Status destroy() {
@@ -262,8 +270,8 @@ public:
             } catch (std::bad_alloc const& e) {                                                    \
                 throw doris::Exception(                                                            \
                         ErrorCode::INTERNAL_ERROR,                                                 \
-                        "memory allocate failed in column string, buffer:{},size:{}",              \
-                        increase_buffer_size, buffer_size);                                        \
+                        "memory allocate failed in column string, buffer:{},size:{},reason:{}",    \
+                        increase_buffer_size, buffer_size, e.what());                              \
             }                                                                                      \
             *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
@@ -309,10 +317,10 @@ public:
                     chars.resize(buffer_size);                                                     \
                     offsets.resize(buffer_size);                                                   \
                 } catch (std::bad_alloc const& e) {                                                \
-                    throw doris::Exception(                                                        \
-                            ErrorCode::INTERNAL_ERROR,                                             \
-                            "memory allocate failed in array column string, buffer:{},size:{}",    \
-                            increase_buffer_size, buffer_size);                                    \
+                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,                              \
+                                           "memory allocate failed in array column string, "       \
+                                           "buffer:{},size:{},reason:{}",                          \
+                                           increase_buffer_size, buffer_size, e.what());           \
                 }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                    \
@@ -334,10 +342,10 @@ public:
                     null_map_data.resize(buffer_size);                                             \
                     data_column->resize(buffer_size);                                              \
                 } catch (std::bad_alloc const& e) {                                                \
-                    throw doris::Exception(                                                        \
-                            ErrorCode::INTERNAL_ERROR,                                             \
-                            "memory allocate failed in array number column, buffer:{},size:{}",    \
-                            increase_buffer_size, buffer_size);                                    \
+                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,                              \
+                                           "memory allocate failed in array number column, "       \
+                                           "buffer:{},size:{},reason:{}",                          \
+                                           increase_buffer_size, buffer_size, e.what());           \
                 }                                                                                  \
                 *output_array_null_ptr = reinterpret_cast<int64_t>(null_map_data.data());          \
                 *output_value_buffer =                                                             \
@@ -375,6 +383,7 @@ private:
 
         RETURN_IF_ERROR(register_id("<init>", UDAF_EXECUTOR_CTOR_SIGNATURE, executor_ctor_id));
         RETURN_IF_ERROR(register_id("add", UDAF_EXECUTOR_ADD_SIGNATURE, executor_add_id));
+        RETURN_IF_ERROR(register_id("reset", UDAF_EXECUTOR_RESET_SIGNATURE, executor_reset_id));
         RETURN_IF_ERROR(register_id("close", UDAF_EXECUTOR_CLOSE_SIGNATURE, executor_close_id));
         RETURN_IF_ERROR(register_id("merge", UDAF_EXECUTOR_MERGE_SIGNATURE, executor_merge_id));
         RETURN_IF_ERROR(
@@ -397,6 +406,7 @@ private:
     jmethodID executor_merge_id;
     jmethodID executor_serialize_id;
     jmethodID executor_result_id;
+    jmethodID executor_reset_id;
     jmethodID executor_close_id;
     jmethodID executor_destroy_id;
 
@@ -502,11 +512,26 @@ public:
         }
     }
 
-    // TODO: reset function should be implement also in struct data
-    void reset(AggregateDataPtr /*place*/) const override {
-        LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
-                     << _fn.name.function_name;
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "shouldn't going reset function");
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        int64_t places_address[1];
+        places_address[0] = reinterpret_cast<int64_t>(place);
+        Status st =
+                this->data(_exec_place)
+                        .add(places_address, true, columns, frame_start, frame_end, argument_types);
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        Status st = this->data(_exec_place).reset(reinterpret_cast<int64_t>(place));
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

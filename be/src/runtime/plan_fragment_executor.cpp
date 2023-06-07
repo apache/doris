@@ -88,7 +88,14 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
-    close();
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        close();
+        _runtime_state.reset();
+    } else {
+        close();
+    }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
 }
@@ -99,7 +106,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
         tracer = telemetry::get_tracer(print_id(_query_id));
     }
-    START_AND_SCOPE_SPAN(tracer, span, "PlanFragmentExecutor::prepare");
+    _span = tracer->StartSpan("Plan_fragment_executor");
+    OpentelemetryScope scope {_span};
 
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
@@ -224,7 +232,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, nullptr);
-    profile()->add_info_string("DoriBeVersion", version::doris_build_short_hash());
+    profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
@@ -273,7 +281,6 @@ Status PlanFragmentExecutor::open() {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
-            // status = Status::MemoryAllocFailed(_cancel_msg);
             status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
@@ -305,7 +312,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-        auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         doris::vectorized::Block block;
         bool eos = false;
 
@@ -348,14 +354,12 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block* block, bool* eos) {
     while (!_done) {
         block->clear_column_data(_plan->row_desc().num_materialized_slots());
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _plan->get_next_after_projects(
-                        _runtime_state.get(), block, &_done,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _plan, std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _plan->get_next_span(), _done);
+        RETURN_IF_ERROR(_plan->get_next_after_projects(
+                _runtime_state.get(), block, &_done,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _plan, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
 
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
@@ -371,7 +375,11 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
 void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
-    _plan->collect_query_statistics(_query_statistics.get());
+    Status status = _plan->collect_query_statistics(_query_statistics.get());
+    if (!status.ok()) {
+        LOG(INFO) << "collect query statistics failed, st=" << status;
+        return;
+    }
     _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
     if (_runtime_state->backend_id() != -1) {
         _collect_node_statistics();
@@ -382,7 +390,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
+    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -560,7 +568,7 @@ void PlanFragmentExecutor::close() {
                   << print_id(_runtime_state->fragment_instance_id());
     }
 
-    profile()->add_to_span();
+    profile()->add_to_span(_span);
     _closed = true;
 }
 

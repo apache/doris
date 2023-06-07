@@ -192,7 +192,7 @@ public:
 
     OperatorPtr get_root() { return _root; }
 
-    std::string debug_string() const;
+    std::string debug_string();
 
     taskgroup::TaskGroup* get_task_group() const;
 
@@ -217,6 +217,7 @@ public:
 private:
     Status _open();
     void _init_profile();
+    void _fresh_profile_counter();
 
     uint32_t _index;
     PipelinePtr _pipeline;

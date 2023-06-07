@@ -24,6 +24,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 
+import com.google.common.collect.ImmutableMap;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -159,7 +160,7 @@ public class MinidumpUtils {
      */
     public static JSONArray serializeColumnStatistic(Map<String, ColumnStatistic> totalColumnStatisticMap) {
         JSONArray columnStatistics = new JSONArray();
-        for (Map.Entry<String, ColumnStatistic> entry : totalColumnStatisticMap.entrySet()) {
+        for (Map.Entry<String, ColumnStatistic> entry : ImmutableMap.copyOf(totalColumnStatisticMap).entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             String colName = entry.getKey();
             JSONObject oneColumnStats = new JSONObject();

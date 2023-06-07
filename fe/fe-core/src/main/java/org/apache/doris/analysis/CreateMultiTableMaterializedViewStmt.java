@@ -20,32 +20,37 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final String mvName;
-    private final MVRefreshInfo.BuildMode buildMode;
+    private final BuildMode buildMode;
     private final MVRefreshInfo refreshInfo;
     private final QueryStmt queryStmt;
-    private Database database;
-    private final Map<String, Table> tables = Maps.newHashMap();
+    private final Map<String, TableIf> tables = Maps.newHashMap();
 
-    public CreateMultiTableMaterializedViewStmt(String mvName, MVRefreshInfo.BuildMode buildMode,
+    public CreateMultiTableMaterializedViewStmt(String mvName, BuildMode buildMode,
             MVRefreshInfo refreshInfo, KeysDesc keyDesc, PartitionDesc partitionDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, QueryStmt queryStmt) {
         this.mvName = mvName;
@@ -73,7 +78,12 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         if (queryStmt instanceof SelectStmt) {
             analyzeSelectClause((SelectStmt) queryStmt);
         }
-        tableName = new TableName(null, database.getFullName(), mvName);
+        String defaultDb = analyzer.getDefaultDb();
+        if (Strings.isNullOrEmpty(defaultDb)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
+        tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, defaultDb, mvName);
         if (partitionDesc != null) {
             ((ColumnPartitionDesc) partitionDesc).analyze(analyzer, this);
         }
@@ -82,18 +92,26 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     private void analyzeSelectClause(SelectStmt selectStmt) throws AnalysisException {
         for (TableRef tableRef : selectStmt.getTableRefs()) {
-            Table table = null;
+            TableIf table = null;
             if (tableRef instanceof BaseTableRef) {
                 String dbName = tableRef.getName().getDb();
-                if (database == null) {
-                    database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-                } else if (!dbName.equals(database.getFullName())) {
-                    throw new AnalysisException("The databases of multiple tables must be the same.");
+                String ctlName = tableRef.getName().getCtl();
+                CatalogIf catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+                if (catalogIf == null) {
+                    throw new AnalysisException("Failed to get the catalog: " + ctlName);
                 }
-                table = database.getTableOrAnalysisException(tableRef.getName().getTbl());
+                Optional<DatabaseIf> dbIf = catalogIf.getDb(dbName);
+                if (!dbIf.isPresent()) {
+                    throw new AnalysisException("Failed to get the database: " + dbName);
+                }
+                Optional<TableIf> tableIf = dbIf.get().getTable(tableRef.getName().getTbl());
+                if (!tableIf.isPresent()) {
+                    throw new AnalysisException("Failed to get the table: " + tableRef.getName().getTbl());
+                }
+                table = tableIf.orElse(null);
             } else if (tableRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
-                table = (Table) inlineViewRef.getDesc().getTable();
+                table = inlineViewRef.getDesc().getTable();
             }
             if (table == null) {
                 throw new AnalysisException("Failed to get the table by " + tableRef);
@@ -101,11 +119,44 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             tables.put(table.getName(), table);
             tables.put(tableRef.getAlias(), table);
         }
-        columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
+        checkSelectListItems(selectStmt.getSelectList().getItems());
+        columnDefs = generateColumnDefinitions(selectStmt);
     }
 
-    private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException {
-        List<Column> schema = generateSchema(selectList);
+    private void checkSelectListItems(List<SelectListItem> items) throws AnalysisException {
+        for (SelectListItem item : items) {
+            if (item.isStar()) {
+                continue;
+            }
+            Expr itemExpr = item.getExpr();
+            String alias = item.getAlias();
+            if (itemExpr instanceof SlotRef) {
+                continue;
+            } else if (itemExpr instanceof FunctionCallExpr && ((FunctionCallExpr) itemExpr).isAggregateFunction()) {
+                FunctionCallExpr functionCallExpr = (FunctionCallExpr) itemExpr;
+                String functionName = functionCallExpr.getFnName().getFunction();
+                MVColumnPattern mvColumnPattern = CreateMaterializedViewStmt.FN_NAME_TO_PATTERN
+                        .get(functionName.toLowerCase());
+                if (mvColumnPattern == null) {
+                    throw new AnalysisException(
+                            "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
+                }
+                if (!mvColumnPattern.match(functionCallExpr)) {
+                    throw new AnalysisException(
+                            "The function " + functionName + " must match pattern:" + mvColumnPattern);
+                }
+                if (StringUtils.isEmpty(alias)) {
+                    throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
+                }
+            } else {
+                throw new AnalysisException(
+                        "Materialized view does not support this expr:" + itemExpr.toSqlImpl());
+            }
+        }
+    }
+
+    private List<ColumnDef> generateColumnDefinitions(SelectStmt selectStmt) throws AnalysisException {
+        List<Column> schema = generateSchema(selectStmt);
         return schema.stream()
                 .map(column -> new ColumnDef(
                         column.getName(),
@@ -118,10 +169,12 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                 ).collect(Collectors.toList());
     }
 
-    private List<Column> generateSchema(SelectList selectList) throws AnalysisException {
+    private List<Column> generateSchema(SelectStmt selectStmt) throws AnalysisException {
+        ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
+        ArrayList<String> colLabels = selectStmt.getColLabels();
         Map<String, Column> uniqueMVColumnItems = Maps.newLinkedHashMap();
-        for (SelectListItem item : selectList.getItems()) {
-            Column column  = generateMTMVColumn(item);
+        for (int i = 0; i < resultExprs.size(); i++) {
+            Column column = generateMTMVColumn(resultExprs.get(i), colLabels.get(i));
             if (uniqueMVColumnItems.put(column.getName(), column) != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, column.getName());
             }
@@ -130,35 +183,8 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return Lists.newArrayList(uniqueMVColumnItems.values());
     }
 
-    private Column generateMTMVColumn(SelectListItem item) throws AnalysisException {
-        Expr itemExpr = item.getExpr();
-        String alias = item.getAlias();
-        Column mtmvColumn = null;
-        if (itemExpr instanceof SlotRef) {
-            SlotRef slotRef = (SlotRef) itemExpr;
-            String name = (alias != null) ? alias.toLowerCase() : slotRef.getColumnName().toLowerCase();
-            mtmvColumn = new Column(name, slotRef.getType(), true);
-        } else if (itemExpr instanceof FunctionCallExpr && ((FunctionCallExpr) itemExpr).isAggregateFunction()) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) itemExpr;
-            String functionName = functionCallExpr.getFnName().getFunction();
-            MVColumnPattern mvColumnPattern = CreateMaterializedViewStmt.FN_NAME_TO_PATTERN
-                    .get(functionName.toLowerCase());
-            if (mvColumnPattern == null) {
-                throw new AnalysisException(
-                        "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-            }
-            if (!mvColumnPattern.match(functionCallExpr)) {
-                throw new AnalysisException("The function " + functionName + " must match pattern:" + mvColumnPattern);
-            }
-            String name;
-            if (alias != null) {
-                name = alias.toLowerCase();
-                mtmvColumn = new Column(name, functionCallExpr.getType(), true);
-            } else {
-                throw new AnalysisException("Function expr: " + functionName + " must have a alias name for MTMV.");
-            }
-        }
-        return mtmvColumn;
+    private Column generateMTMVColumn(Expr expr, String colLabel) {
+        return new Column(colLabel.toLowerCase(), expr.getType(), true);
     }
 
     @Override
@@ -187,11 +213,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return mvName;
     }
 
-    public Database getDatabase() {
-        return database;
-    }
-
-    public Map<String, Table> getTables() {
+    public Map<String, TableIf> getTables() {
         return tables;
     }
 

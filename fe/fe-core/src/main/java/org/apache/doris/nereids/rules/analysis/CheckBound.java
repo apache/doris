@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -35,6 +40,8 @@ import java.util.stream.Collectors;
 /**
  * Check bound rule to check semantic correct after bounding of expression by Nereids.
  * Also give operator information without LOGICAL_
+ * When we need to check original semantic of Having expression in sql, we need to check
+ * here cause Having expression would be changed to Filter expression in analyze
  */
 public class CheckBound implements AnalysisRuleFactory {
 
@@ -44,6 +51,13 @@ public class CheckBound implements AnalysisRuleFactory {
             RuleType.CHECK_BOUND.build(
                 any().then(plan -> {
                     checkBound(plan);
+                    return null;
+                })
+            ),
+            RuleType.CHECK_OBJECT_TYPE_ANALYSIS.build(
+                logicalHaving().thenApply(ctx -> {
+                    LogicalHaving<Plan> having = ctx.root;
+                    checkHavingObjectTypeExpression(having);
                     return null;
                 })
             )
@@ -69,6 +83,20 @@ public class CheckBound implements AnalysisRuleFactory {
                     .collect(Collectors.toSet()), ", "),
                     plan.getType().toString().substring("LOGICAL_".length())
             ));
+        }
+    }
+
+    private void checkHavingObjectTypeExpression(LogicalHaving<Plan> having) {
+        Set<Expression> havingConjuncts = having.getConjuncts();
+        for (Expression predicate : havingConjuncts) {
+            if (predicate instanceof InSubquery) {
+                if (((InSubquery) predicate).getListQuery().getDataType().isObjectType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
+            }
+            if (ExpressionUtils.hasOnlyMetricType(predicate.getArguments())) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
     }
 }

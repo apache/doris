@@ -23,7 +23,8 @@ import org.apache.doris.thrift.TVarType;
 public enum SetType {
     DEFAULT("DEFAULT"),
     GLOBAL("GLOBAL"),
-    SESSION("SESSION");
+    SESSION("SESSION"),
+    USER("USER");
 
     private String desc;
 

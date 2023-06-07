@@ -22,6 +22,7 @@ import org.apache.doris.jni.utils.TypeNativeBytes;
 import org.apache.doris.jni.vec.ColumnType.Type;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -269,6 +270,8 @@ public class VectorColumn {
                 return appendInt(0);
             case BIGINT:
                 return appendLong(0);
+            case LARGEINT:
+                return appendBigInteger(BigInteger.ZERO);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -395,6 +398,29 @@ public class VectorColumn {
         return OffHeap.getDouble(null, data + rowId * 8L);
     }
 
+    public int appendBigInteger(BigInteger v) {
+        reserve(appendIndex + 1);
+        putBigInteger(appendIndex, v);
+        return appendIndex++;
+    }
+
+    private void putBigInteger(int rowId, BigInteger v) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = TypeNativeBytes.getBigIntegerBytes(v);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
+    }
+
+    public byte[] getBigIntegerBytes(int rowId) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = new byte[typeSize];
+        OffHeap.copyMemory(null, data + (long) rowId * typeSize, bytes, OffHeap.BYTE_ARRAY_OFFSET, typeSize);
+        return bytes;
+    }
+
+    public BigInteger getBigInteger(int rowId) {
+        return TypeNativeBytes.getBigInteger(getBigIntegerBytes(rowId));
+    }
+
     public int appendDecimal(BigDecimal v) {
         reserve(appendIndex + 1);
         putDecimal(appendIndex, v);
@@ -447,7 +473,7 @@ public class VectorColumn {
 
     private void putDateTime(int rowId, LocalDateTime v) {
         long time = TypeNativeBytes.convertToDateTimeV2(v.getYear(), v.getMonthValue(), v.getDayOfMonth(), v.getHour(),
-                v.getMinute(), v.getSecond());
+                v.getMinute(), v.getSecond(), v.getNano() / 1000);
         OffHeap.putLong(null, data + rowId * 8L, time);
     }
 
@@ -525,7 +551,7 @@ public class VectorColumn {
 
     public void appendValue(ColumnValue o) {
         ColumnType.Type typeValue = columnType.getType();
-        if (o == null) {
+        if (o == null || o.isNull()) {
             appendNull(typeValue);
             return;
         }
@@ -545,6 +571,9 @@ public class VectorColumn {
                 break;
             case BIGINT:
                 appendLong(o.getLong());
+                break;
+            case LARGEINT:
+                appendBigInteger(o.getBigInteger());
                 break;
             case FLOAT:
                 appendFloat(o.getFloat());
@@ -600,6 +629,9 @@ public class VectorColumn {
                 break;
             case BIGINT:
                 sb.append(getLong(i));
+                break;
+            case LARGEINT:
+                sb.append(getBigInteger(i));
                 break;
             case FLOAT:
                 sb.append(getFloat(i));

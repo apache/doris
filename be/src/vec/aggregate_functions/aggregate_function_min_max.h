@@ -355,7 +355,7 @@ public:
                 }
             } else {
                 if (capacity < rhs_size) {
-                    capacity = static_cast<UInt32>(round_up_to_power_of_two_or_zero(rhs_size));
+                    capacity = round_up_to_power_of_two_or_zero(rhs_size);
                     large_data = arena->alloc(capacity);
                 }
 
@@ -555,7 +555,7 @@ public:
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
-            const auto& col = static_cast<const ColumnFixedLengthObject&>(column);
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
             Data* data = reinterpret_cast<Data*>(places);
             for (size_t i = 0; i != num_rows; ++i) {
@@ -569,7 +569,7 @@ public:
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& dst_column = static_cast<ColumnFixedLengthObject&>(*dst);
+            auto& dst_column = assert_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
@@ -583,7 +583,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& dst_column = static_cast<ColumnFixedLengthObject&>(*dst);
+            auto& dst_column = assert_cast<ColumnFixedLengthObject&>(*dst);
             dst_column.resize(num_rows);
             auto* dst_data = reinterpret_cast<Data*>(dst_column.get_data().data());
             for (size_t i = 0; i != num_rows; ++i) {
@@ -597,7 +597,7 @@ public:
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            const auto& col = static_cast<const ColumnFixedLengthObject&>(column);
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
             auto* column_data = reinterpret_cast<const Data*>(col.get_data().data());
             const size_t num_rows = column.size();
             for (size_t i = 0; i != num_rows; ++i) {
@@ -608,14 +608,30 @@ public:
         }
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
-                                         MutableColumnPtr& dst) const override {
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
         if constexpr (Data::IsFixedLength) {
-            auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+            DCHECK(end <= column.size() && begin <= end) << ", begin:" << begin << ", end:" << end
+                                                         << ", column.size():" << column.size();
+            auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+            auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+            for (size_t i = begin; i <= end; ++i) {
+                this->data(place).change_if_better(data[i], arena);
+            }
+        } else {
+            Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
+        }
+    }
+
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+                                         IColumn& to) const override {
+        if constexpr (Data::IsFixedLength) {
+            auto& col = assert_cast<ColumnFixedLengthObject&>(to);
             col.resize(1);
             *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
         } else {
-            Base::serialize_without_key_to_column(place, dst);
+            Base::serialize_without_key_to_column(place, to);
         }
     }
 

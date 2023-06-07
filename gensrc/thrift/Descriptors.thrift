@@ -38,6 +38,7 @@ struct TColumn {
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
     16: optional string aggregation
+    17: optional bool result_is_nullable
 }
 
 struct TSlotDescriptor {
@@ -187,6 +188,15 @@ struct TOlapTablePartitionParam {
     7: optional list<string> partition_columns
 }
 
+struct TOlapTableIndex {
+  1: optional string index_name
+  2: optional list<string> columns
+  3: optional TIndexType index_type
+  4: optional string comment
+  5: optional i64 index_id
+  6: optional map<string, string> properties
+}
+
 struct TOlapTableIndexSchema {
     1: required i64 id
     2: required list<string> columns
@@ -208,15 +218,6 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
-}
-
-struct TOlapTableIndex {
-  1: optional string index_name
-  2: optional list<string> columns
-  3: optional TIndexType index_type
-  4: optional string comment
-  5: optional i64 index_id
-  6: optional map<string, string> properties
 }
 
 struct TTabletLocation {
@@ -306,6 +307,16 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
+  
+}
+
+struct TMCTable {
+  1: optional string region
+  2: optional string project
+  3: optional string table
+  4: optional string access_key
+  5: optional string secret_key
+  6: optional string public_access
 }
 
 // "Union" of all table types.
@@ -330,6 +341,7 @@ struct TTableDescriptor {
   18: optional TIcebergTable icebergTable
   19: optional THudiTable hudiTable
   20: optional TJdbcTable jdbcTable
+  21: optional TMCTable mcTable
 }
 
 struct TDescriptorTable {

@@ -62,4 +62,21 @@ std::string get_parser_string_from_properties(
     }
 }
 
+std::string get_parser_mode_string_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    if (properties.find(INVERTED_INDEX_PARSER_MODE_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
+    } else {
+        return INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+    }
+}
+
+std::string get_parser_phrase_support_string_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    if (properties.find(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY);
+    } else {
+        return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+    }
+}
 } // namespace doris

@@ -22,21 +22,26 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -46,8 +51,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
-public class JdbcScanNode extends ScanNode {
+public class JdbcScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(JdbcScanNode.class);
 
     private final List<String> columns = new ArrayList<String>();
@@ -56,9 +62,10 @@ public class JdbcScanNode extends ScanNode {
     private TOdbcTableType jdbcType;
     private String graphQueryString = "";
 
+    private JdbcTable tbl;
+
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
-        JdbcTable tbl = null;
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -72,8 +79,18 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeStats(analyzer);
         getGraphQueryString();
+    }
+
+    /**
+     * Used for Nereids. Should NOT use this function in anywhere else.
+     */
+    @Override
+    public void init() throws UserException {
+        super.init();
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     private boolean isNebula() {
@@ -93,20 +110,6 @@ public class JdbcScanNode extends ScanNode {
         }
         //clean conjusts cause graph sannnode no need conjuncts
         conjuncts = Lists.newArrayList();
-    }
-
-    /**
-     * Used for Nereids. Should NOT use this function in anywhere else.
-     */
-    public void init() throws UserException {
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    @Override
-    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
     }
 
     private void createJdbcFilters() {
@@ -135,6 +138,7 @@ public class JdbcScanNode extends ScanNode {
     }
 
     private void createJdbcColumns() {
+        columns.clear();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -158,7 +162,8 @@ public class JdbcScanNode extends ScanNode {
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
-        if (shouldPushDownLimit() && jdbcType == TOdbcTableType.ORACLE) {
+        if (shouldPushDownLimit() && (jdbcType == TOdbcTableType.ORACLE
+                || jdbcType == TOdbcTableType.OCEANBASE_ORACLE)) {
             filters.add("ROWNUM <= " + limit);
         }
 
@@ -183,7 +188,8 @@ public class JdbcScanNode extends ScanNode {
                 || jdbcType == TOdbcTableType.MONGODB
                 || jdbcType == TOdbcTableType.CLICKHOUSE
                 || jdbcType == TOdbcTableType.SAP_HANA
-                || jdbcType == TOdbcTableType.TRINO)) {
+                || jdbcType == TOdbcTableType.TRINO
+                || jdbcType == TOdbcTableType.OCEANBASE)) {
             sql.append(" LIMIT ").append(limit);
         }
 
@@ -206,12 +212,25 @@ public class JdbcScanNode extends ScanNode {
         // Convert predicates to Jdbc columns and filters.
         createJdbcColumns();
         createJdbcFilters();
+        createScanRangeLocations();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
         createJdbcColumns();
         createJdbcFilters();
+        createScanRangeLocations();
+    }
+
+    @Override
+    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
+            throws UserException {
+        createJdbcColumns();
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }
 
     @Override
@@ -243,5 +262,12 @@ public class JdbcScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return 1;
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
+                tbl.getId(), -1L);
     }
 }

@@ -29,6 +29,28 @@
 namespace doris {
 using roaring::Roaring;
 
+TEST(BitmapValueTest, copy) {
+    BitmapValue empty;
+    BitmapValue single(1024);
+    BitmapValue bitmap({1024, 1025, 1026});
+
+    BitmapValue copied = bitmap;
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_TRUE(copied.contains(1025));
+    EXPECT_TRUE(copied.contains(1026));
+    copied &= single;
+
+    // value of copied changed.
+    EXPECT_TRUE(copied.contains(1024));
+    EXPECT_FALSE(copied.contains(1025));
+    EXPECT_FALSE(copied.contains(1026));
+
+    // value of bitmap not changed.
+    EXPECT_TRUE(bitmap.contains(1024));
+    EXPECT_TRUE(bitmap.contains(1025));
+    EXPECT_TRUE(bitmap.contains(1026));
+}
+
 TEST(BitmapValueTest, bitmap_union) {
     BitmapValue empty;
     BitmapValue single(1024);
@@ -199,14 +221,6 @@ TEST(BitmapValueTest, bitmap_serde) {
         BitmapValue bitmap32({0, UINT32_MAX});
         std::string buffer = convert_bitmap_to_string(bitmap32);
 
-        Roaring roaring;
-        roaring.add(0);
-        roaring.add(UINT32_MAX);
-        std::string expect_buffer(1, BitmapTypeCode::BITMAP32);
-        expect_buffer.resize(1 + roaring.getSizeInBytes());
-        roaring.write(&expect_buffer[1]);
-        EXPECT_EQ(expect_buffer, buffer);
-
         BitmapValue out(buffer.data());
         EXPECT_EQ(2, out.cardinality());
         EXPECT_TRUE(out.contains(0));
@@ -227,20 +241,6 @@ TEST(BitmapValueTest, bitmap_serde) {
     { // BITMAP64
         BitmapValue bitmap64({0, static_cast<uint64_t>(UINT32_MAX) + 1});
         std::string buffer = convert_bitmap_to_string(bitmap64);
-
-        Roaring roaring;
-        roaring.add(0);
-        std::string expect_buffer(1, BitmapTypeCode::BITMAP64);
-        put_varint64(&expect_buffer, 2); // map size
-        for (uint32_t i = 0; i < 2; ++i) {
-            std::string map_entry;
-            put_fixed32_le(&map_entry, i); // map key
-            map_entry.resize(sizeof(uint32_t) + roaring.getSizeInBytes());
-            roaring.write(&map_entry[4]); // map value
-
-            expect_buffer.append(map_entry);
-        }
-        EXPECT_EQ(expect_buffer, buffer);
 
         BitmapValue out(buffer.data());
         EXPECT_EQ(2, out.cardinality());

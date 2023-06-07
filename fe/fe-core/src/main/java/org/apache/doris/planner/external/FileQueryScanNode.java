@@ -32,11 +32,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -100,6 +103,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
+    @Override
     public void init() throws UserException {
         doInitialize();
     }
@@ -107,10 +111,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Init scan provider and schema related params.
     protected void doInitialize() throws UserException {
         Preconditions.checkNotNull(desc);
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
+        if (desc.getTable() instanceof ExternalTable) {
+            ExternalTable table = (ExternalTable) desc.getTable();
+            if (table.isView()) {
+                throw new AnalysisException(
+                        String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                                table.getName()));
+            }
         }
         computeColumnFilter();
         initBackendPolicy();
@@ -138,14 +145,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
-        setColumnPositionMappingForTextFile();
+        setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    protected void initBackendPolicy() throws UserException {
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
     }
 
     /**
@@ -166,6 +168,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
+        // Update required slots and column_idxs in scanRangeLocations.
+        setColumnPositionMapping();
+        for (TScanRangeLocations location : scanRangeLocations) {
+            TFileScanRangeParams rangeParams = location.getScanRange().getExtScanRange().getFileScanRange().getParams();
+            rangeParams.setRequiredSlots(params.getRequiredSlots());
+            rangeParams.setColumnIdxs(params.getColumnIdxs());
+        }
     }
 
     @Override
@@ -183,11 +192,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
         createScanRangeLocations();
     }
 
-    private void setColumnPositionMappingForTextFile()
+    private void setColumnPositionMapping()
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
-
+        // avoid null pointer, it maybe has no slots when two tables are joined
+        if (params.getRequiredSlots() == null) {
+            params.setColumnIdxs(columnIdxs);
+            return;
+        }
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -203,6 +216,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setColumnIdxs(columnIdxs);
     }
 
+    @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = getSplits();
@@ -217,7 +231,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setFormatType(fileFormatType);
         TFileCompressType fileCompressType = getFileCompressType(inputSplit);
         params.setCompressType(fileCompressType);
-        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+        if (isCsvOrJson) {
             params.setFileAttributes(getFileAttributes());
         }
 
@@ -234,7 +249,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 if (broker == null) {
                     throw new UserException("No alive broker.");
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
         } else if (locationType == TFileType.FILE_S3) {
             params.setProperties(locationProperties);
@@ -242,8 +257,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
-            TScanRangeLocations curLocations = newLocations(params, backendPolicy);
             FileSplit fileSplit = (FileSplit) split;
+
+            TFileScanRangeParams scanRangeParams;
+            if (!isCsvOrJson) {
+                scanRangeParams = params;
+            } else {
+                // If fileFormatType is csv/json format, uncompressed files may be coexists with compressed files
+                // So we need set compressType separately
+                scanRangeParams = new TFileScanRangeParams(params);
+                scanRangeParams.setCompressType(getFileCompressType(fileSplit));
+            }
+            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
             // Otherwise, use the values in file path.
@@ -254,8 +279,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
+                // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
+            } else if (fileSplit instanceof PaimonSplit) {
+                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             }
+
+            // if (fileSplit instanceof HudiSplit) {
+            //     HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            // }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
@@ -306,7 +338,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         if (getLocationType() == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
+        } else if (getLocationType() == TFileType.FILE_S3
+                || getLocationType() == TFileType.FILE_BROKER
+                || getLocationType() == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
@@ -314,33 +348,23 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return rangeDesc;
     }
 
-    protected TFileType getLocationType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileType getLocationType() throws UserException;
 
-    protected TFileFormatType getFileFormatType() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TFileFormatType getFileFormatType() throws UserException;
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
-        return Util.getFileCompressType(fileSplit.getPath().toString());
+        return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());
     }
 
     protected TFileAttributes getFileAttributes() throws UserException {
         throw new NotImplementedException("");
     }
 
-    protected List<String> getPathPartitionKeys() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract List<String> getPathPartitionKeys() throws UserException;
 
-    protected TableIf getTargetTable() throws UserException {
-        throw new NotImplementedException("");
-    }
+    protected abstract TableIf getTargetTable() throws UserException;
 
-    protected Map<String, String> getLocationProperties() throws UserException  {
-        throw new NotImplementedException("");
-    }
+    protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     // eg: hdfs://namenode  s3://buckets
     protected String getFsName(FileSplit split) {
@@ -351,7 +375,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {
-            if (FeConstants.isObjStorage(location)) {
+            if (S3Util.isObjStorage(location)) {
                 return Optional.of(TFileType.FILE_S3);
             } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return Optional.of(TFileType.FILE_HDFS);

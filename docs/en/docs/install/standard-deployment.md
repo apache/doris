@@ -48,7 +48,7 @@ Doris, as an open source OLAP database with an MPP architecture, can run on most
 
 | Soft | Version | 
 |---|---|
-| Java | 1.8 and above |
+| Java | 1.8  |
 | GCC  | 4.8.2 and above |
 
 #### OS Installation Requirements
@@ -198,7 +198,7 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
   Modify be/conf/be.conf, which mainly involves configuring `storage_root_path`: data storage directory. By default, under be/storage, the directory needs to be **created manually**. Use `;` to separate multiple paths (do not add `;` after the last directory).
 
 
-  You may specify the directory storage medium in the path: HDD or SSD. You may also add capacility limit to the end of every path and use `,` for separation. Unless you use a mix of SSD and HDD disks, you do not need to follow the configuration methods in Example 1 and Example 2 below, but only need to specify the storage directory; you do not need to modify the default storage medium configuration of FE, either.  
+  You may specify the directory storage medium in the path: HDD or SSD. You may also add capacity limit to the end of every path and use `,` for separation. Unless you use a mix of SSD and HDD disks, you do not need to follow the configuration methods in Example 1 or Example 2 below, but only need to specify the storage directory; you do not need to modify the default storage medium configuration of FE, either.  
 
   Example 1: 
 

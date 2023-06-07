@@ -227,10 +227,10 @@ Export导出数据时会先将`/home/user/`目录下所有文件及目录删除�
 
 #### export with S3
 
-8. 将 testTbl 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。
+8. 将 s3_test 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。如果需要将数据导出到minio，还需要指定use_path_style=true。
 
 ```sql
-EXPORT TABLE testTbl TO "s3://hdfs_host:port/a/b/c" 
+EXPORT TABLE s3_test TO "s3://bucket/a/b/c" 
 PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"
@@ -242,7 +242,24 @@ PROPERTIES (
 )
 ```
 
+```sql
+EXPORT TABLE minio_test TO "s3://bucket/a/b/c" 
+PROPERTIES (
+  "column_separator"="\\x07", 
+  "line_delimiter" = "\\x07"
+) WITH s3 (
+  "AWS_ENDPOINT" = "xxxxx",
+  "AWS_ACCESS_KEY" = "xxxxx",
+  "AWS_SECRET_KEY"="xxxx",
+  "AWS_REGION" = "xxxxx",
+  "use_path_style" = "true"
+)
+```
+
 #### export with HDFS
+
+9. 将 test 表中的所有数据导出到 HDFS 上，导出文件格式为parquet，导出作业单个文件大小限制为1024MB，保留所指定目录下的所有文件。
+
 ```sql
 EXPORT TABLE test TO "hdfs://hdfs_host:port/a/b/c/" 
 PROPERTIES(

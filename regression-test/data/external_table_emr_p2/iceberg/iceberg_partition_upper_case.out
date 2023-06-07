@@ -80,6 +80,10 @@ Shanghai
 -- !parquetupper5 --
 2	k2_2	k3_2	Beijing
 
+-- !parquetupper6 --
+3	k2_3	k3_3	Shanghai
+4	k2_4	k3_4	Shanghai
+
 -- !parquetlower1 --
 1	k2_1	k3_1	Beijing
 2	k2_2	k3_2	Beijing
@@ -106,4 +110,8 @@ Shanghai
 
 -- !parquetlower5 --
 2	k2_2	k3_2	Beijing
+
+-- !parquetlower6 --
+3	k2_3	k3_3	Shanghai
+4	k2_4	k3_4	Shanghai
 

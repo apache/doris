@@ -159,6 +159,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.master`: 必填，目前支持 Yarn，Spark://host:port。
   - `spark.submit.deployMode`: Spark 程序的部署模式，必填，支持 Cluster、Client 两种。
   - `spark.hadoop.fs.defaultFS`: Master 为 Yarn 时必填。
+  - `spark.submit.timeout`：spark任务超时时间，默认5分钟
 - YARN RM 相关参数如下：
   - 如果 Spark 为单点 RM，则需要配置`spark.hadoop.yarn.resourcemanager.address`，表示单点 ResourceManager 地址。
   - 如果 Spark 为 RM-HA，则需要配置（其中 hostname 和 address 任选一个配置）：
@@ -243,7 +244,7 @@ PROPERTIES
   "broker.username" = "username",
   "broker.password" = "",
   "broker.dfs.nameservices" = "nameservices01",
-  "broker.dfs.ha.namenodes.HDFS4001273" = "mynamenode1, mynamenode2",
+  "broker.dfs.ha.namenodes.nameservices01" = "mynamenode1, mynamenode2",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
   "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
@@ -255,6 +256,9 @@ PROPERTIES
 
 如果是 Spark Load 访问带有 Kerberos 认证的 Hadoop 集群资源，我们只需要在创建 Spark resource 的时候指定以下参数即可：
 
+- `spark.hadoop.hadoop.security.authentication` 指定 Yarn 认证方式为 Kerberos。
+- `spark.hadoop.yarn.resourcemanager.principal` 指定 Yarn 的 Kerberos Principal。
+- `spark.hadoop.yarn.resourcemanager.keytab` 指定 Yarn 的 Kerberos Keytab 文件路径。该文件必须为 FE 进程所在服务器上的文件的绝对路径。并且可以被 FE 进程访问。
 - `broker.hadoop.security.authentication`：指定认证方式为 Kerberos。
 - `broker.kerberos_principal`：指定 Kerberos 的 Principal。
 - `broker.kerberos_keytab`：指定 Kerberos 的 Keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
@@ -275,6 +279,9 @@ PROPERTIES
   "spark.yarn.queue" = "queue0",
   "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
   "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+  "spark.hadoop.hadoop.security.authentication" = "kerberos",
+  "spark.hadoop.yarn.resourcemanager.principal" = "doris@YOUR.YARN.COM",
+  "spark.hadoop.yarn.resourcemanager.keytab" = "/home/doris/yarn.keytab",
   "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
   "broker" = "broker0",
   "broker.hadoop.security.authentication" = "kerberos",

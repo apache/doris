@@ -23,16 +23,17 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
@@ -61,14 +62,6 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected void doInitialize() throws UserException {
-        Preconditions.checkNotNull(desc);
-        computeColumnFilter();
-        initBackendPolicy();
-        initSchemaParams();
-    }
-
-    @Override
     protected String getFsName(FileSplit split) {
         return tableValuedFunction.getFsName();
     }
@@ -81,6 +74,12 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileFormatType();
+    }
+
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType fileCompressType = tableValuedFunction.getTFileCompressType();
+        return Util.getOrInferCompressType(fileCompressType, fileSplit.getPath().toString());
     }
 
     @Override

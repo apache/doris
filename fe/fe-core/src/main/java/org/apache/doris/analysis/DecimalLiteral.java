@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TDecimalLiteral;
@@ -48,7 +49,7 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        this(value, false);
+        this(value, Config.enable_decimal_conversion);
     }
 
     public DecimalLiteral(BigDecimal value, boolean isDecimalV3) {
@@ -81,7 +82,7 @@ public class DecimalLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.DOWN);
+            v = v.setScale(scale, RoundingMode.HALF_UP);
         }
         init(v);
         analysisDone();
@@ -285,8 +286,10 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     protected void compactForLiteral(Type type) throws AnalysisException {
         if (type.isDecimalV3()) {
-            this.type = ScalarType.createDecimalV3Type(Math.max(this.value.precision(), type.getPrecision()),
-                    Math.max(this.value.scale(), ((ScalarType) type).decimalScale()));
+            int scale = Math.max(this.value.scale(), ((ScalarType) type).decimalScale());
+            int integerPart = Math.max(this.value.precision() - this.value.scale(),
+                    type.getPrecision() - ((ScalarType) type).decimalScale());
+            this.type = ScalarType.createDecimalV3Type(integerPart + scale, scale);
         }
     }
 

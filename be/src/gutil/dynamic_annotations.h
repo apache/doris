@@ -482,36 +482,6 @@ void AnnotateEnableRaceDetection(const char* file, int line, int enable);
 void AnnotateNoOp(const char* file, int line, const volatile void* arg);
 void AnnotateFlushState(const char* file, int line);
 
-/* Return non-zero value if running under valgrind.
-
-  If "valgrind.h" is included into dynamic_annotations.c,
-  the regular valgrind mechanism will be used.
-  See http://valgrind.org/docs/manual/manual-core-adv.html about
-  RUNNING_ON_VALGRIND and other valgrind "client requests".
-  The file "valgrind.h" may be obtained by doing
-     svn co svn://svn.valgrind.org/valgrind/trunk/include
-
-  If for some reason you can't use "valgrind.h" or want to fake valgrind,
-  there are two ways to make this function return non-zero:
-    - Use environment variable: export RUNNING_ON_VALGRIND=1
-    - Make your tool intercept the function RunningOnValgrind() and
-      change its return value.
- */
-int RunningOnValgrind(void);
-
-/* ValgrindSlowdown returns:
-    * 1.0, if (RunningOnValgrind() == 0)
-    * 50.0, if (RunningOnValgrind() != 0 && getenv("VALGRIND_SLOWDOWN") == NULL)
-    * atof(getenv("VALGRIND_SLOWDOWN")) otherwise
-   This function can be used to scale timeout values:
-   EXAMPLE:
-   for (;;) {
-     DoExpensiveBackgroundTask();
-     SleepForSeconds(5 * ValgrindSlowdown());
-   }
- */
-double ValgrindSlowdown(void);
-
 /* AddressSanitizer annotations from LLVM asan_interface.h */
 
 #if defined(__SANITIZE_ADDRESS__) || defined(ADDRESS_SANITIZER)

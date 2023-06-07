@@ -433,12 +433,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：5
 
-#### `serialize_batch`
-
-* 类型：bool
-* 描述：BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
-* 默认值: false
-
 #### `doris_scan_range_max_mb`
 
 * 类型: int32
@@ -651,6 +645,23 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: 关闭compaction的trace日志
   - 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 * 默认值: true
+
+#### `pick_rowset_to_compact_interval_sec`
+
+* 类型: int64
+* 描述: 选取 rowset 去合并的时间间隔，单位为秒
+* 默认值: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* 类型：int32
+* 描述：Single Replica Compaction 线程池中线程数量的最大值。
+* 默认值：10
+
+#### `update_replica_infos_interval_seconds`
+
+* 描述：更新 peer replica infos 的最小间隔时间
+* 默认值：10（s）
 
 
 ### 导入
@@ -1231,6 +1242,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
 * 默认值：false
 
+#### `enable_lazy_open_partition`
+
+* 类型：bool
+* 描述：导入时大部分partition可能都不需要写入，可以使用延迟打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
+* 默认值：false
+
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * 描述：TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 通道将被删除。
@@ -1422,3 +1439,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 默认值: false
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
+* 默认值: true

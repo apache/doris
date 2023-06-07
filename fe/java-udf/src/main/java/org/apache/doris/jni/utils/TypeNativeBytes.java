@@ -39,6 +39,29 @@ public class TypeNativeBytes {
         return bytes;
     }
 
+    public static byte[] getBigIntegerBytes(BigInteger v) {
+        byte[] bytes = v.toByteArray();
+        // If the BigInteger is not negative and the first byte is 0, remove the first byte
+        if (v.signum() >= 0 && bytes[0] == 0) {
+            bytes = Arrays.copyOfRange(bytes, 1, bytes.length);
+        }
+        // Convert the byte order if necessary
+        return convertByteOrder(bytes);
+    }
+
+    public static BigInteger getBigInteger(byte[] bytes) {
+        // Convert the byte order back if necessary
+        byte[] originalBytes = convertByteOrder(bytes);
+        // If the first byte has the sign bit set, add a 0 byte at the start
+        if ((originalBytes[0] & 0x80) != 0) {
+            byte[] extendedBytes = new byte[originalBytes.length + 1];
+            extendedBytes[0] = 0;
+            System.arraycopy(originalBytes, 0, extendedBytes, 1, originalBytes.length);
+            originalBytes = extendedBytes;
+        }
+        return new BigInteger(originalBytes);
+    }
+
     public static byte[] getDecimalBytes(BigDecimal v, int scale, int size) {
         BigDecimal retValue = v.setScale(scale, RoundingMode.HALF_EVEN);
         BigInteger data = retValue.unscaledValue();
@@ -62,8 +85,13 @@ public class TypeNativeBytes {
     }
 
     public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        // todo: Has lost precision ? How about millisecond, microsecond ...
         return (long) second << 20 | (long) minute << 26 | (long) hour << 32
+                | (long) day << 37 | (long) month << 42 | (long) year << 46;
+    }
+
+    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second,
+            int microsecond) {
+        return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
@@ -91,10 +119,11 @@ public class TypeNativeBytes {
         int hour = (int) ((time >> 32) & 0X1F);
         int minute = (int) ((time >> 26) & 0X3F);
         int second = (int) ((time >> 20) & 0X3F);
+        int microsecond = (int) (time & 0XFFFFF);
 
         LocalDateTime value;
         try {
-            value = LocalDateTime.of(year, month, day, hour, minute, second);
+            value = LocalDateTime.of(year, month, day, hour, minute, second, microsecond * 1000);
         } catch (DateTimeException e) {
             value = LocalDateTime.MAX;
         }

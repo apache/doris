@@ -221,10 +221,10 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    Status get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs);
+    Status get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs);
 
-    Status get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* push_vexprs,
-                               const RowDescriptor& desc, RuntimeState* state);
+    Status get_prepared_exprs(std::vector<doris::vectorized::VExprSPtr>* push_exprs,
+                              const RowDescriptor& desc, RuntimeState* state);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -381,13 +381,13 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    doris::vectorized::VExprContext* _vprobe_ctx = nullptr;
+    doris::vectorized::VExprContextSPtr _vprobe_ctx;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
     std::string _ignored_msg;
 
-    std::vector<doris::vectorized::VExpr*> _push_down_vexprs;
+    std::vector<doris::vectorized::VExprSPtr> _push_down_vexprs;
 
     struct rpc_context;
 

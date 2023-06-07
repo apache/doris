@@ -40,7 +40,7 @@
 namespace doris {
 namespace vectorized {
 class Block;
-}
+} // namespace vectorized
 
 struct OlapTableIndexSchema;
 class TColumn;
@@ -89,7 +89,8 @@ public:
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function_merge() const;
+    vectorized::AggregateFunctionPtr get_aggregate_function_union(
+            vectorized::DataTypePtr type) const;
     vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
@@ -114,6 +115,8 @@ public:
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
+    std::string get_aggregation_name() const { return _aggregation_name; }
+    bool get_result_is_nullable() const { return _result_is_nullable; }
 
 private:
     int32_t _unique_id;
@@ -142,6 +145,8 @@ private:
     TabletColumn* _parent = nullptr;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
+
+    bool _result_is_nullable = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -151,6 +156,7 @@ class TabletSchema;
 
 class TabletIndex {
 public:
+    TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
     void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
@@ -175,6 +181,13 @@ public:
 
         return 0;
     }
+    TabletIndex(const TabletIndex& other) {
+        _index_id = other._index_id;
+        _index_name = other._index_name;
+        _index_type = other._index_type;
+        _col_unique_ids = other._col_unique_ids;
+        _properties = other._properties;
+    }
 
 private:
     int64_t _index_id;
@@ -193,6 +206,7 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
+    void append_index(TabletIndex index);
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
@@ -225,8 +239,14 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
+        _enable_single_replica_compaction = enable_single_replica_compaction;
+    }
+    bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
     void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
     bool store_row_column() const { return _store_row_column; }
+    void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
+    bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
@@ -239,6 +259,7 @@ public:
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
     bool has_inverted_index(int32_t col_unique_id) const;
+    bool has_inverted_index_with_index_id(int32_t index_id) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
@@ -327,8 +348,10 @@ private:
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
+    bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
+    bool _skip_write_index_on_load = false;
 
     bool _is_partial_update;
     std::set<std::string> _partial_update_input_columns;

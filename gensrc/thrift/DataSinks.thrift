@@ -70,6 +70,25 @@ enum TParquetDataType {
     FIXED_LEN_BYTE_ARRAY,
 }
 
+enum TParquetDataLogicalType {
+      UNDEFINED = 0,  // Not a real logical type
+      STRING = 1,
+      MAP,
+      LIST,
+      ENUM,
+      DECIMAL,
+      DATE,
+      TIME,
+      TIMESTAMP,
+      INTERVAL,
+      INT,
+      NIL,  // Thrift NullType: annotates data that is always null
+      JSON,
+      BSON,
+      UUID,
+      NONE  // Not a real logical type; should always be last element
+    }
+
 enum TParquetRepetitionType {
     REQUIRED,
     REPEATED,
@@ -80,6 +99,7 @@ struct TParquetSchema {
     1: optional TParquetRepetitionType schema_repetition_type
     2: optional TParquetDataType schema_data_type
     3: optional string schema_column_name    
+    4: optional TParquetDataLogicalType schema_data_logical_type
 }
 
 struct TResultFileSinkOptions {
@@ -140,9 +160,20 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
+struct TFetchOption {
+    1: optional bool use_two_phase_fetch;
+    // Nodes in this cluster, used for second phase fetch
+    2: optional Descriptors.TPaloNodesInfo nodes_info;
+    // Whether fetch row store
+    3: optional bool fetch_row_store;
+    // Fetch schema
+    4: optional list<Descriptors.TColumn> column_desc;
+}
+
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options // deprecated
+    2: optional TResultFileSinkOptions file_options; // deprecated
+    3: optional TFetchOption fetch_option;
 }
 
 struct TResultFileSink {
@@ -174,6 +205,7 @@ struct TJdbcTableSink {
     1: optional Descriptors.TJdbcTable jdbc_table
     2: optional bool use_transaction
     3: optional Types.TOdbcTableType table_type
+    4: optional string insert_sql
 }
 
 struct TExportSink {

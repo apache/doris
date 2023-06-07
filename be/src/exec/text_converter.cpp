@@ -44,6 +44,22 @@ namespace doris {
 
 TextConverter::TextConverter(char escape_char) : _escape_char(escape_char) {}
 
+void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
+                                        vectorized::MutableColumnPtr* column_ptr, const char* data,
+                                        size_t len) {
+    DCHECK(column_ptr->get()->is_nullable());
+    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
+    if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
+        nullable_column->get_null_map_data().push_back(1);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_default();
+    } else {
+        nullable_column->get_null_map_data().push_back(0);
+        reinterpret_cast<vectorized::ColumnString&>(nullable_column->get_nested_column())
+                .insert_data(data, len);
+    }
+}
+
 bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* nullable_col_ptr, const char* data,
                                      size_t len, bool copy_string, bool need_escape, size_t rows) {
@@ -85,6 +101,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
 
     case TYPE_BOOLEAN: {
         bool num = StringParser::string_to_bool(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, (uint8_t)num);
@@ -92,6 +111,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_TINYINT: {
         int8_t num = StringParser::string_to_int<int8_t>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -99,6 +121,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_SMALLINT: {
         int16_t num = StringParser::string_to_int<int16_t>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -106,6 +131,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_INT: {
         int32_t num = StringParser::string_to_int<int32_t>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -113,6 +141,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_BIGINT: {
         int64_t num = StringParser::string_to_int<int64_t>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -120,6 +151,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_LARGEINT: {
         __int128 num = StringParser::string_to_int<__int128>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -128,6 +162,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
 
     case TYPE_FLOAT: {
         float num = StringParser::string_to_float<float>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);
@@ -135,6 +172,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_DOUBLE: {
         double num = StringParser::string_to_float<double>(data, len, &parse_result);
+        if (parse_result != StringParser::PARSE_SUCCESS) {
+            break;
+        }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, num);

@@ -40,6 +40,7 @@ import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
 import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -165,6 +166,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             URI endpoint = StringUtils.isEmpty(bucket) ? tmpEndpoint :
                     URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
             client = S3Client.builder()
+                    .httpClient(UrlConnectionHttpClient.create())
                     .endpointOverride(endpoint)
                     .credentialsProvider(scp)
                     .region(Region.of(properties.get(S3Properties.REGION)))

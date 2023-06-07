@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -36,8 +37,10 @@ import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
+import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -51,7 +54,6 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
 import lombok.SneakyThrows;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,20 +63,16 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 
 /**
  * ScanNode for Elasticsearch.
  **/
-public class EsScanNode extends ScanNode {
+public class EsScanNode extends ExternalScanNode {
 
     private static final Logger LOG = LogManager.getLogger(EsScanNode.class);
 
-    private final Random random = new Random(System.currentTimeMillis());
-    private Multimap<String, Backend> backendMap;
     private EsTablePartitions esTablePartitions;
-    private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
@@ -87,7 +85,7 @@ public class EsScanNode extends ScanNode {
      * For multicatalog es.
      **/
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean esExternalTable) {
-        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE);
+        super(id, desc, planNodeName, StatisticalType.ES_SCAN_NODE, false);
         if (esExternalTable) {
             EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
             table = externalTable.getEsTable();
@@ -100,54 +98,36 @@ public class EsScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        computeColumnFilter();
-        computeStats(analyzer);
         buildQuery();
     }
 
+    @Override
     public void init() throws UserException {
-        computeColumnFilter();
+        super.init();
         buildQuery();
-    }
-
-    @Override
-    public int getNumInstances() {
-        return shardScanRanges.size();
-    }
-
-    @Override
-    public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return shardScanRanges;
     }
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        if (isFinalized) {
-            return;
-        }
-
-        try {
-            shardScanRanges = getShardLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
-        }
-
-        isFinalized = true;
+        doFinalize();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
+        doFinalize();
+    }
+
+    private void doFinalize() throws UserException {
         if (isFinalized) {
             return;
         }
-
-        try {
-            shardScanRanges = getShardLocations();
-        } catch (AnalysisException e) {
-            throw new UserException(e.getMessage());
-        }
-
+        createScanRangeLocations();
         isFinalized = true;
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        scanRangeLocations = getShardLocations();
     }
 
     /**
@@ -362,5 +342,12 @@ public class EsScanNode extends ScanNode {
             }
             conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
         }
+    }
+
+    @Override
+    public StatsDelta genStatsDelta() throws AnalysisException {
+        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
+                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(table.getQualifiedDbName()).getId(),
+                table.getId(), -1L);
     }
 }

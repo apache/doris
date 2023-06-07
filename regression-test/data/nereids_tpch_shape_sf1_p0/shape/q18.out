@@ -18,7 +18,7 @@ PhysicalTopN
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalProject
-------------------------filter((sum(l_quantity) > 300.000000000))
+------------------------filter((sum(l_quantity) > 300.00))
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[lineitem]
