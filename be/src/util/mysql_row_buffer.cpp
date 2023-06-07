@@ -81,6 +81,25 @@ MysqlRowBuffer<is_binary_format>::MysqlRowBuffer()
           _len_pos(0) {}
 
 template <bool is_binary_format>
+MysqlRowBuffer<is_binary_format>::MysqlRowBuffer(MysqlRowBuffer<is_binary_format>&& other) {
+    if (other._buf == other._default_buf) {
+        auto other_length = other.length();
+        memcpy(_default_buf, other._buf, other_length);
+        _buf = _default_buf;
+        _pos = _buf + other_length;
+    } else {
+        _buf = other._buf;
+        other._buf = other._default_buf;
+        _pos = other._pos;
+    }
+    _buf_size = other._buf_size;
+    _dynamic_mode = other._dynamic_mode;
+    _field_count = other._field_count;
+    _field_pos = other._field_pos;
+    _len_pos = other._len_pos;
+}
+
+template <bool is_binary_format>
 void MysqlRowBuffer<is_binary_format>::start_binary_row(uint32_t num_cols) {
     assert(is_binary_format);
     int bit_fields = (num_cols + 9) / 8;
@@ -94,6 +113,7 @@ template <bool is_binary_format>
 MysqlRowBuffer<is_binary_format>::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
         delete[] _buf;
+        _buf = _default_buf;
     }
 }
 

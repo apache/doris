@@ -1097,8 +1097,8 @@ public class TabletScheduler extends MasterDaemon {
             replica.setState(ReplicaState.DECOMMISSION);
             // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
             tabletCtx.setOrigPriority(Priority.NORMAL);
-            LOG.debug("set replica {} on backend {} of tablet {} state to DECOMMISSION",
-                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId());
+            LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
+                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
