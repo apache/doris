@@ -164,7 +164,7 @@ Status DeltaWriter::init() {
 
     // check tablet version number
     if (!config::disable_auto_compaction &&
-        _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
+        _tablet->exceed_version_limit(config::max_tablet_version_num / 2) &&
         !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger compaction
         StorageEngine::instance()->submit_compaction_task(

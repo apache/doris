@@ -375,20 +375,34 @@ void VNodeChannel::open() {
 }
 
 void VNodeChannel::_refresh_load_wait_time(
-        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>& response) {
+        const ::google::protobuf::RepeatedPtrField<::doris::PTabletLoadRowsetInfo>&
+                tablet_load_infos) {
     int64_t max_rowset_num_gap = 0;
     // if any one tablet is under high load pressure, we would make the whole procedure
     // sleep to prevent the corresponding BE return -235
-    max_rowset_num_gap = std::accumulate(
-            response.begin(), response.end(), max_rowset_num_gap, [](int64_t acc, auto& load_info) {
-                int64_t rowset_num_gap =
-                        load_info.current_rowset_nums() - (load_info.max_config_rowset_nums() / 2);
-                return std::max(acc, rowset_num_gap);
-            });
+    std::for_each(tablet_load_infos.begin(), tablet_load_infos.end(),
+                  [&max_rowset_num_gap](auto& load_info) {
+                      int64_t cur_rowset_num = load_info.current_rowset_nums();
+                      int64_t high_load_point = load_info.max_config_rowset_nums() / 2;
+                      DCHECK(cur_rowset_num > high_load_point);
+                      max_rowset_num_gap =
+                              std::max(max_rowset_num_gap, cur_rowset_num - high_load_point);
+                  });
     // to slow down the high load pressure
-    auto t = std::min(((max_rowset_num_gap + 99) / 100) * 100, config::max_load_pressure_wait_time);
-    if (UNLIKELY(t > 0)) {
-        _load_pressure_wait_time.store(t);
+    // we would use the rowset num gap to calculate one sleep time
+    // for example:
+    // if the max tablet version is 2000, there are 3 BE
+    // A: ====================  1800
+    // B: ================      1400
+    // C: ==================    1600
+    //    ========
+    //            ^
+    //            the high load point
+    // then then max gap is 800, we would make the whole send procesure sleep
+    // 1800ms for compaction to be done toe reduce the high pressure
+    auto max_time = config::max_load_pressure_wait_time_ms;
+    if (UNLIKELY(max_rowset_num_gap > 0)) {
+        _load_pressure_wait_time.store(std::min(max_rowset_num_gap + 1000, max_time));
     }
 }
 
@@ -417,6 +431,9 @@ Status VNodeChannel::open_wait() {
     }
     Status status(_open_closure->result.status());
     if (status.ok()) {
+        // in case the sending process is too fast that the _load_pressure_wait_time
+        // would not take effect. i.e: if all the data is already sent to receiver
+        // then there would be no try send batch anymore
         _refresh_load_wait_time(_open_closure->result.tablet_load_rowset_num_infos());
     }
     if (_open_closure->unref()) {

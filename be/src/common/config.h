@@ -1039,7 +1039,7 @@ DECLARE_mInt32(s3_write_buffer_size);
 DECLARE_mInt32(s3_write_buffer_whole_size);
 
 // the max sleep time when encountering high load workload
-DECLARE_mInt64(max_load_pressure_wait_time);
+DECLARE_mInt64(max_load_pressure_wait_time_ms);
 
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);

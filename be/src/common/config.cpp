@@ -1038,7 +1038,7 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
-DEFINE_mInt64(max_load_pressure_wait_time, "400");
+DEFINE_mInt64(max_load_pressure_wait_time_ms, "3000");
 
 #ifdef BE_TEST
 // test s3
