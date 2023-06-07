@@ -163,6 +163,9 @@ Status DeltaWriter::init() {
     }
 
     // check tablet version number
+    // to cooperate with load backoff algorithm,  we try to make sure submit one
+    // compaction task to reduce the load pressure each time we meet high load
+    // pressure condition
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num / 2) &&
         !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
