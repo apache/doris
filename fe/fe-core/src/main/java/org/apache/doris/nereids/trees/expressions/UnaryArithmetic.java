@@ -23,6 +23,9 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
@@ -46,5 +49,12 @@ public abstract class UnaryArithmetic extends UnaryOperator implements Propagate
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnaryArithmetic(this, context);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.UNARY_ARITHMETIC.getCode());
+        out.writeChars(legacyOperator.toString());
+        child().write(out);
     }
 }

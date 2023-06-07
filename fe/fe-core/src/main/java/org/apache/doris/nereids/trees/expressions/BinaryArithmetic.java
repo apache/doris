@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,10 +31,13 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
-public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
+public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable, Writable {
 
     private final Operator legacyOperator;
 
@@ -89,5 +93,13 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBinaryArithmetic(this, context);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.BINARY_ARHTIMETIC.getCode());
+        left().write(out);
+        out.writeChars(legacyOperator.toString());
+        right().write(out);
     }
 }

@@ -24,6 +24,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.SmallIntType;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * small int type literal
  */
@@ -59,5 +62,11 @@ public class SmallIntLiteral extends IntegerLikeLiteral {
     @Override
     public Number getNumber() {
         return value;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.SMALLINT_LITERAL.getCode());
+        out.writeShort(value);
     }
 }

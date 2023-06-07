@@ -21,6 +21,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;
@@ -63,5 +65,13 @@ public class DecimalV3Literal extends Literal {
     @Override
     public double getDouble() {
         return value.doubleValue();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.DECIMALV3_LITERAL.getCode());
+        out.writeInt(getValue().precision());
+        out.writeInt(getValue().scale());
+        out.writeChars(getValue().toString());
     }
 }

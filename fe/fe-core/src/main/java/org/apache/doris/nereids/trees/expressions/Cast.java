@@ -24,6 +24,8 @@ import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
@@ -89,5 +91,12 @@ public class Cast extends Expression implements UnaryExpression {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), targetType);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.CAST.getCode());
+        out.writeChars(targetType.toString());
+        child().write(out);
     }
 }

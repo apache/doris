@@ -22,6 +22,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * Represents Boolean literal
  */
@@ -76,5 +79,11 @@ public class BooleanLiteral extends Literal {
         } else {
             return 0;
         }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.BOOLEAN_LITERAL.getCode());
+        out.writeBoolean(value);
     }
 }

@@ -21,6 +21,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * Represents String literal
  */
@@ -56,5 +59,11 @@ public class StringLiteral extends StringLikeLiteral {
     @Override
     public String toString() {
         return "'" + value + "'";
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.STRING_LITERAL.getCode());
+        out.writeChars(value);
     }
 }

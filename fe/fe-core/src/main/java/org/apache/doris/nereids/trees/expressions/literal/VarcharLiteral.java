@@ -22,6 +22,9 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
  * Varchar type literal, in theory,
  * the difference from StringLiteral is that VarcharLiteral keeps the length information.
@@ -54,5 +57,11 @@ public class VarcharLiteral extends StringLikeLiteral {
     @Override
     public String toString() {
         return "'" + value + "'";
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.VARCHAR_LITERAL.getCode());
+        out.writeChars(value);
     }
 }

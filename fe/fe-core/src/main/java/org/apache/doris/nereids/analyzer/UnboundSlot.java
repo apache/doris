@@ -25,6 +25,8 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
@@ -92,5 +94,14 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundSlot(this, context);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.UNBOUND_SLOT.getCode());
+        out.writeInt(nameParts.size());
+        for (String s : nameParts) {
+            out.writeChars(s);
+        }
     }
 }

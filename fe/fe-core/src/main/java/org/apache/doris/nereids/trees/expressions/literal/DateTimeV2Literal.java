@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.time.LocalDateTime;
 
 /**
@@ -136,5 +138,17 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                         dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                         dateTime.getNano() / (long) Math.pow(10, 9 - precision));
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.DATETIME_LITERAL.getCode());
+        out.writeLong(year);
+        out.writeLong(month);
+        out.writeLong(day);
+        out.writeLong(hour);
+        out.writeLong(minute);
+        out.writeLong(second);
+        out.writeLong(microSecond);
     }
 }

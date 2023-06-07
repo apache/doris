@@ -22,6 +22,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.LargeIntType;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Objects;
 
@@ -65,5 +67,11 @@ public class LargeIntLiteral extends IntegerLikeLiteral {
     @Override
     public Number getNumber() {
         return value;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.LARGEINT_LITERAL.getCode());
+        out.writeChars(value.toString());
     }
 }

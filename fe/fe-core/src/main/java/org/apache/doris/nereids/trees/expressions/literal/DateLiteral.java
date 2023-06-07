@@ -30,6 +30,8 @@ import org.apache.doris.nereids.util.DateUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
@@ -221,5 +223,13 @@ public class DateLiteral extends Literal {
         return isDateOutOfRange(dateTime)
                 ? new NullLiteral(DateType.INSTANCE)
                 : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.DATE_LITERAL.getCode());
+        out.writeLong(year);
+        out.writeLong(month);
+        out.writeLong(day);
     }
 }

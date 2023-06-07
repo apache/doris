@@ -17,13 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Suppliers;
+import com.google.common.collect.Lists;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -96,5 +102,29 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
         return name + "(" + args + ")";
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(MetaCode.BOUND_FUNCTION.getCode());
+        Text.writeString(out, name);
+        out.writeInt(children.size());
+        for (Expression expression : children) {
+            expression.write(out);
+        }
+    }
+
+    /**
+     * read a function from metadata
+     */
+    public static BoundFunction read(DataInput input) throws IOException {
+        String name = Text.readString(input);
+        int count = input.readInt();
+        List<Expression> children = Lists.newArrayList();
+        for (int i = 0; i < count; ++i) {
+            children.add(Expression.read(input));
+        }
+        FunctionRegistry functionRegistry = new FunctionRegistry();
+        return functionRegistry.findFunctionBuilder(name, children).build(name, children);
     }
 }
