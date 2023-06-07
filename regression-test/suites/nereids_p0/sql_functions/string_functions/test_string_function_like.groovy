@@ -70,5 +70,25 @@ suite("test_string_function_like") {
             CREATE TABLE test_string_function_like_t0 (c0 SMALLINT DEFAULT "1") DISTRIBUTED BY HASH (c0) PROPERTIES ("replication_num" = "1");
         """
     qt_sql "select CASE TRUE WHEN CASE FALSE WHEN ( c0 IS NULL) THEN TRUE END THEN NULL WHEN (('') LIKE c0) THEN '1970-04-17 18:47:49' END from test_string_function_like_t0;"
+
+    qt_sql """select
+                CASE TRUE WHEN
+                CASE FALSE
+                WHEN ( c0 IS NULL) THEN
+                TRUE
+                END THEN
+                NULL
+                END
+            FROM test_string_function_like_t0;"""
+    sql "SET enable_nereids_planner=false"
+    qt_sql """select
+            CASE TRUE WHEN
+            CASE FALSE
+            WHEN ( c0 IS NULL) THEN
+            TRUE
+            END THEN
+            NULL
+            END
+        FROM test_string_function_like_t0;"""
     // sql "DROP TABLE ${tbName};"
 }

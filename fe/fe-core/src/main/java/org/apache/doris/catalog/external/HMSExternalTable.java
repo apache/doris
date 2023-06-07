@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
@@ -285,7 +285,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
@@ -386,7 +386,7 @@ public class HMSExternalTable extends ExternalTable {
         ColumnStatistic cache = Config.enable_stats
                 ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
                 : ColumnStatistic.UNKNOWN;
-        if (cache == ColumnStatistic.UNKNOWN) {
+        if (cache.isUnKnown) {
             return 1;
         } else {
             return (long) cache.count;

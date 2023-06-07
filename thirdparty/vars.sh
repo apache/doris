@@ -326,10 +326,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.211.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.211.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.211"
-AWS_SDK_MD5SUM="667b8e08baf0b9967c19224198e33160"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
+AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -380,10 +380,10 @@ LIBDIVIDE_SOURCE="libdivide-5.0"
 LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
 
 #pdqsort
-PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
-PDQSORT_NAME="pdqsort.tar.gz"
-PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
-PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
+PDQSORT_DOWNLOAD="https://raw.githubusercontent.com/orlp/pdqsort/b1ef26a55cdb60d236a5cb199c4234c704f46726/pdqsort.h"
+PDQSORT_NAME="pdqsort.h"
+PDQSORT_FILE="pdqsort.h"
+PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
@@ -453,10 +453,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.3-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.4.3-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.3-for-doris"
-HADOOP_LIBS_MD5SUM="4f9eeb4f8e05d2b2ae4541b12d78fb2c"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.4-for-doris"
+HADOOP_LIBS_MD5SUM="00f0042dd3900ba016f079ee9c550efb"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(

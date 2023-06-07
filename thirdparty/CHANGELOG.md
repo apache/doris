@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20230531
+
+- Modified hadoop libhdfs 3.3.4.2 -> 3.3.4.3
+- Modified aws sdk 1.9.211 -> 1.9.272
+
 ## v20230525
 
 - Removed:  clucene changed to submodule

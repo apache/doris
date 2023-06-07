@@ -78,4 +78,52 @@ suite("test_sql_block_rule") {
                 SELECT * FROM table_2
               """
 
+
+    sql """
+                CREATE SQL_BLOCK_RULE if not exists test_rule_insert
+                PROPERTIES("sql"="insert into table_2 values *", "global"= "true", "enable"= "true")
+              """
+
+    test {
+        sql("insert into table_2 values ('row1_col1', '2023-05-04 16:00:01')", false)
+        exception "sql match regex sql block rule: test_rule_insert"
+    }
+
+    sql """
+                DROP SQL_BLOCK_RULE if exists test_rule_insert
+              """
+
+    sql """
+                CREATE SQL_BLOCK_RULE if not exists test_rule_delete
+                PROPERTIES("sql"="delete from table_2", "global"= "true", "enable"= "true")
+              """
+
+    test {
+        sql("delete from table_2 where abcd='row1_col1'", false)
+        exception "sql match regex sql block rule: test_rule_delete"
+    }
+
+    sql """
+                DROP SQL_BLOCK_RULE if exists test_rule_delete
+              """
+
+    sql """
+                CREATE SQL_BLOCK_RULE if not exists test_rule_create
+                PROPERTIES("sql"="create table", "global"= "true", "enable"= "true")
+              """
+
+    test {
+        sql("create table table_3 like table_2", false)
+        exception "sql match regex sql block rule: test_rule_create"
+    }
+
+    sql """
+                DROP SQL_BLOCK_RULE if exists test_rule_create
+              """
+
+    test {
+        sql("CREATE SQL_BLOCK_RULE if not exists test_rule_create\n" +
+                " PROPERTIES(\"sql\"=\"create\", \"global\"= \"true\", \"enable\"= \"true\")", false)
+        exception "sql of SQL_BLOCK_RULE should not match its name"
+    }
 }

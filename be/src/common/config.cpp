@@ -856,6 +856,7 @@ DEFINE_mInt32(parquet_header_max_size_mb, "1");
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");

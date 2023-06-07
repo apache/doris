@@ -160,7 +160,9 @@ public:
 
     Status try_close();
 
-    bool should_run_serial() const { return _should_run_serial; }
+    bool should_run_serial() const {
+        return _should_run_serial || _state->enable_scan_node_run_serial();
+    }
     bool ready_to_open() { return _shared_scanner_controller->scanner_context_is_ready(id()); }
     bool ready_to_read() { return !_scanner_ctx->empty_in_queue(_context_queue_id); }
 
@@ -341,6 +343,8 @@ protected:
     RuntimeProfile::Counter* _num_scanners;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _alloc_resource_timer = nullptr;
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;

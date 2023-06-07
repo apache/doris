@@ -65,6 +65,7 @@ import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
@@ -113,6 +114,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -791,6 +793,26 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_QUERY_STATS: {
                 data = CleanQueryStatsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_ANALYSIS_JOB: {
+                data = AnalysisInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_ANALYSIS_TASK: {
+                data = AnalysisInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_ANALYSIS_JOB: {
+                data = AnalyzeDeletionLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_ANALYSIS_TASK: {
+                data = AnalyzeDeletionLog.read(in);
                 isRead = true;
                 break;
             }

@@ -25,7 +25,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -57,7 +56,7 @@ import java.util.Map;
 /**
  * Base class for External File Scan, including external query and load.
  */
-public class FileScanNode extends ExternalScanNode {
+public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
     public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
@@ -67,8 +66,6 @@ public class FileScanNode extends ExternalScanNode {
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
-
-    protected final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
                             boolean needCheckColumnPriv) {
@@ -157,13 +154,6 @@ public class FileScanNode extends ExternalScanNode {
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
 
         return output.toString();
-    }
-
-    // TODO: This api is for load job only. Will remove it later.
-    protected void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
-                                            LoadScanProvider scanProvider)
-            throws UserException {
-        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
     protected void setDefaultValueExprs(TableIf tbl,

@@ -366,12 +366,12 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
 
     // 验证存储在header中的过滤条件正确
     EXPECT_EQ(size_t(6), del_pred.sub_predicates_size());
-    EXPECT_STREQ("k1=1", del_pred.sub_predicates(0).c_str());
-    EXPECT_STREQ("k2>>3", del_pred.sub_predicates(1).c_str());
-    EXPECT_STREQ("k3<=5", del_pred.sub_predicates(2).c_str());
+    EXPECT_STREQ("k1='1'", del_pred.sub_predicates(0).c_str());
+    EXPECT_STREQ("k2>>'3'", del_pred.sub_predicates(1).c_str());
+    EXPECT_STREQ("k3<='5'", del_pred.sub_predicates(2).c_str());
     EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
-    EXPECT_STREQ("k5=7", del_pred.sub_predicates(4).c_str());
-    EXPECT_STREQ("k12!=9", del_pred.sub_predicates(5).c_str());
+    EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
+    EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
 
     EXPECT_EQ(size_t(1), del_pred.in_predicates_size());
     EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());
@@ -898,6 +898,36 @@ protected:
     DeleteHandler _delete_handler;
     std::string _json_rowset_meta;
 };
+
+TEST_F(TestDeleteHandler, ValueWithQuote) {
+    DeletePredicatePB del_predicate;
+    del_predicate.add_sub_predicates("k1='b'");
+    del_predicate.add_sub_predicates("k1='b");
+    del_predicate.add_sub_predicates("k1=b'");
+    del_predicate.add_sub_predicates("k1=''b'");
+    del_predicate.add_sub_predicates("k1='b''");
+    del_predicate.add_sub_predicates("k1=''b''");
+    del_predicate.set_version(2);
+
+    add_delete_predicate(del_predicate, 2);
+
+    auto res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    EXPECT_EQ(Status::OK(), res);
+    _delete_handler.finalize();
+}
+
+TEST_F(TestDeleteHandler, ValueWithoutQuote) {
+    DeletePredicatePB del_predicate;
+    del_predicate.add_sub_predicates("k1=b");
+    del_predicate.add_sub_predicates("k2=123");
+    del_predicate.set_version(2);
+
+    add_delete_predicate(del_predicate, 2);
+
+    auto res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    EXPECT_EQ(Status::OK(), res);
+    _delete_handler.finalize();
+}
 
 TEST_F(TestDeleteHandler, InitSuccess) {
     Status res;

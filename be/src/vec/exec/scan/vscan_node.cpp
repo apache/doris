@@ -150,22 +150,26 @@ Status VScanNode::prepare(RuntimeState* state) {
     // could add here, not in the _init_profile() function
     _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
     _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
+
+    _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
+    _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
     return Status::OK();
 }
 
 Status VScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     return ExecNode::open(state);
 }
 
 Status VScanNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_alloc_resource_timer);
     if (_opened) {
         return Status::OK();
     }
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
