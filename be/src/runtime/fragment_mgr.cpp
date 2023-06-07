@@ -559,6 +559,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.params.query_id);
         stream_load_ctx->put_result.params = params;
+        stream_load_ctx->put_result.__isset.params = true;
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
@@ -586,8 +587,39 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
-    // TODO
-    return exec_plan_fragment(params, empty_function);
+    if (params.txn_conf.need_txn) {
+        std::shared_ptr<StreamLoadContext> stream_load_ctx =
+                std::make_shared<StreamLoadContext>(_exec_env);
+        stream_load_ctx->db = params.txn_conf.db;
+        stream_load_ctx->db_id = params.txn_conf.db_id;
+        stream_load_ctx->table = params.txn_conf.tbl;
+        stream_load_ctx->txn_id = params.txn_conf.txn_id;
+        stream_load_ctx->id = UniqueId(params.query_id);
+        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->use_streaming = true;
+        stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
+        stream_load_ctx->load_src_type = TLoadSourceType::RAW;
+        stream_load_ctx->label = params.import_label;
+        stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+        stream_load_ctx->timeout_second = 3600;
+        stream_load_ctx->auth.token = params.txn_conf.token;
+        stream_load_ctx->need_commit_self = true;
+        stream_load_ctx->need_rollback = true;
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                -1 /* total_length */, true /* use_proto */);
+        stream_load_ctx->body_sink = pipe;
+        stream_load_ctx->pipe = pipe;
+        stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
+
+        RETURN_IF_ERROR(
+                _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
+
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
+        return Status::OK();
+    } else {
+        return exec_plan_fragment(params, empty_function);
+    }
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
@@ -685,9 +717,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            if (params.__isset.resource_groups && !params.resource_groups.empty()) {
+            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.resource_groups[0],
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
                                                                          &task_group_info);
                 if (status.ok()) {
                     auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
@@ -742,6 +774,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
             // Duplicated
+            LOG(WARNING) << "duplicate fragment instance id: " << print_id(fragment_instance_id);
             return Status::OK();
         }
     }
@@ -816,11 +849,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
-    std::shared_ptr<FragmentExecState> exec_state;
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
-
-    for (size_t i = 0; i < params.local_params.size(); i++) {
+    auto pre_and_submit = [&](int i) {
         const auto& local_params = params.local_params[i];
 
         const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
@@ -829,15 +860,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             auto iter = _pipeline_map.find(fragment_instance_id);
             if (iter != _pipeline_map.end()) {
                 // Duplicated
-                continue;
+                return Status::OK();
             }
+            query_ctx->fragment_ids.push_back(fragment_instance_id);
         }
         START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
         span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
-        query_ctx->fragment_ids.push_back(fragment_instance_id);
-
-        exec_state.reset(new FragmentExecState(
+        std::shared_ptr<FragmentExecState> exec_state(new FragmentExecState(
                 query_ctx->query_id, fragment_instance_id, local_params.backend_num, _exec_env,
                 query_ctx,
                 std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
@@ -880,10 +910,42 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
             _cv.notify_all();
         }
-        RETURN_IF_ERROR(context->submit());
-    }
 
-    return Status::OK();
+        return context->submit();
+    };
+
+    int target_size = params.local_params.size();
+    if (target_size > 1) {
+        int prepare_done = {0};
+        Status prepare_status[target_size];
+        std::mutex m;
+        std::condition_variable cv;
+
+        for (size_t i = 0; i < target_size; i++) {
+            _thread_pool->submit_func([&, i]() {
+                prepare_status[i] = pre_and_submit(i);
+                std::unique_lock<std::mutex> lock(m);
+                prepare_done++;
+                if (prepare_done == target_size) {
+                    cv.notify_one();
+                }
+            });
+        }
+
+        std::unique_lock<std::mutex> lock(m);
+        if (prepare_done != target_size) {
+            cv.wait(lock);
+
+            for (size_t i = 0; i < target_size; i++) {
+                if (!prepare_status[i].ok()) {
+                    return prepare_status[i];
+                }
+            }
+        }
+        return Status::OK();
+    } else {
+        return pre_and_submit(0);
+    }
 }
 
 template <typename Param>

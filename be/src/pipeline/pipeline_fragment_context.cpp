@@ -143,7 +143,14 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
-    _call_back(_runtime_state.get(), &_exec_status);
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        _call_back(_runtime_state.get(), &_exec_status);
+        _runtime_state.reset();
+    } else {
+        _call_back(_runtime_state.get(), &_exec_status);
+    }
     DCHECK(!_report_thread_active);
 }
 
@@ -589,7 +596,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
-                    next_operator_builder_id(), node->child(1)->row_desc());
+                    next_operator_builder_id(), node->child(1)->row_desc(), node->child(1));
             new_pipe->add_operator(builder);
         }
         OperatorBuilderPtr join_sink =

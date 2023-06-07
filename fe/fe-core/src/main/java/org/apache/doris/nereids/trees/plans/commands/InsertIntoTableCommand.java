@@ -23,6 +23,9 @@ import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -39,6 +42,11 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import javax.annotation.Nullable;
+
 /**
  * insert into select command implementation
  * insert into select command support the grammer: explain? insert into table columns? partitions? hints? query
@@ -47,22 +55,22 @@ import org.apache.logging.log4j.Logger;
  *  InsertIntoTableCommand(Query())
  *  ExplainCommand(Query())
  */
-public class InsertIntoTableCommand extends Command implements ForwardWithSync {
+public class InsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
-    private final String labelName;
+    private final @Nullable String labelName;
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, String labelName) {
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, @Nullable String labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
-        Preconditions.checkNotNull(logicalQuery, "logicalQuery cannot be null in InsertIntoTableCommand");
-        this.logicalQuery = logicalQuery;
+        this.logicalQuery = Objects.requireNonNull(logicalQuery,
+                "logicalQuery cannot be null in InsertIntoTableCommand");
         this.labelName = labelName;
     }
 
@@ -101,7 +109,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
             label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
         }
 
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) planner.getPhysicalPlan());
+        Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
+                .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+        Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
+        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) plan.get());
+
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
 
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
@@ -140,6 +152,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
             }
         }
+    }
+
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return this.logicalQuery;
     }
 
     @Override

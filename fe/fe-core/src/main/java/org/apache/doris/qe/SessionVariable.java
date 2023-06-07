@@ -69,6 +69,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
+    public static final String WORKLOAD_VARIABLE = "workload_group";
     public static final String RESOURCE_VARIABLE = "resource_group";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
@@ -340,6 +341,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
 
+    public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
+
+    public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -404,8 +409,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
     public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
+    @VariableMgr.VarAttr(name = WORKLOAD_VARIABLE)
+    public String workloadGroup = "";
+
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
-    public String resourceGroup = "normal";
+    public String resourceGroup = "";
 
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = AUTO_COMMIT)
@@ -531,6 +539,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_SCAN_RUN_SERIAL,  description = {
+            "是否开启ScanNode串行读，以避免limit较小的情况下的读放大，可以提高查询的并发能力",
+            "Whether to enable ScanNode serial reading to avoid read amplification in cases of small limits"
+                + "which can improve query concurrency. default is false."})
+    public boolean enableScanRunSerial = false;
+
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
     public boolean enableSqlCache = false;
 
@@ -635,7 +649,10 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 102400;
+    private int runtimeFilterMaxInNum = 1024;
+
+    @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
+    public boolean useRuntimeFilterDefaultSize = false;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -792,13 +809,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
-    /**
-     * If true, when synchronously collecting statistics, the information of
-     * the statistics job will be saved, currently mainly used for p0 test
-     */
-    @VariableMgr.VarAttr(name = ENABLE_SAVE_STATISTICS_SYNC_JOB)
-    public boolean enableSaveStatisticsSyncJob = false;
-
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
@@ -893,6 +903,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
+    @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
+    public int memoMaxGroupExpressionSize = 40000;
+
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
@@ -940,6 +953,11 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_CTE_MATERIALIZE
     )
     public boolean enableCTEMaterialize = true;
+
+    @VariableMgr.VarAttr(
+            name = IGNORE_COMPLEX_TYPE_COLUMN
+    )
+    public boolean ignoreColumnWithComplexType = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1267,6 +1285,14 @@ public class SessionVariable implements Serializable, Writable {
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
     }
 
+    public String getWorkloadGroup() {
+        return workloadGroup;
+    }
+
+    public void setWorkloadGroup(String workloadGroup) {
+        this.workloadGroup = workloadGroup;
+    }
+
     public String getResourceGroup() {
         return resourceGroup;
     }
@@ -1446,6 +1472,10 @@ public class SessionVariable implements Serializable, Writable {
         this.showHiddenColumns = showHiddenColumns;
     }
 
+    public boolean isEnableScanRunSerial() {
+        return enableScanRunSerial;
+    }
+
     public boolean skipStorageEngineMerge() {
         return skipStorageEngineMerge;
     }
@@ -1556,10 +1586,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableCboStatistics() {
         return enableCboStatistics;
-    }
-
-    public boolean isEnableSaveStatisticsSyncJob() {
-        return enableSaveStatisticsSyncJob;
     }
 
     public long getFileSplitSize() {
@@ -1934,6 +1960,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
+
+        tResult.setEnableInsertStrict(enableInsertStrict);
 
         return tResult;
     }

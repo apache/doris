@@ -371,6 +371,7 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 // This config can be set to limit thread number in compaction thread pool.
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
+DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -410,6 +411,8 @@ DECLARE_mInt64(total_permits_for_compaction_score);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
+// sleep interval in second after update replica infos
+DECLARE_mInt32(update_replica_infos_interval_seconds);
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -818,6 +821,10 @@ DECLARE_String(kafka_broker_version_fallback);
 // Change this size to 0 to fix it temporarily.
 DECLARE_Int32(routine_load_consumer_pool_size);
 
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DECLARE_Int32(multi_table_batch_plan_threshold);
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
@@ -881,6 +888,8 @@ DECLARE_mInt32(parquet_header_max_size_mb);
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
 DECLARE_mInt32(parquet_column_max_buffer_mb);
+// Merge small IO, the max amplified read ratio
+DECLARE_mDouble(max_amplified_read_ratio);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
@@ -1021,6 +1030,9 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+
+// enable set in BitmapValue
+DECLARE_Bool(enable_set_in_bitmap_value);
 
 #ifdef BE_TEST
 // test s3

@@ -419,12 +419,6 @@ There are two ways to configure BE configuration items:
 * Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
 * Default value: 5
 
-#### `serialize_batch`
-
-* Type: bool
-* Description: Whether the rpc communication between BEs serializes RowBatch for data transmission between query layers
-* Default value: false
-
 #### `doris_scan_range_max_mb`
 
 * Type: int32
@@ -644,6 +638,17 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: select the time interval in seconds for rowset to be compacted.
 * Default value: 86400
 
+#### `max_single_replica_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in single replica compaction thread pool.
+* Default value: 10
+
+#### `update_replica_infos_interval_seconds`
+
+* Description: Minimal interval (s) to update peer replica infos
+* Default value: 10 (s)
+
 
 ### Load
 
@@ -712,6 +717,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
+
+#### `multi_table_batch_plan_threshold`
+
+* Type: int32
+* Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
+* Default value: 200
 
 #### `single_replica_load_download_num_workers`
 

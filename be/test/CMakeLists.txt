@@ -72,6 +72,7 @@ set(IO_TEST_FILES
     io/fs/local_file_system_test.cpp
     io/fs/remote_file_system_test.cpp
     io/fs/buffered_reader_test.cpp
+    io/fs/multi_table_pipe_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -87,6 +88,7 @@ set(OLAP_TEST_FILES
     olap/cumulative_compaction_policy_test.cpp
     #olap/row_cursor_test.cpp
     olap/skiplist_test.cpp
+    olap/memtable_sort_test.cpp
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/storage_types_test.cpp
@@ -130,6 +132,7 @@ set(OLAP_TEST_FILES
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
     olap/ordered_data_compaction_test.cpp
+    olap/delete_bitmap_calculator_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -200,7 +203,6 @@ set(UTIL_TEST_FILES
     util/thread_test.cpp
     util/threadpool_test.cpp
     util/mysql_row_buffer_test.cpp
-    util/trace_test.cpp
     util/easy_json-test.cpp
     util/http_channel_test.cpp
     util/histogram_test.cpp

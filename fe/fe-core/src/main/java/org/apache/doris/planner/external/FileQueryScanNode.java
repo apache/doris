@@ -38,6 +38,8 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -101,6 +103,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
+    @Override
     public void init() throws UserException {
         doInitialize();
     }
@@ -108,10 +111,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Init scan provider and schema related params.
     protected void doInitialize() throws UserException {
         Preconditions.checkNotNull(desc);
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
+        if (desc.getTable() instanceof ExternalTable) {
+            ExternalTable table = (ExternalTable) desc.getTable();
+            if (table.isView()) {
+                throw new AnalysisException(
+                        String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                                table.getName()));
+            }
         }
         computeColumnFilter();
         initBackendPolicy();
@@ -139,14 +145,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
-        setColumnPositionMappingForTextFile();
+        setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    protected void initBackendPolicy() throws UserException {
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
     }
 
     /**
@@ -167,6 +168,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
+        // Update required slots and column_idxs in scanRangeLocations.
+        setColumnPositionMapping();
+        for (TScanRangeLocations location : scanRangeLocations) {
+            TFileScanRangeParams rangeParams = location.getScanRange().getExtScanRange().getFileScanRange().getParams();
+            rangeParams.setRequiredSlots(params.getRequiredSlots());
+            rangeParams.setColumnIdxs(params.getColumnIdxs());
+        }
     }
 
     @Override
@@ -184,11 +192,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
         createScanRangeLocations();
     }
 
-    private void setColumnPositionMappingForTextFile()
+    private void setColumnPositionMapping()
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
-
+        // avoid null pointer, it maybe has no slots when two tables are joined
+        if (params.getRequiredSlots() == null) {
+            params.setColumnIdxs(columnIdxs);
+            return;
+        }
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
             if (!slot.isIsFileSlot()) {
                 continue;
@@ -204,6 +216,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setColumnIdxs(columnIdxs);
     }
 
+    @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = getSplits();
@@ -266,7 +279,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
+                // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
+            } else if (fileSplit instanceof PaimonSplit) {
+                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             }
 
             // if (fileSplit instanceof HudiSplit) {
@@ -322,7 +338,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         if (getLocationType() == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3 || getLocationType() == TFileType.FILE_BROKER) {
+        } else if (getLocationType() == TFileType.FILE_S3
+                || getLocationType() == TFileType.FILE_BROKER
+                || getLocationType() == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }

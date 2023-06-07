@@ -67,14 +67,16 @@ public:
     bool closed() const override { return _cancelled; }
 
     // called when producer finished
-    Status finish() override;
+    virtual Status finish() override;
 
     // called when producer/consumer failed
-    void cancel(const std::string& reason) override;
+    virtual void cancel(const std::string& reason) override;
 
     Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
 
     FileSystemSPtr fs() const override { return nullptr; }
+
+    size_t get_queue_size() { return _buf_queue.size(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,

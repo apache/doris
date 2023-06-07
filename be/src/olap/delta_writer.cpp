@@ -209,9 +209,9 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    // unique key should flush serial because we need to make sure same key should sort
-    // in the same order in all replica.
-    bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
+    // by assigning segment_id to memtable before submiting to flush executor,
+    // we can make sure same keys sort in the same order in all replicas.
+    bool should_serial = false;
     RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
@@ -267,6 +267,10 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
+    if (_mem_table->empty()) {
+        return Status::OK();
+    }
+    _mem_table->assign_segment_id();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -349,16 +353,16 @@ void DeltaWriter::_reset_mem_table() {
     COUNTER_UPDATE(_segment_num, 1);
     _mem_table->set_callback([this](MemTableStat& stat) {
         _memtable_stat += stat;
-        COUNTER_UPDATE(_sort_timer, _memtable_stat.sort_ns);
-        COUNTER_UPDATE(_agg_timer, _memtable_stat.agg_ns);
-        COUNTER_UPDATE(_memtable_duration_timer, _memtable_stat.duration_ns);
-        COUNTER_UPDATE(_segment_writer_timer, _memtable_stat.segment_writer_ns);
-        COUNTER_UPDATE(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
-        COUNTER_UPDATE(_put_into_output_timer, _memtable_stat.put_into_output_ns);
-        COUNTER_UPDATE(_sort_times, _memtable_stat.sort_times);
-        COUNTER_UPDATE(_agg_times, _memtable_stat.agg_times);
-        COUNTER_UPDATE(_raw_rows_num, _memtable_stat.raw_rows);
-        COUNTER_UPDATE(_merged_rows_num, _memtable_stat.merged_rows);
+        COUNTER_SET(_sort_timer, _memtable_stat.sort_ns);
+        COUNTER_SET(_agg_timer, _memtable_stat.agg_ns);
+        COUNTER_SET(_memtable_duration_timer, _memtable_stat.duration_ns);
+        COUNTER_SET(_segment_writer_timer, _memtable_stat.segment_writer_ns);
+        COUNTER_SET(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
+        COUNTER_SET(_put_into_output_timer, _memtable_stat.put_into_output_ns);
+        COUNTER_SET(_sort_times, _memtable_stat.sort_times);
+        COUNTER_SET(_agg_times, _memtable_stat.agg_times);
+        COUNTER_SET(_raw_rows_num, _memtable_stat.raw_rows);
+        COUNTER_SET(_merged_rows_num, _memtable_stat.merged_rows);
     });
 }
 
@@ -450,8 +454,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         }
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(_cur_rowset, segments, nullptr,
-                                                        _delete_bitmap, _cur_max_version, true));
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
+                                                                         _delete_bitmap));
         }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
@@ -612,12 +616,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     std::vector<int64_t> indices_ids;
     auto tablet_schema = _cur_rowset->rowset_meta()->tablet_schema();
-    for (auto& column : tablet_schema->columns()) {
-        const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
-        if (index_meta) {
-            indices_ids.emplace_back(index_meta->index_id());
+    if (!tablet_schema->skip_write_index_on_load()) {
+        for (auto& column : tablet_schema->columns()) {
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+            if (index_meta) {
+                indices_ids.emplace_back(index_meta->index_id());
+            }
         }
     }
+
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
     request.set_allocated_rowset_meta(&rowset_meta_pb);

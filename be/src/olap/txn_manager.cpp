@@ -198,14 +198,18 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
-        DCHECK(it != txn_tablet_map.end());
         if (it == txn_tablet_map.end()) {
             LOG(WARNING) << "transaction_id: " << transaction_id
                          << " partition_id: " << partition_id << " may be cleared";
             return;
         }
         auto load_itr = it->second.find(tablet_info);
-        DCHECK(load_itr != it->second.end());
+        if (load_itr == it->second.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " tablet_id: " << tablet_id
+                         << " may be cleared";
+            return;
+        }
         TabletTxnInfo& load_info = load_itr->second;
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
@@ -394,7 +398,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     /// Step 4: save meta
     auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
-    LOG(INFO) << "rowset meta pb: " << rowset->rowset_meta()->get_rowset_pb().DebugString();
     if (!status.ok()) {
         LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                      << rowset->rowset_id() << ", tablet id: " << tablet_id
@@ -405,8 +408,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // TODO(Drogon): remove these test codes
     if (enable_binlog) {
         auto version_str = fmt::format("{}", version.first);
-        LOG(INFO) << fmt::format("tabletid: {}, version: {}, binlog filepath: {}", tablet_id,
-                                 version_str, tablet->get_binlog_filepath(version_str));
+        VLOG_DEBUG << fmt::format("tabletid: {}, version: {}, binlog filepath: {}", tablet_id,
+                                  version_str, tablet->get_binlog_filepath(version_str));
     }
 
     /// Step 5: remove tablet_info from tnx_tablet_map

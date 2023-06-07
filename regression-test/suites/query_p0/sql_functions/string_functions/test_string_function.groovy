@@ -69,10 +69,12 @@ suite("test_string_function") {
     qt_sql "select unhex('41');"
     qt_sql "select unhex('4142');"
 
-    qt_sql "select instr(\"abc\", \"b\");"
-    qt_sql "select instr(\"abc\", \"d\");"
-    qt_sql "select instr(\"abc\", null);"
-    qt_sql "select instr(null, \"a\");"
+    qt_sql_instr "select instr(\"abc\", \"b\");"
+    qt_sql_instr "select instr(\"abc\", \"d\");"
+    qt_sql_instr "select instr(\"abc\", null);"
+    qt_sql_instr "select instr(null, \"a\");"
+    qt_sql_instr "SELECT instr('foobar', '');"
+    qt_sql_instr "SELECT instr('上海天津北京杭州', '北京');"
 
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
@@ -84,8 +86,10 @@ suite("test_string_function") {
 
     qt_sql "select length(\"abc\");"
 
-    qt_sql "SELECT LOCATE('bar', 'foobarbar');"
-    qt_sql "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('bar', 'foobarbar');"
+    qt_sql_locate "SELECT LOCATE('xbar', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('', 'foobar');"
+    qt_sql_locate "SELECT LOCATE('北京', '上海天津北京杭州');"
 
     qt_sql "SELECT lpad(\"hi\", 5, \"xy\");"
     qt_sql "SELECT lpad(\"hi\", 1, \"xy\");"

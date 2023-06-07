@@ -717,10 +717,11 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
+        int32_t unique_id = _schema->unique_id(pred->column_id());
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+                                             PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
                 continue;
@@ -747,6 +748,30 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
+    if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+        res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+        res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
+        //    usually occurs when creating a new index, queries can be downgraded
+        //    without index.
+        // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+        //    has reached the optimal limit, downgrade without index query can
+        //    improve query performance.
+        // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
+        //    suitable for executing this predicate, skipped it and filter data
+        //    by function later.
+        // 4. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
+        //    but the column condition value no terms in specified parser,
+        //    such as: where A = '' and B = ','
+        //    the predicate of A and B need downgrade without index query.
+        // above case can downgrade without index query
+        return true;
+    }
+    return false;
 }
 
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predicate) {
@@ -803,23 +828,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
-                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
-                 need_remaining_after_evaluate)) {
-                // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
-                //    usually occurs when creating a new index, because match query must
-                //    need index file, queries other than match query can be downgraded
-                //    without index.
-                // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
-                //    has reached the optimal limit, downgrade without index query can
-                //    improve query performance.
-                // 3. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
-                //    but the column condition value no terms in specified parser,
-                //    such as: where A = '' and B = ','
-                //    the predicate of A and B need downgrade without index query.
-                // above case can downgrade without index query
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
@@ -991,7 +1000,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
-        int32_t unique_id = _schema->unique_id(cid);
+        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                     _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
@@ -1253,9 +1262,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->get_filter_id() != -1) {
-                    _filter_info_id.push_back(predicate);
-                }
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1635,8 +1642,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     }
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
-    _opts.stats->short_circuit_cond_input_rows += original_size;
-    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 
     // evaluate delete condition
     original_size = selected_size;
@@ -1891,13 +1896,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);
     }
-
-#ifndef NDEBUG
-    size_t row_cnt = block->rows();
-    for (size_t i = 0; i < block->columns(); ++i) {
-        DCHECK_EQ(row_cnt, block->get_by_position(i).column->size());
-    }
-#endif
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {

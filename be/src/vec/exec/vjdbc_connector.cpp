@@ -703,19 +703,8 @@ Status JdbcConnector::_cast_string_to_array(const SlotDescriptor* slot_desc, Blo
     return Status::OK();
 }
 
-Status JdbcConnector::exec_write_sql(const std::u16string& insert_stmt,
-                                     const fmt::memory_buffer& insert_stmt_buffer) {
-    SCOPED_TIMER(_result_send_timer);
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jstring query_sql = env->NewString((const jchar*)insert_stmt.c_str(), insert_stmt.size());
-    env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_write_id, query_sql);
-    env->DeleteLocalRef(query_sql);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    return Status::OK();
-}
-
-Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs) {
+Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
+                                      uint32_t* num_rows_sent) {
     SCOPED_TIMER(_result_send_timer);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -766,6 +755,7 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
                                  hashmap_object);
     env->DeleteLocalRef(hashmap_object);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    *num_rows_sent = block->rows();
     return Status::OK();
 }
 

@@ -39,6 +39,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
@@ -372,7 +373,8 @@ Status NewJsonReader::_open_file_reader() {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
+                                                        _state->fragment_instance_id()));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         reader_options.modification_time =
@@ -460,8 +462,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     _bytes_read_counter += size;
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
-    Defer __finalize_clousure([&] {
-        // Reached buffer size, unfold intermediate column object
+    auto finalize_column = [&]() -> Status {
         size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
         if (column_object.size() >= batch_size || _reader_eof) {
             column_object.finalize();
@@ -470,35 +471,22 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
             }
             // Unfold object columns for the purpose of extracting static columns and
             // fill default values missing in static columns
-            schema_util::unfold_object(block.columns() - 1, block,
-                                       true /*cast to original column type*/);
+            RETURN_IF_ERROR(schema_util::unfold_object(block.columns() - 1, block,
+                                                       true /*cast to original column type*/));
         }
-    });
+        return Status::OK();
+    };
     // read all data, then return
     if (size == 0 || *eof) {
         *is_empty_row = true;
+        RETURN_IF_ERROR(finalize_column());
         return Status::OK();
     }
-    Status st = doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
-                                                         _json_parser.get());
-    if (st.is<DATA_QUALITY_ERROR>()) {
-        fmt::memory_buffer error_msg;
-        fmt::format_to(error_msg, "Parse json data for JsonDoc failed. error info: {}",
-                       st.to_string());
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                [&]() -> std::string { return std::string((char*)json_str, size); },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
-        _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
-            // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
-            // we meet enough invalid rows and the scanner should be stopped.
-            // So we set eof to true and return OK, the caller will stop the process as we meet the end of file.
-            *eof = true;
-            return Status::OK();
-        }
-        return Status::DataQualityError(fmt::to_string(error_msg));
-    }
 
+    RETURN_IF_CATCH_EXCEPTION(doris::vectorized::parse_json_to_variant(
+            column_object, StringRef {json_str, size}, _json_parser.get()));
+    // TODO correctly handle data quality error
+    RETURN_IF_ERROR(finalize_column());
     return Status::OK();
 }
 

@@ -189,6 +189,7 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
+    optional bool result_is_nullable = 19;
 }
 
 enum IndexType {
@@ -233,6 +234,8 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false];
     optional bool is_partial_update = 20 [default=false];
     repeated string partial_update_input_columns = 21;
+    optional bool enable_single_replica_compaction = 22 [default=false];
+    optional bool skip_write_index_on_load = 23 [default=false];
 }
 
 enum TabletStatePB {

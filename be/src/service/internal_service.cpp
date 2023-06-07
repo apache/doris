@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
@@ -282,7 +283,11 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     bool compact = request->has_compact() ? request->compact() : false;
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
-    st = _exec_plan_fragment(request->request(), version, compact);
+    try {
+        st = _exec_plan_fragment(request->request(), version, compact);
+    } catch (const doris::Exception& e) {
+        st = Status::Error(e.code(), e.to_string());
+    }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
@@ -1014,6 +1019,8 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
+    int64_t receive_time = GetCurrentTimeNanos();
+    response->set_receive_time(receive_time);
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
@@ -1612,6 +1619,16 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
+                                                      const PGetTabletVersionsRequest* request,
+                                                      PGetTabletVersionsResponse* response,
+                                                      google::protobuf::Closure* done) {
+    //SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
 }
 
 } // namespace doris

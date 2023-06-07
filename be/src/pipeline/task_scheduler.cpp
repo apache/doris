@@ -268,6 +268,10 @@ void TaskScheduler::_do_work(size_t index) {
         if (canceled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
+
+            // If pipeline is canceled caused by memory limit, we should send report to FE in order
+            // to cancel all pipeline tasks in this query
+            fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED);
             continue;
         }

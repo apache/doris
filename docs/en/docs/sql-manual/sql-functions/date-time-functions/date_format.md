@@ -28,11 +28,11 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR DATE' FORMAT (DATETIME DATE, VARCHAR Format)`
+`VARCHAR DATE_FORMAT (DATETIME DATE, VARCHAR Format)`
 
 
-Convert the date type to a bit string according to the format type.
-Currently supports a string with a maximum 128 bytes and returns NULL if the length of the return value exceeds 128
+Convert the date type to a string according to the format type.
+Convert the date type to a string according to the format type. Currently, it supports a maximum of 128 bytes for the string. If the return value length exceeds 128 bytes, then it returns NULL.
 
 The date parameter is the valid date. Format specifies the date/time output format.
 

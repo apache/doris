@@ -330,6 +330,7 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
 DEFINE_mInt32(max_cumu_compaction_threads, "10");
+DEFINE_mInt32(max_single_replica_compaction_threads, "10");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -369,6 +370,9 @@ DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
+
+// sleep interval in second after update replica infos
+DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -780,6 +784,10 @@ DEFINE_String(kafka_broker_version_fallback, "0.10.0");
 // Change this size to 0 to fix it temporarily.
 DEFINE_Int32(routine_load_consumer_pool_size, "10");
 
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
@@ -852,6 +860,7 @@ DEFINE_mInt32(parquet_header_max_size_mb, "1");
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
+DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
@@ -1005,6 +1014,9 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
+
+// enable set in BitmapValue
+DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 #ifdef BE_TEST
 // test s3
