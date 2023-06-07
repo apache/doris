@@ -12,6 +12,9 @@
 10	default_country	hefei	23456710
 
 -- !select2 --
+10
+
+-- !select3 --
 1	default_country	default_city	2345671
 2	default_country	shanghai	2345672
 3	default_country	beijing	2345673
@@ -22,4 +25,7 @@
 8	default_country	chengdu	2345678
 9	default_country	default_city	2345679
 10	default_country	default_city	23456710
+
+-- !select4 --
+10
 

@@ -172,6 +172,8 @@ private:
     Status _append_error_msg(simdjson::ondemand::object* obj, std::string error_msg,
                              std::string col_name, bool* valid);
 
+    size_t _column_index(const StringRef& name, size_t key_index);
+
     Status (NewJsonReader::*_vhandle_json_callback)(Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
@@ -244,6 +246,8 @@ private:
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
     using NameMap = HashMap<StringRef, size_t, StringRefHash>;
     NameMap _slot_desc_index;
+    /// Cached search results for previous row (keyed as index in JSON object) - used as a hint.
+    std::vector<NameMap::LookupResult> _prev_positions;
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
