@@ -347,7 +347,7 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
 3. `hms_events_batch_size_per_rpc`: 每次读取 event 的最大数量，默认值为 500。
 
-如果想使用该特性，需要更改HMS的 hive-site.xml 并重启HMS和HiveServer2：
+如果想使用该特性(华为MRS除外)，需要更改HMS的 hive-site.xml 并重启HMS和HiveServer2：
 
 ```
 <property>
@@ -363,6 +363,33 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
     <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
 </property>
 
+```
+
+华为的MRS需要更改hivemetastore-site.xml 并重启HMS和HiveServer2：
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
+
+注意：value是在原有值的基础上以逗号分隔追加，而不是覆盖。例如MRS 3.1.0默认配置为
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener</value>
+</property>
+```
+
+我们需要改为
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener,org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
 ```
 
 > 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
