@@ -273,11 +273,17 @@ Status OrcReader::_init_read_columns() {
     for (auto& col_name : _column_names) {
         if (_is_hive) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
-            int pos = iter->second;
-            if (_is_acid) {
-                orc_cols_lower_case[ACID_ROW_OFFSET + 1 + pos] = iter->first;
-            } else {
-                orc_cols_lower_case[pos] = iter->first;
+            if (iter != _scan_params.slot_name_to_schema_pos.end()) {
+                int pos = iter->second;
+                if (_is_acid) {
+                    if (ACID_ROW_OFFSET + 1 + pos < orc_cols_lower_case.size()) {
+                        orc_cols_lower_case[ACID_ROW_OFFSET + 1 + pos] = iter->first;
+                    }
+                } else {
+                    if (pos < orc_cols_lower_case.size()) {
+                        orc_cols_lower_case[pos] = iter->first;
+                    }
+                }
             }
         }
         auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
