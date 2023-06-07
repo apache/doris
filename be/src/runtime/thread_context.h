@@ -234,6 +234,11 @@ public:
     // `switch_to_bthread_local` should only be called if `switch_to_bthread_local` returns true
     static void switch_back_pthread_local() {
         if (bthread_self() != 0) {
+            if (bthread_self() != bthread_id) {
+                bthread_id = bthread_self();
+                bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+                DCHECK(bthread_context != nullptr);
+            }
             bthread_context->switch_bthread_local_count--;
             if (bthread_context->switch_bthread_local_count == 0) {
                 bthread_context = thread_context_ptr._ptr;
@@ -247,11 +252,11 @@ static ThreadContext* thread_context() {
         // in bthread
         if (bthread_self() != bthread_id) {
             // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
+            bthread_id = bthread_self();
             bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
             // if nullptr, a new bthread task start or bthread switch pthread but not call switch_to_bthread_local, use pthread local context
             // else, bthread switch pthread and called switch_to_bthread_local, use bthread local context.
             if (bthread_context == nullptr) {
-                bthread_id = bthread_self();
                 bthread_context = thread_context_ptr._ptr;
             }
         }
