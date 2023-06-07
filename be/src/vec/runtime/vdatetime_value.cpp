@@ -1691,6 +1691,14 @@ bool VecDateTimeValue::datetime_trunc() {
         _hour = 0;
         break;
     }
+    case WEEK: {
+        _second = 0;
+        _minute = 0;
+        _hour = 0;
+        TimeInterval interval(DAY, weekday(), true);
+        date_add_interval<DAY>(interval);
+        break;
+    }
     case MONTH: {
         _second = 0;
         _minute = 0;
@@ -2702,6 +2710,15 @@ bool DateV2Value<T>::datetime_trunc() {
             date_v2_value_.second_ = 0;
             date_v2_value_.minute_ = 0;
             date_v2_value_.hour_ = 0;
+            break;
+        }
+        case WEEK: {
+            date_v2_value_.microsecond_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.hour_ = 0;
+            TimeInterval interval(DAY, weekday(), true);
+            date_add_interval<DAY>(interval);
             break;
         }
         case MONTH: {
