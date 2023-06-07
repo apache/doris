@@ -26,9 +26,6 @@ suite("test_es_query_nereids", "p0") {
         sql """drop catalog if exists es6_nereids;"""
         sql """drop catalog if exists es7_nereids;"""
         sql """drop catalog if exists es8_nereids;"""
-        sql """drop resource if exists es6_resource_nereids;"""
-        sql """drop resource if exists es7_resource_nereids;"""
-        sql """drop resource if exists es8_resource_nereids;"""
         sql """drop table if exists test_v1_nereids;"""
         sql """drop table if exists test_v2_nereids;"""
         sql """set enable_nereids_planner=true;"""
@@ -46,7 +43,7 @@ suite("test_es_query_nereids", "p0") {
         """
 
         // test new create catalog syntax
-        sql """create resource if not exists es7_resource_nereids properties(
+        sql """create catalog if not exists es7_nereids properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_7_port",
             "nodes_discovery"="false",
@@ -54,7 +51,7 @@ suite("test_es_query_nereids", "p0") {
         );
         """
 
-        sql """create resource if not exists es8_resource_nereids properties(
+        sql """create catalog if not exists es8_nereids properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_8_port",
             "nodes_discovery"="false",
@@ -138,9 +135,6 @@ suite("test_es_query_nereids", "p0") {
         order_qt_sql51 """select * from test_v2_nereids where test2='text#1'"""
 
 
-        sql """create catalog if not exists es6_nereids with resource es6_resource_nereids;"""
-        sql """create catalog if not exists es7_nereids with resource es7_resource_nereids;"""
-        sql """create catalog if not exists es8_nereids with resource es8_resource_nereids;"""
         sql """switch es6_nereids"""
         // order_qt_sql61 """show tables"""
         order_qt_sql62 """select * from test1 where test2='text#1'"""
@@ -160,13 +154,5 @@ suite("test_es_query_nereids", "p0") {
         order_qt_sql82 """select * from test2_20220808 where test4='2022-08-08'"""
         order_qt_sql83 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
         order_qt_sql84 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
-
-
-        sql """drop catalog if exists es6_nereids;"""
-        sql """drop catalog if exists es7_nereids;"""
-        sql """drop catalog if exists es8_nereids;"""
-        sql """drop resource if exists es6_resource_nereids;"""
-        sql """drop resource if exists es7_resource_nereids;"""
-        sql """drop resource if exists es8_resource_nereids;"""
     }
 }

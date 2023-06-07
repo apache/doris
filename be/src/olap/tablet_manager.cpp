@@ -247,7 +247,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
-    TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
     //           false if tablet with same tablet_id but different schema_hash exist.
@@ -290,7 +289,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("succeed to create tablet");
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
     return Status::OK();
@@ -364,7 +362,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "fail to get tablet. res=" << res;
             break;
         }
-        TRACE("add tablet to StorageEngine");
     } while (0);
 
     if (res.ok()) {
@@ -480,6 +477,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
         std::lock_guard<std::shared_mutex> wrlock(to_drop_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                   << "tablet_id=" << tablet_id << ", tablet_path=" << to_drop_tablet->tablet_path();
         // NOTE: has to update tablet here, but must not update tablet meta directly.
@@ -1107,20 +1105,17 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
                                           size_t* tablet_count) {
     DCHECK(tablet_count);
     *tablet_count = 0;
-    for (const auto& tablets_shard : _tablets_shards) {
-        std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& item : tablets_shard.tablet_map) {
-            TabletSharedPtr tablet = item.second;
-            ++(*tablet_count);
-            auto iter = path_map->find(tablet->data_dir()->path());
-            if (iter == path_map->end()) {
-                continue;
-            }
-            if (iter->second.is_used) {
-                iter->second.local_used_capacity += tablet->tablet_local_size();
-                iter->second.remote_used_capacity += tablet->tablet_remote_size();
-            }
-        }
+    auto filter = [path_map, tablet_count](Tablet* t) -> bool {
+        ++(*tablet_count);
+        auto iter = path_map->find(t->data_dir()->path());
+        return iter != path_map->end() && iter->second.is_used;
+    };
+
+    auto tablets = get_all_tablet(filter);
+    for (const auto& tablet : tablets) {
+        auto& data_dir_info = (*path_map)[tablet->data_dir()->path()];
+        data_dir_info.local_used_capacity += tablet->tablet_local_size();
+        data_dir_info.remote_used_capacity += tablet->tablet_remote_size();
     }
 }
 

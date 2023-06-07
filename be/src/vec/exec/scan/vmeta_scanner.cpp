@@ -70,9 +70,9 @@ Status VMetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, VExprContext* vconjunct_ctx_ptr) {
+Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << "VMetaScanner::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
@@ -210,8 +210,8 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::BACKENDS:
         RETURN_IF_ERROR(_build_backends_metadata_request(meta_scan_range, &request));
         break;
-    case TMetadataType::RESOURCE_GROUPS:
-        RETURN_IF_ERROR(_build_resource_groups_metadata_request(meta_scan_range, &request));
+    case TMetadataType::WORKLOAD_GROUPS:
+        RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
         break;
     default:
         _meta_eos = true;
@@ -284,9 +284,9 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_resource_groups_metadata_request(
+Status VMetaScanner::_build_workload_groups_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_resource_groups_metadata_request";
+    VLOG_CRITICAL << "VMetaScanner::_build_workload_groups_metadata_request";
 
     // create request
     request->__set_cluster_name("");
@@ -294,7 +294,7 @@ Status VMetaScanner::_build_resource_groups_metadata_request(
 
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::RESOURCE_GROUPS);
+    metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

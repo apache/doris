@@ -212,6 +212,10 @@ public class ColumnDef {
         this.genericAggregationName = genericAggregationName;
     }
 
+    public void setGenericAggregationName(AggregateType aggregateType) {
+        this.genericAggregationName = aggregateType.name().toLowerCase();
+    }
+
     public void setGenericAggregationArguments(List<TypeDef> genericAggregationArguments) {
         this.genericAggregationArguments = genericAggregationArguments;
     }
@@ -493,19 +497,18 @@ public class ColumnDef {
     public Column toColumn() {
         List<Type> typeList = null;
         List<Boolean> nullableList = null;
+
+        Type type = typeDef.getType();
         if (genericAggregationArguments != null) {
             typeList = genericAggregationArguments.stream().map(TypeDef::getType).collect(Collectors.toList());
             nullableList = genericAggregationArguments.stream().map(TypeDef::getNullable).collect(Collectors.toList());
+
+            type = Expr.createAggStateType(genericAggregationName, typeList, nullableList);
         }
 
-        Type type = typeDef.getType();
-        if (type.isAggStateType()) {
-            type = new ScalarType(typeList, nullableList);
-        }
-
-        return new Column(name, type, isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.getValue(), genericAggregationName, typeList, nullableList);
+        return new Column(name, type, isKey, aggregateType, isAllowNull, defaultValue.value, comment, visible,
+                defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
+                genericAggregationName, typeList, nullableList);
     }
 
     @Override

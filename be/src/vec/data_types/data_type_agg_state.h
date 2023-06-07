@@ -28,6 +28,8 @@
 #include <memory>
 #include <string>
 
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -43,7 +45,23 @@ namespace doris::vectorized {
 
 class DataTypeAggState : public DataTypeString {
 public:
+    DataTypeAggState(DataTypes sub_types, bool result_is_nullable, std::string function_name)
+            : _sub_types(sub_types),
+              _result_is_nullable(result_is_nullable),
+              _function_name(function_name) {}
+
     const char* get_family_name() const override { return "AggState"; }
+
+    std::string do_get_name() const override {
+        std::string types;
+        for (auto type : _sub_types) {
+            if (!types.empty()) {
+                types += ", ";
+            }
+            types += type->get_name();
+        }
+        return "AggState(" + types + ")";
+    }
 
     TypeIndex get_type_id() const override { return TypeIndex::AggState; }
 
@@ -52,19 +70,35 @@ public:
         return TPrimitiveType::AGG_STATE;
     }
 
-    const DataTypes& get_sub_types() { return sub_types; }
+    std::string to_string(const IColumn& column, size_t row_num) const override {
+        std::string res = "binary(";
+        StringRef str = column.get_data_at(row_num);
+        for (auto c : str.to_string()) {
+            res += std::to_string(int(c));
+            res += ' ';
+        }
+        res += ")";
+        return res;
+    }
 
-    void add_sub_type(DataTypePtr type) { sub_types.push_back(type); }
+    const DataTypes& get_sub_types() const { return _sub_types; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override {
         IDataType::to_pb_column_meta(col_meta);
-        for (auto type : sub_types) {
+        for (auto type : _sub_types) {
             type->to_pb_column_meta(col_meta->add_children());
         }
     }
 
+    AggregateFunctionPtr get_nested_function() const {
+        return AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
+                                                              _result_is_nullable);
+    }
+
 private:
-    DataTypes sub_types;
+    DataTypes _sub_types;
+    bool _result_is_nullable;
+    std::string _function_name;
 };
 
 } // namespace doris::vectorized

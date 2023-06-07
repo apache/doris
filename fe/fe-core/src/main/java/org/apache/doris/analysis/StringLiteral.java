@@ -227,14 +227,7 @@ public class StringLiteral extends LiteralExpr {
                             throw new AnalysisException(e.getMessage());
                         }
                     }
-                    // MySQL will try to parse string as bigint, if failed, will cast string as 0.
-                    long longValue;
-                    try {
-                        longValue = Long.parseLong(value);
-                    } catch (NumberFormatException e) {
-                        longValue = 0L;
-                    }
-                    return new IntLiteral(longValue, targetType);
+                    return new IntLiteral(value, targetType);
                 case LARGEINT:
                     if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
@@ -263,7 +256,7 @@ public class StringLiteral extends LiteralExpr {
                         return res;
                     } catch (Exception e) {
                         throw new AnalysisException(
-                                String.format("input value can't parse to decimal, value=%s, reason=%s", value));
+                                String.format("input value can't parse to decimal, value=%s", value));
                     }
                 default:
                     break;

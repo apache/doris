@@ -31,14 +31,12 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -118,7 +116,7 @@ protected:
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
-    std::vector<VExprContext*> _output_expr_ctxs;
+    VExprContextSPtrs _output_expr_ctxs;
 
     Block _join_block;
 
@@ -126,6 +124,7 @@ protected:
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
     RuntimeProfile::Counter* _build_timer;
+    RuntimeProfile::Counter* _build_get_next_timer;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _probe_rows_counter;

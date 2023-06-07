@@ -17,38 +17,53 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Check analysis rule to check semantic correct after analysis by Nereids.
  */
 public class CheckAnalysis implements AnalysisRuleFactory {
 
+    private static final Map<Class<? extends LogicalPlan>, Set<Class<? extends Expression>>>
+            UNEXPECTED_EXPRESSION_TYPE_MAP = ImmutableMap.<Class<? extends LogicalPlan>,
+                Set<Class<? extends Expression>>>builder()
+            .put(LogicalFilter.class, ImmutableSet.of(
+                AggregateFunction.class,
+                GroupingScalarFunction.class,
+                WindowExpression.class))
+            .put(LogicalJoin.class, ImmutableSet.of(SubqueryExpr.class))
+            .build();
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.CHECK_ANALYSIS.build(
                 any().then(plan -> {
-                    checkBound(plan);
                     checkExpressionInputTypes(plan);
+                    checkUnexpectedExpressions(plan);
                     return null;
                 })
             ),
@@ -61,6 +76,22 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         );
     }
 
+    private void checkUnexpectedExpressions(Plan plan) {
+        Set<Class<? extends Expression>> unexpectedExpressionTypes
+                = UNEXPECTED_EXPRESSION_TYPE_MAP.getOrDefault(plan.getClass(), Collections.emptySet());
+        if (unexpectedExpressionTypes.isEmpty()) {
+            return;
+        }
+        plan.getExpressions().forEach(c -> c.foreachUp(e -> {
+            for (Class<? extends Expression> type : unexpectedExpressionTypes) {
+                if (type.isInstance(e)) {
+                    throw new AnalysisException(plan.getType() + " can not contains "
+                            + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
+                }
+            }
+        }));
+    }
+
     private void checkExpressionInputTypes(Plan plan) {
         final Optional<TypeCheckResult> firstFailed = plan.getExpressions().stream()
                 .map(Expression::checkInputDataTypes)
@@ -69,28 +100,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
 
         if (firstFailed.isPresent()) {
             throw new AnalysisException(firstFailed.get().getMessage());
-        }
-    }
-
-    private void checkBound(Plan plan) {
-        Set<Unbound> unbounds = plan.getExpressions().stream()
-                .<Set<Unbound>>map(e -> e.collect(Unbound.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        if (!unbounds.isEmpty()) {
-            throw new AnalysisException(String.format("unbounded object %s in %s clause.",
-                StringUtils.join(unbounds.stream()
-                    .map(unbound -> {
-                        if (unbound instanceof UnboundSlot) {
-                            return ((UnboundSlot) unbound).toSql();
-                        } else if (unbound instanceof UnboundFunction) {
-                            return ((UnboundFunction) unbound).toSql();
-                        }
-                        return unbound.toString();
-                    })
-                    .collect(Collectors.toSet()), ", "),
-                plan.getType().toString().substring("LOGICAL_".length())
-            ));
         }
     }
 

@@ -454,17 +454,17 @@ endif()
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
+set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-c++11-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
 else ()
-	target_compile_options(clucene-core-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-shared-static PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(clucene-contribs-lib PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
-	target_compile_options(ic PRIVATE -fno-omit-frame-pointer -Wno-narrowing -w -Wall )
+    set(clucene_options ${clucene_options} -Wno-narrowing)
 endif()
+
+target_compile_options(clucene-core-static PRIVATE ${clucene_options})
+target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
+target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
+target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
@@ -505,11 +505,11 @@ add_compile_options(-g
                     -Werror
                     -pthread
                     -fstrict-aliasing
-                    -fno-omit-frame-pointer)
+                    -fno-omit-frame-pointer
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-sign-compare
-                    -Wno-array-bounds)
+                    -Wno-sign-compare)
 
 if (COMPILER_GCC)
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
@@ -529,16 +529,14 @@ if (COMPILER_CLANG)
 
     add_compile_options(-fcolor-diagnostics 
                         -Wpedantic
+                        -Wunused
+                        -Wunused-command-line-argument
+                        -Wunused-exception-parameter
+                        -Wunused-volatile-lvalue
                         -Wunused-template
-                        -Wunused-private-field
-                        -Wunused-property-ivar
                         -Wunused-member-function
                         -Wunused-macros)
-    add_compile_options(-Wno-zero-length-array
-                        -Wno-variadic-macros
-                        -Wno-gnu-zero-variadic-macro-arguments
-                        -Wno-vla-extension
-                        -Wno-embedded-directive)
+    add_compile_options(-Wno-vla-extension)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -813,7 +811,7 @@ set(COMMON_THIRDPARTY
     simdjson
 )
 
-if (ARCH_AMD64 AND OS_LINUX)
+if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
 

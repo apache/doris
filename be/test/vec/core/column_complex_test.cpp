@@ -64,7 +64,10 @@ public:
         for (size_t i = 0; i < l_col.size(); ++i) {
             auto& l_bitmap = const_cast<BitmapValue&>(l_col.get_element(i));
             auto& r_bitmap = const_cast<BitmapValue&>(r_col.get_element(i));
-            ASSERT_EQ(l_bitmap.xor_cardinality(r_bitmap), 0);
+            ASSERT_EQ(l_bitmap.and_cardinality(r_bitmap), r_bitmap.cardinality());
+            auto or_cardinality = l_bitmap.or_cardinality(r_bitmap);
+            ASSERT_EQ(or_cardinality, l_bitmap.cardinality());
+            ASSERT_EQ(or_cardinality, r_bitmap.cardinality());
         }
     }
 

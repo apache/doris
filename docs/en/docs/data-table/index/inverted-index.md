@@ -40,8 +40,6 @@ From version 2.0.0, Doris implemented inverted index to support fulltext search 
 
 ## Basic Principles
 
-Doris use [CLucene](https://clucene.sourceforge.net/) as its underlying lib for inverted index. CLucene is a high performance and robust implementation of the famous Lucene inverted index library written in C++. Doris optimize CLucene to be more simple, fast and suitable for a database.
-
 In the inverted index of Doris, a row in a table corresponds to a doc in CLucene, a column corresponds to a field in doc. So using inverted index, doris can get the rows that meet the filter of SQL WHERE clause, and then get the rows quickly without reading other unrelated rows.
 
 Doris use a seperate file to store inverted index. It's related to segment file in logic, but iosolated with each other. The advantange is that, create and drop inverted index does not need to rewrite tablet and segment file, which is very heavy work.
@@ -71,10 +69,19 @@ The features for inverted index is as follows:
 
 - The inverted index definition syntax on table creation is as follows
   - USING INVERTED is mandatory, it specify index type to be inverted index
-  - PROPERTIES is optional, it allows user to specify additional properties for index, "parser" is for type of word tokenizor/parser
-    - missing stands for no parser, the whole field is considered to be a term
-    - "english" stands for english parser
-    - "chinese" stands for chinese parser
+  - PROPERTIES is optional, it allows user to specify additional properties for index. Currently, there are three types of properties available.
+    - "parser" is utilized to set the type of tokenizer/parser
+      - missing stands for no parser, the whole field is considered to be a term
+      - "english" stands for english parser
+      - "chinese" stands for chinese parser
+    - "parser_mode" is utilized to set the tokenizer/parser type for Chinese word segmentation.
+      - in "fine_grained" mode, the system will meticulously tokenize each possible segment.
+      - in "coarse_grained" mode, the system follows the maximization principle, performing accurate and comprehensive tokenization.
+      - default mode is "fine_grained".
+    - "support_phrase" is utilized to specify if the index requires support for phrase mode. 
+      - "true" indicates that support is needed.
+      - "false" indicates that support is not needed.
+      - default mode is "false".
   - COMMENT is optional
 
 ```sql
@@ -83,6 +90,8 @@ CREATE TABLE table_name
   columns_difinition,
   INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
+  INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
@@ -112,11 +121,13 @@ SELECT * FROM table_name WHERE column_name MATCH_ANY | MATCH_ALL 'keyword1 ...';
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1';
 
 -- 1.2 find rows that logmsg contains keyword1 or keyword2 or more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1 keyword2';
 
 -- 1.3 find rows that logmsg contains both keyword1 and keyword2 and more keywords
-SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 
+-- 1.4 find rows that logmsg contains both keyword1 and keyword2, and in the order of keyword1 appearing first and keyword2 appearing later.
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 
 -- 2. normal equal, range query
 SELECT * FROM table_name WHERE id = 123;

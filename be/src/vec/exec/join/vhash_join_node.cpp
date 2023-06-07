@@ -346,10 +346,10 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        VExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.left, &ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, eq_join_conjunct.right, &ctx));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
         _build_expr_ctxs.push_back(ctx);
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
@@ -371,10 +371,17 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
-    if (tnode.hash_join_node.__isset.vother_join_conjunct) {
-        _vother_join_conjunct_ptr.reset(new VExprContext*);
-        RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, tnode.hash_join_node.vother_join_conjunct,
-                                                _vother_join_conjunct_ptr.get()));
+    if (tnode.hash_join_node.__isset.other_join_conjuncts &&
+        !tnode.hash_join_node.other_join_conjuncts.empty()) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.other_join_conjuncts,
+                                                 _other_join_conjuncts));
+
+        DCHECK(!_build_unique);
+        DCHECK(_have_other_join_conjunct);
+    } else if (tnode.hash_join_node.__isset.vother_join_conjunct) {
+        _other_join_conjuncts.resize(1);
+        RETURN_IF_ERROR(VExpr::create_expr_tree(tnode.hash_join_node.vother_join_conjunct,
+                                                _other_join_conjuncts[0]));
 
         // If LEFT SEMI JOIN/LEFT ANTI JOIN with not equal predicate,
         // build table should not be deduplicated.
@@ -427,6 +434,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
     _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
     _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
@@ -450,6 +458,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
+    _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
+    _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -474,9 +484,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
-    // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
+    // _other_join_conjuncts are evaluated in the context of the rows produced by this node
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
@@ -605,8 +615,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     DCHECK(output_rows <= state->batch_size());
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_vconjunct_ctx_ptr, &temp_block, temp_block.columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
     RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
     _reset_tuple_is_null_column();
@@ -738,14 +747,15 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
@@ -753,8 +763,8 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     }
     RETURN_IF_ERROR(VExpr::open(_build_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
-    if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
+    for (auto& conjunct : _other_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
     }
     return Status::OK();
 }
@@ -763,16 +773,18 @@ void HashJoinNode::release_resource(RuntimeState* state) {
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
-    if (_vother_join_conjunct_ptr) {
-        (*_vother_join_conjunct_ptr)->close(state);
+    for (auto& conjunct : _other_join_conjuncts) {
+        conjunct->close(state);
     }
     _release_mem();
     VJoinNodeBase::release_resource(state);
 }
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
-    RETURN_IF_ERROR(child(1)->open(state));
-
+    {
+        SCOPED_TIMER(_build_get_next_timer);
+        RETURN_IF_ERROR(child(1)->open(state));
+    }
     if (_should_build_hash_table) {
         bool eos = false;
         Block block;
@@ -781,14 +793,15 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         while (!eos && !_short_circuit_for_null_in_probe_side) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
-
-            RETURN_IF_ERROR(child(1)->get_next_after_projects(
-                    state, &block, &eos,
-                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                      ExecNode::get_next,
-                              _children[1], std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)));
-
+            {
+                SCOPED_TIMER(_build_get_next_timer);
+                RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[1], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)));
+            }
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
         RETURN_IF_ERROR(child(1)->close(state));
@@ -985,7 +998,7 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
     return Status::OK();
 }
 
-Status HashJoinNode::_do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
+Status HashJoinNode::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                   RuntimeProfile::Counter& expr_call_timer,
                                   std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < exprs.size(); ++i) {

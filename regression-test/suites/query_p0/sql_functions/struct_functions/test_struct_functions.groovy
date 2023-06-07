@@ -23,7 +23,7 @@ suite("test_struct_functions") {
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` INT(11) NULL,
               `k2` STRUCT<f1:TINYINT,f2:SMALLINT,f3:INT,f4:BIGINT,f5:LARGEINT> NULL,
-              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(3,3)> NULL,
+              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(10,3)> NULL,
               `k4` STRUCT<f1:DATE,f2:DATETIME,f3:DATEV2,f4:DATETIMEV2> NULL,
               `k5` STRUCT<f1:CHAR(10),f2:VARCHAR(10),f3:STRING> NOT NULL
             )
@@ -42,4 +42,9 @@ suite("test_struct_functions") {
     sql """ INSERT INTO ${tableName} VALUES(6,NULL,NULL,NULL,{"NULL",'null',NULL}) """
 
     qt_select_all "SELECT * FROM ${tableName} ORDER BY k1"
+
+    qt_select_struct_element_1 "SELECT struct_element(k2,'f1'),struct_element(k2,'f2'),struct_element(k2,'f3'),struct_element(k2,'f4'),struct_element(k2,'f5') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_2 "SELECT struct_element(k3,'f1'),struct_element(k3,'f2'),struct_element(k3,'f3') FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_3 "SELECT struct_element(k4,1),struct_element(k4,2),struct_element(k4,3),struct_element(k4,4) FROM ${tableName} ORDER BY k1"
+    qt_select_struct_element_4 "SELECT struct_element(k5,1),struct_element(k5,2),struct_element(k5,3) FROM ${tableName} ORDER BY k1"
 }

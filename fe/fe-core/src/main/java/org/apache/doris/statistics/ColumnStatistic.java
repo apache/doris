@@ -52,14 +52,21 @@ public class ColumnStatistic {
             .setSelectivity(0)
             .build();
 
-    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.STRUCT);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.HLL);
+        UNSUPPORTED_TYPE.add(Type.BITMAP);
+        UNSUPPORTED_TYPE.add(Type.ARRAY);
+        UNSUPPORTED_TYPE.add(Type.STRUCT);
+        UNSUPPORTED_TYPE.add(Type.MAP);
+        UNSUPPORTED_TYPE.add(Type.QUANTILE_STATE);
+        UNSUPPORTED_TYPE.add(Type.AGG_STATE);
+        UNSUPPORTED_TYPE.add(Type.JSONB);
+        UNSUPPORTED_TYPE.add(Type.VARIANT);
+        UNSUPPORTED_TYPE.add(Type.TIME);
+        UNSUPPORTED_TYPE.add(Type.TIMEV2);
+        UNSUPPORTED_TYPE.add(Type.LAMBDA_FUNCTION);
     }
 
     public final double count;
@@ -89,7 +96,7 @@ public class ColumnStatistic {
     but originalNdv is not. It is used to trace the change of a column's ndv through serials
     of sql operators.
      */
-    public final double originalNdv;
+    public final ColumnStatistic original;
 
     // For display only.
     public final LiteralExpr minExpr;
@@ -98,12 +105,12 @@ public class ColumnStatistic {
     // assign value when do stats estimation.
     public final Histogram histogram;
 
-    public ColumnStatistic(double count, double ndv, double originalNdv, double avgSizeByte,
+    public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
         this.count = count;
         this.ndv = ndv;
-        this.originalNdv = originalNdv;
+        this.original = original;
         this.avgSizeByte = avgSizeByte;
         this.numNulls = numNulls;
         this.dataSize = dataSize;
@@ -158,7 +165,6 @@ public class ColumnStatistic {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
-            columnStatisticBuilder.setOriginalNdv(ndv);
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
                     .orElse(null);
             columnStatisticBuilder.setHistogram(histogram);
@@ -301,7 +307,7 @@ public class ColumnStatistic {
         statistic.put("MaxExpr", maxExpr);
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Histogram", Histogram.serializeToJson(histogram));
-        statistic.put("OriginalNdv", originalNdv);
+        statistic.put("Original", original);
         return statistic;
     }
 
@@ -340,7 +346,7 @@ public class ColumnStatistic {
         return new ColumnStatistic(
             stat.getDouble("Count"),
             stat.getDouble("Ndv"),
-            stat.getDouble("OriginalNdv"),
+            null,
             stat.getDouble("AvgSizeByte"),
             stat.getDouble("NumNulls"),
             stat.getDouble("DataSize"),
@@ -360,5 +366,17 @@ public class ColumnStatistic {
 
     public boolean hasHistogram() {
         return histogram != null && histogram != Histogram.UNKNOWN;
+    }
+
+    public double getOriginalNdv() {
+        if (original != null) {
+            return original.ndv;
+        }
+        return ndv;
+    }
+
+    // TODO expanded this function to support more cases, help to compute the change of ndv density
+    public boolean rangeChanged() {
+        return original != null && (minValue != original.minValue || maxValue != original.maxValue);
     }
 }

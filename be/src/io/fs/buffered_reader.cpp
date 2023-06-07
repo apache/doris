@@ -26,6 +26,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
@@ -134,6 +135,16 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
             }
             if (gap < merge_end - merge_start && content_size < _remaining &&
                 !_range_cached_data[merge_index + 1].has_read) {
+                size_t next_content =
+                        std::min(_random_access_ranges[merge_index + 1].end_offset, merge_end) -
+                        _random_access_ranges[merge_index + 1].start_offset;
+                next_content = std::min(next_content, _remaining - content_size);
+                double amplified_ratio = config::max_amplified_read_ratio;
+                if ((content_size + hollow_size) > MIN_READ_SIZE &&
+                    (hollow_size + gap) > (next_content + content_size) * amplified_ratio) {
+                    // too large gap
+                    break;
+                }
                 hollow_size += gap;
                 merge_start = _random_access_ranges[merge_index + 1].start_offset;
             } else {
@@ -408,6 +419,14 @@ void PrefetchBuffer::prefetch_buffer() {
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
         s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
+    }
+    if (UNLIKELY(buf_size != _len)) {
+        // This indicates that the data size returned by S3 object storage is smaller than what we requested,
+        // which seems to be a violation of the S3 protocol since our request range was valid.
+        // We currently consider this situation a bug and will treat this task as a failure.
+        s = Status::InternalError("Data size returned by S3 is smaller than requested");
+        LOG(WARNING) << "Data size returned by S3 is smaller than requested" << _reader->path()
+                     << " request bytes " << buf_size << " returned size " << _len;
     }
     g_bytes_downloaded << _len;
     _statis.prefetch_request_io += 1;

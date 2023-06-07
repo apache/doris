@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <pdqsort.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -45,15 +46,17 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 
@@ -209,6 +212,8 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
+
+    _stat.raw_rows += num_rows;
 }
 
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
@@ -231,15 +236,11 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
         auto col_ptr = mutable_block.mutable_columns()[cid].get();
         _agg_functions[cid]->add(row_in_skiplist->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                 new_row->_row_pos, nullptr);
+                                 new_row->_row_pos, _arena.get());
     }
 }
-void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
-    if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
-        // skip sort if the table is dup table without keys
-        _output_mutable_block.swap(_input_mutable_block);
-        return;
-    }
+void MemTable::_put_into_output(vectorized::Block& in_block) {
+    SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
     std::vector<int> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
@@ -249,11 +250,32 @@ void MemTable::_prepare_block_for_flush(vectorized::Block& in_block) {
     _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                    row_pos_vec.data() + in_block.rows());
 }
-int MemTable::_sort() {
-    _vec_row_comparator->set_block(&_input_mutable_block);
-    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
+
+size_t MemTable::_sort() {
+    SCOPED_RAW_TIMER(&_stat.sort_ns);
+    _stat.sort_times++;
     size_t same_keys_num = 0;
+    // sort new rows
+    Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
+    for (size_t i = 0; i < _schema->num_key_columns(); i++) {
+        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+            return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+        };
+        _sort_one_column(_row_in_blocks, tie, cmp);
+    }
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
+    // sort extra round by _row_pos to make the sort stable
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(_row_in_blocks.begin(), iter.left()),
+                std::next(_row_in_blocks.begin(), iter.right()),
+                [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                    return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
+                });
+        same_keys_num += iter.right() - iter.left();
+    }
+    // merge new rows and old rows
+    _vec_row_comparator->set_block(&_input_mutable_block);
     auto cmp_func = [this, is_dup, &same_keys_num](const RowInBlock* l,
                                                    const RowInBlock* r) -> bool {
         auto value = (*(this->_vec_row_comparator))(l, r);
@@ -264,12 +286,24 @@ int MemTable::_sort() {
             return value < 0;
         }
     };
-    // sort new rows
-    std::sort(new_row_it, _row_in_blocks.end(), cmp_func);
-    // merge new rows and old rows
+    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
     return same_keys_num;
+}
+
+void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                                std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
+                std::next(row_in_blocks.begin(), iter.right()),
+                [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
+        tie[iter.left()] = 0;
+        for (int i = iter.left() + 1; i < iter.right(); i++) {
+            tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
+        }
+    }
 }
 
 template <bool is_final>
@@ -293,7 +327,7 @@ void MemTable::_finalize_one_row(RowInBlock* row,
             } else {
                 function->reset(agg_place);
                 function->add(agg_place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                              row_pos, nullptr);
+                              row_pos, _arena.get());
             }
         }
         if constexpr (is_final) {
@@ -313,6 +347,8 @@ void MemTable::_finalize_one_row(RowInBlock* row,
 
 template <bool is_final>
 void MemTable::_aggregate() {
+    SCOPED_RAW_TIMER(&_stat.agg_ns);
+    _stat.agg_times++;
     vectorized::Block in_block = _input_mutable_block.to_block();
     vectorized::MutableBlock mutable_block =
             vectorized::MutableBlock::build_mutable_block(&in_block);
@@ -336,10 +372,10 @@ void MemTable::_aggregate() {
                     _agg_functions[cid]->create(data);
                     _agg_functions[cid]->add(
                             data, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                            prev_row->_row_pos, nullptr);
+                            prev_row->_row_pos, _arena.get());
                 }
             }
-            _merged_rows++;
+            _stat.merged_rows++;
             _aggregate_two_row_in_block(mutable_block, _row_in_blocks[i], prev_row);
         } else {
             prev_row = _row_in_blocks[i];
@@ -375,10 +411,10 @@ void MemTable::shrink_memtable_by_agg() {
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (same_keys_num == 0) {
         vectorized::Block in_block = _input_mutable_block.to_block();
-        _prepare_block_for_flush(in_block);
+        _put_into_output(in_block);
     } else {
         _aggregate<false>();
     }
@@ -407,8 +443,8 @@ bool MemTable::need_agg() const {
     return false;
 }
 
-Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
-                                         int64_t atomic_num_segments_after_flush) {
+Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
+    SCOPED_RAW_TIMER(&_stat.delete_bitmap_ns);
     // generate delete bitmap, build a tmp rowset and load recent segment
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
@@ -416,11 +452,7 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
     auto rowset = _rowset_writer->build_tmp();
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    if (atomic_num_segments_before_flush >= atomic_num_segments_after_flush) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(beta_rowset->load_segments(atomic_num_segments_before_flush,
-                                               atomic_num_segments_after_flush, &segments));
+    RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -435,20 +467,15 @@ Status MemTable::_generate_delete_bitmap(int64_t atomic_num_segments_before_flus
 
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
-                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
-    int64_t duration_ns = 0;
+                  << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
     // For merge_on_write table, it must get all segments in this flush.
     // The id of new segment is set by the _num_segment of beta_rowset_writer,
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
     // and use the ids to load segment data file for calc delete bitmap.
-    int64_t atomic_num_segments_before_flush = _rowset_writer->get_atomic_num_segment();
-    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush(duration_ns)));
-    _delta_writer_callback(_merged_rows);
-    int64_t atomic_num_segments_after_flush = _rowset_writer->get_atomic_num_segment();
-    if (!_tablet_schema->is_partial_update()) {
-        RETURN_IF_ERROR(_generate_delete_bitmap(atomic_num_segments_before_flush,
-                                                atomic_num_segments_after_flush));
-    }
+    int64_t duration_ns;
+    SCOPED_RAW_TIMER(&duration_ns);
+    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush()));
+    _delta_writer_callback(_stat);
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()
@@ -457,50 +484,116 @@ Status MemTable::flush() {
     return Status::OK();
 }
 
-Status MemTable::_do_flush(int64_t& duration_ns) {
+Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    SCOPED_RAW_TIMER(&duration_ns);
-    int same_keys_num = _sort();
+    size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _prepare_block_for_flush(in_block);
+        if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
+            _output_mutable_block.swap(_input_mutable_block);
+        } else {
+            vectorized::Block in_block = _input_mutable_block.to_block();
+            _put_into_output(in_block);
+        }
     } else {
         _aggregate<true>();
     }
     vectorized::Block block = _output_mutable_block.to_block();
+    FlushContext ctx;
+    ctx.block = &block;
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        unfold_variant_column(block);
+        RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size));
+    if (!_tablet_schema->is_partial_update()) {
+        ctx.generate_delete_bitmap = [this](size_t segment_id) {
+            return _generate_delete_bitmap(segment_id);
+        };
+    }
+    ctx.segment_id = _segment_id;
+    SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
+    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
     return Status::OK();
+}
+
+void MemTable::assign_segment_id() {
+    _segment_id = std::optional<int32_t> {_rowset_writer->allocate_segment_id()};
 }
 
 Status MemTable::close() {
     return flush();
 }
 
-void MemTable::unfold_variant_column(vectorized::Block& block) {
+Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0) {
-        return;
+        return Status::OK();
     }
+
+    // Sanitize block to match exactly from the same type of frontend meta
+    vectorized::schema_util::FullBaseSchemaView schema_view;
+    schema_view.table_id = _tablet_schema->table_id();
     vectorized::ColumnWithTypeAndName* variant_column =
             block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
     if (!variant_column) {
-        return;
+        return Status::OK();
     }
-    // remove it
+    auto base_column = variant_column->column;
     vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(variant_column->column->assume_mutable_ref());
-    // extend
+            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
+    if (object_column.empty()) {
+        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+        return Status::OK();
+    }
+    object_column.finalize();
+    // Has extended columns
+    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
+    //  static   dynamic
+    // | ----- | ------- |
+    // The static ones are original _tablet_schame columns
+    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    vectorized::Block flush_block(std::move(block));
+    // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
-        if (entry->path.get_path() == vectorized::ColumnObject::COLUMN_NAME_DUMMY) {
+        const std::string& column_name = entry->path.get_path();
+        auto column_iter = schema_view.column_name_to_column.find(column_name);
+        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
+            // Column maybe dropped by light weight schema change DDL
             continue;
         }
-        block.insert({entry->data.get_finalized_column().get_ptr(),
-                      entry->data.get_least_common_type(), entry->path.get_path()});
+        TabletColumn column(column_iter->second);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                column, column.is_nullable());
+        // Dynamic generated columns does not appear in original tablet schema
+        if (_tablet_schema->field_index(column.name()) < 0) {
+            flush_schema->append_column(column);
+            flush_block.insert({data_type->create_column(), data_type, column.name()});
+        }
     }
-    block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+
+    // Ensure column are all present at this schema version.Otherwise there will be some senario:
+    //  Load1 -> version(10) with schema [a, b, c, d, e], d & e is new added columns and schema version became 10
+    //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
+    //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
+    // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
+    // so that all columns at schema_version is in either _tablet_schema or schema_change_recorder
+    for (const auto& [name, column] : schema_view.column_name_to_column) {
+        if (_tablet_schema->field_index(name) == -1) {
+            const auto& tcolumn = schema_view.column_name_to_column[name];
+            TabletColumn new_column(tcolumn);
+            _rowset_writer->mutable_schema_change_recorder()->add_extended_columns(
+                    column, schema_view.schema_version);
+        }
+    }
+
+    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
+    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
+    // unfold will cast to Double type
+    RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
+            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
+    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
+    ctx->flush_schema = flush_schema;
+    block.swap(flush_block);
+    return Status::OK();
 }
 
 void MemTable::serialize_block_to_row_column(vectorized::Block& block) {

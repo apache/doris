@@ -73,6 +73,7 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.HudiScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.StatisticalType;
@@ -1372,15 +1373,15 @@ public class SingleNodePlanner {
                     tupleSelectFailed = true;
                 } else {
                     try {
-                        // mv index have where clause, so where expr on scan node is unused.
-                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
-                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
-                                .getWhereClause());
-
                         // if the new selected index id is different from the old one, scan node will be
                         // updated.
                         olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
                                 bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                        // mv index have where clause, so where expr on scan node is unused.
+                        olapScanNode.ignoreConjuncts(olapScanNode.getOlapTable()
+                                .getIndexMetaByIndexId(bestIndexInfo.getBestIndexId())
+                                .getWhereClause());
 
                         if (selectStmt.getAggInfo() != null) {
                             selectStmt.getAggInfo().updateTypeOfAggregateExprs();
@@ -2019,6 +2020,9 @@ public class SingleNodePlanner {
             case ICEBERG_EXTERNAL_TABLE:
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
+            case PAIMON_EXTERNAL_TABLE:
+                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
                 // TODO: support max compute scan node
                 scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "MCScanNode",
@@ -2207,7 +2211,9 @@ public class SingleNodePlanner {
             Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
             Set<Expr> exprs = viewAnalyzer.findMigrateFailedConjuncts(inlineViewRef);
             if (CollectionUtils.isNotEmpty(exprs)) {
-                scanNode.setVConjunct(exprs);
+                for (Expr expr : exprs) {
+                    scanNode.addConjunct(expr);
+                }
             }
         }
         if (scanNode == null) {

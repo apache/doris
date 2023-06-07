@@ -50,6 +50,7 @@ namespace doris::vectorized {
     M(TypeIndex::UInt32, UInt32)     \
     M(TypeIndex::Int64, Int64)       \
     M(TypeIndex::UInt64, UInt64)     \
+    M(TypeIndex::Int128, Int128)     \
     M(TypeIndex::Float32, Float32)   \
     M(TypeIndex::Float64, Float64)
 
@@ -62,14 +63,17 @@ JniConnector::~JniConnector() {
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&_env));
-    if (_env == nullptr) {
+    // cannot put the env into fields, because frames in an env object is limited
+    // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    if (env == nullptr) {
         return Status::InternalError("Failed to get/create JVM");
     }
-    RETURN_IF_ERROR(_init_jni_scanner(_env, state->batch_size()));
+    RETURN_IF_ERROR(_init_jni_scanner(env, state->batch_size()));
     // Call org.apache.doris.jni.JniScanner#open
-    _env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
-    RETURN_ERROR_IF_EXC(_env);
+    env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -86,12 +90,12 @@ Status JniConnector::init(
 }
 
 Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
-    JniLocalFrame jni_frame;
-    RETURN_IF_ERROR(jni_frame.push(_env));
     // Call org.apache.doris.jni.JniScanner#getNextBatchMeta
     // return the address of meta information
-    long meta_address = _env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
-    RETURN_ERROR_IF_EXC(_env);
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    long meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
+    RETURN_ERROR_IF_EXC(env);
     if (meta_address == 0) {
         // Address == 0 when there's no data in scanner
         *read_rows = 0;
@@ -108,25 +112,27 @@ Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_fill_block(block, num_rows));
     *read_rows = num_rows;
     *eof = false;
-    _env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
-    RETURN_ERROR_IF_EXC(_env);
+    env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
+    RETURN_ERROR_IF_EXC(env);
     _has_read += num_rows;
     return Status::OK();
 }
 
 Status JniConnector::close() {
     if (!_closed) {
+        JNIEnv* env = nullptr;
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         // _fill_block may be failed and returned, we should release table in close.
         // org.apache.doris.jni.JniScanner#releaseTable is idempotent
-        _env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
-        _env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
-        _env->DeleteLocalRef(_jni_scanner_obj);
-        _env->DeleteLocalRef(_jni_scanner_cls);
+        env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
+        env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
+        env->DeleteGlobalRef(_jni_scanner_obj);
+        env->DeleteGlobalRef(_jni_scanner_cls);
         _closed = true;
-        jthrowable exc = (_env)->ExceptionOccurred();
+        jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
             LOG(FATAL) << "Failed to release jni resource: "
-                       << JniUtil::GetJniExceptionMsg(_env).to_string();
+                       << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();
@@ -169,7 +175,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
     RETURN_ERROR_IF_EXC(env);
-
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _jni_scanner_obj, &_jni_scanner_obj));
     return Status::OK();
 }
 
@@ -179,9 +185,11 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(_fill_column(column_ptr, column_type, num_rows));
+        JNIEnv* env = nullptr;
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         // Column is not released when _fill_column failed. It will be released when releasing table.
-        _env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_column, i);
-        RETURN_ERROR_IF_EXC(_env);
+        env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_column, i);
+        RETURN_ERROR_IF_EXC(env);
     }
     return Status::OK();
 }
@@ -281,6 +289,8 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         return "int";
     case TYPE_BIGINT:
         return "bigint";
+    case TYPE_LARGEINT:
+        return "largeint";
     case TYPE_FLOAT:
         return "float";
     case TYPE_DOUBLE:
