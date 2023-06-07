@@ -413,7 +413,7 @@ void StorageEngine::_tablet_path_check_callback() {
     do {
         interval = config::tablet_path_check_interval_seconds;
         int32_t batch_size = config::tablet_path_check_batch_size;
-        if (interval <= 10 || batch_size <= 0) {
+        if (interval <= 0 || batch_size <= 0) {
             if (interval <= 0) {
                 interval = 10;
             }
