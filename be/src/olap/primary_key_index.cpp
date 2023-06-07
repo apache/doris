@@ -71,6 +71,7 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
 Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta) {
     // finish primary key index
     RETURN_IF_ERROR(_primary_key_index_builder->finish(meta->mutable_primary_key_index()));
+    _disk_size += _primary_key_index_builder->disk_size();
 
     // set min_max key, the sequence column should be removed
     meta->set_min_key(min_key().to_string());
@@ -78,7 +79,9 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
 
     // finish bloom filter index
     RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
-    return _bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index());
+    uint64_t start_size = _file_writer->bytes_appended();
+    RETURN_IF_ERROR(_bloom_filter_index_builder->finish(_file_writer, meta->mutable_bloom_filter_index()));
+    _disk_size += _file_writer->bytes_appended() - start_size;
 }
 
 Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
