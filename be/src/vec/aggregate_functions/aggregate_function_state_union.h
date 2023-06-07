@@ -50,9 +50,9 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
-        VectorBufferReader buffer_reader(
-                (assert_cast<const ColumnString&>(*columns[0])).get_data_at(row_num));
-        deserialize_and_merge(place, buffer_reader, arena);
+        //the range is [begin, end]
+        _function->deserialize_and_merge_from_column_range(place, *columns[0], row_num, row_num,
+                                                           arena);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
@@ -61,6 +61,14 @@ public:
                                                            arena);
     }
 
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena* arena, bool agg_many) const override {
+        for (size_t i = 0; i < batch_size; ++i) {
+            //the range is [i, i]
+            _function->deserialize_and_merge_from_column_range(places[i] + place_offset,
+                                                               *columns[0], i, i, arena);
+        }
+    }
     void reset(AggregateDataPtr place) const override { _function->reset(place); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
