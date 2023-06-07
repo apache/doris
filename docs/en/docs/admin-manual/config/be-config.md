@@ -419,12 +419,6 @@ There are two ways to configure BE configuration items:
 * Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
 * Default value: 5
 
-#### `serialize_batch`
-
-* Type: bool
-* Description: Whether the rpc communication between BEs serializes RowBatch for data transmission between query layers
-* Default value: false
-
 #### `doris_scan_range_max_mb`
 
 * Type: int32

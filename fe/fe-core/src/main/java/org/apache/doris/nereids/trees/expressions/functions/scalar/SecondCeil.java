@@ -37,7 +37,7 @@ import java.util.List;
 public class SecondCeil extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),

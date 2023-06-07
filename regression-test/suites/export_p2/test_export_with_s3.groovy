@@ -21,7 +21,7 @@ suite("test_export_with_s3", "p2") {
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3ExportBucketName");
+    String bucket = context.config.otherConfigs.get("s3BucketName");
 
     def table_export_name = "test_export_with_s3"
     // create table and insert
@@ -102,7 +102,8 @@ suite("test_export_with_s3", "p2") {
                 "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.${file_suffix}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
-                "format" = "${format}"
+                "format" = "${format}",
+                "region" = "${region}"
             );
             """
     }

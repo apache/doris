@@ -373,6 +373,11 @@ public:
 
     bool enable_profile() const { return _query_options.is_report_success; }
 
+    bool enable_scan_node_run_serial() const {
+        return _query_options.__isset.enable_scan_node_run_serial &&
+               _query_options.enable_scan_node_run_serial;
+    }
+
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
@@ -402,6 +407,10 @@ public:
         return _query_options.__isset.external_agg_bytes_threshold
                        ? _query_options.external_agg_bytes_threshold
                        : 0;
+    }
+
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
 private:

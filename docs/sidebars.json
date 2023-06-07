@@ -310,6 +310,8 @@
                                 "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
+                                "sql-manual/sql-functions/array-functions/array_last_index",
+                                "sql-manual/sql-functions/array-functions/array_first",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_count",
@@ -498,7 +500,8 @@
                             "label": "Struct Functions",
                             "items": [
                                 "sql-manual/sql-functions/struct-functions/struct",
-                                "sql-manual/sql-functions/struct-functions/named_struct"
+                                "sql-manual/sql-functions/struct-functions/named_struct",
+                                "sql-manual/sql-functions/struct-functions/struct_element"
                             ]
                         },
                         {
@@ -1013,11 +1016,8 @@
                                 "sql-manual/sql-reference/Data-Types/FLOAT",
                                 "sql-manual/sql-reference/Data-Types/DOUBLE",
                                 "sql-manual/sql-reference/Data-Types/DECIMAL",
-                                "sql-manual/sql-reference/Data-Types/DECIMALV3",
                                 "sql-manual/sql-reference/Data-Types/DATE",
                                 "sql-manual/sql-reference/Data-Types/DATETIME",
-                                "sql-manual/sql-reference/Data-Types/DATEV2",
-                                "sql-manual/sql-reference/Data-Types/DATETIMEV2",
                                 "sql-manual/sql-reference/Data-Types/CHAR",
                                 "sql-manual/sql-reference/Data-Types/VARCHAR",
                                 "sql-manual/sql-reference/Data-Types/STRING",
@@ -1204,15 +1204,25 @@
                             "type": "category",
                             "label": "BE",
                             "items": [
-                                "admin-manual/http-actions/be/be-version-info-action",
-                                "admin-manual/http-actions/be/restore-tablet",
+                                "admin-manual/http-actions/be/check-rpc-channel",
+                                "admin-manual/http-actions/be/reset-rpc-channel",
+                                "admin-manual/http-actions/be/compaction-status",
+                                "admin-manual/http-actions/be/compaction-run",
+                                "admin-manual/http-actions/be/meta",
+                                "admin-manual/http-actions/be/snapshot",
+                                "admin-manual/http-actions/be/check-tablet-segment",
+                                "admin-manual/http-actions/be/config",
+                                "admin-manual/http-actions/be/metrics",
+                                "admin-manual/http-actions/be/tablet-distribution",
+                                "admin-manual/http-actions/be/tablet-migration",
+                                "admin-manual/http-actions/be/tablet-info",
+                                "admin-manual/http-actions/be/checksum",
+                                "admin-manual/http-actions/be/download",
                                 "admin-manual/http-actions/be/pad-rowset",
-                                "admin-manual/http-actions/be/tablet-migration-action",
-                                "admin-manual/http-actions/be/tablets_distribution",
-                                "admin-manual/http-actions/be/compaction-action",
-                                "admin-manual/http-actions/be/get-tablets",
-                                "admin-manual/http-actions/be/check-reset-rpc-cache",
-                                "admin-manual/http-actions/be/check-tablet-segment-action"
+                                "admin-manual/http-actions/be/version-info",
+                                "admin-manual/http-actions/be/health",
+                                "admin-manual/http-actions/be/tablet-reload",
+                                "admin-manual/http-actions/be/tablet-restore"
                             ]
                         }
                     ]

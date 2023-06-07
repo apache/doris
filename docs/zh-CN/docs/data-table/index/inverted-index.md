@@ -40,8 +40,6 @@ under the License.
 
 ## 原理介绍
 
-Doris使用[CLucene](https://clucene.sourceforge.net/)作为底层的倒排索引库。CLucene是一个用C++实现的高性能、稳定的Lucene倒排索引库。Doris进一步优化了CLucene，使得它更简单、更快、更适合数据库场景。
-
 在Doris的倒排索引实现中，table的一行对应一个文档、一列对应文档中的一个字段，因此利用倒排索引可以根据关键词快速定位包含它的行，达到WHERE子句加速的目的。
 
 与Doris中其他索引不同的是，在存储层倒排索引使用独立的文件，跟segment文件有逻辑对应关系、但存储的文件相互独立。这样的好处是可以做到创建、删除索引不用重写tablet和segment文件，大幅降低处理开销。
@@ -52,7 +50,7 @@ Doris使用[CLucene](https://clucene.sourceforge.net/)作为底层的倒排索�
 Doris倒排索引的功能简要介绍如下：
 
 - 增加了字符串类型的全文检索
-  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY
+  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY、匹配短语词组MATCH_PHRASE
   - 支持字符串数组类型的全文检索
   - 支持英文、中文分词
 - 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
@@ -70,10 +68,19 @@ Doris倒排索引的功能简要介绍如下：
 
 - 建表时定义倒排索引，语法说明如下
   - USING INVERTED 是必须的，用于指定索引类型是倒排索引
-  - PROPERTIES 是可选的，用于指定倒排索引的额外属性，目前有一个属性parser指定分词器
-    - 默认不指定代表不分词
-    - english是英文分词，适合被索引列是英文的情况，用空格和标点符号分词，性能高
-    - chinese是中文分词，适合被索引列有中文或者中英文混合的情况，采用jieba分词库，性能比english分词低
+  - PROPERTIES 是可选的，用于指定倒排索引的额外属性，目前有三个属性
+    - parser指定分词器
+      - 默认不指定代表不分词
+      - english是英文分词，适合被索引列是英文的情况，用空格和标点符号分词，性能高
+      - chinese是中文分词，适合被索引列有中文或者中英文混合的情况，采用jieba分词库，性能比english分词低
+    - parser_mode用于指定中文分词的模式
+      - fine_grained模式，系统将对可以进行分词的部分都进行详尽的分词处理
+      - coarse_grained模式，系统则依据最大化原则，执行精确且全面的分词操作
+      - 默认find_grained模式
+    - support_phrase用于指定索引是否需要支持短语模式
+      - true为需要
+      - false为不需要
+      - 默认false不需要
   - COMMENT 是可选的，用于指定注释
 
 ```sql
@@ -82,6 +89,8 @@ CREATE TABLE table_name
   columns_difinition,
   INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
+  INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
@@ -111,10 +120,13 @@ SELECT * FROM table_name WHERE column_name MATCH_ANY | MATCH_ALL 'keyword1 ...';
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1';
 
 -- 1.2 logmsg中包含keyword1或者keyword2的行，后面还可以添加多个keyword
-SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1 keyword2';
 
 -- 1.3 logmsg中同时包含keyword1和keyword2的行，后面还可以添加多个keyword
-SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword2 keyword2';
+SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
+
+-- 1.4 logmsg中同时包含keyword1和keyword2的行，并且按照keyword1在前，keyword2在后的顺序
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 
 
 -- 2. 普通等值、范围、IN、NOT IN，正常的SQL语句即可，例如

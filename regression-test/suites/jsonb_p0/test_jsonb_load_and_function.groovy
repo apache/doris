@@ -50,14 +50,7 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-
-            StringBuilder sb = new StringBuilder()
-            sb.append("curl -X GET " + json.ErrorURL)
-            String command = sb.toString()
-            def process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-            def out = process.getText()
+            def (code, out, err) = curl("GET", json.ErrorURL)
             log.info("error result: " + out)
 
             assertEquals("fail", json.Status.toLowerCase())
@@ -89,14 +82,7 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-
-            StringBuilder sb = new StringBuilder()
-            sb.append("curl -X GET " + json.ErrorURL)
-            String command = sb.toString()
-            def process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-            def out = process.getText()
+            def (code, out, err) = curl("GET", json.ErrorURL)
             log.info("error result: " + out)
 
             assertEquals("success", json.Status.toLowerCase())

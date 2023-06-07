@@ -63,7 +63,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
-import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -260,6 +260,10 @@ public class Coordinator {
 
     private StatsErrorEstimator statsErrorEstimator;
 
+    public void setTWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+        this.tWorkloadGroups = tWorkloadGroups;
+    }
+
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
@@ -267,6 +271,9 @@ public class Coordinator {
     public ExecutionProfile getExecutionProfile() {
         return executionProfile;
     }
+
+    // True if all scan node are ExternalScanNode.
+    private boolean isAllExternalScan = true;
 
     private static class BackendHash implements Funnel<Backend> {
         @Override
@@ -348,7 +355,6 @@ public class Coordinator {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
-        this.tWorkloadGroups = analyzer == null ? null : analyzer.getWorkloadGroups();
         this.executionProfile = new ExecutionProfile(queryId, fragments.size());
 
     }
@@ -402,6 +408,7 @@ public class Coordinator {
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
+        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
     }
 
     public long getJobId() {
@@ -1547,10 +1554,14 @@ public class Coordinator {
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
-                if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
-                        && !addressToBackendID.isEmpty()) {
-                    // In this case, we only use the BE where the replica selected by the tag is located to execute
-                    // this query. Otherwise, except for the scan node, the rest of the execution nodes of the query
+                if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (isAllExternalScan
+                        && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
+                    // 2 cases:
+                    // case 1: user set resource tag, we need to use the BE with the specified resource tags.
+                    // case 2: All scan nodes are external scan node,
+                    //         and prefer_compute_node_for_external_table is true, we should only select BE which scan
+                    //         nodes are used.
+                    // Otherwise, except for the scan node, the rest of the execution nodes of the query
                     // can be executed on any BE. addressToBackendID can be empty when this is a constant
                     // select stmt like:
                     //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
@@ -1730,8 +1741,7 @@ public class Coordinator {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
-                        0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 0, params);
                 params.instanceExecParams.add(instanceParam);
             }
         }
@@ -1744,8 +1754,8 @@ public class Coordinator {
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
             // Transform <fragment, runtimeFilterId> to <runtimeFilterId, fragment>
             for (RuntimeFilterId rid : fragment.getTargetRuntimeFilterIds()) {
-                List<FRuntimeFilterTargetParam> targetFragments =
-                        ridToTargetParam.computeIfAbsent(rid, k -> new ArrayList<>());
+                List<FRuntimeFilterTargetParam> targetFragments = ridToTargetParam.computeIfAbsent(rid,
+                        k -> new ArrayList<>());
                 for (final FInstanceExecParam instance : params.instanceExecParams) {
                     targetFragments.add(new FRuntimeFilterTargetParam(instance.instanceId, toBrpcHost(instance.host)));
                 }
@@ -1890,14 +1900,10 @@ public class Coordinator {
         }
     }
 
-    private Map<TNetworkAddress, Long> getReplicaNumPerHost() {
+    private Map<TNetworkAddress, Long> getReplicaNumPerHostForOlapTable() {
         Map<TNetworkAddress, Long> replicaNumPerHost = Maps.newHashMap();
         for (ScanNode scanNode : scanNodes) {
             List<TScanRangeLocations> locationsList = scanNode.getScanRangeLocations(0);
-            if (locationsList == null) {
-                // only analysis olap scan node
-                continue;
-            }
             for (TScanRangeLocations locations : locationsList) {
                 for (TScanRangeLocation location : locations.locations) {
                     if (replicaNumPerHost.containsKey(location.server)) {
@@ -1921,11 +1927,15 @@ public class Coordinator {
             Preconditions.checkNotNull(locations);
             return;
         }
+
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
-        Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHost();
+        Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
+            if (!(scanNode instanceof ExternalScanNode)) {
+                isAllExternalScan = false;
+            }
             List<TScanRangeLocations> locations;
             // the parameters of getScanRangeLocations may ignore, It doesn't take effect
             locations = scanNode.getScanRangeLocations(0);
@@ -2065,17 +2075,17 @@ public class Coordinator {
     }
 
     private void computeScanRangeAssignmentByConsistentHash(
-            ScanNode scanNode,
+            FileQueryScanNode scanNode,
             final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-        FederationBackendPolicy federationBackendPolicy = new FederationBackendPolicy();
-        federationBackendPolicy.init();
-        Collection<Backend> aliveBEs = federationBackendPolicy.getBackends();
+
+        Collection<Backend> aliveBEs = scanNode.getBackendPolicy().getBackends();
         if (aliveBEs.isEmpty()) {
             throw new UserException("No available backends");
         }
+
         int virtualNumber = Math.max(Math.min(512 / aliveBEs.size(), 32), 2);
         ConsistentHash<TScanRangeLocations, Backend> consistentHash = new ConsistentHash<>(
                 Hashing.murmur3_128(), new ScanRangeHash(), new BackendHash(), aliveBEs, virtualNumber);
@@ -2110,10 +2120,10 @@ public class Coordinator {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-        if (scanNode instanceof ExternalScanNode) {
+        if (scanNode instanceof FileQueryScanNode) {
             // Use consistent hash to assign the same scan range into the same backend among different queries
             computeScanRangeAssignmentByConsistentHash(
-                    scanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
+                    (FileQueryScanNode) scanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
             return;
         }
         for (TScanRangeLocations scanRangeLocations : locations) {
@@ -3140,6 +3150,9 @@ public class Coordinator {
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {
@@ -3243,6 +3256,9 @@ public class Coordinator {
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
+                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
+                            continue;
+                        }
                         List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
                         rf.computeUseRemoteRfOpt();
                         if (rf.getUseRemoteRfOpt()) {
