@@ -109,6 +109,7 @@ public:
                                                         InvertedIndexCtx* inverted_index_ctx);
 
 protected:
+    bool _is_range_query(InvertedIndexQueryType query_type);
     bool _is_match_query(InvertedIndexQueryType query_type);
     friend class InvertedIndexIterator;
     io::FileSystemSPtr _fs;
