@@ -889,7 +889,7 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
             LOG(INFO) << "hit count: " << hit_count << ", bkd inverted reached limit "
                       << query_bkd_limit_percent << "%, segment num rows: " << segment_num_rows;
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT>();
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
         }
     }
 
