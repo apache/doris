@@ -333,7 +333,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
         }
     }
-
     {
         _collect_query_statistics();
         Status status;
@@ -347,7 +346,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(nullptr);
     _done = true;
-
     return Status::OK();
 }
 
