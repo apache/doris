@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TStatusCode
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TUniqueId
 import org.apache.thrift.transport.TTransportException
+import org.checkerframework.checker.units.qual.A
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
@@ -481,7 +482,7 @@ class Syncer {
         return checkBeginTxn(result)
     }
 
-    Boolean ingestBinlog() {
+    Boolean ingestBinlog(long fakePartitionId = -1, long fakeVersion = -1) {
         logger.info("Begin to ingest binlog.")
 
         // step 1: Check meta data is valid
@@ -517,15 +518,17 @@ class Syncer {
                 }
 
                 tarPartition.value.version = srcPartition.value.version
+                long partitionId = fakePartitionId == -1 ? srcPartition.key : fakePartitionId
+                long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
 
                 TIngestBinlogRequest request = new TIngestBinlogRequest()
                 TUniqueId uid = new TUniqueId(-1, -1)
                 request.setTxnId(context.txnId)
                 request.setRemoteTabletId(srcTabletMap.key)
-                request.setBinlogVersion(srcPartition.value.version)
+                request.setBinlogVersion(version)
                 request.setRemoteHost(srcClient.address.hostname)
                 request.setRemotePort(srcClient.httpPort.toString())
-                request.setPartitionId(srcPartition.key)
+                request.setPartitionId(partitionId)
                 request.setLocalTabletId(tarTabletMap.key)
                 request.setLoadId(uid)
                 logger.info("request -> ${request}")

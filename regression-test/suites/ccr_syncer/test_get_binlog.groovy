@@ -94,6 +94,7 @@ suite("test_get_binlog_case") {
 
     logger.info("=== Test 3: Get binlog with different priv user case ===")
     logger.info("=== Test 3.1: read only user get binlog case ===")
+    // TODO: bugfix
     // syncer.context.seq = -1
     // readOnlyUser = "read_only_user"
     // sql """DROP USER IF EXISTS ${readOnlyUser}"""
