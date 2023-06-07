@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
@@ -131,6 +132,19 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    bool try_to_move_from(const IColumn& src) override {
+        const ColumnNullable& nullable_col = assert_cast<const ColumnNullable&>(src);
+        if (get_nested_column().try_to_move_from(*nullable_col.nested_column)) {
+            _get_null_map_column().insert_range_from(*nullable_col.null_map, 0,
+                                                     _get_null_map_column().size());
+            auto& src_null_map_data = nullable_col.get_null_map_data();
+            _has_null = has_null();
+            _has_null |= simd::contain_byte(src_null_map_data.data(), src_null_map_data.size(), 1);
+            return true;
+        } else {
+            return false;
+        }
+    }
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
     void insert(const Field& x) override;
