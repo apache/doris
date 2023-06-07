@@ -29,6 +29,8 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -53,22 +55,20 @@ public:
             : _result_is_nullable(result_is_nullable),
               _sub_types(sub_types),
               _function_name(function_name) {
-        _agg_function = get_nested_function();
-        DCHECK(_agg_function != nullptr);
+        _agg_function = AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
+                                                                       _result_is_nullable);
+        if (_agg_function == nullptr) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "DataTypeAggState function get failed, type={}", do_get_name());
+        }
         _agg_serialized_type = _agg_function->get_serialized_type();
     }
 
     const char* get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
-        std::string types;
-        for (auto type : _sub_types) {
-            if (!types.empty()) {
-                types += ", ";
-            }
-            types += type->get_name();
-        }
-        return "AggState(" + types + ")";
+        return fmt::format("AggState(function_name={},result_is_nullable={},arguments=[{}])",
+                           _function_name, _result_is_nullable, get_types_string());
     }
 
     TypeIndex get_type_id() const override { return TypeIndex::AggState; }
@@ -100,10 +100,7 @@ public:
         col_meta->set_result_is_nullable(_result_is_nullable);
     }
 
-    AggregateFunctionPtr get_nested_function() const {
-        return AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
-                                                              _result_is_nullable);
-    }
+    AggregateFunctionPtr get_nested_function() const { return _agg_function; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override {
@@ -128,6 +125,17 @@ public:
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 
 private:
+    std::string get_types_string() const {
+        std::string types;
+        for (auto type : _sub_types) {
+            if (!types.empty()) {
+                types += ", ";
+            }
+            types += type->get_name();
+        }
+        return types;
+    }
+
     bool _result_is_nullable;
     //because the agg_state type maybe mapped to ColumnString or ColumnFixedLengthObject
     DataTypePtr _agg_serialized_type;
