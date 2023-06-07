@@ -752,13 +752,13 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
     if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-        res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+        res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
         (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
-        // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+        // 2. INVERTED_INDEX_BYPASS means the hit of condition by index
         //    has reached the optimal limit, downgrade without index query can
         //    improve query performance.
         // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
