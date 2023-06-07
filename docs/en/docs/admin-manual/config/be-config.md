@@ -1410,12 +1410,30 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 * Default value: 512
 
-<version since="1.2">
-
 #### `jdbc_drivers_dir`
 
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
+
+#### `jdbc_min_pool_size`
+
+* Description: jdbc minimum connection pool size
+* Default value: 1
+
+#### `jdbc_max_pool_size`
+
+* Description: jdbc maximum connection pool size
+* Default value: 100
+
+#### `jdbc_max_idel_time`
+
+* Description: jdbc maximum idle time
+* Default value: 300000(ms)
+
+#### `jdbc_max_wait_time`
+
+* Description: jdbc connection maximum waiting time
+* Default value: 5000(ms)
 
 #### `enable_parse_multi_dimession_array`
 
@@ -1426,8 +1444,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Whether enable simdjson to parse json while stream load
 * Default value: false
-
-</version>
 
 #### `enable_query_memory_overcommit`
 

@@ -124,6 +124,21 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
+    @ConfField(mutable = true, masterOnly = true, description =  {
+        "JDBC Catalog 初始化连接数",
+        "JDBC Catalog initial pool size"})
+    public static int jdbc_init_pool_size = 1;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "JDBC Catalog 最大活跃连接数",
+        "JDBC Catalog maximum number of active connections"})
+    public static int jdbc_max_pool_size = 100;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "JDBC Catalog 连接超时时间，默认 5s，请勿设置超过 30s",
+        "JDBC Catalog connection timeout time, default 5s, do not set more than 30s"})
+    public static int jdbc_max_wait_time = 5000;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;

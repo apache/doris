@@ -1427,12 +1427,30 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: BlockingPriorityQueue中剩余任务的优先级频率增加
 * 默认值:512
 
-<version since="1.2">
-
 #### `jdbc_drivers_dir`
 
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
+
+#### `jdbc_min_pool_size`
+
+* 描述: jdbc 连接池最小连接数
+* 默认值: 1
+
+#### `jdbc_max_pool_size`
+
+* 描述: jdbc 连接池最大连接数
+* 默认值: 100
+
+#### `jdbc_max_idel_time`
+
+* 描述: jdbc 连接最大空闲时间
+* 默认值: 300000(ms)
+
+#### `jdbc_max_wait_time`
+
+* 描述: jdbc 连接最大等待时间
+* 默认值: 5000(ms)
 
 #### `enable_parse_multi_dimession_array`
 
@@ -1444,7 +1462,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 是否在导入json数据时用simdjson来解析。
 * 默认值: false
 
-</version>
 
 #### `enable_query_memory_overcommit`
 

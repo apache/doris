@@ -79,10 +79,11 @@ public class JdbcExecutor {
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
-    private int minPoolSize;
+    private int initPoolSize;
     private int maxPoolSize;
     private int minIdleSize;
     private int maxIdelTime;
+    private int maxWaitTime;
     private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
@@ -94,14 +95,15 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         tableType = request.table_type;
-        minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
+        initPoolSize = Integer.valueOf(System.getProperty("JDBC_INIT_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
-        minIdleSize = minPoolSize > 0 ? 1 : 0;
-        LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
+        minIdleSize = initPoolSize > 0 ? 1 : 0;
+        LOG.info("JdbcExecutor set minPoolSize = " + initPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdelTime = " + maxIdelTime
                 + ", minIdleSize = " + minIdleSize);
+        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -409,9 +411,9 @@ public class JdbcExecutor {
                     ds.setUsername(jdbcUser);
                     ds.setPassword(jdbcPassword);
                     ds.setMinIdle(minIdleSize);
-                    ds.setInitialSize(minPoolSize);
+                    ds.setInitialSize(initPoolSize);
                     ds.setMaxActive(maxPoolSize);
-                    ds.setMaxWait(5000);
+                    ds.setMaxWait(maxWaitTime);
                     ds.setTestWhileIdle(true);
                     ds.setTestOnBorrow(false);
                     setValidationQuery(ds, tableType);

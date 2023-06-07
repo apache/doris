@@ -569,4 +569,15 @@ Oracle 模式请参考 [Oracle类型映射](#Oracle)
     ```
 
     出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+
+9. 查询 JDBC Catalog 建立连接超时
+   
+   如果查询时出现如下错误
+
+   `GetConnectionTimeoutException: wait millis 5000, active 31, maxActive 100, creating 1, createElapseMillis 10010`
+
+   可在 FE 和 BE 配置大于 `createElapseMillis` 超时时间
+   
+   FE 在 conf 文件配置 `jdbc_max_wait_time`
+   BE 在 conf 文件配置 `jdbc_max_wait_time`
  

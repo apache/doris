@@ -933,6 +933,18 @@ DEFINE_Int32(segcompaction_small_threshold, "1048576");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// jdbc connect initial pool size
+DEFINE_Int32(jdbc_init_pool_size, "1");
+
+// jdbc connect maximum number of active connections
+DEFINE_Int32(jdbc_max_pool_size, "100");
+
+// jdbc connect maximum idel time
+DEFINE_Int32(jdbc_max_idel_time, "300000");
+
+// jdbc connect maximum wait time
+DEFINE_Int32(jdbc_max_wait_time, "5000");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 

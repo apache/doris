@@ -570,3 +570,15 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
     ```
 
     When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.
+
+9. JDBC Catalog Connection Timeout During Query
+
+   If you encounter the following error during a query:
+
+   `GetConnectionTimeoutException: wait millis 5000, active 31, maxActive 100, creating 1, createElapseMillis 10010`
+
+   You can set a timeout greater than `createElapseMillis` in the FE and BE configuration.
+
+   For FE, configure `jdbc_max_wait_time` in the conf file.
+
+   For BE, configure `jdbc_max_wait_time` in the conf file.
