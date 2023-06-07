@@ -77,8 +77,8 @@ storage_flood_stage_left_capacity_bytes 默认 1GB。
 **危险水位：**
 
 ```text
-capacity_used_percent_flood_stage 默认 95 (95%)。
-capacity_min_left_bytes_flood_stage 默认 1GB。
+storage_flood_stage_usage_percent 默认 90 (90%)。
+storage_flood_stage_left_capacity_bytes 默认 1GB。
 ```
 
 当磁盘空间使用率**大于** `storage_flood_stage_usage_percent`，**并且** 磁盘空间剩余大小**小于** `storage_flood_stage_left_capacity_bytes` 时，该磁盘上的以下操作会被禁止：
