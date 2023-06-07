@@ -21,6 +21,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.Gson
+import com.sun.org.apache.xpath.internal.operations.Bool
 import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
@@ -51,6 +52,7 @@ import org.apache.doris.thrift.TStatus
 import org.apache.doris.thrift.TStatusCode
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TUniqueId
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet
 import org.apache.thrift.transport.TTransportException
 import org.apache.tools.ant.taskdefs.Sync
 import org.junit.jupiter.api.Assertions
@@ -214,7 +216,7 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
-    private Boolean checkBinlog(TBinlog binlog) {
+    private Boolean checkBinlog(String table, TBinlog binlog, Boolean update) {
         SyncerContext syncerContext = context.getSyncerContext()
 
         // step 1: check binlog availability
@@ -255,9 +257,11 @@ class Suite implements GroovyInterceptable {
         if (binlog.isSetData()) {
             String data = binlog.getData()
             logger.info("binlog data is ${data}")
-            Gson gson = new Gson()
-            getSourceMeta(syncerContext, gson.fromJson(data, BinlogData.class))
-            logger.info("Source tableId: ${syncerContext.sourceTableId}, ${syncerContext.sourcePartitionMap}")
+            if (update) {
+                Gson gson = new Gson()
+                getSourceMeta(syncerContext, table, gson.fromJson(data, BinlogData.class))
+                logger.info("Source tableId: ${syncerContext.sourceTableMap}, ${syncerContext.sourcePartitionMap}")
+            }
         } else {
             logger.error("binlog data is not contains data!")
             return false
@@ -266,7 +270,7 @@ class Suite implements GroovyInterceptable {
         return true
     }
 
-    private Boolean checkGetBinlog(TGetBinlogResult result, ccrCluster cluster) {
+    private Boolean checkGetBinlog(String table, TGetBinlogResult result, Boolean update) {
         SyncerContext syncerContext = context.getSyncerContext()
         TBinlog binlog = null
 
@@ -292,7 +296,10 @@ class Suite implements GroovyInterceptable {
                         logger.error("Binlog not found DB! DB: ${syncerContext.db}")
                         break
                     case TStatusCode.BINLOG_NOT_FOUND_TABLE:
-                        logger.error("Binlog not found table!")
+                        logger.error("Binlog not found table ${table}!")
+                        break
+                    case TStatusCode.ANALYSIS_ERROR:
+                        logger.error("Binlog result analysis error: ${status.getErrorMsgs()}")
                         break
                     default:
                         logger.error("Binlog result is an unexpected code: ${code}")
@@ -306,7 +313,7 @@ class Suite implements GroovyInterceptable {
         }
 
         // step 2: check binlog
-        return checkBinlog(binlog)
+        return checkBinlog(table, binlog, update)
     }
 
     private Boolean checkBeginTxn(TBeginTxnResult result) {
@@ -426,9 +433,9 @@ class Suite implements GroovyInterceptable {
         }
 
         if (isCheckedOK) {
+            logger.info("CommitInfos: ${syncerContext.commitInfos}")
             syncerContext.sourcePartitionMap.clear()
             syncerContext.commitInfos.clear()
-            syncerContext.closeSourceBackendClients()
         }
 
         return isCheckedOK
@@ -451,7 +458,34 @@ class Suite implements GroovyInterceptable {
         return clientsMap
     }
 
-    void getBackendClients() {
+    void getSourceMeta(SyncerContext syncerContext, String table, BinlogData binlogData) {
+        Entry<Long, PartitionRecords> tableEntry = binlogData.tableRecords.entrySet()[0]
+        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString() + "/" +
+                tableEntry.key.toString() + "/partitions/"
+
+        syncerContext.sourceDbId = binlogData.dbId
+        syncerContext.sourceTableMap.put(table, tableEntry.key)
+        tableEntry.value.partitionRecords.forEach(data -> {
+
+            List<List<Object>> sqlInfo
+            String partitionSQL = metaSQL + data.partitionId.toString()
+            sqlInfo = sql(partitionSQL + "'")
+            PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, data.version)
+            partitionSQL += "/" + partitionMeta.indexId.toString()
+            sqlInfo = sql(partitionSQL + "'")
+            sqlInfo.forEach(row -> {
+                partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
+            })
+            syncerContext.sourcePartitionMap.put(data.partitionId, partitionMeta)
+        })
+    }
+
+    void close_backend_clients() {
+        SyncerContext syncerContext = context.getSyncerContext()
+        syncerContext.closeBackendClients()
+    }
+
+    Boolean get_backend_clients() {
         logger.info("Begin to get backend's maps.")
         SyncerContext syncerContext = context.getSyncerContext()
 
@@ -460,6 +494,7 @@ class Suite implements GroovyInterceptable {
             syncerContext.sourceBackendClients = getBackendClientsImpl(ccrCluster.SOURCE)
         } catch (TTransportException e) {
             logger.error("Create source cluster backend client fail: ${e.toString()}")
+            return false
         }
 
         // get target backend clients
@@ -467,27 +502,9 @@ class Suite implements GroovyInterceptable {
             syncerContext.targetBackendClients = getBackendClientsImpl(ccrCluster.TARGET)
         } catch (TTransportException e) {
             logger.error("Create target cluster backend client fail: ${e.toString()}")
+            return false
         }
-    }
-
-    void getSourceMeta(SyncerContext syncerContext, BinlogData binlogData) {
-        Entry<Long, PartitionRecords> tableEntry = binlogData.tableRecords.entrySet()[0]
-        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString() + "/" +
-                                              tableEntry.key.toString() + "/partitions/"
-
-        syncerContext.sourceTableId = tableEntry.key
-        tableEntry.value.partitionRecords.forEach(data -> {
-            PartitionMeta partitionMeta = new PartitionMeta(data.version)
-            List<List<Object>> sqlInfo
-            String partitionSQL = metaSQL + data.partitionId.toString()
-            sqlInfo = sql(partitionSQL + "'")
-            partitionSQL += "/" + (sqlInfo[0][0] as Long).toString()
-            sqlInfo = sql(partitionSQL + "'")
-            sqlInfo.forEach(row -> {
-                partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
-            })
-            syncerContext.sourcePartitionMap.put(data.partitionId, partitionMeta)
-        })
+        return true
     }
 
     Boolean get_target_meta(String table) {
@@ -509,6 +526,7 @@ class Suite implements GroovyInterceptable {
             logger.error("Target cluster get ${context.dbName} db error.")
             return false
         }
+        syncerContext.targetDbId = dbId
 
         // step 2: get target dbId/tableId
         baseSQL += "/" + dbId.toString()
@@ -524,7 +542,7 @@ class Suite implements GroovyInterceptable {
             logger.error("Target cluster get ${table} tableId fault.")
             return false
         }
-        syncerContext.targetTableId = tableId
+        syncerContext.targetTableMap.put(table, tableId)
 
         // step 3: get partitionIds
         baseSQL += "/" + tableId.toString() + "/partitions"
@@ -540,26 +558,25 @@ class Suite implements GroovyInterceptable {
 
         // step 4: get partitionMetas
         for (Long id : partitionIds) {
-            PartitionMeta meta = new PartitionMeta(-1)
+
 
             // step 4.1: get partition/indexId
             String partitionSQl = baseSQL + "/" + id.toString()
-            Long indexId
             sqlInfo = target_sql(partitionSQl + "'")
             if (sqlInfo.isEmpty()) {
                 logger.error("Target cluster partition-${id} indexId fault.")
                 return false
             }
-            indexId = sqlInfo[0][0] as Long
+            PartitionMeta meta = new PartitionMeta(sqlInfo[0][0] as Long, -1)
 
             // step 4.2: get partition/indexId/tabletId
-            partitionSQl += "/" + indexId.toString()
+            partitionSQl += "/" + meta.indexId.toString()
             sqlInfo = target_sql(partitionSQl + "'")
             for (List<Object> row : sqlInfo) {
                 meta.tabletMeta.put(row[0] as Long, row[2] as Long)
             }
             if (meta.tabletMeta.isEmpty()) {
-                logger.error("Target cluster get (partitionId/indexId)-(${id}/${indexId}) tabletIds fault.")
+                logger.error("Target cluster get (partitionId/indexId)-(${id}/${meta.indexId}) tabletIds fault.")
                 return false
             }
 
@@ -570,30 +587,61 @@ class Suite implements GroovyInterceptable {
         return true
     }
 
-    Boolean get_binlog(String table) {
+    Boolean check_target_version(String table) {
+        logger.info("Check target tablets version")
         SyncerContext syncerContext = context.getSyncerContext()
-        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+        Long tableId = syncerContext.targetTableMap.get(table)
+        if (tableId == null) {
+            logger.error("Table ${table} not exist!")
+            return false
+        }
+
+        String baseSQL = "SHOW PROC '/dbs/" + syncerContext.targetDbId.toString() + "/" +
+                                              tableId.toString() + "/partitions/"
+        Iterator partitionIter = syncerContext.targetPartitionMap.iterator()
+        while (partitionIter.hasNext()) {
+            Entry partitionEntry = partitionIter.next()
+            Long partitionId = partitionEntry.key
+            PartitionMeta meta = partitionEntry.value
+
+            String versionSQL = baseSQL + partitionId.toString() + "/" + meta.indexId.toString()
+            List<List<Object>> sqlInfo = target_sql(versionSQL + "'")
+            for (List<Object> row : sqlInfo) {
+                Long tabletVersion = row[4] as Long
+                if (tabletVersion != meta.version) {
+                    logger.error(
+                            "Version miss match! partitionId: ${partitionId}, tabletId: ${row[0] as Long}," +
+                                    " Now version is ${meta.version}, but tablet version is ${tabletVersion}")
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    Boolean get_binlog(String table, Boolean update = true) {
+        SyncerContext syncerContext = context.getSyncerContext()
         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}, binlog seq: ${syncerContext.seq}")
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
         TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, syncerContext, table)
-        return checkGetBinlog(result, ccrCluster.SOURCE)
+        return checkGetBinlog(table, result, update)
     }
 
     Boolean begin_txn(String table) {
         logger.info("Begin transaction to target cluster ${context.config.feTargetThriftNetworkAddress}")
-        getBackendClients()
         SyncerContext syncerContext = context.getSyncerContext()
         FrontendClientImpl clientImpl = context.getTargetFrontClient()
         TBeginTxnResult result = SyncerUtils.beginTxn(clientImpl, syncerContext, table)
         return checkBeginTxn(result)
     }
 
-    Boolean ingest_binlog(String table) {
+    Boolean ingest_binlog() {
         logger.info("Begin to ingest binlog.")
         SyncerContext syncerContext = context.getSyncerContext()
 
         // step 1: Check meta data is valid
         if (!syncerContext.metaIsValid()) {
-            logger.error("Meta data miss match")ß
+            logger.error("Meta data miss match")
             return false
         }
 
@@ -623,6 +671,8 @@ class Suite implements GroovyInterceptable {
                     return false
                 }
 
+                tarPartition.value.version = srcPartition.value.version
+
                 TIngestBinlogRequest request = new TIngestBinlogRequest()
                 TUniqueId uid = new TUniqueId(-1, -1)
                 request.setTxnId(syncerContext.txnId)
@@ -639,6 +689,7 @@ class Suite implements GroovyInterceptable {
                     logger.error("Ingest result error.")
                     return false
                 }
+
                 syncerContext.commitInfos.add(new TTabletCommitInfo(tarTabletMap.key, tarTabletMap.value))
             }
         }
@@ -646,9 +697,9 @@ class Suite implements GroovyInterceptable {
         return true
     }
 
-    Boolean commit_txn(String table) {
-        logger.info("Commit transaction to target cluster ${context.config.feTargetThriftNetworkAddress}")
+    Boolean commit_txn() {
         SyncerContext syncerContext = context.getSyncerContext()
+        logger.info("Commit transaction to target cluster ${context.config.feTargetThriftNetworkAddress}, txnId: ${syncerContext.txnId}")
         FrontendClientImpl clientImpl = context.getTargetFrontClient()
         TCommitTxnResult result = SyncerUtils.commitTxn(clientImpl, syncerContext)
         return checkCommitTxn(result)

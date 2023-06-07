@@ -76,9 +76,11 @@ class BackendClientImpl {
 
 class PartitionMeta {
     public long version
+    public long indexId
     public TreeMap<Long, Long> tabletMeta
 
-    PartitionMeta(long version) {
+    PartitionMeta(long indexId, long version) {
+        this.indexId = indexId
         this.version = version
         this.tabletMeta = new TreeMap<Long, Long>()
     }
@@ -94,9 +96,11 @@ class SyncerContext {
     protected FrontendClientImpl sourceFrontendClient
     protected FrontendClientImpl targetFrontendClient
 
-    protected Long sourceTableId
+    protected Long sourceDbId
+    protected HashMap<String, Long> sourceTableMap = new HashMap<String, Long>()
     protected TreeMap<Long, PartitionMeta> sourcePartitionMap = new TreeMap<Long, PartitionMeta>()
-    protected Long targetTableId
+    protected Long targetDbId
+    protected HashMap<String, Long> targetTableMap = new HashMap<String, Long>()
     protected TreeMap<Long, PartitionMeta> targetPartitionMap = new TreeMap<Long, PartitionMeta>()
 
     protected HashMap<Long, BackendClientImpl> sourceBackendClients = new HashMap<Long, BackendClientImpl>()
@@ -109,6 +113,20 @@ class SyncerContext {
     public String db
     public long txnId
     public long seq
+
+    ArrayList<TTabletCommitInfo> resetCommitInfos() {
+        def info = commitInfos
+        commitInfos = new ArrayList<TTabletCommitInfo>()
+        return info
+    }
+
+    ArrayList<TTabletCommitInfo> copyCommitInfos() {
+        return new ArrayList<TTabletCommitInfo>(commitInfos)
+    }
+
+    void addCommitInfo(long tabletId, long backendId) {
+        commitInfos.add(new TTabletCommitInfo(tabletId, backendId))
+    }
 
     Boolean metaIsValid() {
         if (sourcePartitionMap.isEmpty() || targetPartitionMap.isEmpty()) {
@@ -131,16 +149,13 @@ class SyncerContext {
         return true
     }
 
-    void closeSourceBackendClients() {
+    void closeBackendClients() {
         if (!sourceBackendClients.isEmpty()) {
             for (BackendClientImpl client in sourceBackendClients.values()) {
                 client.close()
             }
         }
         sourceBackendClients.clear()
-    }
-
-    void closeTargetBackendClients() {
         if (!targetBackendClients.isEmpty()) {
             for (BackendClientImpl client in targetBackendClients.values()) {
                 client.close()
@@ -156,7 +171,6 @@ class SyncerContext {
         if (targetFrontendClient != null) {
             targetFrontendClient.close()
         }
-        closeTargetBackendClients()
     }
 }
 
