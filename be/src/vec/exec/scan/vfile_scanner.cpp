@@ -60,6 +60,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/scan/hudi_jni_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/paimon_reader.h"
@@ -601,13 +602,19 @@ Status VFileScanner::_get_next_reader() {
                         mc_desc, _file_slot_descs, range, _state, _profile);
                 init_status = mc_reader->init_reader(_colname_to_value_range);
                 _cur_reader = std::move(mc_reader);
-            }
-            if (range.__isset.table_format_params &&
-                range.table_format_params.table_format_type == "paimon") {
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
                 _cur_reader =
                         PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                _cur_reader =
+                        HudiJniReader::create_unique(_params, range.table_format_params.hudi_params,
+                                                     _file_slot_descs, _state, _profile);
+                init_status =
+                        ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
             }
             break;
         }

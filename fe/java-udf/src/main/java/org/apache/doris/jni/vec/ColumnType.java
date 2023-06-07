@@ -30,6 +30,10 @@ import java.util.regex.Pattern;
  * If decimalv2 is deprecated, we can unify decimal32 & decimal64 & decimal128 into decimal.
  */
 public class ColumnType {
+    public static final int MAX_DECIMAL32_PRECISION = 9;
+    public static final int MAX_DECIMAL64_PRECISION = 18;
+    public static final int MAX_DECIMAL128_PRECISION = 38;
+
     public enum Type {
         UNSUPPORTED(-1),
         BYTE(1), // only for string, generated as array<byte>
@@ -263,9 +267,6 @@ public class ColumnType {
             case "date":
                 type = Type.DATEV2;
                 break;
-            case "timestamp":
-                type = Type.DATETIMEV2;
-                break;
             case "binary":
                 type = Type.BINARY;
                 break;
@@ -273,82 +274,100 @@ public class ColumnType {
                 type = Type.STRING;
                 break;
             default:
-                break;
-        }
-
-        if (lowerCaseType.startsWith("char")) {
-            Matcher match = digitPattern.matcher(lowerCaseType);
-            if (match.find()) {
-                type = Type.CHAR;
-                length = Integer.parseInt(match.group(1));
-            }
-        } else if (lowerCaseType.startsWith("varchar")) {
-            Matcher match = digitPattern.matcher(lowerCaseType);
-            if (match.find()) {
-                type = Type.VARCHAR;
-                length = Integer.parseInt(match.group(1));
-            }
-        } else if (lowerCaseType.startsWith("decimal")) {
-            int s = lowerCaseType.indexOf('(');
-            int e = lowerCaseType.indexOf(')');
-            if (s != -1 && e != -1) {
-                String[] ps = lowerCaseType.substring(s + 1, e).split(",");
-                precision = Integer.parseInt(ps[0]);
-                scale = Integer.parseInt(ps[1]);
-                if (lowerCaseType.startsWith("decimalv2")) {
-                    type = Type.DECIMALV2;
-                } else if (lowerCaseType.startsWith("decimal32")) {
-                    type = Type.DECIMAL32;
-                } else if (lowerCaseType.startsWith("decimal64")) {
-                    type = Type.DECIMAL64;
-                } else if (lowerCaseType.startsWith("decimal128")) {
-                    type = Type.DECIMAL128;
-                }
-            }
-        } else if (lowerCaseType.startsWith("array")) {
-            if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                ColumnType nestedType = parseType("element", lowerCaseType.substring(6, lowerCaseType.length() - 1));
-                ColumnType arrayType = new ColumnType(columnName, Type.ARRAY);
-                arrayType.setChildTypes(Collections.singletonList(nestedType));
-                return arrayType;
-            }
-        } else if (lowerCaseType.startsWith("map")) {
-            if (lowerCaseType.indexOf("<") == 3 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
-                int index = findNextNestedField(keyValue);
-                if (index != keyValue.length() && index != 0) {
-                    ColumnType keyType = parseType("key", keyValue.substring(0, index));
-                    ColumnType valueType = parseType("value", keyValue.substring(index + 1));
-                    ColumnType mapType = new ColumnType(columnName, Type.MAP);
-                    mapType.setChildTypes(Arrays.asList(keyType, valueType));
-                    return mapType;
-                }
-            }
-        } else if (lowerCaseType.startsWith("struct")) {
-            if (lowerCaseType.indexOf("<") == 6 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
-                ArrayList<ColumnType> fields = new ArrayList<>();
-                ArrayList<String> names = new ArrayList<>();
-                while (listFields.length() > 0) {
-                    int index = findNextNestedField(listFields);
-                    int pivot = listFields.indexOf(':');
-                    if (pivot > 0 && pivot < listFields.length() - 1) {
-                        fields.add(parseType(listFields.substring(0, pivot), listFields.substring(pivot + 1, index)));
-                        names.add(listFields.substring(0, pivot));
-                        listFields = listFields.substring(Math.min(index + 1, listFields.length()));
-                    } else {
-                        break;
+                if (lowerCaseType.startsWith("timestamp")) {
+                    type = Type.DATETIMEV2;
+                    precision = 6; // default
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        precision = Integer.parseInt(match.group(1));
+                    }
+                } else if (lowerCaseType.startsWith("char")) {
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        type = Type.CHAR;
+                        length = Integer.parseInt(match.group(1));
+                    }
+                } else if (lowerCaseType.startsWith("varchar")) {
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        type = Type.VARCHAR;
+                        length = Integer.parseInt(match.group(1));
+                    }
+                } else if (lowerCaseType.startsWith("decimal")) {
+                    int s = lowerCaseType.indexOf('(');
+                    int e = lowerCaseType.indexOf(')');
+                    if (s != -1 && e != -1) {
+                        String[] ps = lowerCaseType.substring(s + 1, e).split(",");
+                        precision = Integer.parseInt(ps[0]);
+                        scale = Integer.parseInt(ps[1]);
+                        if (lowerCaseType.startsWith("decimalv2")) {
+                            type = Type.DECIMALV2;
+                        } else if (lowerCaseType.startsWith("decimal32")) {
+                            type = Type.DECIMAL32;
+                        } else if (lowerCaseType.startsWith("decimal64")) {
+                            type = Type.DECIMAL64;
+                        } else if (lowerCaseType.startsWith("decimal128")) {
+                            type = Type.DECIMAL128;
+                        } else {
+                            if (precision <= MAX_DECIMAL32_PRECISION) {
+                                type = Type.DECIMAL32;
+                            } else if (precision <= MAX_DECIMAL64_PRECISION) {
+                                type = Type.DECIMAL64;
+                            } else {
+                                type = Type.DECIMAL128;
+                            }
+                        }
+                    }
+                } else if (lowerCaseType.startsWith("array")) {
+                    if (lowerCaseType.indexOf("<") == 5
+                            && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                        ColumnType nestedType = parseType("element",
+                                lowerCaseType.substring(6, lowerCaseType.length() - 1));
+                        ColumnType arrayType = new ColumnType(columnName, Type.ARRAY);
+                        arrayType.setChildTypes(Collections.singletonList(nestedType));
+                        return arrayType;
+                    }
+                } else if (lowerCaseType.startsWith("map")) {
+                    if (lowerCaseType.indexOf("<") == 3
+                            && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                        String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
+                        int index = findNextNestedField(keyValue);
+                        if (index != keyValue.length() && index != 0) {
+                            ColumnType keyType = parseType("key", keyValue.substring(0, index));
+                            ColumnType valueType = parseType("value", keyValue.substring(index + 1));
+                            ColumnType mapType = new ColumnType(columnName, Type.MAP);
+                            mapType.setChildTypes(Arrays.asList(keyType, valueType));
+                            return mapType;
+                        }
+                    }
+                } else if (lowerCaseType.startsWith("struct")) {
+                    if (lowerCaseType.indexOf("<") == 6
+                            && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
+                        String listFields = lowerCaseType.substring(7, lowerCaseType.length() - 1);
+                        ArrayList<ColumnType> fields = new ArrayList<>();
+                        ArrayList<String> names = new ArrayList<>();
+                        while (listFields.length() > 0) {
+                            int index = findNextNestedField(listFields);
+                            int pivot = listFields.indexOf(':');
+                            if (pivot > 0 && pivot < listFields.length() - 1) {
+                                fields.add(parseType(listFields.substring(0, pivot),
+                                        listFields.substring(pivot + 1, index)));
+                                names.add(listFields.substring(0, pivot));
+                                listFields = listFields.substring(Math.min(index + 1, listFields.length()));
+                            } else {
+                                break;
+                            }
+                        }
+                        if (listFields.isEmpty()) {
+                            ColumnType structType = new ColumnType(columnName, Type.STRUCT);
+                            structType.setChildTypes(fields);
+                            structType.setChildNames(names);
+                            return structType;
+                        }
                     }
                 }
-                if (listFields.isEmpty()) {
-                    ColumnType structType = new ColumnType(columnName, Type.STRUCT);
-                    structType.setChildTypes(fields);
-                    structType.setChildNames(names);
-                    return structType;
-                }
-            }
+                break;
         }
-
         return new ColumnType(columnName, type, length, precision, scale);
     }
 }
