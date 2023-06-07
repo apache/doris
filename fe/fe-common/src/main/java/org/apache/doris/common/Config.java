@@ -1174,7 +1174,20 @@ public class Config extends ConfigBase {
      *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
      *   skip it directly instead of throwing an exception
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "有些场景下集群出现了不可恢复的元数据问题，且数据的visibleversion已经和be不匹配，"
+            + "这种情况下仍然需要恢复剩余的数据（可能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet`一样只能在紧急情况下使用"
+            + "这个配置有三个值："
+            + "   disable：出现异常会正常报错"
+            + "   ignore_version: 忽略fe partition中记录的visibleVersion信息， 使用replica version"
+            + "   ignore_all: 除了ignore_version，在遇到找不到可查询的replica时，直接跳过而不是抛出异常",
+        "In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this"
+            + "case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is"
+            + "the same as `recover_with_empty_tablet` should only be used in emergency situations"
+            + "This configuration has three values:"
+            + "   disable: If an exception occurs, an error will be reported normally"
+            + "   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version"
+            + "   ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception"})
     public static String recover_with_skip_missing_version = "disable";
 
     /**
