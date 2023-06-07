@@ -72,6 +72,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
@@ -126,7 +127,6 @@ public class RuleSet {
             new PushdownFilterThroughSetOperation(),
             new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
-            new PushdownAliasThroughJoin(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
@@ -135,7 +135,9 @@ public class RuleSet {
             new PushdownFilterThroughCTE(),
             new PushdownProjectThroughCTE(),
             new PushdownFilterThroughCTEAnchor(),
-            new PushdownProjectThroughCTEAnchor());
+            new PushdownProjectThroughCTEAnchor(),
+            new PushdownAliasThroughJoin(),
+            new PushdownAliasIntoUnionAll());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProduceToPhysicalCTEProduce())
