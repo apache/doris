@@ -40,6 +40,7 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.planner.external.paimon.PaimonSplit;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -79,9 +80,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
-
-    protected int inputSplitNum = 0;
-    protected long inputFileSize = 0;
 
     /**
      * External file scan node for Query hms table
@@ -220,7 +218,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = getSplits();
-        this.inputSplitNum = inputSplits.size();
+        this.inputSplitsNum = inputSplits.size();
         if (inputSplits.isEmpty()) {
             return;
         }
@@ -268,7 +266,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeParams = new TFileScanRangeParams(params);
                 scanRangeParams.setCompressType(getFileCompressType(fileSplit));
             }
-            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy);
+            TScanRangeLocations curLocations = newLocations(scanRangeParams);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
             // Otherwise, use the values in file path.
@@ -290,17 +288,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            TScanRangeLocation location = new TScanRangeLocation();
+            // Use consistent hash to assign the same scan range into the same backend among different queries
+            Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
+                    ? backendPolicy.getNextConsistentBe(curLocations) : backendPolicy.getNextBe();
+            location.setBackendId(selectedBackend.getId());
+            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+            curLocations.addToLocations(location);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                     curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
                     fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
             scanRangeLocations.add(curLocations);
-            this.inputFileSize += fileSplit.getLength();
+            this.totalFileSize += fileSplit.getLength();
         }
         LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, FederationBackendPolicy backendPolicy) {
+    private TScanRangeLocations newLocations(TFileScanRangeParams params) {
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);
@@ -314,13 +319,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
         locations.setScanRange(scanRange);
-
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend selectedBackend = backendPolicy.getNextBe();
-        location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
-        locations.addToLocations(location);
-
         return locations;
     }
 
