@@ -1190,7 +1190,22 @@ public enum ErrorCode {
      + " table supports time travel in current version"),
 
     ERR_NONSSL_HANDSHAKE_RESPONSE(5091, new byte[] {'4', '2', '0', '0'},
-            "SSL mode on but received non-ssl handshake response from client.");
+            "SSL mode on but received non-ssl handshake response from client."),
+
+    ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN(5092, new byte[]{'4', '2', '0', '0', '0'},
+            "there can be at most one auto increment column in OlapTable."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NULLABLE(5093, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column should be NOT NULL."),
+
+    ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE(5094, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment column can't have default value."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE(5095, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment must be BIGINT type."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
+            "the auto increment is only supported in duplicate table.");
 
     // This is error code
     private final int code;

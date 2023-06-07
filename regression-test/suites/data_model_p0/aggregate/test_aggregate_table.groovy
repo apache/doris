@@ -99,5 +99,23 @@ suite("test_aggregate_table") {
     qt_desc_date_table """desc date_agg"""
     sql """DROP TABLE date_agg"""
 
+
+    def table_auto_inc = "test_aggregate_tab_with_auto_inc_col"
+    sql "drop table if exists ${table_auto_inc}"
+    test {
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_auto_inc} (
+                k BIGINT NOT NULL AUTO_INCREMENT,
+                int_value_sum int sum,
+                int_value_max int max,
+                int_value_min int min,
+                int_value_replace int replace,
+                int_value_replace_if_not_null int replace_if_not_null
+            )
+            AGGREGATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+        """
+        exception "the auto increment is only supported in duplicate table."
+    }
     // sql "drop database ${dbName}"
 }
