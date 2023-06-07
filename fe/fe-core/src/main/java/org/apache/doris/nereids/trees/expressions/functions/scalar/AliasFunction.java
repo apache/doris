@@ -34,18 +34,20 @@ import java.util.List;
  */
 public class AliasFunction extends BoundFunction implements ExplicitlyCastableSignature {
     private final Expression originalFunction;
-    private DataType retType;
+    private final DataType retType;
+    private final List<DataType> argTypes;
 
-    public AliasFunction(String name, Expression originalFunction, DataType retType, Expression... arguments) {
-        super(name, arguments);
+    public AliasFunction(String name, Expression originalFunction, DataType retType, List<DataType> argTypes) {
+        super(name);
         this.originalFunction = originalFunction;
         this.retType = retType;
+        this.argTypes = argTypes;
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return Suppliers.memoize(() -> ImmutableList.of(FunctionSignature.ret(retType)
-                .args(children().stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)))).get();
+                .args(argTypes.toArray(new DataType[0])))).get();
     }
 
     @Override

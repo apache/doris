@@ -17,20 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * create function
  */
 public class CreateFunctionCommand extends Command implements ForwardWithSync {
+    // field from parsing.
     private final boolean isGlobal;
     private final boolean isAggregate;
     private final boolean isAliasFunction;
@@ -41,6 +48,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private final List<String> paramStrings;
     private final Expression originalFunction;
     private final Map<String, String> properties;
+    // field when running
+    private Database database;
 
     /**
      * constructor
@@ -62,6 +71,37 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         this.paramStrings = paramStrings;
         this.originalFunction = originalFunction;
         this.properties = properties;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
+        if (isAliasFunction) {
+            handleAliasFunction(ctx, executor);
+        }
+    }
+
+    private void handleAliasFunction(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
+        checkDb(ctx);
+    }
+
+    private void checkDb(ConnectContext ctx) throws AnalysisException {
+        String dbName;
+        if (functionNameParts.size() == 1) {
+            return;
+        } else if (functionNameParts.size() == 2) {
+            dbName = functionNameParts.get(0);
+        } else {
+            throw new AnalysisException(String.format("%s is an invalid name", functionNameParts));
+        }
+        Optional<Database> optionalDB = ctx.getCurrentCatalog().getDb(dbName);
+        if (!optionalDB.isPresent()) {
+            throw new AnalysisException(String.format("database [%s] is not exist", dbName));
+        }
+    }
+
+    @VisibleForTesting
+    public Expression getOriginalFunction() {
+        return originalFunction;
     }
 
     @Override
