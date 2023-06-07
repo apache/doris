@@ -17,16 +17,16 @@
 
 package org.apache.doris.regression.util
 
-import org.apache.doris.regression.suite.BackendClientImpl
-import org.apache.doris.regression.suite.FrontendClientImpl
+
 import org.apache.doris.regression.suite.SyncerContext
+import org.apache.doris.regression.suite.client.BackendClientImpl
+import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TBeginTxnRequest
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TCommitTxnRequest
 import org.apache.doris.thrift.TCommitTxnResult
 import org.apache.doris.thrift.TIngestBinlogRequest
 import org.apache.doris.thrift.TIngestBinlogResult
-import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
 import org.apache.doris.thrift.TGetBinlogResult

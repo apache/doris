@@ -21,159 +21,12 @@ import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
 import groovy.util.logging.Slf4j
-import org.apache.doris.thrift.BackendService
-import org.apache.doris.thrift.FrontendService
-import org.apache.doris.thrift.TNetworkAddress
-import org.apache.doris.thrift.TTabletCommitInfo
-import org.apache.thrift.protocol.TBinaryProtocol
-import org.apache.thrift.transport.TSocket
-import org.apache.thrift.transport.TTransportException
 
 import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
-
-class FrontendClientImpl {
-    private TSocket tSocket
-    public FrontendService.Client client
-
-    FrontendClientImpl(TNetworkAddress address) throws TTransportException {
-        this.tSocket = new TSocket(address.hostname, address.port)
-        this.client = new FrontendService.Client(new TBinaryProtocol(tSocket))
-        this.tSocket.open()
-    }
-
-    void close() {
-        this.tSocket.close()
-    }
-}
-
-class BackendClientImpl {
-    private TSocket tSocket
-
-    public TNetworkAddress address
-    public int httpPort
-    public BackendService.Client client
-
-    BackendClientImpl(TNetworkAddress address, int httpPort) throws TTransportException {
-        this.address = address
-        this.httpPort = httpPort
-        this.tSocket = new TSocket(address.hostname, address.port)
-        this.client = new BackendService.Client(new TBinaryProtocol(this.tSocket))
-        this.tSocket.open()
-    }
-
-    String toString() {
-        return "BackendClientImpl: {" + address.toString() + " }"
-    }
-
-    void close() {
-        tSocket.close()
-    }
-}
-
-class PartitionMeta {
-    public long version
-    public long indexId
-    public TreeMap<Long, Long> tabletMeta
-
-    PartitionMeta(long indexId, long version) {
-        this.indexId = indexId
-        this.version = version
-        this.tabletMeta = new TreeMap<Long, Long>()
-    }
-
-    String toString() {
-        return "PartitionMeta: { version: " + version.toString() + ", " + tabletMeta.toString() + " }"
-    }
-
-}
-
-class SyncerContext {
-    protected Connection targetConnection
-    protected FrontendClientImpl sourceFrontendClient
-    protected FrontendClientImpl targetFrontendClient
-
-    protected Long sourceDbId
-    protected HashMap<String, Long> sourceTableMap = new HashMap<String, Long>()
-    protected TreeMap<Long, PartitionMeta> sourcePartitionMap = new TreeMap<Long, PartitionMeta>()
-    protected Long targetDbId
-    protected HashMap<String, Long> targetTableMap = new HashMap<String, Long>()
-    protected TreeMap<Long, PartitionMeta> targetPartitionMap = new TreeMap<Long, PartitionMeta>()
-
-    protected HashMap<Long, BackendClientImpl> sourceBackendClients = new HashMap<Long, BackendClientImpl>()
-    protected HashMap<Long, BackendClientImpl> targetBackendClients = new HashMap<Long, BackendClientImpl>()
-
-    public ArrayList<TTabletCommitInfo> commitInfos = new ArrayList<TTabletCommitInfo>()
-
-    public String user
-    public String passwd
-    public String db
-    public long txnId
-    public long seq
-
-    ArrayList<TTabletCommitInfo> resetCommitInfos() {
-        def info = commitInfos
-        commitInfos = new ArrayList<TTabletCommitInfo>()
-        return info
-    }
-
-    ArrayList<TTabletCommitInfo> copyCommitInfos() {
-        return new ArrayList<TTabletCommitInfo>(commitInfos)
-    }
-
-    void addCommitInfo(long tabletId, long backendId) {
-        commitInfos.add(new TTabletCommitInfo(tabletId, backendId))
-    }
-
-    Boolean metaIsValid() {
-        if (sourcePartitionMap.isEmpty() || targetPartitionMap.isEmpty()) {
-            return false
-        }
-
-        if (sourcePartitionMap.size() != targetPartitionMap.size()) {
-            return false
-        }
-
-        Iterator sourceIter = sourcePartitionMap.iterator()
-        Iterator targetIter = targetPartitionMap.iterator()
-        while (sourceIter.hasNext()) {
-             if (sourceIter.next().value.tabletMeta.size() !=
-                 targetIter.next().value.tabletMeta.size()) {
-                 return false
-             }
-        }
-
-        return true
-    }
-
-    void closeBackendClients() {
-        if (!sourceBackendClients.isEmpty()) {
-            for (BackendClientImpl client in sourceBackendClients.values()) {
-                client.close()
-            }
-        }
-        sourceBackendClients.clear()
-        if (!targetBackendClients.isEmpty()) {
-            for (BackendClientImpl client in targetBackendClients.values()) {
-                client.close()
-            }
-        }
-        targetBackendClients.clear()
-    }
-
-    void closeAllClients() {
-        if (sourceFrontendClient != null) {
-            sourceFrontendClient.close()
-        }
-        if (targetFrontendClient != null) {
-            targetFrontendClient.close()
-        }
-    }
-}
-
 
 @Slf4j
 @CompileStatic
@@ -183,7 +36,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
-    private final ThreadLocal<SyncerContext> syncerContext = new ThreadLocal<>()
+    private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
@@ -250,17 +103,13 @@ class SuiteContext implements Closeable {
         return className
     }
 
-    SyncerContext getSyncerContext() {
-        SyncerContext context = syncerContext.get()
-        if (context == null) {
-            context = new SyncerContext()
-            context.user = config.feSyncerUser
-            context.passwd = config.feSyncerPassword
-            context.db = dbName
-            context.seq = -1
-            syncerContext.set(context)
+    Syncer getSyncer(Suite suite) {
+        Syncer syncerImpl = syncer.get()
+        if (syncerImpl == null) {
+            syncerImpl = new Syncer(suite, config)
+            syncer.set(syncerImpl)
         }
-        return context
+        return syncerImpl
     }
 
     // compatible to context.conn
@@ -277,38 +126,12 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
-    Connection getTargetConnection() {
-        def context = getSyncerContext()
+    Connection getTargetConnection(Suite suite) {
+        def context = getSyncer(suite).context
         if (context.targetConnection == null) {
             context.targetConnection = config.getTargetConnectionByDbName(dbName)
         }
         return context.targetConnection
-    }
-
-    FrontendClientImpl getSourceFrontClient() {
-        log.info("Get source client ${config.feSourceThriftNetworkAddress}")
-        SyncerContext context = getSyncerContext()
-        if (context.sourceFrontendClient == null) {
-            try {
-                context.sourceFrontendClient = new FrontendClientImpl(config.feSourceThriftNetworkAddress)
-            } catch (TTransportException e) {
-                log.error("Create client error, Exception: ${e}")
-            }
-        }
-        return context.sourceFrontendClient
-    }
-
-    FrontendClientImpl getTargetFrontClient() {
-        log.info("Get target client ${config.feTargetThriftNetworkAddress}")
-        SyncerContext context = getSyncerContext()
-        if (context.targetFrontendClient == null) {
-            try {
-                context.targetFrontendClient = new FrontendClientImpl(config.feTargetThriftNetworkAddress)
-            } catch (TTransportException e) {
-                log.error("Create client error, Exception: ${e}")
-            }
-        }
-        return context.targetFrontendClient
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
@@ -401,7 +224,7 @@ class SuiteContext implements Closeable {
             }
         }
 
-        SyncerContext context = syncerContext.get()
+        SyncerContext context = syncer.get().context
         if (context != null) {
             context.closeAllClients()
         }
