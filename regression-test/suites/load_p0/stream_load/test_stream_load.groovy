@@ -828,5 +828,79 @@ suite("test_stream_load", "p0") {
     
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
+
+    // test streamload properties
+    def tableName11 = "test_stream_load_properties"
+
+    sql """ DROP TABLE IF EXISTS ${tableName11} """ 
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName11} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL,
+            `v4` smallint(6) REPLACE_IF_NOT_NULL NULL,
+            `v5` int(11) REPLACE_IF_NOT_NULL NULL,
+            `v6` bigint(20) REPLACE_IF_NOT_NULL NULL,
+            `v7` largeint(40) REPLACE_IF_NOT_NULL NULL,
+            `v8` datetime REPLACE_IF_NOT_NULL NULL,
+            `v9` date REPLACE_IF_NOT_NULL NULL,
+            `v10` char(10) REPLACE_IF_NOT_NULL NULL,
+            `v11` varchar(6) REPLACE_IF_NOT_NULL NULL,
+            `v12` decimal(27, 9) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
+        PARTITION partition_b VALUES [("100000"), ("1000000000")),
+        PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
+        PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    streamLoad {
+        table "${tableName11}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v2, v10, v11'
+        set 'where', 'k1<1000'
+        set 'line_delimiter', '\n'
+        set 'strict_mode', 'true'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+        set 'exec_mem_limit' '2147483648' // 2GB
+        set 'timeout' '259200' // 3days
+        set 'timezone' 'Asia/Shanghai'
+        set 'merge_type', 'merge'
+        set 'function_column.sequence_col', 'seq'
+        set 'send_batch_parallelism' '1'
+        set 'max_filter_ratio' '0.5'
+        set 'hidden_columns' ''
+        set 'load_to_single_tablet' 'false'
+        set 'trim_double_quotes' 'false'
+        set 'skip_lines' '0'
+        set 'enable_profile' 'false'
+        set 'partial_columns' 'false'
+
+        file 'test_properties.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
+        }
+    }
+
+    sql "sync"
+    qt_sql "select * from ${tableName} order by k1, k2"
+
 }
 
