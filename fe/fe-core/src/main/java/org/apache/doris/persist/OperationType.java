@@ -304,11 +304,6 @@ public class OperationType {
 
     public static final short OP_DELETE_ANALYSIS_JOB = 433;
 
-    public static final short OP_NEREIDS_CREATE_FUNCTION = 434;
-
-    public static final short OP_NEREIDS_DROP_FUNCTION = 435;
-
-
     /**
      * Get opcode name by op code.
      **/

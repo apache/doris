@@ -816,16 +816,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_NEREIDS_CREATE_FUNCTION: {
-                data = null;
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_NEREIDS_DROP_FUNCTION: {
-                data = null;
-                isRead = true;
-                break;
-            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
