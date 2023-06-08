@@ -72,11 +72,11 @@ public class PaimonJniScanner extends JniScanner {
         lengthByte = Integer.parseInt(params.get("length_byte"));
         dbName = params.get("db_name");
         tblName = params.get("table_name");
+        LOG.info("columns_id:" + params.get("columns_id"));
+        LOG.info("types:" + params.get("columns_types"));
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split(",");
         ids = params.get("columns_id").split(",");
-        LOG.info("columns_id:" + params.get("columns_id"));
-        LOG.info("types:" + params.get("columns_types"));
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
