@@ -114,6 +114,9 @@ suite("load_nereids_test_query_db") {
     def baseall_count = sql "select count(*) from ${dbName}.baseall"
     assertEquals(16, baseall_count[0][0])
     def test_count = sql "select count(*) from ${dbName}.test"
-    assertEquals(3, test_count[0][0])  
+    assertEquals(3, test_count[0][0])
+
+    sql"drop view if exists empty"
+    sql"create view empty as select * from baseall where k1 = 0"
 }
 
