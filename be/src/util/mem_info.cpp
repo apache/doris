@@ -77,7 +77,6 @@ int64_t MemInfo::_s_process_full_gc_size = -1;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
