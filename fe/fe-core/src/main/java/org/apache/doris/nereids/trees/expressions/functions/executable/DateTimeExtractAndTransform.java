@@ -568,7 +568,7 @@ public class DateTimeExtractAndTransform {
     public static Expression timestamp(DateTimeLiteral datetime) {
         return datetime;
     }
-    
+
     @ExecFunction(name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
     public static Expression timestamp(DateTimeV2Literal datetime) {
         return datetime;
