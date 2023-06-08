@@ -460,7 +460,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
-
+    _build_output_timer = ADD_TIMER(runtime_profile(), "BuildOutputTime");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
@@ -617,7 +617,10 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+    {
+        SCOPED_TIMER(_build_output_timer);
+        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+    }
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();

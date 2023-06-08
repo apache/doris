@@ -142,7 +142,7 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
-
+    _build_output_timer = ADD_TIMER(runtime_profile(), "BuildOutputTime");
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
 
@@ -665,7 +665,10 @@ void VNestedLoopJoinNode::_release_mem() {
 
 Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, bool* eos) {
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(_build_output_block(&_left_block, block));
+        {
+            SCOPED_TIMER(_build_output_timer);
+            RETURN_IF_ERROR(_build_output_block(&_left_block, block));
+        }
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
@@ -681,7 +684,10 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
                 RETURN_IF_ERROR(
                         VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            {
+                SCOPED_TIMER(_build_output_timer);
+                RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            }
             _reset_tuple_is_null_column();
         }
         _join_block.clear_column_data();
