@@ -243,7 +243,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 return null;
             }
             throw e;
-        }    }
+        }
+    }
 
     private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
         CatalogLog log = new CatalogLog();
