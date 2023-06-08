@@ -143,11 +143,15 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
-    auto it = _load_channels.find(load_id);
-    if (it != _load_channels.end()) {
-        channel = it->second;
-    } else {
-        return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _load_channels.find(load_id);
+        if (it != _load_channels.end()) {
+            channel = it->second;
+        } else {
+            DCHECK(false);
+            return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+        }
     }
     RETURN_IF_ERROR(channel->open_partition(params));
     return Status::OK();

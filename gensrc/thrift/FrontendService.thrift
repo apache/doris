@@ -61,7 +61,7 @@ struct TColumnDef {
   2: optional string comment
 }
 
-// Arguments to DescribeTable, which returns a list of column descriptors for a 
+// Arguments to DescribeTable, which returns a list of column descriptors for a
 // given table
 struct TDescribeTableParams {
   1: optional string db
@@ -316,14 +316,14 @@ struct TGetDbsResult {
   2: optional list<string> catalogs
 }
 
-// Arguments to getTableNames, which returns a list of tables that match an 
+// Arguments to getTableNames, which returns a list of tables that match an
 // optional pattern.
 struct TGetTablesParams {
   // If not set, match tables in all DBs
-  1: optional string db 
+  1: optional string db
 
   // If not set, match every table
-  2: optional string pattern 
+  2: optional string pattern
   3: optional string user   // deprecated
   4: optional string user_ip    // deprecated
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
@@ -378,7 +378,7 @@ enum FrontendServiceVersion {
   V1
 }
 
-// The results of an INSERT query, sent to the coordinator as part of 
+// The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
   1: required FrontendServiceVersion protocol_version
@@ -404,9 +404,9 @@ struct TReportExecStatusParams {
   // cumulative profile
   // required in V1
   7: optional RuntimeProfile.TRuntimeProfileTree profile
-  
+
   // New errors that have not been reported to the coordinator
-  // optional in V1 
+  // optional in V1
   9: optional list<string> error_log
 
   // URL of files need to load
@@ -416,7 +416,7 @@ struct TReportExecStatusParams {
   12: optional string tracking_url
 
   // export files
-  13: optional list<string> export_files 
+  13: optional list<string> export_files
 
   14: optional list<Types.TTabletCommitInfo> commitInfos
 
@@ -445,7 +445,7 @@ struct TFeResult {
 struct TMasterOpRequest {
     1: required string user
     2: required string db
-    3: required string sql 
+    3: required string sql
     // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
@@ -603,6 +603,7 @@ struct TStreamLoadPutRequest {
     43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
     44: optional bool enable_profile
     45: optional bool partial_update
+    46: optional list<string> table_names
 }
 
 struct TStreamLoadPutResult {
@@ -610,6 +611,12 @@ struct TStreamLoadPutResult {
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+}
+
+struct TStreamLoadMultiTablePutResult {
+    1: required Status.TStatus status
+    // valid when status is OK
+    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
 }
 
 struct TKafkaRLTaskProgress {
@@ -633,7 +640,7 @@ struct TRLTaskTxnCommitAttachment {
 struct TTxnCommitAttachment {
     1: required Types.TLoadType loadType
     2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
-//    3: optional TMiniLoadTxnCommitAttachment mlTxnCommitAttachment 
+//    3: optional TMiniLoadTxnCommitAttachment mlTxnCommitAttachment
 }
 
 struct TLoadTxnCommitRequest {
@@ -651,6 +658,7 @@ struct TLoadTxnCommitRequest {
     12: optional i64 thrift_rpc_timeout_ms
     13: optional string token
     14: optional i64 db_id
+    15: optional list<string> tbls
 }
 
 struct TLoadTxnCommitResult {
@@ -724,6 +732,7 @@ struct TLoadTxnRollbackRequest {
     10: optional TTxnCommitAttachment txnCommitAttachment
     11: optional string token
     12: optional i64 db_id
+    13: optional list<string> tbls
 }
 
 struct TLoadTxnRollbackResult {
@@ -815,7 +824,7 @@ struct TAddColumnsRequest {
     2: optional list<TColumnDef> addColumns
     3: optional string table_name
     4: optional string db_name
-    5: optional bool allow_type_conflict 
+    5: optional bool allow_type_conflict
 }
 
 // Only support base table add columns
@@ -974,6 +983,52 @@ struct TGetTabletReplicaInfosResult {
     3: optional string token
 }
 
+enum TSnapshotType {
+    REMOTE = 0,
+    LOCAL  = 1,
+}
+
+struct TGetSnapshotRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string token
+    7: optional string label_name
+    8: optional string snapshot_name
+    9: optional TSnapshotType snapshot_type
+}
+
+struct TGetSnapshotResult {
+    1: optional Status.TStatus status
+    2: optional binary meta
+    3: optional binary job_info
+}
+
+struct TTableRef {
+    1: optional string table
+}
+
+struct TRestoreSnapshotRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional string token
+    7: optional string label_name
+    8: optional string repo_name
+    9: optional list<TTableRef> table_refs
+    10: optional map<string, string> properties
+    11: optional binary meta
+    12: optional binary job_info
+}
+
+struct TRestoreSnapshotResult {
+    1: optional Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1006,10 +1061,14 @@ service FrontendService {
     TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
     TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
+    TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
+    TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
 
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+
+    TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 
@@ -1028,6 +1087,6 @@ service FrontendService {
     TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
-    
+
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 }
