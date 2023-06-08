@@ -45,6 +45,10 @@ statement
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
         query                                                          #insertIntoQuery
+    | explain? UPDATE tableName=multipartIdentifier tableAlias
+        SET updateAssignmentSeq
+        fromClause?
+        whereClause                                                    #update
     ;
 
 // -----------------Command accessories-----------------
@@ -184,11 +188,20 @@ hintStatement
 hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     ;
+    
+updateAssignment
+    : col=multipartIdentifier EQ (expression | DEFAULT)
+    ;
+    
+updateAssignmentSeq
+    : assignments+=updateAssignment (COMMA assignments+=updateAssignment)*
+    ;
 
 lateralView
     : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
       tableName=identifier AS columnName=identifier
     ;
+
 queryOrganization
     : sortClause? limitClause?
     ;

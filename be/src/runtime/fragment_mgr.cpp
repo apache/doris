@@ -774,6 +774,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
             // Duplicated
+            LOG(WARNING) << "duplicate fragment instance id: " << print_id(fragment_instance_id);
             return Status::OK();
         }
     }

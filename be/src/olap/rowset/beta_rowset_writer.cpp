@@ -494,7 +494,9 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     int32_t segment_id = writer->get_segment_id();
     RETURN_IF_ERROR(_add_block(block, &writer));
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
-    RETURN_IF_ERROR(ctx->generate_delete_bitmap(segment_id));
+    if (ctx != nullptr && ctx->generate_delete_bitmap) {
+        RETURN_IF_ERROR(ctx->generate_delete_bitmap(segment_id));
+    }
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
@@ -721,9 +723,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
-    writer_options.is_direct_write = _context.is_direct_write;
+    writer_options.write_type = _context.write_type;
     if (is_segcompaction) {
-        writer_options.is_direct_write = false;
+        writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     }
 
     if (is_segcompaction) {

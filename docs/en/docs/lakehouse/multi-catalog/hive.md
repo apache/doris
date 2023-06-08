@@ -78,6 +78,7 @@ CREATE CATALOG hive PROPERTIES (
     'hive.metastore.sasl.enabled' = 'true',
     'hive.metastore.kerberos.principal' = 'your-hms-principal',
     'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',

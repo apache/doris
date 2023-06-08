@@ -90,7 +90,7 @@ public class VariableMgrTest {
         var = VariableMgr.newSessionVariable();
         Assert.assertEquals(1234L, var.getMaxExecMemByte());
 
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global parallel_fragment_exec_instance_num=5", ctx);
+        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global parallel_pipeline_task_num=5", ctx);
         executor = new SetExecutor(ctx, stmt);
         executor.execute();
         Assert.assertEquals(1L, var.getParallelExecInstanceNum());
