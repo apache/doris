@@ -308,11 +308,10 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
     int64_t local_max_time = 0;
     int64_t local_min_time = INT64_MAX;
     for (auto& [id, time] : _instance_to_rpc_time) {
-        if (time == 0) {
-            continue;
+        if (time != 0) {
+            local_max_time = std::max(local_max_time, time);
+            local_min_time = std::min(local_min_time, time);
         }
-        local_max_time = std::max(local_max_time, time);
-        local_min_time = std::min(local_min_time, time);
     }
     *max_time = local_max_time;
     *min_time = local_min_time;
