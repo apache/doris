@@ -103,10 +103,13 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
+Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    return VScanner::prepare(state, conjuncts);
+}
+
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_conjuncts));
 
     for (auto& ctx : parent->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;

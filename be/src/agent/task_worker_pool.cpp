@@ -759,20 +759,28 @@ void TaskWorkerPool::_download_worker_thread_callback() {
             _tasks.pop_front();
         }
         LOG(INFO) << "get download task. signature=" << agent_task_req.signature
-                  << ", job_id=" << download_request.job_id;
+                  << ", job_id=" << download_request.job_id
+                  << "task detail: " << apache::thrift::ThriftDebugString(download_request);
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
 
-        std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
-                _env, download_request.job_id, agent_task_req.signature,
-                download_request.broker_addr, download_request.broker_prop);
-        Status status = loader->init(
-                download_request.__isset.storage_backend ? download_request.storage_backend
-                                                         : TStorageBackendType::type::BROKER,
-                download_request.__isset.location ? download_request.location : "");
-        if (status.ok()) {
-            status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+        auto status = Status::OK();
+        if (download_request.__isset.remote_tablet_snapshots) {
+            SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
+            loader.remote_http_download(download_request.remote_tablet_snapshots,
+                                        &downloaded_tablet_ids);
+        } else {
+            std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
+                    _env, download_request.job_id, agent_task_req.signature,
+                    download_request.broker_addr, download_request.broker_prop);
+            status = loader->init(
+                    download_request.__isset.storage_backend ? download_request.storage_backend
+                                                             : TStorageBackendType::type::BROKER,
+                    download_request.__isset.location ? download_request.location : "");
+            if (status.ok()) {
+                status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
+            }
         }
 
         if (!status.ok()) {
@@ -1454,8 +1462,8 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
-                LOG(INFO) << "wait for previous publish version task to be done"
-                          << "transaction_id: " << publish_version_req.transaction_id;
+                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done"
+                                       << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
                 LOG_WARNING("failed to publish version")

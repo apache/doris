@@ -333,7 +333,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
         }
     }
-
     {
         _collect_query_statistics();
         Status status;
@@ -347,7 +346,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(nullptr);
     _done = true;
-
     return Status::OK();
 }
 
@@ -390,7 +388,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
+    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {

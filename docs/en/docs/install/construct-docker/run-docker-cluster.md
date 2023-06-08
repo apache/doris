@@ -74,7 +74,7 @@ For the sake of presentation, this chapter only demonstrates scripts written in 
 
 ### Interface Description
 
-From the version of `Apache Doris 1.2.1 Docker Image`, the interface list of each process image is as follows:
+From the version of `Apache Doris 1.2.2 Docker Image`, the interface list of each process image is as follows:
 
 | process name | interface name | interface definition | interface example |
 | -------------- |-------------| ------------------- | -------------------------------------------------------------- |
@@ -82,7 +82,7 @@ From the version of `Apache Doris 1.2.1 Docker Image`, the interface list of eac
 | FE | FE_ID       | FE node ID | 1 |
 | BE | BE_ADDR     | BE node main information | 172.20.80.5:9050 |
 | BE | NODE_ROLE | BE node type | computation |
-| BROKER | BROKER_ADDR | Main information of BROKER node | 172.20.80.6:8000 |
+| BROKER | BROKER_ADDR | Main information of BROKER node | broker:172.20.80.6:8000 |
 
 Note that the above interface must fill in the information, otherwise the process cannot be started.
 
@@ -94,7 +94,7 @@ Note that the above interface must fill in the information, otherwise the proces
 >
 > The NODE_ROLE interface rule is: `computation` or empty, where empty or other values indicate that the node type is `mix` type
 >
-> BROKER_ADDR interface rule is: `BROKER_HOST:BROKER_IPC_PORT`
+> BROKER_ADDR interface rule is: `BROKER_NAME:BROKER_HOST_IP:BROKER_IPC_PORT`
 
 ### Script Template
 
@@ -106,7 +106,7 @@ Create a subnet bridge
 docker network create --driver bridge --subnet=172.20.80.0/24 doris-network
 ```
 
-1FE & 1BE Command Templates
+1FE & 1BE & 1Broker Command Templates
 
 ```shell
 docker run -itd \
@@ -116,11 +116,10 @@ docker run -itd \
 -p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
--v /data/fe/conf:/opt/apache-doris/fe/conf \
 -v /data/fe/log:/opt/apache-doris/fe/log \
 --network=doris-network \
---ip=172.20.80.2 \
-apache/doris:1.2.1-fe-x86_64
+--ip=172.20.80.2\
+apache/doris:1.2.2-fe-x86_64
 
 docker run -itd \
 --name=be \
@@ -128,12 +127,20 @@ docker run -itd \
 --env BE_ADDR="172.20.80.3:9050" \
 -p 8040:8040 \
 -v /data/be/storage:/opt/apache-doris/be/storage \
--v /data/be/conf:/opt/apache-doris/be/conf \
 -v /data/be/log:/opt/apache-doris/be/log \
 --network=doris-network \
---ip=172.20.80.3 \
-apache/doris:1.2.1-be-x86_64  # if CPU does not support AVX2, use
-                              # apache/doris:1.2.1-be-x86_64-noavx2
+--ip=172.20.80.3\
+apache/doris:1.2.2-be-x86_64
+
+docker run -itd \
+--name=broker1\
+--env FE_SERVERS="fe1:172.20.80.2:9010" \
+--env BROKER_ADDR="broker1:172.20.80.6:8000" \
+-p 8000:8000 \
+-v /data/broker/log:/opt/apache-doris/broker/log \
+--network=doris-network \
+--ip=172.20.80.6\
+apache/doris:1.2.2-broker-x86_64
 ```
 
 > Note: if you CPU does not support AVX2, the backend will fail to start. 
@@ -144,13 +151,13 @@ apache/doris:1.2.1-be-x86_64  # if CPU does not support AVX2, use
 
 #### Docker Compose script
 
-1FE & 1BE template
+1FE & 1BE & 1Broker template
 
 ```yaml
 version: '3'
 services:
    docker-fe:
-     image: "apache/doris:1.2.1-fe-x86_64"
+     image: "apache/doris:1.2.2-fe-x86_64"
      container_name: "doris-fe"
      hostname: "fe"
      environment:
@@ -161,13 +168,12 @@ services:
        - 9030:9030
      volumes:
        - /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta
-       - /data/fe/conf:/opt/apache-doris/fe/conf
        - /data/fe/log:/opt/apache-doris/fe/log
      networks:
        doris_net:
          ipv4_address: 172.20.80.2
    docker-be:
-     image: "apache/doris:1.2.1-be-x86_64"  # use apache/doris:1.2.1-be-x86_64-noavx2, if CPU does not support AVX2
+     image: "apache/doris:1.2.2-be-x86_64"
      container_name: "doris-be"
      hostname: "be"
      depends_on:
@@ -179,12 +185,27 @@ services:
        - 8040:8040
      volumes:
        - /data/be/storage:/opt/apache-doris/be/storage
-       - /data/be/conf:/opt/apache-doris/be/conf
        - /data/be/script:/docker-entrypoint-initdb.d
        - /data/be/log:/opt/apache-doris/be/log
      networks:
        doris_net:
          ipv4_address: 172.20.80.3
+   docker-broker:
+     image: "apache/doris:1.2.2-broker-x86_64"
+     container_name: "doris-broker"
+     hostname: "broker"
+     depends_on:
+       - docker-fe
+     environment:
+       - FE_SERVERS=fe1:172.20.80.2:9010
+       - BROKER_ADDR=broker1:172.20.80.6:8000
+     volumes:
+       - /data/broker/log:/opt/apache-doris/broker/log
+     ports:
+       - 8000:8000
+     networks:
+       doris_net:
+         ipv4_address: 172.20.80.6
 networks:
    doris_net:
      ipam:

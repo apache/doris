@@ -911,7 +911,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     for (auto& tablet : tablets) {
         auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
-        tablet->build_tablet_report_info(&tablet_info, true);
+        tablet->build_tablet_report_info(&tablet_info, true, true);
         // find expired transaction corresponding to this tablet
         TabletInfo tinfo(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
         auto find = expire_txn_map.find(tinfo);

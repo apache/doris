@@ -44,7 +44,7 @@ class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
 
-    DataTypeFixedLengthObject() {}
+    DataTypeFixedLengthObject() = default;
 
     DataTypeFixedLengthObject(const DataTypeFixedLengthObject& other) {}
 

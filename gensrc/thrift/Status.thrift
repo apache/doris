@@ -91,6 +91,9 @@ enum TStatusCode {
     BINLOG_TOO_NEW_COMMIT_SEQ = 62,
     BINLOG_NOT_FOUND_DB = 63,
     BINLOG_NOT_FOUND_TABLE = 64,
+
+    // Snapshot Related from 70
+    SNAPSHOT_NOT_EXIST = 70,
 }
 
 struct TStatus {

@@ -752,13 +752,13 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
     if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-        res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+        res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
         (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
-        // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+        // 2. INVERTED_INDEX_BYPASS means the hit of condition by index
         //    has reached the optimal limit, downgrade without index query can
         //    improve query performance.
         // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
@@ -1262,9 +1262,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->get_filter_id() != -1) {
-                    _filter_info_id.push_back(predicate);
-                }
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1642,8 +1640,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto p : _filter_info_id) {
         _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
     }
-    _opts.stats->short_circuit_cond_input_rows += original_size;
-    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 

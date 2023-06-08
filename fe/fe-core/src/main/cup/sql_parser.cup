@@ -256,6 +256,7 @@ terminal String
     KW_ANTI,
     KW_APPEND,
     KW_ARRAY,
+    KW_AUTO_INCREMENT,
     KW_AS,
     KW_ASC,
     KW_AUTHORS,
@@ -868,7 +869,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -3470,21 +3471,21 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         columnDef.setGenericAggregationName(fnName);
         columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
@@ -3524,6 +3525,15 @@ opt_is_allow_null ::=
     :}
     ;
 
+opt_is_auto_inc ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_AUTO_INCREMENT
+    {:
+        RESULT = true;
+    :}
+    ;
 opt_comment ::=
     /* empty */
     {:
@@ -4917,9 +4927,9 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetVar(variable, expr);
     :}
-    | AT ident_or_text:var equal literal:expr
+    | AT ident_or_text:var equal expr:expr
     {:
-        RESULT = new SetVar(var, expr);
+        RESULT = new SetUserDefinedVar(var, expr);
     :}
     /* Ident */
     | AT AT variable_name:variable equal set_expr_or_default:expr
@@ -6401,13 +6411,17 @@ exists_predicate ::=
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
+  | AT ident:l
+  {:
+    RESULT = new VariableExpr(l, SetType.USER);
+  :}
   | AT AT ident:l
   {:
-    RESULT = new SysVariableDesc(l);
+    RESULT = new VariableExpr(l);
   :}
   | AT AT var_ident_type:type ident:l
   {:
-    RESULT = new SysVariableDesc(l, type);
+    RESULT = new VariableExpr(l, type);
   :}
   | literal:l
   {: RESULT = l; :}
@@ -6424,11 +6438,11 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATE, new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATEV2, new StringLiteral(l)); :}
   | KW_TIMESTAMP STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(Type.DATETIME, new StringLiteral(l)); :}
   | KW_EXTRACT LPAREN function_name:fn_name KW_FROM func_arg_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, exprs); :}
   //| function_name:fn_name LPAREN RPAREN

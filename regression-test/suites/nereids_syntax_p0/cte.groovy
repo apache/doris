@@ -237,6 +237,40 @@ suite("cte") {
      
     """
 
+    qt_cte13 """
+            SELECT abs(dd.s_suppkey)
+            FROM (
+            WITH part AS 
+                (SELECT s_suppkey
+                FROM supplier
+                WHERE s_suppkey < 30 )
+                    SELECT p1.s_suppkey
+                    FROM part p1
+                    JOIN part p2
+                        ON p1.s_suppkey = p2.s_suppkey
+                    WHERE p1.s_suppkey > 0 ) dd
+                WHERE dd.s_suppkey > 0
+                ORDER BY dd.s_suppkey;
+    """
+
+    sql "set experimental_enable_pipeline_engine=true"
+
+    qt_cte14 """
+            SELECT abs(dd.s_suppkey)
+            FROM (
+            WITH part AS 
+                (SELECT s_suppkey
+                FROM supplier
+                WHERE s_suppkey < 30 )
+                    SELECT p1.s_suppkey
+                    FROM part p1
+                    JOIN part p2
+                        ON p1.s_suppkey = p2.s_suppkey
+                    WHERE p1.s_suppkey > 0 ) dd
+                WHERE dd.s_suppkey > 0
+                ORDER BY dd.s_suppkey;
+    """
+
     test {
         sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier) SELECT * FROM cte1"
 

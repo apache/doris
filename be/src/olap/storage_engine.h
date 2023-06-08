@@ -261,6 +261,8 @@ private:
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
 
+    void _tablet_path_check_callback();
+
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
 
@@ -378,6 +380,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to check tablet path
+    scoped_refptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
     scoped_refptr<Thread> _lookup_cache_clean_thread;
 

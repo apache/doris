@@ -551,7 +551,7 @@ public class VectorColumn {
 
     public void appendValue(ColumnValue o) {
         ColumnType.Type typeValue = columnType.getType();
-        if (o == null) {
+        if (o == null || o.isNull()) {
             appendNull(typeValue);
             return;
         }
