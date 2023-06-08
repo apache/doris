@@ -37,10 +37,10 @@ Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recom
 java -version
 ```
 
-Next, [download the latest binary version of Doris](https://doris.apache.org/zh-CN/download) and unzip it.
+Next, [download the latest binary version of Doris](https://doris.apache.org/download) and unzip it.
 
 ```
-tar zxf apache-doris-x.x.x.tar.gz
+tar xf apache-doris-x.x.x.tar.xz
 ```
 
 ## Configure Doris
