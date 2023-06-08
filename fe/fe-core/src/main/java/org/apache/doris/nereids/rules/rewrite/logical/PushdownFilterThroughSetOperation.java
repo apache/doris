@@ -45,11 +45,11 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalSetOperation()).then(filter -> {
-            LogicalSetOperation setOperation = filter.child();
+        return logicalFilter(logicalSetOperation()).when(f -> f.child().getQualifier() == Qualifier.ALL).then(f -> {
+            LogicalSetOperation setOperation = f.child();
 
             if (setOperation instanceof LogicalUnion && ((LogicalUnion) setOperation).hasPushedFilter()) {
-                return filter;
+                return f;
             }
 
             List<Plan> newChildren = new ArrayList<>();
@@ -70,26 +70,19 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     replaceMap.put(output, child.getOutput().get(i));
                 }
 
-                Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
+                Set<Expression> newFilterPredicates = f.getConjuncts().stream().map(conjunct ->
                         ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
                 newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
             }
-
             if (allOneRowRelation) {
-                return filter;
-            }
-
-            if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalFilter<>(filter.getConjuncts(),
-                        ((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
+                return f;
             }
 
             if (hasOneRowRelation) {
                 // If there are some `OneRowRelation` exists, we need to keep the `filter`.
-                return filter.withChildren(
-                        ((LogicalUnion) setOperation).withHasPushedFilter().withNewChildren(newChildren));
+                return f.withChildren(((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
             }
-            return setOperation.withNewChildren(newChildren);
+            return setOperation.withChildren(newChildren);
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_SET_OPERATION);
     }
 }

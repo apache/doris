@@ -106,8 +106,6 @@ public:
         return Status::OK();
     }
 
-    int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
-
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
     // Maybe modified by local schema change

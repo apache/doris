@@ -561,9 +561,9 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue) {
-            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroupQueryQueue(context.sessionVariable.workloadGroup);
+        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
+                && context.getSessionVariable().enablePipelineEngine()) {
+            this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
@@ -579,34 +579,40 @@ public class StmtExecutor {
         }
 
         int retryTime = Config.max_query_retry_time;
-        for (int i = 0; i < retryTime; i++) {
-            try {
-                // reset query id for each retry
-                if (i > 0) {
-                    UUID uuid = UUID.randomUUID();
-                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                            uuid.getLeastSignificantBits());
-                    AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
-                            DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
-                    context.setQueryId(newQueryId);
+        try {
+            for (int i = 0; i < retryTime; i++) {
+                try {
+                    //reset query id for each retry
+                    if (i > 0) {
+                        UUID uuid = UUID.randomUUID();
+                        TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
+                                uuid.getLeastSignificantBits());
+                        AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
+                                DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                        context.setQueryId(newQueryId);
+                    }
+                    handleQueryStmt();
+                    break;
+                } catch (RpcException e) {
+                    if (i == retryTime - 1) {
+                        throw e;
+                    }
+                    if (!context.getMysqlChannel().isSend()) {
+                        LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    } else {
+                        throw e;
+                    }
+                } finally {
+                    // The final profile report occurs after be returns the query data, and the profile cannot be
+                    // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
+                    // for the profile before unregisterQuery().
+                    updateProfile(true);
+                    QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                 }
-                handleQueryStmt();
-                break;
-            } catch (RpcException e) {
-                if (i == retryTime - 1) {
-                    throw e;
-                }
-                if (!context.getMysqlChannel().isSend()) {
-                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
-                } else {
-                    throw e;
-                }
-            } finally {
-                // The final profile report occurs after be returns the query data, and the profile cannot be
-                // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-                // for the profile before unregisterQuery().
-                updateProfile(true);
-                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+            }
+        } finally {
+            if (offerRet.isOfferSuccess()) {
+                queryQueue.poll();
             }
         }
     }
@@ -647,9 +653,6 @@ public class StmtExecutor {
                     throw e;
                 } finally {
                     queryAnalysisSpan.end();
-                    if (offerRet.isOfferSuccess()) {
-                        queryQueue.poll();
-                    }
                 }
                 if (isForwardToMaster()) {
                     if (isProxy) {
@@ -1093,11 +1096,6 @@ public class StmtExecutor {
                     parsedStmt.setIsExplain(explainOptions);
                 }
             }
-            if (parsedStmt instanceof QueryStmt && Config.enable_workload_group
-                    && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setWorkloadGroups(analyzer.getEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(context));
-            }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
         planner = new OriginalPlanner(analyzer);
@@ -1356,6 +1354,9 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+        if (Config.enable_workload_group && context.sessionVariable.enablePipelineEngine()) {
+            coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         profile.addExecutionProfile(coord.getExecutionProfile());

@@ -227,7 +227,6 @@ private:
 
     long* _meta_ptr;
     int _meta_index;
-    JNIEnv* _env = nullptr;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates = nullptr;
