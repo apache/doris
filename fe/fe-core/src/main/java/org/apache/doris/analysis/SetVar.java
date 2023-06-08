@@ -187,6 +187,14 @@ public class SetVar {
                         instanceNum + "(Should not be set to more than " + Config.max_instance_num + ")");
             }
         }
+        if (getVariable().equalsIgnoreCase(SessionVariable.PARALLEL_PIPELINE_TASK_NUM)) {
+            int instanceNum = Integer.parseInt(getValue().getStringValue());
+            if (instanceNum > Config.max_instance_num) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.PARALLEL_PIPELINE_TASK_NUM,
+                        instanceNum + "(Should not be set to more than " + Config.max_instance_num + ")");
+            }
+        }
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getResult().getStringValue())));
             this.result = (LiteralExpr) this.value;

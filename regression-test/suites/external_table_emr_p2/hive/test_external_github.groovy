@@ -269,8 +269,8 @@ suite("test_external_github", "p2") {
         GROUP BY repo_name
         ORDER BY count() DESC
         LIMIT 50"""
-    def repositoriesWithClickhouse_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%clickhouse%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
-    def repositoriesWithClickhouse_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */
+    def repositoriesWithClickhouse_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_pipeline_task_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%clickhouse%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
+    def repositoriesWithClickhouse_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_pipeline_task_num=8, query_timeout=600) */
             repo_name,
             sum(num_star) AS num_stars,
             sum(num_comment) AS num_comments
@@ -287,8 +287,8 @@ suite("test_external_github", "p2") {
         HAVING num_comments > 0
         ORDER BY num_stars DESC,num_comments DESC,repo_name ASC
         LIMIT 50"""
-    def repositoriesWithDoris_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%doris%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
-    def repositoriesWithDoris_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */
+    def repositoriesWithDoris_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%doris%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
+    def repositoriesWithDoris_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_fragment_exec_instance_num=8, query_timeout=600) */
             repo_name,
             sum(num_star) AS num_stars,
             sum(num_comment) AS num_comments
