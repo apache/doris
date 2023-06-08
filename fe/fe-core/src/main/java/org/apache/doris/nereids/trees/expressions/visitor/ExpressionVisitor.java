@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.PlaceholderSlot;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -451,5 +452,9 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
         return visitNamedExpression(unboundStar, context);
+    }
+
+    public R visitPlaceholderSlot(PlaceholderSlot placeholderSlot, C context) {
+        return visitSlot(placeholderSlot, context);
     }
 }

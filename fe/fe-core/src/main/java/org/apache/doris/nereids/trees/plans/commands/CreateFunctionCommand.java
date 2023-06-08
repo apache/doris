@@ -19,14 +19,25 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PlaceholderSlot;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -82,6 +93,24 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     private void handleAliasFunction(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
         checkDb(ctx);
+        Map<String, PlaceholderSlot> replaceMap = Maps.newHashMap();
+        for (int i = 0; i < paramStrings.size(); ++i) {
+            replaceMap.put(paramStrings.get(i), new PlaceholderSlot(paramStrings.get(i),
+                    DataType.convertFromString(argTypeStrings.get(i))));
+        }
+        Expression unboundOriginalFunction = UnboundSlotReplacer.INSTANCE.replace(originalFunction, replaceMap);
+
+        // build a placeholder plan to analyze and optimize the function.
+        UnboundOneRowRelation placeholderPlan = new UnboundOneRowRelation(RelationUtil.newRelationId(),
+                ImmutableList.of(new Alias(unboundOriginalFunction, "ORIGINAL_FUNCTION")));
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(placeholderPlan, ctx.getStatementContext());
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.plan(adapter, ctx.getSessionVariable().toThrift());
+
+        Expression optimizedFunction = ((Alias) ((PhysicalOneRowRelation) planner.getPhysicalPlan())
+                .getProjects().get(0)).child();
+
+        optimizedFunction.hasUnbound();
     }
 
     private void checkDb(ConnectContext ctx) throws AnalysisException {
@@ -107,5 +136,22 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateFunctionCommand(this, context);
+    }
+
+    private static class UnboundSlotReplacer extends DefaultExpressionRewriter<Map<String, PlaceholderSlot>> {
+        public static final UnboundSlotReplacer INSTANCE = new UnboundSlotReplacer();
+
+        public Expression replace(Expression expression, Map<String, PlaceholderSlot> context) {
+            return expression.accept(this, context);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Map<String, PlaceholderSlot> context) {
+            String slotName = unboundSlot.getNameParts().get(0);
+            if (!context.containsKey(slotName)) {
+                throw new RuntimeException(String.format("%s is not exist in parameters", slotName));
+            }
+            return context.get(slotName);
+        }
     }
 }

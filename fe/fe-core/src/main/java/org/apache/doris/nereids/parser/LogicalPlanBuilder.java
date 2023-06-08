@@ -316,11 +316,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.ALIAS() != null,
                 visitMultipartIdentifier(ctx.funcName),
                 visitIdentifierList(ctx.argTypes),
-                ctx.retType.getText(),
-                ctx.interType.getText(),
-                visitIdentifierList(ctx.params),
-                getExpression(ctx.expression()),
-                ctx.properties.stream().map(this::visitProperty)
+                ctx.retType == null ? null : ctx.retType.getText(),
+                ctx.interType == null ? null : ctx.interType.getText(),
+                ctx.params == null ? null : visitIdentifierList(ctx.params),
+                ctx.expression() == null ? null : getExpression(ctx.expression()),
+                ctx.properties == null ? null : ctx.properties.stream().map(this::visitProperty)
                         .collect(Collectors.toMap(pair -> pair.first, pair -> pair.second, (v1, v2) -> v2))
         );
     }
