@@ -63,8 +63,7 @@
 namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
-    return create_data_type(assert_cast<const AggStateField&>(col_desc).get_desc(),
-                            col_desc.is_nullable());
+    return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }
 
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
