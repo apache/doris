@@ -431,6 +431,7 @@ private:
     std::vector<ColumnPredicate*> _filter_info_id;
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
+    std::set<int32_t> _output_columns;
 };
 
 } // namespace segment_v2
