@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT ucase(VARCHAR str)`
+`VARCHAR ucase(VARCHAR str)`
 
 
 Convert all strings in parameters to uppercase. Another alias for this function is [upper](./upper.md).
