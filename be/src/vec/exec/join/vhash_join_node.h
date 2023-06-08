@@ -253,6 +253,17 @@ public:
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
 private:
+    void _init_short_circuit_for_probe() override {
+        _short_circuit_for_probe =
+                (_short_circuit_for_null_in_probe_side &&
+                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+    }
+
     // probe expr
     VExprContextSPtrs _probe_expr_ctxs;
     // build expr

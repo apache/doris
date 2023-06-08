@@ -518,7 +518,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_null_in_probe_side;
+           !_short_circuit_for_probe;
 }
 
 void HashJoinNode::prepare_for_next() {
@@ -528,9 +528,8 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -661,9 +660,8 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -949,6 +947,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
+    _init_short_circuit_for_probe();
+
     return Status::OK();
 }
 
@@ -957,7 +957,7 @@ void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
          << " _probe_eos=" << _probe_eos
-         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+         << " _short_circuit_for_probe_side=" << _short_circuit_for_probe;
     *out << ")\n children=(";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
