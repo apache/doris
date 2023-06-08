@@ -732,6 +732,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
 
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
+
 #### `single_replica_load_download_num_workers`
 * 类型: int32
 * 描述: 单副本数据导入功能中，Slave副本通过HTTP从Master副本下载数据文件的工作线程数。导入并发增大时，可以适当调大该参数来保证Slave副本及时同步Master副本数据。必要时也应相应地调大`webserver_num_workers`来提高IO效率。

@@ -24,8 +24,6 @@ import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
-import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
 
@@ -127,7 +125,6 @@ public class MTMVTaskManager {
         MTMVTask task = taskExecutor.initTask(taskId, MTMVUtils.getNowTimeStamp());
         task.setPriority(params.getPriority());
         LOG.info("Submit a mtmv task with id: {} of the job {}.", taskId, taskExecutor.getJob().getName());
-        Env.getCurrentEnv().getEditLog().logCreateMTMVTask(task);
         arrangeToPendingTask(taskExecutor);
         return MTMVUtils.TaskSubmitStatus.SUBMITTED;
     }
@@ -201,7 +198,7 @@ public class MTMVTaskManager {
                 if (finalState == TaskState.FAILURE) {
                     failedTaskCount.incrementAndGet();
                 }
-                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING, finalState);
+                Env.getCurrentEnv().getEditLog().logCreateMTMVTask(taskExecutor.getTask());
 
                 TriggerMode triggerMode = taskExecutor.getJob().getTriggerMode();
                 if (triggerMode == TriggerMode.ONCE) {
@@ -239,17 +236,10 @@ public class MTMVTaskManager {
                     MTMVTaskExecutor pendingTaskExecutor = taskQueue.poll();
                     taskExecutorPool.executeTask(pendingTaskExecutor);
                     runningTaskMap.put(jobId, pendingTaskExecutor);
-                    // change status from PENDING to Running
-                    changeAndLogTaskStatus(jobId, pendingTaskExecutor.getTask(), TaskState.PENDING, TaskState.RUNNING);
                     currentRunning++;
                 }
             }
         }
-    }
-
-    private void changeAndLogTaskStatus(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
-        ChangeMTMVTask changeTask = new ChangeMTMVTask(jobId, task, fromStatus, toStatus);
-        Env.getCurrentEnv().getEditLog().logChangeMTMVTask(changeTask);
     }
 
     public boolean tryLock() {
@@ -328,86 +318,7 @@ public class MTMVTaskManager {
     }
 
     public void replayCreateJobTask(MTMVTask task) {
-        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILURE) {
-            if (MTMVUtils.getNowTimeStamp() > task.getExpireTime()) {
-                return;
-            }
-        }
-
-        switch (task.getState()) {
-            case PENDING:
-                String jobName = task.getJobName();
-                MTMVJob job = mtmvJobManager.getJob(jobName);
-                if (job == null) {
-                    LOG.warn("fail to obtain task name {} because task is null", jobName);
-                    return;
-                }
-                MTMVTaskExecutor taskExecutor = MTMVUtils.buildTask(job);
-                taskExecutor.setTask(task);
-                arrangeToPendingTask(taskExecutor);
-                break;
-            case RUNNING:
-                task.setState(TaskState.FAILURE);
-                addHistory(task);
-                break;
-            case FAILURE:
-            case SUCCESS:
-                addHistory(task);
-                break;
-            default:
-                break;
-        }
-    }
-
-    public void replayUpdateTask(ChangeMTMVTask changeTask) {
-        TaskState fromStatus = changeTask.getFromStatus();
-        TaskState toStatus = changeTask.getToStatus();
-        Long jobId = changeTask.getJobId();
-        if (fromStatus == TaskState.PENDING) {
-            Queue<MTMVTaskExecutor> taskQueue = getPendingTaskMap().get(jobId);
-            if (taskQueue == null) {
-                return;
-            }
-            if (taskQueue.size() == 0) {
-                getPendingTaskMap().remove(jobId);
-                return;
-            }
-
-            MTMVTaskExecutor pendingTask = taskQueue.poll();
-            MTMVTask status = pendingTask.getTask();
-
-            if (toStatus == TaskState.RUNNING) {
-                if (status.getTaskId().equals(changeTask.getTaskId())) {
-                    status.setState(TaskState.RUNNING);
-                    getRunningTaskMap().put(jobId, pendingTask);
-                }
-            } else if (toStatus == TaskState.FAILURE) {
-                status.setMessage(changeTask.getErrorMessage());
-                status.setErrorCode(changeTask.getErrorCode());
-                status.setState(TaskState.FAILURE);
-                addHistory(status);
-            }
-            if (taskQueue.size() == 0) {
-                getPendingTaskMap().remove(jobId);
-            }
-        } else if (fromStatus == TaskState.RUNNING && (toStatus == TaskState.SUCCESS
-                || toStatus == TaskState.FAILURE)) {
-            MTMVTaskExecutor runningTask = getRunningTaskMap().remove(jobId);
-            if (runningTask == null) {
-                return;
-            }
-            MTMVTask status = runningTask.getTask();
-            if (status.getTaskId().equals(changeTask.getTaskId())) {
-                status.setMessage(changeTask.getErrorMessage());
-                status.setErrorCode(changeTask.getErrorCode());
-                status.setState(toStatus);
-                status.setFinishTime(changeTask.getFinishTime());
-                addHistory(status);
-            }
-        } else {
-            LOG.warn("Illegal  Task taskId:{} status transform from {} to {}", changeTask.getTaskId(), fromStatus,
-                    toStatus);
-        }
+        addHistory(task);
     }
 
     public void clearTasksByJobName(String jobName, boolean isReplay) {
@@ -462,11 +373,13 @@ public class MTMVTaskManager {
             Set<String> taskSet = new HashSet<>(taskIds);
             // Pending tasks will be clear directly. So we don't drop it again here.
             // Check the running task since the task was killed but was not move to the history queue.
-            for (long key : runningTaskMap.keySet()) {
-                MTMVTaskExecutor executor = runningTaskMap.get(key);
-                // runningTaskMap may be removed in the runningIterator
-                if (executor != null && taskSet.contains(executor.getTask().getTaskId())) {
-                    runningTaskMap.remove(key);
+            if (!isReplay) {
+                for (long key : runningTaskMap.keySet()) {
+                    MTMVTaskExecutor executor = runningTaskMap.get(key);
+                    // runningTaskMap may be removed in the runningIterator
+                    if (executor != null && taskSet.contains(executor.getTask().getTaskId())) {
+                        runningTaskMap.remove(key);
+                    }
                 }
             }
             // Try to remove history tasks.
@@ -478,41 +391,5 @@ public class MTMVTaskManager {
             unlock();
         }
         LOG.info("drop task history:{}", taskIds);
-    }
-
-    public void clearUnfinishedTasks() {
-        if (!tryLock()) {
-            return;
-        }
-        try {
-            Iterator<Long> pendingIter = getPendingTaskMap().keySet().iterator();
-            while (pendingIter.hasNext()) {
-                Queue<MTMVTaskExecutor> tasks = getPendingTaskMap().get(pendingIter.next());
-                while (!tasks.isEmpty()) {
-                    MTMVTaskExecutor taskExecutor = tasks.poll();
-                    taskExecutor.getTask().setMessage("Fe abort the task");
-                    taskExecutor.getTask().setErrorCode(-1);
-                    taskExecutor.getTask().setState(TaskState.FAILURE);
-                    addHistory(taskExecutor.getTask());
-                    changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.PENDING,
-                            TaskState.FAILURE);
-                }
-                pendingIter.remove();
-            }
-            Iterator<Long> runningIter = getRunningTaskMap().keySet().iterator();
-            while (runningIter.hasNext()) {
-                MTMVTaskExecutor taskExecutor = getRunningTaskMap().get(runningIter.next());
-                taskExecutor.getTask().setMessage("Fe abort the task");
-                taskExecutor.getTask().setErrorCode(-1);
-                taskExecutor.getTask().setState(TaskState.FAILURE);
-                taskExecutor.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
-                runningIter.remove();
-                addHistory(taskExecutor.getTask());
-                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
-                        TaskState.FAILURE);
-            }
-        } finally {
-            unlock();
-        }
     }
 }
