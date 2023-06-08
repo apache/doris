@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -72,6 +76,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private final Map<String, String> properties;
     // field when running
     private Database database;
+    private String fnName;
 
     /**
      * constructor
@@ -130,10 +135,19 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         ctx.getFunctionRegistry().addAliasFunction(functionNameParts.get(functionNameParts.size() - 1), builder);
 
         Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
+        AliasFunction originalAliasFunction = AliasFunction.createFunction(
+                new FunctionName(database.getFullName(), fnName),
+                argTypeStrings.stream().map(arg -> Type.fromPrimitiveType(PrimitiveType.valueOf(arg)))
+                        .toArray(Type[]::new),
+                Type.fromPrimitiveType(PrimitiveType.valueOf(retTypeString)),
+                false,
+                paramStrings,
+                expr
+        );
         if (isGlobal) {
-            ctx.getEnv().getGlobalFunctionMgr().addFunction(expr.getFn(), false, true);
+            ctx.getEnv().getGlobalFunctionMgr().addFunction(originalAliasFunction, false, true);
         } else {
-            database.addFunction(expr.getFn(), false, true);
+            database.addFunction(originalAliasFunction, false, true);
         }
     }
 
@@ -141,8 +155,10 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         String dbName;
         if (functionNameParts.size() == 1) {
             dbName = ctx.getDatabase();
+            fnName = functionNameParts.get(0);
         } else if (functionNameParts.size() == 2) {
             dbName = functionNameParts.get(0);
+            fnName = functionNameParts.get(1);
         } else {
             throw new AnalysisException(String.format("%s is an invalid name", functionNameParts));
         }
