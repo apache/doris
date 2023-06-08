@@ -17,19 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Suppliers;
-import com.google.common.collect.Lists;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;

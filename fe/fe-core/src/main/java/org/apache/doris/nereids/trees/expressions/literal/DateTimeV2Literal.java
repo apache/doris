@@ -24,8 +24,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.time.LocalDateTime;
 
 /**

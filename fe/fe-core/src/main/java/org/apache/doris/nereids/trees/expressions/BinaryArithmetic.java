@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,9 +29,6 @@ import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
