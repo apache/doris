@@ -133,6 +133,18 @@ public class Config extends ConfigBase {
     @ConfField
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
+    // jdbc catalog initial number of connections
+    @ConfField(mutable = true, masterOnly = true)
+    public static int jdbc_init_pool_size = 1;
+
+    // jdbc catalog maximum number of active connections
+    @ConfField(mutable = true, masterOnly = true)
+    public static int jdbc_max_pool_size = 100;
+
+    // jdbc catalog connection timeout time, default 5s, do not set more than 30s
+    @ConfField(mutable = true, masterOnly = true)
+    public static int jdbc_max_wait_time = 5000;
+
     /**
      * The default parallelism of the load execution plan
      * on a single node when the broker load is submitted

@@ -72,6 +72,30 @@ const std::string GetDorisJNIClasspathOption() {
     }
 }
 
+struct JdbcOptions {
+    int init_pool;
+    int max_pool;
+    int max_idel_time;
+    int max_wait_time;
+
+    JdbcOptions() {
+        init_pool = config::jdbc_init_pool_size;
+        max_pool = config::jdbc_max_pool_size;
+        max_idel_time = config::jdbc_max_idel_time;
+        max_wait_time = config::jdbc_max_wait_time;
+    }
+
+    std::string toString() const {
+        std::stringstream jdbc_str;
+        jdbc_str << " "
+                 << "-DJDBC_INIT_POOL=" << init_pool << " "
+                 << "-DJDBC_MAX_POOL=" << max_pool << " "
+                 << "-DJDBC_MAX_IDEL_TIME=" << max_idel_time << " "
+                 << "-DJDBC_MAX_WAIT_TIME=" << max_wait_time;
+        return jdbc_str.str();
+    }
+};
+
 [[maybe_unused]] void SetEnvIfNecessary() {
     const auto* doris_home = getenv("DORIS_HOME");
     DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
@@ -81,9 +105,13 @@ const std::string GetDorisJNIClasspathOption() {
             fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
     setenv("CLASSPATH", classpath.c_str(), 0);
 
+    JdbcOptions jdbcOpts;
+    std::string jdbc_opts_str = jdbcOpts.toString();
+
     // LIBHDFS_OPTS
     setenv("LIBHDFS_OPTS",
-           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
+           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"),
+                       jdbc_opts_str)
                    .c_str(),
            0);
 }
@@ -95,12 +123,16 @@ const std::string GetDorisJNIClasspathOption() {
     if (rv == 0) {
         std::vector<std::string> options;
 
+        JdbcOptions jdbcOpts;
+        std::string jdbc_opts_str = jdbcOpts.toString();
+
         char* java_opts = getenv("JAVA_OPTS");
         if (java_opts == nullptr) {
             options = {
                     GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
                     fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
                     fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
+                    jdbc_opts_str,
 #ifdef __APPLE__
                     // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
                     // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
@@ -110,7 +142,7 @@ const std::string GetDorisJNIClasspathOption() {
 #endif
             };
         } else {
-            std::istringstream stream(java_opts);
+            std::istringstream stream(java_opts + jdbc_opts_str);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
             options.push_back(GetDorisJNIClasspathOption());
