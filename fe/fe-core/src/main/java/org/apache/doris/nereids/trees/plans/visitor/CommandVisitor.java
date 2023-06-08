@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
@@ -42,5 +43,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitUpdateCommand(UpdateCommand updateCommand, C context) {
         return visitCommand(updateCommand, context);
+    }
+
+    default R visitCreateFunctionCommand(CreateFunctionCommand createFunctionCommand, C context) {
+        return visitCommand(createFunctionCommand, context);
     }
 }
