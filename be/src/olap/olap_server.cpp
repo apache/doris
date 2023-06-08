@@ -409,7 +409,7 @@ void StorageEngine::_tablet_path_check_callback() {
     using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
 
     int64_t interval = config::tablet_path_check_interval_seconds;
-    if (inteval <= 0) {
+    if (interval <= 0) {
         return;
     }
 
