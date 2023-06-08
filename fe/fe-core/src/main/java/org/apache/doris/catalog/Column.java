@@ -356,7 +356,8 @@ public class Column implements Writable, GsonPostProcessable {
 
     public boolean isRowStoreColumn() {
         return !visible && (aggregationType == AggregateType.REPLACE
-                || aggregationType == AggregateType.NONE) && nameEquals(ROW_STORE_COL, true);
+                || aggregationType == AggregateType.NONE || aggregationType == null)
+                && nameEquals(ROW_STORE_COL, true);
     }
 
     public boolean isVersionColumn() {
