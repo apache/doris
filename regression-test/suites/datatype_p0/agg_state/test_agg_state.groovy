@@ -48,7 +48,7 @@ suite("test_agg_state") {
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1","disable_auto_compaction" = "true");
+            properties("replication_num" = "1");
         """
 
     sql "insert into a_table select 1,max_by_state(1,3);"
@@ -60,6 +60,7 @@ suite("test_agg_state") {
     qt_merge1 """select max_by_merge(k2) from a_table;"""
     
     sql "insert into a_table select k1+1, max_by_state(k2,k1) from d_table;"
+    sql "sync"
 
     qt_length2 """select k1,length(k2) from a_table order by k1;"""
     qt_group2 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""
