@@ -26,12 +26,12 @@ feAddress = "127.0.0.1"
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
 jdbcUrl = "jdbc:mysql://${feAddress}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://${feAddress}:9130/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://${feAddress}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
 feSourceThriftAddress = "${feAddress}:9020"
-feTargetThriftAddress = "${feAddress}:9120"
+feTargetThriftAddress = "${feAddress}:9020"
 feSyncerUser = "root"
 feSyncerPassword = ""
 

@@ -100,7 +100,7 @@ suite("test_get_binlog_case") {
     // sql """DROP USER IF EXISTS ${readOnlyUser}"""
     // sql """CREATE USER ${readOnlyUser} IDENTIFIED BY '123456'"""
     // sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${readOnlyUser}"""
-    // sql """GRANT SELECT_PRIV ON ${context.dbName}.${seqTableName} TO ${readOnlyUser}"""
+    // sql """GRANT SELECT_PRIV ON TEST_${context.dbName}.${seqTableName} TO ${readOnlyUser}"""
     // syncer.context.user = "${readOnlyUser}"
     // syncer.context.passwd = "123456"
     // assertTrue(syncer.getBinlog("${seqTableName}"))
@@ -127,7 +127,7 @@ suite("test_get_binlog_case") {
     sql """DROP USER IF EXISTS ${noPrivUser}"""
     sql """CREATE USER ${noPrivUser} IDENTIFIED BY '123456'"""
     sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
-    sql """GRANT ALL ON ${context.dbName}.${emptyTable} TO ${noPrivUser}"""
+    sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue((syncer.getBinlog("${seqTableName}")) == false)
