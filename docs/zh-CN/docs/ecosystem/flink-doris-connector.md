@@ -387,7 +387,7 @@ Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL�
 
 一般Kafka中的消息会使用特定字段来标记操作类型，比如{"op_type":"delete",data:{...}}。针对这类数据，希望将op_type=delete的数据删除掉。
 
-DorisSink默认会根据RowKind来区分事件的类型，通常这种在cdc情况下可以直接获取到事件类型，对隐藏列\_\__DORIS_DELETE_SIGN\__\_进行赋值达到删除的目的，而Kafka则需要根据业务逻辑判断，显示的传入隐藏列的值。
+DorisSink默认会根据RowKind来区分事件的类型，通常这种在cdc情况下可以直接获取到事件类型，对隐藏列`__DORIS_DELETE_SIGN__`进行赋值达到删除的目的，而Kafka则需要根据业务逻辑判断，显示的传入隐藏列的值。
 
 ### 使用
 
