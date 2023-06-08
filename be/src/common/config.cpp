@@ -999,7 +999,7 @@ DEFINE_Int32(max_depth_of_expr_tree, "600");
 DEFINE_mInt64(max_tablet_io_errors, "-1");
 
 // Report a tablet as bad when its path not found
-DEFINE_mInt32(tablet_path_check_interval_seconds, "-1");
+DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
 DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
 // Page size of row column, default 4KB
