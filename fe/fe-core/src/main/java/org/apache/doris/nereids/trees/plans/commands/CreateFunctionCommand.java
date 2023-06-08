@@ -28,12 +28,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PlaceholderSlot;
@@ -121,23 +124,16 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         Expression unboundOriginalFunction = UnboundSlotReplacer.INSTANCE.replace(originalFunction, replaceMap);
 
-        // build a placeholder plan to analyze and optimize the function.
-        UnboundOneRowRelation placeholderPlan = new UnboundOneRowRelation(RelationUtil.newRelationId(),
-                ImmutableList.of(new Alias(unboundOriginalFunction, "ORIGINAL_FUNCTION")));
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        PhysicalPlan physicalPlan = planner.plan(placeholderPlan, PhysicalProperties.ANY);
-
-        Expression optimizedExpression = ((Alias) ((PhysicalOneRowRelation) physicalPlan).getProjects().get(0)).child();
-        Preconditions.checkArgument(optimizedExpression instanceof BoundFunction);
-        BoundFunction optimizedFunction = ((BoundFunction) optimizedExpression);
-
+        Expression boundOriginalFunction = FunctionBinder.INSTANCE.visit(unboundOriginalFunction,
+                new ExpressionRewriteContext())
+        
         AliasFunctionBuilder builder = new AliasFunctionBuilder(
                 optimizedFunction,
                 Arrays.asList(argTypes),
                 ImmutableList.copyOf(replaceMap.values()),
                 ((Constructor<BoundFunction>) optimizedFunction.getClass().getConstructors()[0]));
 
-        ctx.getFunctionRegistry().addAliasFunction(functionNameParts.get(functionNameParts.size() - 1), builder);
+        Env.getCurrentEnv().getFunctionRegistry().addAliasFunction(fnName, builder);
 
         if (isAddToCatalog) {
             Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
@@ -151,7 +147,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     expr
             );
             if (isGlobal) {
-                ctx.getEnv().getGlobalFunctionMgr().addFunction(originalAliasFunction, false, true);
+                Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(originalAliasFunction, false, true);
             } else {
                 database.addFunction(originalAliasFunction, false, true);
             }
