@@ -407,7 +407,7 @@ void StorageEngine::_tablet_path_check_callback() {
     };
 
     using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
-    int64_t last_tablet_id;
+    int64_t last_tablet_id = -1;
 
     int64_t interval;
     do {
@@ -430,7 +430,7 @@ void StorageEngine::_tablet_path_check_callback() {
         for (auto tablet : all_tablets) {
             auto tablet_id = tablet->tablet_id();
             TabletQueue* belong_tablets = nullptr;
-            if (tablet_id > last_tablet_id) {
+            if (tablet_id > last_tablet_id && last_tablet_id != -1) {
                 if (big_id_tablets.size() < batch_size ||
                     big_id_tablets.top()->tablet_id() > tablet_id) {
                     belong_tablets = &big_id_tablets;
