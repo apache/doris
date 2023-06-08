@@ -164,10 +164,6 @@ public class GroupExpression {
         ruleMasks.set(rule.getRuleType().ordinal());
     }
 
-    public void setApplied(RuleType ruleType) {
-        ruleMasks.set(ruleType.ordinal());
-    }
-
     public void propagateApplied(GroupExpression toGroupExpression) {
         toGroupExpression.ruleMasks.or(ruleMasks);
     }

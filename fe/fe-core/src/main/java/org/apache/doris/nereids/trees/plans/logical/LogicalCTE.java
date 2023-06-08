@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,8 +29,11 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,14 +44,35 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
 
+    private final Map<String, CTEId> cteNameToId;
+
+    private final boolean registered;
+
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
-        this(aliasQueries, Optional.empty(), Optional.empty(), child);
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, false, null);
+    }
+
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child, boolean registered,
+            Map<String, CTEId> cteNameToId) {
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, registered,
+                cteNameToId);
     }
 
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child,
+            boolean registered, Map<String, CTEId> cteNameToId) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
+        this.registered = registered;
+        this.cteNameToId = cteNameToId == null ? ImmutableMap.copyOf(initCTEId()) : cteNameToId;
+    }
+
+    private Map<String, CTEId> initCTEId() {
+        Map<String, CTEId> subQueryAliasToUniqueId = new HashMap<>();
+        for (LogicalSubQueryAlias<Plan> subQueryAlias : aliasQueries) {
+            subQueryAliasToUniqueId.put(subQueryAlias.getAlias(), subQueryAlias.getCteId());
+        }
+        return subQueryAliasToUniqueId;
     }
 
     public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
@@ -72,7 +97,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCTE",
-            "aliasQueries", aliasQueries
+                "aliasQueries", aliasQueries
         );
     }
 
@@ -101,7 +126,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(aliasQueries, children.get(0));
+        return new LogicalCTE<>(aliasQueries, children.get(0), registered, cteNameToId);
     }
 
     @Override
@@ -116,11 +141,28 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child(),
+                registered, cteNameToId);
     }
 
     @Override
     public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
+        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child(), registered,
+                cteNameToId);
+    }
+
+    public boolean isRegistered() {
+        return registered;
+    }
+
+    public CTEId findCTEId(String subQueryAlias) {
+        CTEId id = cteNameToId.get(subQueryAlias);
+        Preconditions.checkArgument(id != null, "Cannot find id for sub-query : %s",
+                subQueryAlias);
+        return id;
+    }
+
+    public Map<String, CTEId> getCteNameToId() {
+        return cteNameToId;
     }
 }

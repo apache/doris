@@ -25,6 +25,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -116,9 +118,9 @@ public class CreateRoutineLoadStmtTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
 
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
@@ -166,9 +168,9 @@ public class CreateRoutineLoadStmtTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
 
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,
@@ -197,8 +199,9 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames().getPartitionNames());
         Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
-        Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());
-        Assert.assertEquals(topicName, createRoutineLoadStmt.getKafkaTopic());
+        KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) createRoutineLoadStmt.getDataSourceProperties();
+        Assert.assertEquals(serverAddress, kafkaDataSourceProperties.getBrokerList());
+        Assert.assertEquals(topicName, kafkaDataSourceProperties.getTopic());
         Assert.assertEquals("+08:00", createRoutineLoadStmt.getTimezone());
     }
 

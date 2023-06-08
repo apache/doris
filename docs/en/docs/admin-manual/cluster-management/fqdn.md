@@ -1,7 +1,7 @@
 ---
 {
-"title": "FQDN",
-"language": "en"
+   "title": "FQDN",
+   "language": "en"
 }
 ---
 
@@ -59,6 +59,7 @@ After Doris supports FQDN, communication between nodes is entirely based on FQDN
 4. Verification: It can 'ping fe2' on FE1, and can resolve the correct IP address and ping it, indicating that the network environment is available.
 5. fe.conf settings for each FE node ` enable_ fqdn_ mode = true`.
 6. Refer to[Standard deployment](../../install/standard-deployment.md)
+7. Select several machines to deploy broker on six machines as needed, and execute `ALTER SYSTEM ADD BROKER broker_name "fe1:8000","be1:8000",...;`.
 
 ### Deployment of Doris for K8S
 
@@ -82,7 +83,7 @@ Next, follow the steps below:
    1. Stop the node.
    2. Check if the node has stopped. Execute 'show frontends' through the MySQL client to view the Alive status of the FE node until it becomes false
    3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
-   4. Modify node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: 'enable'_ fqdn_ mode = true`
+   4. Modify node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: `enable_fqdn_mode = true`
    5. Start the node.
 
 2. Enabling FQDN for BE nodes only requires executing the following commands through MySQL, and there is no need to restart BE.

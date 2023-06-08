@@ -109,6 +109,9 @@ public class UnsupportedTypeTest extends TestWithFeService {
     }
 
     private void runPlanner(String sql) {
-        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(new NereidsParser().parseSingle(sql), PhysicalProperties.ANY);
+        new NereidsPlanner(MemoTestUtils.createStatementContext(connectContext, sql)).plan(
+                new NereidsParser().parseSingle(sql),
+                PhysicalProperties.ANY
+        );
     }
 }

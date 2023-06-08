@@ -109,3 +109,33 @@ under the License.
     ```
     'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```
+12. The values of the partition fields in the hudi table can be found on hive, but they cannot be found on doris.
+
+    Doris and hive currently query hudi differently. Doris needs to add partition fields to the avsc file of the hudi table structure. If not added, it will cause Doris to query partition_ Val is empty (even if home. datasource. live_sync. partition_fields=partition_val is set)
+
+    ```
+    {
+        "type": "record",
+        "name": "record",
+        "fields": [{
+            "name": "partition_val",
+            "type": [
+                "null",
+                "string"
+                ],
+            "doc": "Preset partition field, empty string when not partitioned",
+            "default": null
+            },
+            {
+            "name": "name",
+            "type": "string",
+            "doc": "名称"
+            },
+            {
+            "name": "create_time",
+            "type": "string",
+            "doc": "创建时间"
+            }
+        ]
+    }
+    ```

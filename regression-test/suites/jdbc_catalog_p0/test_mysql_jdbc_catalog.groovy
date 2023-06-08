@@ -20,7 +20,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String resource_name = "jdbc_resource_catalog_mysql"
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -51,9 +50,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String test_insert2 = "test_insert2";
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -62,9 +60,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
         
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
-
-
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (
@@ -122,10 +117,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
         // test only_specified_database argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -135,16 +129,14 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "only_specified_database" = "true"
         );"""
         
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
         sql """switch ${catalog_name}"""
 
         qt_specified_database_1   """ show databases; """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
         // test only_specified_database and include_database_list argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -155,16 +147,14 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "include_database_list" = "doris_test"
         );"""
         
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
         sql """switch ${catalog_name}"""
 
         qt_specified_database_2   """ show databases; """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
         // test only_specified_database and exclude_database_list argument
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -175,16 +165,14 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "exclude_database_list" = "doris_test"
         );"""
 
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
         sql """switch ${catalog_name}"""
 
         qt_specified_database_3   """ show databases; """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
         // test include_database_list and exclude_database_list have overlapping items case
-        sql """create resource if not exists ${resource_name} properties(
+        sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -196,13 +184,11 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "exclude_database_list" = "doris_test"
         );"""
 
-        sql """CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name}"""
         sql """switch ${catalog_name}"""
 
         qt_specified_database_4   """ show databases; """
 
         sql """ drop catalog if exists ${catalog_name} """
-        sql """ drop resource if exists ${resource_name} """
 
         // test old create-catalog syntax for compatibility
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -216,6 +202,11 @@ suite("test_mysql_jdbc_catalog", "p0") {
         sql """ switch ${catalog_name} """
         sql """ use ${ex_db_name} """
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
+
+        // test all types supported by MySQL
+        sql """use doris_test;"""
+        qt_mysql_all_types """select * from all_types order by tinyint_u;"""
+
         sql """ drop catalog if exists ${catalog_name} """
     }
 }

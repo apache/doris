@@ -46,7 +46,9 @@ public:
 
     void pull(int sender_idx, vectorized::Block* block, bool* eos);
 
-    void push(RuntimeState* state, vectorized::Block* block, bool eos);
+    void close_sender(int sender_idx);
+
+    Status push(RuntimeState* state, vectorized::Block* block, bool eos);
 
     // use sink to check can_write, now always true after we support spill to disk
     bool can_write() { return true; }
@@ -73,7 +75,7 @@ private:
     std::mutex _mutex;
     bool _eos = false;
     int _cast_sender_count = 0;
-    int _opened_sender_count = 0;
+    int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
     RuntimeProfile::Counter* _process_rows;

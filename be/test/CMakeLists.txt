@@ -130,6 +130,7 @@ set(OLAP_TEST_FILES
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
     olap/ordered_data_compaction_test.cpp
+    olap/delete_bitmap_calculator_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -229,8 +230,10 @@ set(VEC_TEST_FILES
     vec/columns/column_decimal_test.cpp
     vec/columns/column_fixed_length_object_test.cpp
     vec/data_types/complex_type_test.cpp
+    vec/data_types/serde/data_type_to_string_test.cpp
     vec/data_types/serde/data_type_serde_pb_test.cpp
     vec/data_types/serde/data_type_serde_arrow_test.cpp
+    vec/data_types/serde/data_type_serde_mysql_test.cpp
     vec/core/block_test.cpp
     vec/core/block_spill_test.cpp
     vec/core/column_array_test.cpp

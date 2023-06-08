@@ -179,6 +179,38 @@ public class CreateTableStmtTest {
     }
 
     @Test
+    public void testCreateTableDuplicateWithoutKeys() throws UserException {
+        // setup
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT, "true");
+        ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
+        col3.setIsKey(false);
+        cols.add(col3);
+        ColumnDef col4 = new ColumnDef("col4", new TypeDef(ScalarType.createType(PrimitiveType.STRING)));
+        col4.setIsKey(false);
+        cols.add(col4);
+        // test merge-on-write
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("table property 'enable_duplicate_without_keys_by_default' only can "
+                                                + "set 'true' when create olap table by default.");
+        stmt1.analyze(analyzer);
+
+        CreateTableStmt stmt2 = new CreateTableStmt(false, false, tblName, cols, "olap",
+                null, null,
+                new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
+        stmt2.analyze(analyzer);
+
+        Assert.assertEquals(col3.getAggregateType(), AggregateType.NONE);
+        Assert.assertEquals(col4.getAggregateType(), AggregateType.NONE);
+        // clear
+        cols.remove(col3);
+        cols.remove(col4);
+    }
+
+    @Test
     public void testCreateTableWithRollup() throws UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));

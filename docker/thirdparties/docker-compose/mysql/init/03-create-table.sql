@@ -248,3 +248,38 @@ create table doris_test.test_insert2 (
     k14 datetime,
     k15 timestamp
 ) engine=innodb charset=utf8;
+
+create table doris_test.all_types (
+  `tinyint_u` tinyint unsigned,
+  `smallint_u` smallint unsigned,
+  `mediumint_u` mediumint unsigned,
+  `int_u` int unsigned,
+  `bigint_u` bigint unsigned,
+  `decimal_u` decimal(18, 5) unsigned,
+  `double_u` double unsigned,
+  `float_u` float unsigned,
+  `boolean` boolean,
+  `tinyint` tinyint,
+  `smallint` smallint,
+  `year` year,
+  `mediumint` mediumint,
+  `int` int,
+  `bigint` bigint,
+  `date` date,
+  `timestamp` timestamp(4),
+  `datetime` datetime,
+  `float` float,
+  `double` double,
+  `decimal` decimal(12, 4),
+  `char` char(5),
+  `varchar` varchar(10),
+  `time` time(4),
+  `text` text,
+  `blob` blob,
+  `json` json,
+  `set` set('Option1', 'Option2', 'Option3'),
+  `bit` bit(6),
+  `binary` binary(12),
+  `varbinary` varbinary(12),
+  `enum` enum('Value1', 'Value2', 'Value3')
+) engine=innodb charset=utf8;

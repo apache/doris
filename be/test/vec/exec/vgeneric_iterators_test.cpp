@@ -25,6 +25,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"

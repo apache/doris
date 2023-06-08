@@ -21,7 +21,7 @@ suite("test_scalar_types_load", "p0") {
 
     def dataFile = """${getS3Url()}/regression/datatypes/test_scalar_types_10w.csv"""
 
-    // define dup key table
+    // define dup key table1
     def testTable = "tbl_scalar_types_dup"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
@@ -74,7 +74,7 @@ suite("test_scalar_types_load", "p0") {
     sql """INSERT INTO ${testTable} VALUES (NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                                             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"""
 
-    // define dup key table1 with 3 keys
+    // define dup key table2 with 3 keys
     testTable = "tbl_scalar_types_dup_3keys"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
@@ -103,7 +103,15 @@ suite("test_scalar_types_load", "p0") {
         PROPERTIES("replication_num" = "1", "store_row_column" = "true");
         """
 
-    // insert data into unique key table1 2 times
+    // insert data into dup key table2 3 times
+    sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
+            `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
+            `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
+            `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
+    sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
+            `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
+            `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,
+            `c_char`, `c_varchar`, `c_string` FROM tbl_scalar_types_dup"""
     sql """INSERT INTO ${testTable} SELECT `c_datetimev2`, `c_bigint`, `c_decimalv3`,
             `c_bool`, `c_tinyint`, `c_smallint`, `c_int`, `c_largeint`,
             `c_float`, `c_double`, `c_decimal`, `c_date`, `c_datetime`, `c_datev2`,

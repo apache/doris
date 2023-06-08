@@ -149,7 +149,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is a delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
@@ -214,8 +214,11 @@ private:
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
 
+    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                   WrapperField* max_value_container) const;
+
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
-                               std::vector<const ColumnPredicate*>* delete_predicates,
+                               const std::vector<const ColumnPredicate*>* delete_predicates,
                                std::vector<uint32_t>* page_indexes);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
@@ -297,7 +300,7 @@ public:
 
     virtual Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
-            std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
+            const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
         return Status::OK();
     }
 
@@ -340,7 +343,7 @@ public:
     // - cond_column is user's query predicate
     // - delete_condition is delete predicate of one version
     Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
-                                      std::vector<const ColumnPredicate*>* delete_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
                                       RowRanges* row_ranges) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,

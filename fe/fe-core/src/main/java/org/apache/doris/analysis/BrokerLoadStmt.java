@@ -42,15 +42,9 @@ public class BrokerLoadStmt extends InsertStmt {
 
     public BrokerLoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) {
-        this.label = label;
+        super(label, properties, comments);
         this.dataDescList = dataDescList;
         this.brokerDesc = brokerDesc;
-        this.properties = properties;
-        if (comments != null) {
-            this.comments = comments;
-        } else {
-            this.comments = "";
-        }
     }
 
     @Override

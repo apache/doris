@@ -71,10 +71,21 @@ public class UdafExecutor extends BaseExecutor {
         try {
             long idx = rowStart;
             do {
-                Long curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
+                Long curPlace = null;
+                if (isSinglePlace) {
+                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr));
+                } else {
+                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
+                }
                 Object[] inputArgs = new Object[argTypes.length + 1];
-                stateObjMap.putIfAbsent(curPlace, createAggState());
-                inputArgs[0] = stateObjMap.get(curPlace);
+                Object state = stateObjMap.get(curPlace);
+                if (state != null) {
+                    inputArgs[0] = state;
+                } else {
+                    Object newState = createAggState();
+                    stateObjMap.put(curPlace, newState);
+                    inputArgs[0] = newState;
+                }
                 do {
                     Object[] inputObjects = allocateInputObjects(idx, 1);
                     for (int i = 0; i < argTypes.length; ++i) {
@@ -134,6 +145,23 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
+    /*
+     * invoke reset function and reset the state to init.
+     */
+    public void reset(long place) throws UdfRuntimeException {
+        try {
+            Object[] args = new Object[1];
+            args[0] = stateObjMap.get((Long) place);
+            if (args[0] == null) {
+                return;
+            }
+            allMethods.get(UDAF_RESET_FUNCTION).invoke(udf, args);
+        } catch (Exception e) {
+            LOG.warn("invoke reset function meet some error: " + e.getCause().toString());
+            throw new UdfRuntimeException("UDAF failed to reset: ", e);
+        }
+    }
+
     /**
      * invoke merge function and it's have done deserialze.
      * here call deserialize first, and call merge.
@@ -147,8 +175,14 @@ public class UdafExecutor extends BaseExecutor {
             allMethods.get(UDAF_DESERIALIZE_FUNCTION).invoke(udf, args);
             args[1] = args[0];
             Long curPlace = place;
-            stateObjMap.putIfAbsent(curPlace, createAggState());
-            args[0] = stateObjMap.get(curPlace);
+            Object state = stateObjMap.get(curPlace);
+            if (state != null) {
+                args[0] = state;
+            } else {
+                Object newState = createAggState();
+                stateObjMap.put(curPlace, newState);
+                args[0] = newState;
+            }
             allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
             LOG.warn("invoke merge function meet some error: " + e.getCause().toString());
@@ -226,6 +260,7 @@ public class UdafExecutor extends BaseExecutor {
                     case UDAF_CREATE_FUNCTION:
                     case UDAF_MERGE_FUNCTION:
                     case UDAF_SERIALIZE_FUNCTION:
+                    case UDAF_RESET_FUNCTION:
                     case UDAF_DESERIALIZE_FUNCTION: {
                         allMethods.put(methods[idx].getName(), methods[idx]);
                         break;

@@ -41,8 +41,7 @@ class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
                          RowsetSharedPtr rowset, int64_t partition_id, int64_t transaction_id,
-                         Version version, const TabletInfo& tablet_info,
-                         std::atomic<int64_t>* total_task_num);
+                         Version version, const TabletInfo& tablet_info);
     ~TabletPublishTxnTask() {}
 
     void handle();
@@ -56,13 +55,11 @@ private:
     int64_t _transaction_id;
     Version _version;
     TabletInfo _tablet_info;
-
-    std::atomic<int64_t>* _total_task_num;
 };
 
 class EnginePublishVersionTask : public EngineTask {
 public:
-    EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
+    EnginePublishVersionTask(const TPublishVersionRequest& publish_version_req,
                              vector<TTabletId>* error_tablet_ids,
                              std::vector<TTabletId>* succ_tablet_ids = nullptr);
     ~EnginePublishVersionTask() {}
@@ -75,14 +72,17 @@ public:
     void notify();
     void wait();
 
+    int64_t finish_task();
+
 private:
+    std::atomic<int64_t> _total_task_num;
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
     vector<TTabletId>* _error_tablet_ids;
     vector<TTabletId>* _succ_tablet_ids;
 
-    std::mutex _tablet_finish_sleep_mutex;
-    std::condition_variable _tablet_finish_sleep_cond;
+    std::mutex _tablet_finish_mutex;
+    std::condition_variable _tablet_finish_cond;
 };
 
 } // namespace doris

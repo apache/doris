@@ -91,8 +91,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     template <typename ColumnType, bool is_nullable>
     Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
                             MutableColumnPtr& column_result) {
@@ -247,8 +245,6 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

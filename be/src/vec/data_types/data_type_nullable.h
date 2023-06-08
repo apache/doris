@@ -91,9 +91,6 @@ public:
 
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
-    bool cannot_be_stored_in_tables() const override {
-        return nested_data_type->cannot_be_stored_in_tables();
-    }
     bool should_align_right_in_pretty_formats() const override {
         return nested_data_type->should_align_right_in_pretty_formats();
     }
@@ -101,10 +98,6 @@ public:
         return nested_data_type->text_can_contain_only_valid_utf8();
     }
     bool is_comparable() const override { return nested_data_type->is_comparable(); }
-    bool can_be_compared_with_collation() const override {
-        return nested_data_type->can_be_compared_with_collation();
-    }
-    bool can_be_used_as_version() const override { return false; }
     bool is_summable() const override { return nested_data_type->is_summable(); }
     bool can_be_used_in_boolean_context() const override {
         return nested_data_type->can_be_used_in_boolean_context();

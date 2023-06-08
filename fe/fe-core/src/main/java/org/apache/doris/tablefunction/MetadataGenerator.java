@@ -73,8 +73,8 @@ public class MetadataGenerator {
             case BACKENDS:
                 result = backendsMetadataResult(params);
                 break;
-            case RESOURCE_GROUPS:
-                result = resourceGroupsMetadataResult(params);
+            case WORKLOAD_GROUPS:
+                result = workloadGroupsMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -229,12 +229,12 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult resourceGroupsMetadataResult(TMetadataTableRequestParams params) {
-        List<List<String>> resourceGroupsInfo = Env.getCurrentEnv().getResourceGroupMgr()
+    private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TMetadataTableRequestParams params) {
+        List<List<String>> workloadGroupsInfo = Env.getCurrentEnv().getWorkloadGroupMgr()
                 .getResourcesInfo();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (List<String> rGroupsInfo : resourceGroupsInfo) {
+        for (List<String> rGroupsInfo : workloadGroupsInfo) {
             TRow trow = new TRow();
             Long id = Long.valueOf(rGroupsInfo.get(0));
             trow.addToColumnValue(new TCell().setLongVal(id));

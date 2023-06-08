@@ -48,6 +48,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -60,6 +61,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
@@ -74,6 +76,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -162,6 +165,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected Separator lineDelimiter;
     protected int desireTaskConcurrentNum; // optional
     protected JobState state = JobState.NEED_SCHEDULE;
+    @Getter
     protected LoadDataSourceType dataSourceType;
     // max number of error data in max batch rows * 10
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
@@ -486,7 +490,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (value == null) {
             return DEFAULT_STRICT_MODE;
         }
-        return Boolean.valueOf(value);
+        return Boolean.parseBoolean(value);
     }
 
     @Override
@@ -543,17 +547,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     @Override
     public boolean isStripOuterArray() {
-        return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+        return Boolean.parseBoolean(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
     }
 
     @Override
     public boolean isNumAsString() {
-        return Boolean.valueOf(jobProperties.get(PROPS_NUM_AS_STRING));
+        return Boolean.parseBoolean(jobProperties.get(PROPS_NUM_AS_STRING));
     }
 
     @Override
     public boolean isFuzzyParse() {
-        return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
+        return Boolean.parseBoolean(jobProperties.get(PROPS_FUZZY_PARSE));
     }
 
     @Override
@@ -813,6 +817,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         table.readLock();
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
+            // add table indexes to transaction state
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
+            if (txnState == null) {
+                throw new MetaNotFoundException("txn does not exist: " + txnId);
+            }
+            txnState.addTableIndexes(planner.getDestTable());
+
+            return planParams;
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, long txnId) throws UserException {
+        Preconditions.checkNotNull(planner);
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        table.readLock();
+        try {
+            TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
@@ -1422,11 +1446,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         if (progress instanceof KafkaProgress) {
             // append partitions and offsets.
-            // the offsets is the next offset to be consumed.
+            // the offsets are the next offset to be consumed.
             List<Pair<Integer, String>> pairs = ((KafkaProgress) progress).getPartitionOffsetPairs(false);
-            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY,
+            appendProperties(sb, KafkaConfiguration.KAFKA_PARTITIONS.getName(),
                     Joiner.on(", ").join(pairs.stream().map(p -> p.first).toArray()), false);
-            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY,
+            appendProperties(sb, KafkaConfiguration.KAFKA_OFFSETS.getName(),
                     Joiner.on(", ").join(pairs.stream().map(p -> p.second).toArray()), false);
         }
         // remove the last ","
@@ -1673,27 +1697,27 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
         if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
-            this.desireTaskConcurrentNum = Integer.valueOf(
+            this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
-            this.maxErrorNum = Long.valueOf(
+            this.maxErrorNum = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
-            this.maxBatchIntervalS = Long.valueOf(
+            this.maxBatchIntervalS = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
-            this.maxBatchRows = Long.valueOf(
+            this.maxBatchRows = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
-            this.maxBatchSizeBytes = Long.valueOf(
+            this.maxBatchSizeBytes = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY));
         }
     }

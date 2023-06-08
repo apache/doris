@@ -149,7 +149,7 @@ public:
 
     ~ThreadContext() { thread_context_ptr.init = false; }
 
-    void attach_task(const std::string& task_id, const TUniqueId& fragment_instance_id,
+    void attach_task(const TUniqueId& task_id, const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
@@ -164,11 +164,12 @@ public:
     }
 
     void detach_task() {
-        _task_id = "";
+        _task_id = TUniqueId();
         _fragment_instance_id = TUniqueId();
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
+    const TUniqueId& task_id() const { return _task_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     std::string get_thread_id() {
@@ -189,7 +190,7 @@ public:
     }
 
 private:
-    std::string _task_id = "";
+    TUniqueId _task_id;
     TUniqueId _fragment_instance_id;
 };
 
@@ -252,7 +253,7 @@ private:
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const std::string& task_id = "",
+                        const TUniqueId& task_id = TUniqueId(),
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);

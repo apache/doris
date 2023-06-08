@@ -142,7 +142,7 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
-    public static Expression and(List<Expression> expressions) {
+    public static Expression and(Collection<Expression> expressions) {
         return combine(And.class, expressions);
     }
 
@@ -162,14 +162,14 @@ public class ExpressionUtils {
         return combine(Or.class, Lists.newArrayList(expressions));
     }
 
-    public static Expression or(List<Expression> expressions) {
+    public static Expression or(Collection<Expression> expressions) {
         return combine(Or.class, expressions);
     }
 
     /**
      * Use AND/OR to combine expressions together.
      */
-    public static Expression combine(Class<? extends Expression> type, List<Expression> expressions) {
+    public static Expression combine(Class<? extends Expression> type, Collection<Expression> expressions) {
         /*
          *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
          *               ▲   ▲   ▲       ▲       ▲          ▲
@@ -334,6 +334,10 @@ public class ExpressionUtils {
 
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
+    }
+
+    public static boolean hasOnlyMetricType(List<Expression> children) {
+        return children.stream().anyMatch(c -> c.getDataType().isOnlyMetricType());
     }
 
     public static boolean isAllNullLiteral(List<Expression> children) {

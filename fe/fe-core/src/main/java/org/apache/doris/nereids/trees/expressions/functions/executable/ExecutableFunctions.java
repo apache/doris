@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
+import java.math.BigInteger;
 import java.util.Random;
 import java.util.UUID;
 
@@ -43,24 +44,24 @@ public class ExecutableFunctions {
     /**
      * other scalar function
      */
-    @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "TINYINT")
+    @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "SMALLINT")
     public static Expression abs(TinyIntLiteral literal) {
-        return new TinyIntLiteral((byte) Math.abs(literal.getValue()));
+        return new SmallIntLiteral((byte) Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "SMALLINT")
+    @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "INT")
     public static Expression abs(SmallIntLiteral literal) {
-        return new SmallIntLiteral((short) Math.abs(literal.getValue()));
+        return new IntegerLiteral((short) Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "INT")
+    @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "BIGINT")
     public static Expression abs(IntegerLiteral literal) {
-        return new IntegerLiteral(Math.abs(literal.getValue()));
+        return new BigIntLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "BIGINT")
+    @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "LARGEINT")
     public static Expression abs(BigIntLiteral literal) {
-        return new BigIntLiteral(Math.abs(literal.getValue()));
+        return new LargeIntLiteral(new BigInteger(Long.toString(Math.abs(literal.getValue()))));
     }
 
     @ExecFunction(name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")

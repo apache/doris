@@ -481,7 +481,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << request->cancel_reason();
+                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
@@ -1311,34 +1311,40 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
             VLOG_CRITICAL << "succeed to download file for slave replica. url=" << remote_file_url
                           << ", local_path=" << local_file_path
                           << ", txn_id=" << rowset_meta->txn_id();
-            PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
-                    indices_size.at(segment.first);
-            for (auto index_size : segment_indices_size.index_sizes()) {
-                auto index_id = index_size.indexid();
-                auto size = index_size.size();
-                std::string remote_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id);
-                std::string remote_inverted_index_file_url = construct_url(
-                        get_host_port(host, http_port), token, remote_inverted_index_file);
+            if (indices_size.find(segment.first) != indices_size.end()) {
+                PTabletWriteSlaveRequest_IndexSizeMap segment_indices_size =
+                        indices_size.at(segment.first);
 
-                std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
-                st = download_file_action(remote_inverted_index_file_url, local_inverted_index_file,
-                                          estimate_timeout, size);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to pull rowset for slave replica. failed to download "
-                                    "file. url="
-                                 << remote_inverted_index_file_url
-                                 << ", local_path=" << local_inverted_index_file
-                                 << ", txn_id=" << rowset_meta->txn_id();
-                    _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
-                                                rowset_meta->tablet_id(), node_id, false);
-                    return;
+                for (auto index_size : segment_indices_size.index_sizes()) {
+                    auto index_id = index_size.indexid();
+                    auto size = index_size.size();
+                    std::string remote_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
+                                                                         index_id);
+                    std::string remote_inverted_index_file_url = construct_url(
+                            get_host_port(host, http_port), token, remote_inverted_index_file);
+
+                    std::string local_inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                    st = download_file_action(remote_inverted_index_file_url,
+                                              local_inverted_index_file, estimate_timeout, size);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to pull rowset for slave replica. failed to "
+                                        "download "
+                                        "file. url="
+                                     << remote_inverted_index_file_url
+                                     << ", local_path=" << local_inverted_index_file
+                                     << ", txn_id=" << rowset_meta->txn_id();
+                        _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
+                                                    rowset_meta->tablet_id(), node_id, false);
+                        return;
+                    }
+                    VLOG_CRITICAL
+                            << "succeed to download inverted index file for slave replica. url="
+                            << remote_inverted_index_file_url
+                            << ", local_path=" << local_inverted_index_file
+                            << ", txn_id=" << rowset_meta->txn_id();
                 }
-                VLOG_CRITICAL << "succeed to download inverted index file for slave replica. url="
-                              << remote_inverted_index_file_url
-                              << ", local_path=" << local_inverted_index_file
-                              << ", txn_id=" << rowset_meta->txn_id();
             }
         }
 
@@ -1483,6 +1489,12 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         desc.add_slot(&slots.back());
     }
 
+    // init read schema
+    TabletSchema full_read_schema;
+    for (const ColumnPB& column_pb : request.column_desc()) {
+        full_read_schema.append_column(TabletColumn(column_pb));
+    }
+
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
@@ -1508,10 +1520,6 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     << ", row_size:" << row_size;
             *response->add_row_locs() = row_loc;
         });
-        const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-        VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
-                   << ", version:" << tablet_schema->schema_version()
-                   << ", cost(us):" << watch.elapsed_time() / 1000;
         SegmentCacheHandle segment_cache;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
         // find segment
@@ -1541,18 +1549,24 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             result_block = vectorized::Block(desc.slots(), request.row_locs().size());
         }
         for (int x = 0; x < desc.slots().size(); ++x) {
-            int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
-            segment_v2::ColumnIterator* column_iterator = nullptr;
+            int index = -1;
+            if (desc.slots()[x]->col_unique_id() >= 0) {
+                // light sc enabled
+                index = full_read_schema.field_index(desc.slots()[x]->col_unique_id());
+            } else {
+                index = full_read_schema.field_index(desc.slots()[x]->col_name());
+            }
+            if (index < 0) {
+                std::stringstream ss;
+                ss << "field name is invalid. field=" << desc.slots()[x]->col_name()
+                   << ", field_name_to_index=" << full_read_schema.get_all_field_names();
+                return Status::InternalError(ss.str());
+            }
+            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            if (index < 0) {
-                column->insert_default();
-                continue;
-            } else {
-                RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(index),
-                                                             &column_iterator));
-            }
-            std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
+            RETURN_IF_ERROR(
+                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
             segment_v2::ColumnIteratorOptions opt;
             OlapReaderStatistics stats;
             opt.file_reader = segment->file_reader().get();
@@ -1598,6 +1612,16 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
+                                                      const PGetTabletVersionsRequest* request,
+                                                      PGetTabletVersionsResponse* response,
+                                                      google::protobuf::Closure* done) {
+    //SCOPED_SWITCH_BTHREAD_TLS();
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
 }
 
 } // namespace doris

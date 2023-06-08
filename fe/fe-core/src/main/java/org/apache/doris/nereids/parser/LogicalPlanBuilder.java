@@ -54,6 +54,7 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
@@ -110,6 +111,7 @@ import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -207,6 +209,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -224,11 +227,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -296,6 +299,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
         return withExplain(plan, ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
+        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
+        List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
+        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(tableName, colNames, ImmutableList.of(),
+                partitions, visitQuery(ctx.query()));
+        if (ctx.explain() != null) {
+            return withExplain(sink, ctx.explain());
+        }
+        return new InsertIntoTableCommand(sink, labelName);
     }
 
     /**
@@ -464,8 +481,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         Optional.ofNullable(ctx.havingClause())
                 );
             }
-            selectPlan = withCte(selectPlan, ctx.cte());
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
+            selectPlan = withCte(selectPlan, ctx.cte());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }
@@ -1547,7 +1564,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
             for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = kv.key.getText();
+                String parameterName = visitIdentifierOrText(kv.key);
                 Optional<String> value = Optional.empty();
                 if (kv.constantValue != null) {
                     Literal literal = (Literal) visit(kv.constantValue);

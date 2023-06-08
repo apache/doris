@@ -22,7 +22,6 @@ import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -39,6 +38,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -255,10 +256,10 @@ public class KafkaRoutineLoadJobTest {
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
-        RoutineLoadDataSourceProperties dsProperties = new RoutineLoadDataSourceProperties();
+        KafkaDataSourceProperties dsProperties = new KafkaDataSourceProperties(null);
         dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
-        Deencapsulation.setField(dsProperties, "kafkaBrokerList", serverAddress);
-        Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
+        Deencapsulation.setField(dsProperties, "brokerList", serverAddress);
+        Deencapsulation.setField(dsProperties, "topic", topicName);
         Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
 
         long dbId = 1L;
@@ -309,9 +310,9 @@ public class KafkaRoutineLoadJobTest {
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
 
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, topicName);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, serverAddress);
-        customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
+        customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
                                                                                 loadPropertyList, properties,

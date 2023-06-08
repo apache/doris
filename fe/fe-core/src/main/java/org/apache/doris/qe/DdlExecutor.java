@@ -34,7 +34,6 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.AlterResourceGroupStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -43,7 +42,9 @@ import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.analysis.AlterWorkloadGroupStmt;
+import org.apache.doris.analysis.AnalyzeDBStmt;
+import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -63,7 +64,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.CreateResourceGroupStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
@@ -73,8 +73,10 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
@@ -83,13 +85,13 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.DropResourceGroupStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
+import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
@@ -100,6 +102,7 @@ import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
@@ -257,10 +260,10 @@ public class DdlExecutor {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
             env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateResourceGroupStmt) {
-            env.getResourceGroupMgr().createResourceGroup((CreateResourceGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropResourceGroupStmt) {
-            env.getResourceGroupMgr().dropResourceGroup((DropResourceGroupStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateWorkloadGroupStmt) {
+            env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
+            env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
             CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
             SyncJobManager syncJobMgr = env.getSyncJobManager();
@@ -294,12 +297,12 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof AnalyzeStmt) {
-            env.createAnalysisJob((AnalyzeStmt) ddlStmt);
+        } else if (ddlStmt instanceof AnalyzeTblStmt) {
+            env.createAnalysisJob((AnalyzeTblStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
             env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterResourceGroupStmt) {
-            env.getResourceGroupMgr().alterResourceGroup((AlterResourceGroupStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
+            env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreatePolicyStmt) {
             env.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
@@ -324,6 +327,8 @@ public class DdlExecutor {
             env.refreshMaterializedView((RefreshMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
             env.getCatalogMgr().refreshCatalog((RefreshCatalogStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshLdapStmt) {
+            env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanProfileStmt) {
@@ -332,6 +337,8 @@ public class DdlExecutor {
             env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof KillAnalysisJobStmt) {
             env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof AnalyzeDBStmt) {
+            env.getAnalysisManager().createAnalysisJobs((AnalyzeDBStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanQueryStatsStmt) {
             CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
             CleanQueryStatsInfo cleanQueryStatsInfo = null;
@@ -352,6 +359,9 @@ public class DdlExecutor {
                     throw new DdlException("Unknown scope: " + stmt.getScope());
             }
             env.cleanQueryStats(cleanQueryStatsInfo);
+        } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
+            DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
+            Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");

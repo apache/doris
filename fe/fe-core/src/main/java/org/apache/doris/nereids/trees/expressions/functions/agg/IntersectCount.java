@@ -39,7 +39,7 @@ import java.util.List;
 public class IntersectCount extends AggregateFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable, BitmapIntersectFunction {
 
-    public static final List<FunctionSignature> SIGNATURES = DataType.nonNullNonCharTypes().stream()
+    public static final List<FunctionSignature> SIGNATURES = DataType.trivialTypes().stream()
             .map(type -> FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BitmapType.INSTANCE, type, type))
             .collect(ImmutableList.toImmutableList());
 

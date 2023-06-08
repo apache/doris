@@ -186,6 +186,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.master`: required, yarn is supported at present, `spark://host:port`.
   - `spark.submit.deployMode`: the deployment mode of Spark Program. It is required and supports cluster and client.
   - `spark.hadoop.fs.defaultfs`: required when master is yarn.
+  - `spark.submit.timeout`：spark task timeout, default 5 minutes
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
 - YARN RM related parameters are as follows：
     - If Spark is a single-point RM, you need to configure `spark.hadoop.yarn.resourcemanager.address`，address of the single point resource manager.

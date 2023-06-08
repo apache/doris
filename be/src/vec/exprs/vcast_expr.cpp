@@ -118,7 +118,7 @@ std::string VCastExpr::debug_string() const {
     out << "CastExpr(CAST " << _cast_param_data_type->get_name() << " to "
         << _target_data_type->get_name() << "){";
     bool first = true;
-    for (VExpr* input_expr : children()) {
+    for (auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {

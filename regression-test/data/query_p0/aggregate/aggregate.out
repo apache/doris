@@ -111,7 +111,7 @@ TESTING	AGAIN
 26988
 
 -- !aggregate32 --
-['sample', 'again', 'Sample']
+["sample", "again", "Sample"]
 
 -- !aggregate33 --
 65.73903964620426

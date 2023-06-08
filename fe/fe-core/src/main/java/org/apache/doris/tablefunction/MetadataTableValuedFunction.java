@@ -33,8 +33,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case ICEBERG:
                 return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
-            case RESOURCE_GROUPS:
-                return ResourceGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case WORKLOAD_GROUPS:
+                return WorkloadGroupsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             default:
                 throw new AnalysisException("Unknown Metadata TableValuedFunction type");
         }

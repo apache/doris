@@ -37,8 +37,9 @@ public class DecimalLiteral extends Literal {
     }
 
     public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
-        super(DecimalV2Type.createDecimalV2Type(dataType.getPrecision(), dataType.getScale()));
-        this.value = Objects.requireNonNull(value.setScale(dataType.getScale(), RoundingMode.DOWN));
+        super(dataType);
+        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(dataType.getScale(), RoundingMode.DOWN);
+        this.value = Objects.requireNonNull(adjustedValue);
     }
 
     @Override
@@ -53,7 +54,7 @@ public class DecimalLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DecimalLiteral(value);
+        return new org.apache.doris.analysis.DecimalLiteral(value, dataType.toCatalogDataType());
     }
 
     @Override

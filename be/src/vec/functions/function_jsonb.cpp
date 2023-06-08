@@ -151,8 +151,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (context->is_col_constant(1)) {
@@ -336,8 +334,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

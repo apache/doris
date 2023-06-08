@@ -116,6 +116,8 @@ struct StringOP {
 
     static void push_value_string(const std::string_view& string_value, int index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
+        ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
+
         chars.insert(string_value.data(), string_value.data() + string_value.size());
         offsets[index] = chars.size();
     }
@@ -313,7 +315,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -392,7 +393,6 @@ public:
     bool is_variadic() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -486,7 +486,6 @@ public:
     bool is_variadic() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -562,7 +561,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -590,7 +588,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -684,7 +681,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -705,7 +701,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -726,7 +721,6 @@ public:
         return std::make_shared<DataTypeString>();
     }
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -812,7 +806,6 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -934,7 +927,6 @@ public:
         }
     }
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -1133,7 +1125,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_constants() const override { return true; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
@@ -1244,7 +1235,6 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -1339,13 +1329,13 @@ public:
                 int32_t byte_len = str_len + pad_byte_len;
                 // StringRef result(context, byte_len);
                 if constexpr (Impl::is_lpad) {
-                    int pad_idx = 0;
                     int result_index = 0;
 
                     // Prepend chars of pad.
-                    while (result_index++ < pad_byte_len) {
-                        buffer.push_back(pad_data[pad_idx++]);
-                        pad_idx = pad_idx % pad_len;
+                    while (result_index < pad_byte_len) {
+                        int remain = std::min(pad_len, pad_byte_len - result_index);
+                        buffer.append(pad_data, pad_data + remain);
+                        result_index += remain;
                     }
 
                     // Append given string.
@@ -1358,11 +1348,11 @@ public:
                     buffer.append(str_data, str_data + str_len);
 
                     // Append chars of pad until desired length
-                    int pad_idx = 0;
                     int result_len = str_len;
-                    while (result_len++ < byte_len) {
-                        buffer.push_back(pad_data[pad_idx++]);
-                        pad_idx = pad_idx % pad_len;
+                    while (result_len < byte_len) {
+                        int remain = std::min(pad_len, byte_len - result_len);
+                        buffer.append(pad_data, pad_data + remain);
+                        result_len += remain;
                     }
                     StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                                 res_chars, res_offsets);
@@ -1388,7 +1378,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -1561,6 +1550,7 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+
     bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -2008,8 +1998,6 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto col_url =
@@ -2148,8 +2136,6 @@ public:
         return Impl::get_variadic_argument_types();
     }
     size_t get_number_of_arguments() const override { return 1; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -2347,8 +2333,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 3);
@@ -2491,8 +2475,6 @@ public:
                 std::make_shared<DataTypeString>()};
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto col_origin =
@@ -2579,8 +2561,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -2703,8 +2683,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeString>();
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope != FunctionContext::THREAD_LOCAL) {
@@ -2913,7 +2891,6 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

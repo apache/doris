@@ -166,7 +166,6 @@ public class LoadingTaskPlanner {
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        scanNode.convertToVectorized();
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();
 

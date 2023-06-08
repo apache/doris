@@ -36,7 +36,7 @@ In Doris, data is logically described in the form of table.
 
 A table contains rows and columns. 
 
-Row refers to a row of data about the user. Column is used to describe different fields in a row of data.
+Row refers to a row of user data. Column is used to describe different fields in a row of data.
 
 Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and metric columns, respectively. The key column of Doris is the column specified in the table creation statement. The column after the keyword 'unique key' or 'aggregate key' or 'duplicate key' in the table creation statement is the key column, and the rest except the key column is the value column. In the Aggregate Model, rows with the same values in Key columns will be aggregated into one row. The way how Value columns are aggregated is specified by the user when the table is built. For more information about the Aggregate Model, please see the [Data Model](./data-model.md).
 
@@ -294,7 +294,6 @@ Range partitioning also supports batch partitioning. For example, you can create
     ```
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
-    p_jp: ("Tokyo")
     p_uk: ("London")
     ```
 

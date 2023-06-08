@@ -25,6 +25,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -465,7 +466,9 @@ TEST_F(TestDeltaWriter, open) {
     DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -497,7 +500,9 @@ TEST_F(TestDeltaWriter, vec_write) {
     WriteRequest write_req = {10004,   270068376,  WriteType::LOAD,        20002, 30002,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -642,7 +647,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -741,7 +748,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    Schema schema(rowset->tablet_schema());
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();

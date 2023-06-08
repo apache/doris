@@ -33,7 +33,8 @@ public:
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
-    int64_t memory_limit_gc();
+    void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
+                             std::vector<TaskGroupPtr>* task_groups);
 
 private:
     std::shared_mutex _group_mutex;

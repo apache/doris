@@ -51,11 +51,15 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(VectorizedFnCall::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VectorizedFnCall::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
+    bool is_constant() const override {
+        if (!_function->is_use_default_implementation_for_constants()) {
+            return false;
+        }
+        return VExpr::is_constant();
+    }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
     bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -65,5 +69,6 @@ private:
     FunctionBasePtr _function;
     bool _can_fast_execute = false;
     std::string _expr_name;
+    std::string _function_name;
 };
 } // namespace doris::vectorized

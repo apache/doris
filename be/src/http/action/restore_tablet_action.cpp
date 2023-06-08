@@ -83,7 +83,7 @@ Status RestoreTabletAction::_handle(HttpRequest* req) {
     }
 
     // valid str format
-    int64_t tablet_id = std::atol(tablet_id_str.c_str());
+    int64_t tablet_id = std::atoll(tablet_id_str.c_str());
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 

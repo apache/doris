@@ -243,15 +243,18 @@ public class VariableMgr {
     }
 
     // Check if this setVar can be set correctly
+    // Do not use ErrorReport.reportDdlException to throw exeception, it will set the query state in connection context.
+    // But in some case, we do not want to set the query state and need to ignore that error.
+    // Set setVarForNonMasterFE() is an example.
     private static void checkUpdate(SetVar setVar, int flag) throws DdlException {
         if ((flag & READ_ONLY) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_VARIABLE_IS_READONLY, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_VARIABLE_IS_READONLY.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() == SetType.GLOBAL && (flag & SESSION_ONLY) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_LOCAL_VARIABLE, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
         if (setVar.getType() != SetType.GLOBAL && (flag & GLOBAL) != 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_GLOBAL_VARIABLE, setVar.getVariable());
+            throw new DdlException(ErrorCode.ERR_GLOBAL_VARIABLE.formatErrorMsg(setVar.getVariable()));
         }
     }
 

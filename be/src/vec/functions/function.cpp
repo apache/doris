@@ -135,15 +135,6 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     return res;
 }
 
-bool all_arguments_are_constant(const Block& block, const ColumnNumbers& args) {
-    for (const auto& arg : args) {
-        if (!is_column_const(*block.get_by_position(arg).column)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
         size_t input_rows_count, bool dry_run) {
@@ -177,7 +168,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     }
 
     if (args.empty() || !use_default_implementation_for_constants() ||
-        !all_arguments_are_constant(block, args)) {
+        !VectorizedUtils::all_arguments_are_constant(block, args)) {
         return Status::OK();
     }
 

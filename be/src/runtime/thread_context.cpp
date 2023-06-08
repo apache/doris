@@ -20,7 +20,6 @@
 #include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h" // IWYU pragma: keep
-#include "util/uid_util.h"
 
 namespace doris {
 class MemTracker;
@@ -33,15 +32,14 @@ ThreadContextPtr::ThreadContextPtr() {
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                       const std::string& task_id, const TUniqueId& fragment_instance_id) {
+                       const TUniqueId& task_id, const TUniqueId& fragment_instance_id) {
     thread_context()->attach_task(task_id, fragment_instance_id, mem_tracker);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     doris::signal::query_id_hi = runtime_state->query_id().hi;
     doris::signal::query_id_lo = runtime_state->query_id().lo;
-    thread_context()->attach_task(print_id(runtime_state->query_id()),
-                                  runtime_state->fragment_instance_id(),
+    thread_context()->attach_task(runtime_state->query_id(), runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
 }
 

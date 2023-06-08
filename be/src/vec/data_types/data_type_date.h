@@ -54,7 +54,6 @@ public:
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;

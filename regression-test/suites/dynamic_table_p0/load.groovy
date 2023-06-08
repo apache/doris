@@ -126,6 +126,28 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     sql """insert into test_ghdata_json_unique select * from test_ghdata_json"""
     sql """insert into test_btc_json_unique select * from test_btc_json"""
 
+    // abnormal cases
+    table_name = "abnormal_cases" 
+    sql """
+            DROP TABLE IF EXISTS ${table_name};
+    """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                qid bigint,
+                XXXX bigint,
+		        ...
+            )
+            DUPLICATE KEY(`qid`)
+            DISTRIBUTED BY HASH(`qid`) BUCKETS 5 
+            properties("replication_num" = "1");
+    """
+    load_json_data.call(table_name, 'true', 'json', 'true', "invalid_dimension.json", 'false')
+    load_json_data.call(table_name, 'true', 'json', 'true', "invalid_format.json", 'false')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point2.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "floating_point3.json", 'true')
+    load_json_data.call(table_name, 'true', 'json', 'true', "uppercase.json", 'true')
+
     // load more
     table_name = "gharchive";
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -145,6 +167,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
         ); 
         """
     def paths = [
+        """${getS3Url() + '/regression/gharchive/2015-01-01-22.json'}""",
         """${getS3Url() + '/regression/gharchive/2015-01-01-16.json'}""",
         """${getS3Url() + '/regression/gharchive/2016-01-01-16.json'}""",
     ]
@@ -176,4 +199,58 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             }
         }
     }
+
+    sql 'sync'
+    meta = sql_meta 'select * from gharchive limit 1'
+    def array_cols = [
+        "payload.commits.url",
+        "payload.commits.sha",
+        "payload.commits.author.email",
+        "payload.commits.distinct",
+        "payload.commits.author.name",
+        "payload.commits.message",
+        "payload.issue.labels.name",
+        "payload.issue.labels.color",
+        "payload.issue.labels.url",
+        "payload.pages.title",
+        "payload.pages.html_url",
+        "payload.pages.sha",
+        "payload.pages.action",
+        "payload.pages.page_name",
+        "payload.release.assets.uploader.repos_url",
+        "payload.release.assets.uploader.id",
+        "payload.release.assets.uploader.organizations_url",
+        "payload.release.assets.uploader.received_events_url",
+        "payload.release.assets.uploader.site_admin",
+        "payload.release.assets.uploader.subscriptions_url",
+        "payload.release.assets.state",
+        "payload.release.assets.size",
+        "payload.release.assets.uploader.following_url",
+        "payload.release.assets.uploader.starred_url",
+        "payload.release.assets.download_count",
+        "payload.release.assets.created_at",
+        "payload.release.assets.updated_at",
+        "payload.release.assets.browser_download_url",
+        "payload.release.assets.url",
+        "payload.release.assets.uploader.gravatar_id",
+        "payload.release.assets.uploader.gists_url",
+        "payload.release.assets.uploader.url",
+        "payload.release.assets.content_type",
+        "payload.release.assets.name",
+        "payload.release.assets.uploader.login",
+        "payload.release.assets.uploader.avatar_url",
+        "payload.release.assets.uploader.html_url",
+        "payload.release.assets.uploader.followers_url",
+        "payload.release.assets.uploader.events_url",
+        "payload.release.assets.uploader.type",
+        "payload.release.assets.id",
+        "payload.release.assets.label"
+    ]
+    for (List<String> col_meta in meta) {
+        if (col_meta[0] in array_cols) {
+            qt_sql "select sum(array_size(`${col_meta[0]}`)) from gharchive"
+        } else {
+            qt_sql "select count(`${col_meta[0]}`) from gharchive"
+        }
+    } 
 }

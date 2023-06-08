@@ -115,7 +115,6 @@ public:
     bool use_default_implementation_for_nulls() const override {
         return !Impl::special_implementation_for_nulls();
     }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
@@ -130,14 +129,11 @@ public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionUnaryLogical>(); }
 
-public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override;

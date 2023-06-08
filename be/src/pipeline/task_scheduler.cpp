@@ -118,6 +118,15 @@ void BlockedTaskScheduler::_schedule() {
                                    PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->fragment_context()->is_canceled()) {
+                std::string task_ds;
+#ifndef NDEBUG
+                task_ds = task->debug_string();
+#endif
+                LOG(WARNING) << "Canceled, query_id=" << print_id(task->query_context()->query_id)
+                             << ", instance_id="
+                             << print_id(task->fragment_context()->get_fragment_instance_id())
+                             << (task_ds.empty() ? "" : task_ds);
+
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);
                     iter++;
@@ -259,6 +268,10 @@ void TaskScheduler::_do_work(size_t index) {
         if (canceled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
+
+            // If pipeline is canceled caused by memory limit, we should send report to FE in order
+            // to cancel all pipeline tasks in this query
+            fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED);
             continue;
         }

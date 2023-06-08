@@ -35,12 +35,15 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                      // IWYU pragma: keep
+#include "olap/row_cursor.h" // IWYU pragma: keep
+#include "olap/row_cursor.h" // RowCursor
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/short_key_index.h"
+#include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
@@ -113,30 +116,20 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init(const vectorized::Block* block) {
+Status SegmentWriter::init(const FlushContext* flush_ctx) {
     std::vector<uint32_t> column_ids;
     int column_cnt = _tablet_schema->num_columns();
-    if (block && !_tablet_schema->is_partial_update()) {
-        // partial update only contain several columns
-        column_cnt = block->columns();
+    if (flush_ctx && flush_ctx->flush_schema) {
+        column_cnt = flush_ctx->flush_schema->num_columns();
     }
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true, block);
-}
-
-// Dynamic table with extended columns and directly write from delta writer
-// Compaction/SchemaChange path will use the latest schema version of rowset
-// as it's shcema, so it's block is not from dynamic table load procedure.
-// If it is a dynamic table load procedure we should handle auto generated columns.
-bool SegmentWriter::_should_create_writers_with_dynamic_block(size_t num_columns_in_block) {
-    return _tablet_schema->is_dynamic_schema() && _opts.is_direct_write &&
-           num_columns_in_block > _tablet_schema->columns().size();
+    return init(column_ids, true, flush_ctx);
 }
 
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
-                           const vectorized::Block* block) {
+                           const FlushContext* flush_ctx) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
@@ -144,7 +137,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     _opts.compression_type =
-            (block == nullptr || block->bytes() > config::segment_compression_threshold_kb * 1024)
+            (flush_ctx == nullptr || flush_ctx->block == nullptr ||
+             flush_ctx->block->bytes() > config::segment_compression_threshold_kb * 1024)
                     ? _tablet_schema->compression_type()
                     : NO_COMPRESSION;
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
@@ -240,10 +234,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (block && _should_create_writers_with_dynamic_block(block->columns())) {
-        RETURN_IF_ERROR(_create_writers_with_dynamic_block(block, create_column_writer));
+    if (flush_ctx && flush_ctx->flush_schema) {
+        RETURN_IF_ERROR(_create_writers(*flush_ctx->flush_schema, col_ids, create_column_writer));
     } else {
-        RETURN_IF_ERROR(_create_writers(create_column_writer));
+        RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
     }
 
     // we don't need the short key index for unique key merge on write table.
@@ -266,41 +260,11 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
 }
 
 Status SegmentWriter::_create_writers(
+        const TabletSchema& tablet_schema, const std::vector<uint32_t>& col_ids,
         std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
-    _olap_data_convertor->reserve(_column_ids.size());
-    for (auto& cid : _column_ids) {
-        RETURN_IF_ERROR(create_column_writer(cid, _tablet_schema->column(cid)));
-    }
-    return Status::OK();
-}
-
-// Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-//  static   dynamic
-// | ----- | ------- |
-// the static ones are original _tablet_schame columns
-// the dynamic ones are auto generated and extended from file scan
-Status SegmentWriter::_create_writers_with_dynamic_block(
-        const vectorized::Block* block,
-        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
-    // generate writers from schema and extended schema info
-    _olap_data_convertor->reserve(block->columns());
-    // new columns added, query column info from Master
-    vectorized::schema_util::FullBaseSchemaView schema_view;
-    CHECK(block->columns() > _tablet_schema->num_columns());
-    schema_view.table_id = _tablet_schema->table_id();
-    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
-    // create writers with static columns
-    for (size_t i = 0; i < _tablet_schema->columns().size(); ++i) {
-        create_column_writer(i, _tablet_schema->column(i));
-    }
-    // create writers with auto generated columns
-    for (size_t i = _tablet_schema->columns().size(); i < block->columns(); ++i) {
-        const auto& column_type_name = block->get_by_position(i);
-        const auto& tcolumn = schema_view.column_name_to_column[column_type_name.name];
-        TabletColumn new_column(tcolumn);
-        RETURN_IF_ERROR(create_column_writer(i, new_column));
-        _opts.rowset_ctx->schema_change_recorder->add_extended_columns(new_column,
-                                                                       schema_view.schema_version);
+    _olap_data_convertor->reserve(col_ids.size());
+    for (auto& cid : col_ids) {
+        RETURN_IF_ERROR(create_column_writer(cid, tablet_schema.column(cid)));
     }
     return Status::OK();
 }
@@ -393,33 +357,37 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    for (size_t pos = row_pos; pos < num_rows; pos++) {
-        std::string key = _full_encode_keys(key_columns, pos);
-        RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-        _maybe_invalid_row_cache(key);
+    // locate rows in base data
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        for (size_t pos = row_pos; pos < num_rows; pos++) {
+            std::string key = _full_encode_keys(key_columns, pos);
+            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            _maybe_invalid_row_cache(key);
 
-        RowLocation loc;
-        // save rowset shared ptr so this rowset wouldn't delete
-        RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
-                                          _mow_context->max_version, &rowset);
-        if (st.is<NOT_FOUND>()) {
-            if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
-                return Status::InternalError("partial update key not exist before");
+            RowLocation loc;
+            // save rowset shared ptr so this rowset wouldn't delete
+            RowsetSharedPtr rowset;
+            auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
+                                              _mow_context->max_version, &rowset);
+            if (st.is<NOT_FOUND>()) {
+                if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
+                    return Status::InternalError("partial update key not exist before");
+                }
+                has_default = true;
+                use_default_flag.emplace_back(true);
+                continue;
             }
-            has_default = true;
-            use_default_flag.emplace_back(true);
-            continue;
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to lookup row key, error: " << st;
+                return st;
+            }
+            // partial update should not contain invisible columns
+            use_default_flag.emplace_back(false);
+            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+            _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+            _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to lookup row key";
-            return st;
-        }
-        // partial update should not contain invisible columns
-        use_default_flag.emplace_back(false);
-        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
-        _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
     }
     CHECK(use_default_flag.size() == num_rows);
 

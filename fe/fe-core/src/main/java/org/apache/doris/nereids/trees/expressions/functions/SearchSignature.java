@@ -28,6 +28,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -141,8 +142,14 @@ public class SearchSignature {
             if (finalType == null) {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
-                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
-                        DecimalV3Type.forType(arguments.get(i).getDataType()), true);
+                Expression arg = arguments.get(i);
+                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+                    // create decimalV3 with minimum scale enough to hold the integral literal
+                    finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+                } else {
+                    finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
+                            DecimalV3Type.forType(arg.getDataType()), true);
+                }
             }
             if (!finalType.isDecimalV3Type()) {
                 return false;

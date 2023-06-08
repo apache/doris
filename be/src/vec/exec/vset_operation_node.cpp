@@ -57,11 +57,13 @@ namespace vectorized {
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     HashTableBuild(int rows, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset)
+                   VSetOperationNode<is_intersect>* operation_node, uint8_t offset,
+                   RuntimeState* state)
             : _rows(rows),
               _offset(offset),
               _build_raw_ptrs(build_raw_ptrs),
-              _operation_node(operation_node) {}
+              _operation_node(operation_node),
+              _state(state) {}
 
     Status operator()(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
@@ -81,6 +83,9 @@ struct HashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
+            if (k % 65536 == 0) {
+                RETURN_IF_CANCELLED(_state);
+            }
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));
 
@@ -100,6 +105,7 @@ private:
     const uint8_t _offset;
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode<is_intersect>* _operation_node;
+    RuntimeState* _state;
 };
 
 template <class HashTableContext, bool is_intersected>
@@ -199,8 +205,8 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
     }
 
     for (auto& texprs : result_texpr_lists) {
-        std::vector<VExprContext*> ctxs;
-        RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
     }
 
@@ -212,7 +218,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     // open result expr lists.
-    for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
+    for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
     _probe_columns.resize(_child_expr_lists[1].size());
@@ -375,7 +381,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool eos) {
+Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
@@ -385,7 +391,8 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
 
     if (eos || _mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
         _build_blocks.emplace_back(_mutable_block.to_block());
-        RETURN_IF_ERROR(process_build_block(_build_blocks[_build_block_index], _build_block_index));
+        RETURN_IF_ERROR(
+                process_build_block(_build_blocks[_build_block_index], _build_block_index, state));
         _mutable_block.clear();
         ++_build_block_index;
 
@@ -424,8 +431,7 @@ Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_
             },
             *_hash_table_variants);
     RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -456,7 +462,8 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset) {
+Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset,
+                                                            RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -471,7 +478,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
-                            rows, raw_ptrs, this, offset);
+                            rows, raw_ptrs, this, offset, state);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";

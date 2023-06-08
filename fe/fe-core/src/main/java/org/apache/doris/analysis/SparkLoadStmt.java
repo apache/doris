@@ -43,13 +43,11 @@ public class SparkLoadStmt extends InsertStmt {
 
     public SparkLoadStmt(LabelName label, List<DataDescription> dataDescList, ResourceDesc resourceDesc,
             Map<String, String> properties, String comments) {
-        this.label = label;
+        super(label, properties, comments);
         Preconditions.checkState(dataDescList.size() == 1,
                 "spark load could only have one desc");
         this.dataDescription = dataDescList.get(0);
         this.resourceDesc = resourceDesc;
-        this.properties = properties;
-        this.comments = comments;
     }
 
     @Override

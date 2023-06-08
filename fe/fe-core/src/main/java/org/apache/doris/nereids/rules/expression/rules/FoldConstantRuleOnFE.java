@@ -218,45 +218,83 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         List<Expression> nonTrueLiteral = Lists.newArrayList();
+        int nullCount = 0;
         for (Expression e : and.children()) {
             e = e.accept(this, context);
             if (BooleanLiteral.FALSE.equals(e)) {
                 return BooleanLiteral.FALSE;
             } else if (e instanceof NullLiteral) {
-                return e;
+                nullCount++;
+                nonTrueLiteral.add(e);
             } else if (!BooleanLiteral.TRUE.equals(e)) {
                 nonTrueLiteral.add(e);
             }
         }
-        if (nonTrueLiteral.isEmpty()) {
-            return BooleanLiteral.TRUE;
+
+        if (nullCount == 0) {
+            switch (nonTrueLiteral.size()) {
+                case 0:
+                    // true and true
+                    return BooleanLiteral.TRUE;
+                case 1:
+                    // true and x
+                    return nonTrueLiteral.get(0);
+                default:
+                    // x and y
+                    return and.withChildren(nonTrueLiteral);
+            }
+        } else if (nullCount == 1) {
+            if (nonTrueLiteral.size() == 1) {
+                // null and true
+                return new NullLiteral(BooleanType.INSTANCE);
+            }
+            // null and x
+            return and.withChildren(nonTrueLiteral);
+        } else {
+            // null and null
+            return new NullLiteral(BooleanType.INSTANCE);
         }
-        if (nonTrueLiteral.size() == 1) {
-            return nonTrueLiteral.get(0);
-        }
-        return and.withChildren(nonTrueLiteral);
     }
 
     @Override
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
+        int nullCount = 0;
         for (Expression e : or.children()) {
             e = e.accept(this, context);
             if (BooleanLiteral.TRUE.equals(e)) {
                 return BooleanLiteral.TRUE;
             } else if (e instanceof NullLiteral) {
-                return e;
+                nullCount++;
+                nonFalseLiteral.add(e);
             } else if (!BooleanLiteral.FALSE.equals(e)) {
                 nonFalseLiteral.add(e);
             }
         }
-        if (nonFalseLiteral.isEmpty()) {
-            return BooleanLiteral.FALSE;
+
+        if (nullCount == 0) {
+            switch (nonFalseLiteral.size()) {
+                case 0:
+                    // false or false
+                    return BooleanLiteral.FALSE;
+                case 1:
+                    // false or x
+                    return nonFalseLiteral.get(0);
+                default:
+                    // x or y
+                    return or.withChildren(nonFalseLiteral);
+            }
+        } else if (nullCount == 1) {
+            if (nonFalseLiteral.size() == 1) {
+                // null or false
+                return new NullLiteral(BooleanType.INSTANCE);
+            }
+            // null or x
+            return or.withChildren(nonFalseLiteral);
+        } else {
+            // null or null
+            return new NullLiteral(BooleanType.INSTANCE);
         }
-        if (nonFalseLiteral.size() == 1) {
-            return nonFalseLiteral.get(0);
-        }
-        return or.withChildren(nonFalseLiteral);
     }
 
     @Override
@@ -290,10 +328,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = rewriteChildren(boundFunction, context);
-        //functions, like current_date, do not have arg
-        if (boundFunction.getArguments().isEmpty()) {
-            return boundFunction;
-        }
         Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
@@ -340,7 +374,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult;
         }
         if (defaultResult == null) {
-            return new CaseWhen(whenClauses);
+            if (caseWhen.getDataType().isNullType()) {
+                // if caseWhen's type is NULL_TYPE, means all possible return values are nulls
+                // it's safe to return null literal here
+                return new NullLiteral();
+            } else {
+                return new CaseWhen(whenClauses);
+            }
         }
         return new CaseWhen(whenClauses, defaultResult);
     }

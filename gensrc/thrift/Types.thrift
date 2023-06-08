@@ -617,6 +617,14 @@ struct TBackend {
     3: required TPort http_port
 }
 
+struct TReplicaInfo {
+    1: required string host
+    2: required TPort  be_port
+    3: required TPort  http_port
+    4: required TPort  brpc_port
+    5: required TReplicaId replica_id
+}
+
 struct TResourceInfo {
     1: required string user
     2: required string group
@@ -675,7 +683,7 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  RESOURCE_GROUPS
+  WORKLOAD_GROUPS
 }
 
 enum TIcebergQueryType {

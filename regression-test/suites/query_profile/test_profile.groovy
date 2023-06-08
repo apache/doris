@@ -42,6 +42,10 @@ def getRandomNumber(int num){
 }
 
 suite('test_profile') {
+
+    // nereids not return same profile with legacy planner, fallback to legacy planner.
+    sql """set enable_nereids_planner=false"""
+
     def table = 'test_profile_table'
     def id_data = [1,2,3,4,5,6,7]
     def value_data = [1,2,3,4,5,6,7]

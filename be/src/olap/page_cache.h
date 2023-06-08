@@ -41,7 +41,7 @@ public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
     PageBase(size_t b) : _size(b), _capacity(b) {
-        _data = new char[_capacity];
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
         ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_capacity);
     }
 
@@ -51,7 +51,7 @@ public:
     ~PageBase() {
         if (_data != nullptr) {
             DCHECK(_capacity != 0 && _size != 0);
-            delete[] _data;
+            TAllocator::free(_data, _capacity);
             ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(_capacity);
         }
     }

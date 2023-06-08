@@ -138,6 +138,10 @@ public:
     // this tracker limiter.
     int64_t spare_capacity() const { return _limit - consumption(); }
 
+    bool is_query_cancelled() { return _is_query_cancelled; }
+
+    void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
+
     static void disable_oom_avoidance() { _oom_avoidance = false; }
 
 public:
@@ -200,7 +204,8 @@ public:
     }
 
     static int64_t tg_memory_limit_gc(
-            uint64_t id, const std::string& name, int64_t memory_limit,
+            int64_t request_free_memory, int64_t used_memory, uint64_t id, const std::string& name,
+            int64_t memory_limit,
             std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups);
 
     // only for Type::QUERY or Type::LOAD.
@@ -253,6 +258,9 @@ private:
     // to avoid frequent calls to consume/release of MemTracker.
     std::atomic<int64_t> _untracked_mem = 0;
 
+    // query or load
+    std::atomic<bool> _is_query_cancelled = false;
+
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
@@ -277,7 +285,7 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memroy_overcommit)) {
+    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memory_overcommit)) {
         return Status::OK();
     }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {

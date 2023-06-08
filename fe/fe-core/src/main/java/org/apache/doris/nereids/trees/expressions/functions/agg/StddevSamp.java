@@ -45,12 +45,12 @@ public class StddevSamp extends AggregateFunction
         StdDevOrVarianceFunction, DecimalStddevPrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT)
     );
 

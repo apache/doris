@@ -17,8 +17,11 @@
 
 #include "olap/olap_meta.h"
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/status.h>
+#include <rocksdb/write_batch.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -34,6 +37,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -54,28 +58,9 @@ using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
-OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nullptr) {}
+OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path) {}
 
-OlapMeta::~OlapMeta() {
-    if (_db != nullptr) {
-        for (auto& handle : _handles) {
-            _db->DestroyColumnFamilyHandle(handle);
-            handle = nullptr;
-        }
-        rocksdb::Status s = _db->SyncWAL();
-        if (!s.ok()) {
-            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
-        }
-        rocksdb::CancelAllBackgroundWork(_db, true);
-        s = _db->Close();
-        if (!s.ok()) {
-            LOG(WARNING) << "rocksdb close failed: " << s.ToString();
-        }
-        delete _db;
-        _db = nullptr;
-        LOG(INFO) << "finish close rocksdb for OlapMeta";
-    }
-}
+OlapMeta::~OlapMeta() = default;
 
 Status OlapMeta::init() {
     // init db
@@ -93,7 +78,27 @@ Status OlapMeta::init() {
     ColumnFamilyOptions meta_column_family;
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
-    rocksdb::Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
+
+    rocksdb::DB* db;
+    std::vector<rocksdb::ColumnFamilyHandle*> handles;
+    rocksdb::Status s = DB::Open(options, db_path, column_families, &handles, &db);
+    _db = std::unique_ptr<rocksdb::DB, std::function<void(rocksdb::DB*)>>(db, [](rocksdb::DB* db) {
+        rocksdb::Status s = db->SyncWAL();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
+        }
+        rocksdb::CancelAllBackgroundWork(db, true);
+        s = db->Close();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb close failed: " << s.ToString();
+        }
+        LOG(INFO) << "finish close rocksdb for OlapMeta";
+
+        delete db;
+    });
+    for (auto handle : handles) {
+        _handles.emplace_back(handle);
+    }
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
         return Status::Error<META_OPEN_DB_ERROR>();
@@ -103,12 +108,12 @@ Status OlapMeta::init() {
 
 Status OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
-    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
+    auto& handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     rocksdb::Status s;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        s = _db->Get(ReadOptions(), handle, rocksdb::Slice(key), value);
+        s = _db->Get(ReadOptions(), handle.get(), rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
     if (s.IsNotFound()) {
@@ -123,12 +128,12 @@ Status OlapMeta::get(const int column_family_index, const std::string& key, std:
 bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
                              std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
-    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
+    auto& handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     bool is_exist = false;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        is_exist = _db->KeyMayExist(ReadOptions(), handle, rocksdb::Slice(key), value);
+        is_exist = _db->KeyMayExist(ReadOptions(), handle.get(), rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
 
@@ -138,16 +143,25 @@ bool OlapMeta::key_may_exist(const int column_family_index, const std::string& k
 Status OlapMeta::put(const int column_family_index, const std::string& key,
                      const std::string& value) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
-    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    int64_t duration_ns = 0;
+
+    // log all params
+    VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << key
+               << ", value: " << value;
+
+    auto& handle = _handles[column_family_index];
     rocksdb::Status s;
     {
+        int64_t duration_ns = 0;
+        Defer defer([&] {
+            DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
+        });
         SCOPED_RAW_TIMER(&duration_ns);
+
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
+        s = _db->Put(write_options, handle.get(), rocksdb::Slice(key), rocksdb::Slice(value));
     }
-    DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
+
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
         return Status::Error<META_PUT_ERROR>();
@@ -155,16 +169,49 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
     return Status::OK();
 }
 
+Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry>& entries) {
+    DorisMetrics::instance()->meta_write_request_total->increment(1);
+
+    auto* handle = _handles[column_family_index].get();
+    rocksdb::Status s;
+    {
+        int64_t duration_ns = 0;
+        Defer defer([&] {
+            DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
+        });
+        SCOPED_RAW_TIMER(&duration_ns);
+
+        // construct write batch
+        rocksdb::WriteBatch write_batch;
+        for (auto entry : entries) {
+            VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << entry.key
+                       << ", value: " << entry.value;
+            write_batch.Put(handle, rocksdb::Slice(entry.key), rocksdb::Slice(entry.value));
+        }
+
+        // write to rocksdb
+        WriteOptions write_options;
+        write_options.sync = config::sync_tablet_meta;
+        s = _db->Write(write_options, &write_batch);
+    }
+
+    if (!s.ok()) {
+        // LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
+        return Status::Error<META_PUT_ERROR>();
+    }
+    return Status::OK();
+}
+
 Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
-    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
+    auto& handle = _handles[column_family_index];
     rocksdb::Status s;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
-        s = _db->Delete(write_options, handle, rocksdb::Slice(key));
+        s = _db->Delete(write_options, handle.get(), rocksdb::Slice(key));
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
@@ -174,10 +221,34 @@ Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     return Status::OK();
 }
 
+Status OlapMeta::remove(const int column_family_index, const std::vector<std::string>& keys) {
+    DorisMetrics::instance()->meta_write_request_total->increment(1);
+    auto& handle = _handles[column_family_index];
+    rocksdb::Status s;
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        WriteOptions write_options;
+        write_options.sync = config::sync_tablet_meta;
+        rocksdb::WriteBatch batch;
+        for (auto& key : keys) {
+            batch.Delete(handle.get(), rocksdb::Slice(key));
+        }
+        s = _db->Write(write_options, &batch);
+    }
+    DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
+    if (!s.ok()) {
+        LOG(WARNING) << fmt::format("rocks db delete keys:{} failed, reason:{}", keys,
+                                    s.ToString());
+        return Status::Error<META_DELETE_ERROR>();
+    }
+    return Status::OK();
+}
+
 Status OlapMeta::iterate(const int column_family_index, const std::string& prefix,
                          std::function<bool(const std::string&, const std::string&)> const& func) {
-    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle));
+    auto& handle = _handles[column_family_index];
+    std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle.get()));
     if (prefix == "") {
         it->SeekToFirst();
     } else {
@@ -188,6 +259,7 @@ Status OlapMeta::iterate(const int column_family_index, const std::string& prefi
         LOG(WARNING) << "rocksdb seek failed. reason:" << status.ToString();
         return Status::Error<META_ITERATOR_ERROR>();
     }
+
     for (; it->Valid(); it->Next()) {
         if (prefix != "") {
             if (!it->key().starts_with(prefix)) {
@@ -205,11 +277,8 @@ Status OlapMeta::iterate(const int column_family_index, const std::string& prefi
         LOG(WARNING) << "rocksdb iterator failed. reason:" << status.ToString();
         return Status::Error<META_ITERATOR_ERROR>();
     }
-    return Status::OK();
-}
 
-std::string OlapMeta::get_root_path() {
-    return _root_path;
+    return Status::OK();
 }
 
 } // namespace doris

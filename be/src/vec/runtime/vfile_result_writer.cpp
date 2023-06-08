@@ -72,12 +72,13 @@ namespace doris::vectorized {
 const size_t VFileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 using doris::operator<<;
 
-VFileResultWriter::VFileResultWriter(
-        const ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
-        const TUniqueId fragment_instance_id,
-        const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
-        RuntimeProfile* parent_profile, BufferControlBlock* sinker, Block* output_block,
-        bool output_object_data, const RowDescriptor& output_row_descriptor)
+VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
+                                     const TStorageBackendType::type storage_type,
+                                     const TUniqueId fragment_instance_id,
+                                     const VExprContextSPtrs& output_vexpr_ctxs,
+                                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                     Block* output_block, bool output_object_data,
+                                     const RowDescriptor& output_row_descriptor)
         : _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
@@ -380,6 +381,10 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     break;
                 }
                 case TYPE_MAP: {
+                    _plain_text_outstream << col.type->to_string(*col.column, i);
+                    break;
+                }
+                case TYPE_STRUCT: {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }

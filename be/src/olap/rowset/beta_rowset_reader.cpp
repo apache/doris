@@ -20,6 +20,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
 #include <set>
@@ -28,6 +29,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/io_common.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
@@ -38,6 +40,7 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
+#include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
@@ -88,8 +91,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.block_row_max = read_context->batch_size;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
-    _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
-    _read_options.common_vexpr_ctxs_pushdown = _context->common_vexpr_ctxs_pushdown;
+    _read_options.remaining_conjunct_roots = _context->remaining_conjunct_roots;
+    _read_options.common_expr_ctxs_push_down = _context->common_expr_ctxs_push_down;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
@@ -124,7 +127,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
+    std::string schema_key = SchemaCache::get_schema_key(
+            _read_options.tablet_id, _context->tablet_schema, read_columns,
+            _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
+    if ((_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
+        _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
+        SchemaCache::instance()->insert_schema(schema_key, _input_schema);
+    }
 
     if (read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
@@ -207,7 +216,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     for (int i = seg_start; i < seg_end; i++) {
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*_input_schema, _read_options, &iter);
+        auto s = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<ROWSET_READER_INIT>();
@@ -224,6 +233,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 Status BetaRowsetReader::init(RowsetReaderContext* read_context,
                               const std::pair<int, int>& segment_offset) {
     _context = read_context;
+    _context->rowset_id = _rowset->rowset_id();
     std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_IF_ERROR(get_segment_iterators(_context, &iterators, segment_offset));
 
@@ -309,4 +319,5 @@ Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num
     }
     return Status::OK();
 }
+
 } // namespace doris

@@ -235,24 +235,16 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
 
     const RowDescriptor& row_desc();
 
-    RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
     virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
-
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
-    std::unique_ptr<MemTracker> _mem_tracker;
-    // TODO pipeline Account for peak memory used by this operator
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
     bool _is_closed = false;
 };
@@ -273,20 +265,19 @@ public:
 
     ~DataSinkOperator() override = default;
 
-    Status prepare(RuntimeState* state) override {
-        _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        return Status::OK();
-    }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
 
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
-        return _sink->open(state);
-    }
+    Status open(RuntimeState* state) override { return _sink->open(state); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         if (in_block->rows() > 0) {
-            return _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            auto st = _sink->send(state, in_block, source_state == SourceState::FINISHED);
+            // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
+            if (st.template is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            return st;
         }
         return Status::OK();
     }
@@ -295,7 +286,6 @@ public:
         if (is_closed()) {
             return Status::OK();
         }
-        _fresh_exec_timer(_sink);
         RETURN_IF_ERROR(_sink->close(state, state->query_status()));
         _is_closed = true;
         return Status::OK();
@@ -304,11 +294,6 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
 protected:
-    void _fresh_exec_timer(NodeType* node) {
-        node->profile()->total_time_counter()->update(
-                _runtime_profile->total_time_counter()->value());
-    }
-
     NodeType* _sink;
 };
 
@@ -327,21 +312,18 @@ public:
     ~StreamingOperator() override = default;
 
     Status prepare(RuntimeState* state) override {
-        _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _node->increase_ref();
         _use_projection = _node->has_output_row_descriptor();
         return Status::OK();
     }
 
     Status open(RuntimeState* state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(_node->alloc_resource(state));
         return Status::OK();
     }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         return _node->sink(state, in_block, source_state == SourceState::FINISHED);
     }
 
@@ -349,7 +331,6 @@ public:
         if (is_closed()) {
             return Status::OK();
         }
-        _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
         }
@@ -359,7 +340,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         DCHECK(_child);
         auto input_block = _use_projection ? _node->get_clear_input_block() : block;
         RETURN_IF_ERROR(_child->get_block(state, input_block, source_state));
@@ -377,11 +357,6 @@ public:
     bool can_read() override { return _node->can_read(); }
 
 protected:
-    void _fresh_exec_timer(NodeType* node) {
-        node->runtime_profile()->total_time_counter()->update(
-                _runtime_profile->total_time_counter()->value());
-    }
-
     NodeType* _node;
     bool _use_projection;
 };
@@ -399,7 +374,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
@@ -434,7 +408,6 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 

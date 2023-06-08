@@ -22,6 +22,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -40,6 +41,7 @@
 #include "common/consts.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"       // ExecEnv
@@ -95,6 +97,11 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
         row_loc.set_segment_id(location->row_location.segment_id);
         row_loc.set_ordinal_id(location->row_location.row_id);
         *mget_req.add_row_locs() = std::move(row_loc);
+    }
+    // Set column desc
+    for (const TColumn& tcolumn : _fetch_option.t_fetch_opt.column_desc) {
+        TabletColumn column(tcolumn);
+        column.to_schema_pb(mget_req.add_column_desc());
     }
     PUniqueId& query_id = *mget_req.mutable_query_id();
     query_id.set_hi(_fetch_option.runtime_state->query_id().hi);

@@ -21,15 +21,18 @@
 #include <rapidjson/writer.h>
 #include <stdint.h>
 
+#include <chrono>
 #include <iosfwd>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/threading/thread_collision_warner.h"
+#include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
 #include "util/time.h"
 #include "util/trace_metrics.h"
@@ -112,6 +115,32 @@ class Trace;
             return prefix "_lt_1ms";               \
         }                                          \
     }()
+
+// If this scope times out, make a simple trace.
+// It will log the cost time only.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
+#define SCOPED_SIMPLE_TRACE_IF_TIMEOUT(timeout) \
+    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, LOG(WARNING))
+
+// If this scope times out, then put simple trace to the stream.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
+// For example:
+//
+//    std::string tag = "[foo]";
+//    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(5s, LOG(INFO) << tag);
+//
+#define SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                       \
+    using namespace std::chrono_literals;                                               \
+    auto VARNAME_LINENUM(scoped_simple_trace) = doris::MonotonicMicros();               \
+    SCOPED_CLEANUP({                                                                    \
+        auto VARNAME_LINENUM(timeout_us) =                                              \
+                std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
+        auto VARNAME_LINENUM(cost_us) =                                                 \
+                doris::MonotonicMicros() - VARNAME_LINENUM(scoped_simple_trace);        \
+        if (VARNAME_LINENUM(cost_us) >= VARNAME_LINENUM(timeout_us)) {                  \
+            stream << "Simple trace cost(us): " << VARNAME_LINENUM(cost_us);            \
+        }                                                                               \
+    })
 
 namespace doris {
 

@@ -35,6 +35,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -51,6 +52,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -98,6 +100,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -351,11 +354,12 @@ public class OlapScanNode extends ScanNode {
         return selectedIndexId;
     }
 
-    public void ignoreConjuncts(Expr whereExpr) throws AnalysisException {
+    public void ignoreConjuncts(Expr whereExpr) {
         if (whereExpr == null) {
             return;
         }
-        vconjunct = vconjunct.replaceSubPredicate(whereExpr);
+        conjuncts = conjuncts.stream().map(expr -> expr.replaceSubPredicate(whereExpr))
+                .filter(Objects::nonNull).collect(Collectors.toList());
     }
 
     /**
@@ -1163,8 +1167,10 @@ public class OlapScanNode extends ScanNode {
         if (useTopnOpt) {
             output.append(prefix).append("TOPN OPT\n");
         }
-        if (vconjunct != null) {
-            output.append(prefix).append("PREDICATES: ").append(vconjunct.toSql()).append("\n");
+
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
@@ -1256,23 +1262,49 @@ public class OlapScanNode extends ScanNode {
         return shouldColoScan;
     }
 
+    public void getColumnDesc(List<TColumn> columnsDesc, List<String> keyColumnNames,
+                        List<TPrimitiveType> keyColumnTypes) {
+        if (selectedIndexId != -1) {
+            for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
+                TColumn tColumn = col.toThrift();
+                col.setIndexFlag(tColumn, olapTable);
+                if (columnsDesc != null) {
+                    columnsDesc.add(tColumn);
+                }
+                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
+                    if (keyColumnNames != null) {
+                        keyColumnNames.add(col.getName());
+                    }
+                    if (keyColumnTypes != null) {
+                        keyColumnTypes.add(col.getDataType().toThrift());
+                    }
+                }
+            }
+        }
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
+        getColumnDesc(columnsDesc, keyColumnNames, keyColumnTypes);
         List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
-        if (selectedIndexId != -1) {
-            for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable);
-                columnsDesc.add(tColumn);
-                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
-                    keyColumnNames.add(col.getName());
-                    keyColumnTypes.add(col.getDataType().toThrift());
-                }
-            }
+        // Add extra row id column
+        ArrayList<SlotDescriptor> slots = desc.getSlots();
+        Column lastColumn = slots.get(slots.size() - 1).getColumn();
+        if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
+            TColumn tColumn = new TColumn();
+            tColumn.setColumnName(Column.ROWID_COL);
+            tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
+            tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
+            tColumn.setIsKey(false);
+            tColumn.setIsAllowNull(false);
+            // keep compatibility
+            tColumn.setVisible(false);
+            tColumn.setColUniqueId(Integer.MAX_VALUE);
+            columnsDesc.add(tColumn);
         }
 
         for (Index index : olapTable.getIndexes()) {
@@ -1284,6 +1316,9 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
+        }
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }

@@ -30,6 +30,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
@@ -49,6 +50,7 @@ import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -62,6 +64,8 @@ import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
@@ -80,6 +84,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Range;
 import com.google.common.collect.Table;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
@@ -188,6 +193,11 @@ public class GsonUtils {
             .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
             .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
             .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName());
+    // routine load data source
+    private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(
+                            AbstractDataSourceProperties.class, "clazz")
+                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
@@ -229,8 +239,11 @@ public class GsonUtils {
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
-            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
+            .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
+            .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
@@ -460,7 +473,7 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
+                                              final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);

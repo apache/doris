@@ -338,8 +338,9 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             break;
         }
         if (status.is<ErrorCode::NOT_FOUND>()) {
-            // The only case in this if branch is external table file delete and fe cache has not been updated yet.
+            // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
+            LOG(INFO) << "scan range not found: " << scanner->get_current_scan_range_name();
             status = Status::OK();
             eos = true;
         }

@@ -39,22 +39,19 @@ namespace doris {
 namespace io {
 class IOContext;
 
-const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
+static inline constexpr size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
     StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
                    size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
                    bool use_proto = false);
-
     ~StreamLoadPipe() override;
 
     Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0);
 
     Status append(std::unique_ptr<PDataRow>&& row);
-
     Status append(const char* data, size_t size) override;
-
     Status append(const ByteBufferPtr& buf) override;
 
     const Path& path() const override { return _path; }

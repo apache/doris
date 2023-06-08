@@ -121,11 +121,20 @@ struct TimeCast {
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         /// TODO: Maybe we can move Timecast to the io_helper.
-        if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
-            // can be parse as a datetime
-            x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+        if (try_as_time(s, len, x)) {
             return true;
+        } else {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
+                // can be parse as a datetime
+                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                return true;
+            }
+            return false;
         }
+    }
+
+    template <typename T>
+    static bool try_as_time(char* s, size_t len, T& x) {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
@@ -185,7 +194,6 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
-
     // Cast from number
     template <typename T, typename S>
     static bool try_parse_time(T from, S& x) {
@@ -1033,7 +1041,6 @@ public:
         return std::make_shared<ToDataType>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1239,7 +1246,6 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
@@ -1363,7 +1369,6 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     // This function should not be called for get DateType Ptr
@@ -1407,7 +1412,6 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     // This function should not be called for get DateType Ptr
@@ -1480,6 +1484,8 @@ public:
                                             const Field& right) const override {
         return monotonicity_for_range(type, left, right);
     }
+
+    bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
     const char* name;

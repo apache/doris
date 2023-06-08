@@ -68,10 +68,10 @@ public class Nvl extends ScalarFunction
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
                     .args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
-                    .args(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.WILDCARD)
                     .args(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
+                    .args(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE, BitmapType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),

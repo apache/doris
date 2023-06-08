@@ -64,18 +64,19 @@ void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
 void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
-    std::string s1 = pv.DebugString();
+    int s1 = pv.bytes_value_size();
 
     auto col1 = data_type->create_column();
     pb_to_column(data_type, pv, *col1);
     PValues as_pv = PValues();
     column_to_pb(data_type, *col1, &as_pv);
 
-    std::string s2 = as_pv.DebugString();
+    int s2 = as_pv.bytes_value_size();
     EXPECT_EQ(s1, s2);
 }
 
 void serialize_and_deserialize_pb_test() {
+    std::cout << "==== int32 === " << std::endl;
     // int
     {
         auto vec = vectorized::ColumnVector<Int32>::create();
@@ -86,6 +87,7 @@ void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
         check_pb_col(data_type, *vec.get());
     }
+    std::cout << "==== string === " << std::endl;
     // string
     {
         auto strcol = vectorized::ColumnString::create();
@@ -96,6 +98,7 @@ void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
         check_pb_col(data_type, *strcol.get());
     }
+    std::cout << "==== decimal === " << std::endl;
     // decimal
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
@@ -110,12 +113,13 @@ void serialize_and_deserialize_pb_test() {
         check_pb_col(decimal_data_type, *decimal_column.get());
     }
     // bitmap
+    std::cout << "==== bitmap === " << std::endl;
     {
         vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
         std::vector<BitmapValue>& container =
                 ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
                 bv.add(j);
@@ -125,12 +129,13 @@ void serialize_and_deserialize_pb_test() {
         check_pb_col(bitmap_data_type, *bitmap_column.get());
     }
     // hll
+    std::cout << "==== hll === " << std::endl;
     {
         vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
         auto hll_column = hll_data_type->create_column();
         std::vector<HyperLogLog>& container =
                 ((vectorized::ColumnHLL*)hll_column.get())->get_data();
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 1024; ++i) {
             HyperLogLog hll;
             hll.update(i);
             container.push_back(hll);
@@ -138,6 +143,7 @@ void serialize_and_deserialize_pb_test() {
         check_pb_col(hll_data_type, *hll_column.get());
     }
     // quantilestate
+    std::cout << "==== quantilestate === " << std::endl;
     {
         vectorized::DataTypePtr quantile_data_type(
                 std::make_shared<vectorized::DataTypeQuantileStateDouble>());
@@ -158,6 +164,7 @@ void serialize_and_deserialize_pb_test() {
         check_pb_col(quantile_data_type, *quantile_column.get());
     }
     // nullable string
+    std::cout << "==== nullable string === " << std::endl;
     {
         vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
         vectorized::DataTypePtr nullable_data_type(
@@ -167,6 +174,7 @@ void serialize_and_deserialize_pb_test() {
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
+    std::cout << "==== nullable decimal === " << std::endl;
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         vectorized::DataTypePtr nullable_data_type(
@@ -182,7 +190,6 @@ void serialize_and_deserialize_pb_test() {
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        std::cout << vec->size() << std::endl;
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(data_type));

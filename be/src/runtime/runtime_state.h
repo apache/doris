@@ -157,7 +157,12 @@ public:
 
     bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
+    void set_is_cancelled(bool v) {
+        _is_cancelled.store(v);
+        // Create a error status, so that we could print error stack, and
+        // we could know which path call cancel.
+        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>();
+    }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
@@ -367,6 +372,11 @@ public:
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const { return _query_options.is_report_success; }
+
+    bool enable_scan_node_run_serial() const {
+        return _query_options.__isset.enable_scan_node_run_serial &&
+               _query_options.enable_scan_node_run_serial;
+    }
 
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&

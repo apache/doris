@@ -64,6 +64,15 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    void static check_chars_length(size_t total_length, size_t element_number) {
+        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            throw doris::Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}",
+                    total_length, element_number);
+        }
+    }
+
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
@@ -83,15 +92,6 @@ private:
 
     /// Size of i-th element, including terminating zero.
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
-
-    void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
-        }
-    }
 
     template <bool positive>
     struct less;
@@ -136,12 +136,6 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-/// Suppress gcc 7.3.1 warning: '*((void*)&<anonymous> +8)' may be used uninitialized in this function
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
     void insert(const Field& x) override {
         const String& s = doris::vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
@@ -154,10 +148,6 @@ public:
         memcpy(chars.data() + old_size, s.c_str(), size_to_append);
         offsets.push_back(new_size);
     }
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif
 
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
@@ -222,8 +212,13 @@ public:
             if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
                 continue;
             }
-            memcpy(data, ptr, length);
-            data += length;
+
+            if (length != 0) {
+                DCHECK(ptr != nullptr);
+                memcpy(data, ptr, length);
+                data += length;
+            }
+
             if (LIKELY(i != num - 1)) {
                 ptr = strings[i + 1].data;
                 length = 0;
@@ -304,7 +299,6 @@ public:
         }
     }
 
-#define MAX_STRINGS_OVERFLOW_SIZE 128
     template <typename T, size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
             __attribute__((noinline));

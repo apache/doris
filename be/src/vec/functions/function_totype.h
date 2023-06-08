@@ -51,8 +51,6 @@ public:
         return std::make_shared<typename Impl::ReturnType>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         return execute_impl<typename Impl::ReturnType>(block, arguments, result, input_rows_count);
@@ -142,8 +140,6 @@ public:
         return std::make_shared<ResultDataType>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override {
         DCHECK_EQ(arguments.size(), 2);
@@ -218,8 +214,6 @@ public:
     }
 
     bool is_variadic() const override { return true; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override {
@@ -318,8 +312,6 @@ public:
         return make_nullable(std::make_shared<ResultDataType>());
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -393,7 +385,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-    bool use_default_implementation_for_constants() const override { return true; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -464,8 +455,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
 

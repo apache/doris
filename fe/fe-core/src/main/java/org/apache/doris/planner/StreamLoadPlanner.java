@@ -54,6 +54,8 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
@@ -234,7 +236,6 @@ public class StreamLoadPlanner {
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        scanNode.convertToVectorized();
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
@@ -308,6 +309,206 @@ public class StreamLoadPlanner {
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
+    }
+
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId) throws UserException {
+        if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
+                && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+        }
+        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
+                && !destTable.hasDeleteSign()) {
+            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        }
+
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
+            throw new UserException("Table " + destTable.getName()
+                    + " has sequence column, need to specify the sequence column");
+        }
+        if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
+            throw new UserException("There is no sequence column in the table " + destTable.getName());
+        }
+        resetAnalyzer();
+        // construct tuple descriptor, used for dataSink
+        tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        TupleDescriptor scanTupleDesc = tupleDesc;
+        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+        // construct tuple descriptor, used for scanNode
+        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        boolean negative = taskInfo.getNegative();
+        // get partial update related info
+        boolean isPartialUpdate = taskInfo.isPartialUpdate();
+        if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Only unique key merge on write support partial update");
+        }
+        HashSet<String> partialUpdateInputColumns = new HashSet<>();
+        if (isPartialUpdate) {
+            for (Column col : destTable.getFullSchema()) {
+                boolean existInExpr = false;
+                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                    if (importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        if (!col.isVisible()) {
+                            throw new UserException("Partial update should not include invisible column: "
+                                    + col.getName());
+                        }
+                        partialUpdateInputColumns.add(col.getName());
+                        existInExpr = true;
+                        break;
+                    }
+                }
+                if (col.isKey() && !existInExpr) {
+                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                }
+            }
+        }
+        // here we should be full schema to fill the descriptor table
+        for (Column col : destTable.getFullSchema()) {
+            if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+                continue;
+            }
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            slotDesc.setIsNullable(col.isAllowNull());
+            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            scanSlotDesc.setIsMaterialized(true);
+            scanSlotDesc.setColumn(col);
+            scanSlotDesc.setIsNullable(col.isAllowNull());
+            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                try {
+                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                            && importColumnDesc.getColumnName().equals(col.getName())) {
+                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                        break;
+                    }
+                } catch (Exception e) {
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // We just skip this case here.
+                }
+            }
+            if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
+                throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
+            }
+        }
+
+        // Plan scan tuple of dynamic table
+        if (destTable.isDynamicSchema()) {
+            descTable.addReferencedTable(destTable);
+            scanTupleDesc.setTable(destTable);
+            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+            slotDesc.setNullIndicatorBit(-1);
+            slotDesc.setNullIndicatorByte(0);
+            slotDesc.setIsNullable(false);
+            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
+        }
+
+        // create scan node
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
+        // 1. create file group
+        DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
+        dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.parse(db, dataDescription);
+        // 2. create dummy file status
+        TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+        if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
+            fileStatus.setPath(taskInfo.getPath());
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
+        } else {
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
+        }
+        // The load id will pass to csv reader to find the stream load context from new load stream manager
+        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
+                taskInfo.isPartialUpdate());
+        scanNode = fileScanNode;
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        descTable.computeStatAndMemLayout();
+
+        int timeout = taskInfo.getTimeout();
+        if (taskInfo instanceof RoutineLoadJob) {
+            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
+            // So that the execution won't be killed before consuming finished.
+            timeout *= 2;
+        }
+
+        // create dest sink
+        List<Long> partitionIds = getAllPartitionIds();
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
+                Config.enable_single_replica_load);
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+        olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
+        olapTableSink.complete();
+
+        // for stream load, we only need one fragment, ScanNode -> DataSink.
+        // OlapTableSink can dispatch data to corresponding node.
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
+        fragment.setSink(olapTableSink);
+
+        fragment.finalize(null);
+
+        TPipelineFragmentParams pipParams = new TPipelineFragmentParams();
+        pipParams.setProtocolVersion(PaloInternalServiceVersion.V1);
+        pipParams.setFragment(fragment.toThrift());
+
+        pipParams.setDescTbl(analyzer.getDescTbl().toThrift());
+        pipParams.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        pipParams.setQueryId(loadId);
+        pipParams.per_exch_num_senders = Maps.newHashMap();
+        pipParams.destinations = Lists.newArrayList();
+        pipParams.setNumSenders(1);
+
+        TPipelineInstanceParams localParams = new TPipelineInstanceParams();
+        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
+
+        Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
+        List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
+        for (TScanRangeLocations locations : scanNode.getScanRangeLocations(0)) {
+            scanRangeParams.add(new TScanRangeParams(locations.getScanRange()));
+        }
+        // For stream load, only one sender
+        localParams.setSenderId(0);
+        perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
+        localParams.setPerNodeScanRanges(perNodeScanRange);
+        pipParams.setLocalParams(Lists.newArrayList());
+        pipParams.getLocalParams().add(localParams);
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.setQueryType(TQueryType.LOAD);
+        queryOptions.setQueryTimeout(timeout);
+        queryOptions.setExecutionTimeout(timeout);
+        queryOptions.setMemLimit(taskInfo.getMemLimit());
+        // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
+        queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
+        //load
+        queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
+
+        pipParams.setQueryOptions(queryOptions);
+        TQueryGlobals queryGlobals = new TQueryGlobals();
+        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setTimestampMs(System.currentTimeMillis());
+        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
+        queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+
+        pipParams.setQueryGlobals(queryGlobals);
+
+        // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
+        return pipParams;
     }
 
     // get all specified partition ids.

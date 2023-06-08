@@ -43,6 +43,8 @@
 #include "olap/segment_loader.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/task_group/task_group.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "util/cgroup_util.h"
 #include "util/defer_op.h"
 #include "util/parse_util.h"
@@ -132,7 +134,8 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
 }
 
 // step1: free all cache
-// step2: free top overcommit query, if enable query memroy overcommit
+// step2: free resource groups memory that enable overcommit
+// step3: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemInfo::process_minor_gc() {
     MonotonicStopWatch watch;
@@ -154,9 +157,14 @@ bool MemInfo::process_minor_gc() {
     // TODO add freed_mem
     SegmentLoader::instance()->prune();
 
+    freed_mem += tg_soft_memory_limit_gc(_s_process_minor_gc_size - freed_mem);
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit query in Minor GC", MemTrackerLimiter::Type::QUERY);
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
                 _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
     }
@@ -167,9 +175,10 @@ bool MemInfo::process_minor_gc() {
 }
 
 // step1: free all cache
-// step2: free top memory query
-// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step4: free top memory load
+// step2: free resource groups memory that enable overcommit
+// step3: free global top memory query
+// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step5: free top memory load
 bool MemInfo::process_full_gc() {
     MonotonicStopWatch watch;
     watch.start();
@@ -197,6 +206,11 @@ bool MemInfo::process_full_gc() {
         }
     }
 
+    freed_mem += tg_soft_memory_limit_gc(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage("Before free top memory query in Full GC",
                                                         MemTrackerLimiter::Type::QUERY);
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
@@ -207,7 +221,7 @@ bool MemInfo::process_full_gc() {
 
     VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
             "Before free top memory overcommit load in Full GC", MemTrackerLimiter::Type::LOAD);
-    if (config::enable_query_memroy_overcommit) {
+    if (config::enable_query_memory_overcommit) {
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
                 _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
         if (freed_mem > _s_process_full_gc_size) {
@@ -223,6 +237,68 @@ bool MemInfo::process_full_gc() {
         return true;
     }
     return false;
+}
+
+int64_t MemInfo::tg_hard_memory_limit_gc() {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return !task_group->enable_memory_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_free_memory = 0;
+    for (const auto& task_group : task_groups) {
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        auto used = task_group->memory_used();
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
+                task_group->mem_tracker_limiter_pool());
+    }
+    return total_free_memory;
+}
+
+int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
+    std::vector<taskgroup::TaskGroupPtr> task_groups;
+    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+            [](const taskgroup::TaskGroupPtr& task_group) {
+                return task_group->enable_memory_overcommit();
+            },
+            &task_groups);
+
+    int64_t total_exceeded_memory = 0;
+    std::vector<int64_t> used_memorys;
+    std::vector<int64_t> exceeded_memorys;
+    for (const auto& task_group : task_groups) {
+        auto used_memory = task_group->memory_used();
+        auto exceeded = used_memory - task_group->memory_limit();
+        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        total_exceeded_memory += exceeded_memory;
+        used_memorys.emplace_back(used_memory);
+        exceeded_memorys.emplace_back(exceeded_memory);
+    }
+
+    int64_t total_free_memory = 0;
+    bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
+    for (int i = 0; i < task_groups.size(); ++i) {
+        if (exceeded_memorys[i] == 0) {
+            continue;
+        }
+
+        // todo: GC according to resource group priority
+        int64_t tg_need_free_memory =
+                gc_all_exceeded ? exceeded_memorys[i]
+                                : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
+                                          request_free_memory /* exceeded memory as a weight */;
+        auto task_group = task_groups[i];
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
+                tg_need_free_memory, used_memorys[i], tg_info.id, tg_info.name,
+                tg_info.memory_limit, task_group->mem_tracker_limiter_pool());
+    }
+    return total_free_memory;
 }
 
 #ifndef __APPLE__

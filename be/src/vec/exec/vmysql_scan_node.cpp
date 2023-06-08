@@ -20,7 +20,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
