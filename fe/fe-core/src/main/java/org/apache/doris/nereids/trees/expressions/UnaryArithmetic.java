@@ -23,9 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
-import java.io.DataOutput;
-import java.io.IOException;
-
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
