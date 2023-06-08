@@ -78,9 +78,10 @@ suite("test_case_function_null", "query,p0") {
     }
 
     qt_sql_case0 """
+    SELECT * FROM (
         SELECT
-            case_null0.c2,
-            case_null0.c1
+            case_null0.c2 c2,
+            case_null0.c1 c1
         FROM
             case_null0,
             case_null1
@@ -107,8 +108,8 @@ suite("test_case_function_null", "query,p0") {
             case_null1.c0
         UNION
         SELECT
-            case_null0.c2,
-            case_null0.c1
+            case_null0.c2 c2,
+            case_null0.c1 c1
         FROM
             case_null0,
             case_null1
@@ -137,8 +138,8 @@ suite("test_case_function_null", "query,p0") {
             case_null1.c0
         UNION
         SELECT
-            case_null0.c2,
-            case_null0.c1
+            case_null0.c2 c2,
+            case_null0.c1 c1
         FROM
             case_null0,
             case_null1
@@ -167,9 +168,9 @@ suite("test_case_function_null", "query,p0") {
             case_null0.c2,
             case_null0.c1,
             case_null1.c0
+        ) a
         order BY
-            case_null0.c2,
-            case_null0.c1,
-            case_null1.c0;
+            c2,
+            c1;
     """
 }
