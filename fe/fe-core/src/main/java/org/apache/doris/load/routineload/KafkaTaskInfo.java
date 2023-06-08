@@ -88,16 +88,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tKafkaLoadInfo.setProperties(routineLoadJob.getConvertedCustomProperties());
         tRoutineLoadTask.setKafkaLoadInfo(tKafkaLoadInfo);
         tRoutineLoadTask.setType(TLoadSourceType.KAFKA);
-        if (Config.enable_pipeline_load) {
-            tRoutineLoadTask.setPipelineParams(rePlanForPipeline(routineLoadJob));
-        } else {
-            tRoutineLoadTask.setParams(rePlan(routineLoadJob));
-        }
         tRoutineLoadTask.setIsMultiTable(isMultiTable);
         if (!isMultiTable) {
             Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
             tRoutineLoadTask.setTbl(tbl.getName());
-            tRoutineLoadTask.setParams(rePlan(routineLoadJob));
+            if (Config.enable_pipeline_load) {
+                tRoutineLoadTask.setPipelineParams(rePlanForPipeline(routineLoadJob));
+            } else {
+                tRoutineLoadTask.setParams(rePlan(routineLoadJob));
+            }
         }
         tRoutineLoadTask.setMaxIntervalS(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMaxBatchRows(routineLoadJob.getMaxBatchRows());
