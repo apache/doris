@@ -81,7 +81,7 @@
 {%- endmacro %}
 
 {% macro doris__properties() -%}
-  {% set properties = config.get('properties', validator=validation.any[dict]) or {"replication_num":"1"} %}
+  {% set properties = config.get('properties', validator=validation.any[dict]) %}
   {% if properties is not none %}
     PROPERTIES (
         {% for key, value in properties.items() %}
