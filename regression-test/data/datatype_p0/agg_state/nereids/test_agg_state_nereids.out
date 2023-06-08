@@ -38,3 +38,9 @@
 -- !merge2 --
 3
 
+-- !union --
+3
+
+-- !max_by_null --
+\N	\N
+

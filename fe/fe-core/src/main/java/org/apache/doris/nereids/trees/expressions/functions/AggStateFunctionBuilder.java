@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.types.AggStateType;
 
 import com.google.common.collect.ImmutableList;
@@ -107,10 +108,14 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
         if (combinatorSuffix.equals(STATE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
             return new StateCombinator((List<Expression>) arguments, nestedFunction);
-        } else {
+        } else if (combinatorSuffix.equals(MERGE)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
             return new MergeCombinator((List<Expression>) arguments, nestedFunction);
+        } else if (combinatorSuffix.equals(UNION)) {
+            AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
+            return new UnionCombinator((List<Expression>) arguments, nestedFunction);
         }
+        return null;
     }
 
     public static boolean isAggStateCombinator(String name) {

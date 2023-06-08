@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
@@ -448,6 +449,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
         return Function.convertToMergeCombinator(
+                new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
+                        new FunctionParams(false, arguments)));
+    }
+
+    @Override
+    public Expr visitUnionCombinator(UnionCombinator combinator, PlanTranslatorContext context) {
+        List<Expr> arguments = combinator.children().stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+        return Function.convertToUnionCombinator(
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
                         new FunctionParams(false, arguments)));
     }

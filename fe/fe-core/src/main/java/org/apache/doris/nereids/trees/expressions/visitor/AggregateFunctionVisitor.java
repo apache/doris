@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 
 /** AggregateFunctionVisitor. */
 public interface AggregateFunctionVisitor<R, C> {
@@ -261,6 +262,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMergeCombinator(MergeCombinator combinator, C context) {
+        return visitAggregateFunction(combinator, context);
+    }
+
+    default R visitUnionCombinator(UnionCombinator combinator, C context) {
         return visitAggregateFunction(combinator, context);
     }
 }
