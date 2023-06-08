@@ -260,6 +260,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.BOOLEAN);
     }
 
+    public boolean isTinyint() {
+        return isScalarType(PrimitiveType.TINYINT);
+    }
+
     public boolean isDecimalV2() {
         return isScalarType(PrimitiveType.DECIMALV2);
     }
