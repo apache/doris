@@ -1799,7 +1799,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "The BE's not available,please check BE status!";
+                errMsg = "The BE's not available,please check BE status!;
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
