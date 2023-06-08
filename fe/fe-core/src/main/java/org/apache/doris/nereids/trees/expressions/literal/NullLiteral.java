@@ -22,8 +22,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
@@ -84,11 +82,5 @@ public class NullLiteral extends Literal {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), dataType);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.NULL_LITERAL.getCode());
-        out.writeChars(dataType.toString());
     }
 }

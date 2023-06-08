@@ -103,28 +103,4 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .collect(Collectors.joining(", "));
         return name + "(" + args + ")";
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.BOUND_FUNCTION.getCode());
-        Text.writeString(out, name);
-        out.writeInt(children.size());
-        for (Expression expression : children) {
-            expression.write(out);
-        }
-    }
-
-    /**
-     * read a function from metadata
-     */
-    public static BoundFunction read(DataInput input) throws IOException {
-        String name = Text.readString(input);
-        int count = input.readInt();
-        List<Expression> children = Lists.newArrayList();
-        for (int i = 0; i < count; ++i) {
-            children.add(Expression.read(input));
-        }
-        FunctionRegistry functionRegistry = new FunctionRegistry();
-        return functionRegistry.findFunctionBuilder(name, children).build(name, children);
-    }
 }

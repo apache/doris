@@ -95,13 +95,4 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundSlot(this, context);
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.UNBOUND_SLOT.getCode());
-        out.writeInt(nameParts.size());
-        for (String s : nameParts) {
-            out.writeChars(s);
-        }
-    }
 }

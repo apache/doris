@@ -23,9 +23,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
-import java.io.DataOutput;
-import java.io.IOException;
-
 /**
  * Double literal
  */
@@ -51,11 +48,5 @@ public class DoubleLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new FloatLiteral(value, Type.DOUBLE);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.DOUBLE_LITERAL.getCode());
-        out.writeDouble(value);
     }
 }

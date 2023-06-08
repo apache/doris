@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -26,15 +25,12 @@ import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
 /**
  * ExpressionTrait.
  */
-public interface ExpressionTrait extends TreeNode<Expression>, Writable {
+public interface ExpressionTrait extends TreeNode<Expression> {
 
     boolean nullable();
 
@@ -75,14 +71,5 @@ public interface ExpressionTrait extends TreeNode<Expression>, Writable {
 
     default String toSql() throws UnboundException {
         throw new UnboundException("sql");
-    }
-
-    @Override
-    default void write(DataOutput output) throws IOException {
-        throw new IOException("the expression is not writable");
-    }
-
-    default void readFields(DataInput input) throws IOException {
-        throw new IOException("the expression is not readable");
     }
 }

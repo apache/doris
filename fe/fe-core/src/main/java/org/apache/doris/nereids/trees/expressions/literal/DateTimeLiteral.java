@@ -332,15 +332,4 @@ public class DateTimeLiteral extends DateLiteral {
                 : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.DATETIME_LITERAL.getCode());
-        out.writeLong(year);
-        out.writeLong(month);
-        out.writeLong(day);
-        out.writeLong(hour);
-        out.writeLong(minute);
-        out.writeLong(second);
-    }
 }

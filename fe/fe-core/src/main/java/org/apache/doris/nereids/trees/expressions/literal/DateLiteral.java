@@ -224,12 +224,4 @@ public class DateLiteral extends Literal {
                 ? new NullLiteral(DateType.INSTANCE)
                 : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.DATE_LITERAL.getCode());
-        out.writeLong(year);
-        out.writeLong(month);
-        out.writeLong(day);
-    }
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -41,8 +40,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -228,56 +225,5 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public String shapeInfo() {
         return toSql();
-    }
-
-    /**
-     * code for store in metadata.
-     */
-    protected enum MetaCode {
-        BINARY_ARHTIMETIC(0),
-        UNARY_ARITHMETIC(1),
-        UNBOUND_SLOT(2),
-        NULL_LITERAL(3),
-        BOOLEAN_LITERAL(4),
-        TINYINT_LITERAL(5),
-        SMALLINT_LITERAL(6),
-        INTEGER_LITERAL(7),
-        BIGINT_LITERAL(8),
-        LARGEINT_LITERAL(9),
-        FLOAT_LITERAL(10),
-        DOUBLE_LITERAL(11),
-        VARCHAR_LITERAL(12),
-        STRING_LITERAL(13),
-        DATE_LITERAL(14),
-        DATETIME_LITERAL(15),
-        DATEV2_LITERAL(16),
-        DATETIMEV2_LITERAL(17),
-        DECIMALV2_LITERAL(18),
-        DECIMALV3_LITERAL(19),
-        CAST(20),
-        BOUND_FUNCTION(21);
-
-        private final int code;
-
-        MetaCode(int code) {
-            this.code = code;
-        }
-
-        public int getCode() {
-            return code;
-        }
-    }
-
-    /**
-     * read expression from store
-     */
-    public static Expression read(DataInput input) throws IOException {
-        int code = input.readInt();
-        if (code == MetaCode.BOUND_FUNCTION.code) {
-            return BoundFunction.read(input);
-        } else if (code == MetaCode.UNBOUND_SLOT.code) {
-            return UnboundSlot.read(input);
-        }
-        throw new IOException("unsupported id");
     }
 }

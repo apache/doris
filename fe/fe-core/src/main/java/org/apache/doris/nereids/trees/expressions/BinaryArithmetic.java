@@ -37,7 +37,7 @@ import java.io.IOException;
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
-public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable, Writable {
+public abstract class BinaryArithmetic extends BinaryOperator implements PropagateNullable {
 
     private final Operator legacyOperator;
 
@@ -93,13 +93,5 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBinaryArithmetic(this, context);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.BINARY_ARHTIMETIC.getCode());
-        left().write(out);
-        out.writeChars(legacyOperator.toString());
-        right().write(out);
     }
 }

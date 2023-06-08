@@ -139,16 +139,4 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                         dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                         dateTime.getNano() / (long) Math.pow(10, 9 - precision));
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.DATETIME_LITERAL.getCode());
-        out.writeLong(year);
-        out.writeLong(month);
-        out.writeLong(day);
-        out.writeLong(hour);
-        out.writeLong(minute);
-        out.writeLong(second);
-        out.writeLong(microSecond);
-    }
 }

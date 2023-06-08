@@ -50,11 +50,4 @@ public abstract class UnaryArithmetic extends UnaryOperator implements Propagate
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnaryArithmetic(this, context);
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(MetaCode.UNARY_ARITHMETIC.getCode());
-        out.writeChars(legacyOperator.toString());
-        child().write(out);
-    }
 }
