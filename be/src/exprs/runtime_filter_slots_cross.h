@@ -92,10 +92,6 @@ public:
         for (auto& filter : _runtime_filters) {
             filter->publish();
         }
-        for (auto& filter : _runtime_filters) {
-            // todo: cross join may not need publish_finally()
-            filter->publish_finally();
-        }
     }
 
     bool empty() { return !_runtime_filters.size(); }

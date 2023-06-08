@@ -61,7 +61,6 @@ public:
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
             runtime_filter->publish();
-            runtime_filter->publish_finally();
         };
 
         // ordered vector: IN, IN_OR_BLOOM, others.
@@ -196,27 +195,11 @@ public:
         }
     }
 
-    // should call this method after insert
-    void ready_for_publish() {
-        for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
-                filter->ready_for_publish();
-            }
-        }
-    }
     // publish runtime filter
     void publish() {
-        for (int i = 0; i < _probe_expr_context.size(); ++i) {
-            auto iter = _runtime_filters.find(i);
-            if (iter != _runtime_filters.end()) {
-                for (auto filter : iter->second) {
-                    filter->publish();
-                }
-            }
-        }
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->publish_finally();
+                filter->publish();
             }
         }
     }

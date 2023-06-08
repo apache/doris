@@ -98,18 +98,4 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     }
     return serialize_status;
 }
-
-Status IRuntimeFilter::join_rpc() {
-    DCHECK(is_producer());
-    if (_rpc_context != nullptr) {
-        brpc::Join(_rpc_context->cid);
-        if (_rpc_context->cntl.Failed()) {
-            LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
-            // reset stub cache
-            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    _rpc_context->cntl.remote_side());
-        }
-    }
-    return Status::OK();
-}
 } // namespace doris

@@ -217,8 +217,6 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish();
 
-    void publish_finally();
-
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
     Status get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs);
@@ -295,15 +293,12 @@ public:
 
     // async push runtimefilter to remote node
     Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
-    Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);
 
     std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
-
-    void ready_for_publish();
 
     static bool enable_use_batch(bool use_batch, PrimitiveType type) {
         return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
