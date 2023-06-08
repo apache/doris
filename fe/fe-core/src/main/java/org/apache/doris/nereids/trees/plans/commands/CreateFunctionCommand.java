@@ -53,11 +53,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
 import java.lang.reflect.Constructor;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * create function
@@ -74,9 +74,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private final List<String> paramStrings;
     private final Expression originalFunction;
     private final Map<String, String> properties;
+
     // field when running
     private Database database;
     private String fnName;
+    private DataType[] argTypes;
+    private DataType retType;
+    private boolean isAddToCatalog = true;
 
     /**
      * constructor
@@ -102,17 +106,17 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws UserException {
+        analyze(ctx);
         if (isAliasFunction) {
             handleAliasFunction(ctx);
         }
     }
 
     private void handleAliasFunction(ConnectContext ctx) throws UserException {
-        checkDb(ctx);
         Map<String, PlaceholderSlot> replaceMap = Maps.newLinkedHashMap();
         for (int i = 0; i < paramStrings.size(); ++i) {
-            replaceMap.put(paramStrings.get(i), new PlaceholderSlot(paramStrings.get(i),
-                    DataType.convertFromString(argTypeStrings.get(i))));
+            replaceMap.put(paramStrings.get(i),
+                    new PlaceholderSlot(paramStrings.get(i), DataType.convertFromString(argTypeStrings.get(i))));
         }
         Expression unboundOriginalFunction = UnboundSlotReplacer.INSTANCE.replace(originalFunction, replaceMap);
 
@@ -128,30 +132,32 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
         AliasFunctionBuilder builder = new AliasFunctionBuilder(
                 optimizedFunction,
-                argTypeStrings.stream().map(DataType::convertFromString).collect(Collectors.toList()),
+                Arrays.asList(argTypes),
                 ImmutableList.copyOf(replaceMap.values()),
                 ((Constructor<BoundFunction>) optimizedFunction.getClass().getConstructors()[0]));
 
         ctx.getFunctionRegistry().addAliasFunction(functionNameParts.get(functionNameParts.size() - 1), builder);
 
-        Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
-        AliasFunction originalAliasFunction = AliasFunction.createFunction(
-                new FunctionName(database.getFullName(), fnName),
-                argTypeStrings.stream().map(arg -> Type.fromPrimitiveType(PrimitiveType.valueOf(arg)))
-                        .toArray(Type[]::new),
-                Type.fromPrimitiveType(PrimitiveType.valueOf(retTypeString)),
-                false,
-                paramStrings,
-                expr
-        );
-        if (isGlobal) {
-            ctx.getEnv().getGlobalFunctionMgr().addFunction(originalAliasFunction, false, true);
-        } else {
-            database.addFunction(originalAliasFunction, false, true);
+        if (isAddToCatalog) {
+            Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
+            AliasFunction originalAliasFunction = AliasFunction.createFunction(
+                    new FunctionName(database.getFullName(), fnName),
+                    argTypeStrings.stream().map(arg -> Type.fromPrimitiveType(PrimitiveType.valueOf(arg)))
+                            .toArray(Type[]::new),
+                    Type.VARCHAR,
+                    false,
+                    paramStrings,
+                    expr
+            );
+            if (isGlobal) {
+                ctx.getEnv().getGlobalFunctionMgr().addFunction(originalAliasFunction, false, true);
+            } else {
+                database.addFunction(originalAliasFunction, false, true);
+            }
         }
     }
 
-    private void checkDb(ConnectContext ctx) throws AnalysisException {
+    private void analyze(ConnectContext ctx) throws AnalysisException {
         String dbName;
         if (functionNameParts.size() == 1) {
             dbName = ctx.getDatabase();
@@ -167,10 +173,15 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(String.format("database [%s] is not exist", dbName));
         }
         database = optionalDB.get();
+        argTypes = argTypeStrings.stream().map(DataType::convertFromString).toArray(DataType[]::new);
+        retType = retTypeString == null ? null : DataType.convertFromString(retTypeString);
     }
 
     public static CreateFunctionCommand buildFromCatalogFunction(Function function) {
-        return ((CreateFunctionCommand) new NereidsParser().parseSingle(function.toSql(false)));
+        CreateFunctionCommand command = ((CreateFunctionCommand) new NereidsParser()
+                .parseSingle(function.toSql(false)));
+        command.isAddToCatalog = false;
+        return command;
     }
 
     @Override
