@@ -35,7 +35,6 @@ class SyncerUtils {
     private static <T> void setAuthorInformation(T request, SyncerContext context) {
         request.setUser(context.user)
         request.setPasswd(context.passwd)
-        request.setDb(context.db)
     }
 
     private static String newLabel(SyncerContext context, String table) {
@@ -45,6 +44,7 @@ class SyncerUtils {
     static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
         TGetBinlogRequest request = new TGetBinlogRequest()
         setAuthorInformation(request, context)
+        request.setDb(context.db)
         if (!table.isEmpty()) {
             request.setTable(table)
         }
@@ -55,6 +55,7 @@ class SyncerUtils {
     static TBeginTxnResult beginTxn(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
         TBeginTxnRequest request = new TBeginTxnRequest()
         setAuthorInformation(request, context)
+        request.setDb("TEST_" + context.db)
         if (!table.isEmpty()) {
             request.addToTables(table)
         }
@@ -70,6 +71,7 @@ class SyncerUtils {
     static TCommitTxnResult commitTxn(FrontendClientImpl clientImpl, SyncerContext context) throws TException {
         TCommitTxnRequest request = new TCommitTxnRequest()
         setAuthorInformation(request, context)
+        request.setDb("TEST_" + context.db)
         request.setCommitInfos(context.commitInfos)
         request.setTxnId(context.txnId)
         return clientImpl.client.commitTxn(request)

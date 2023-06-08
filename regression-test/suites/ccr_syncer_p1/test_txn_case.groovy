@@ -144,7 +144,7 @@ suite("test_txn_case") {
     target_sql """DROP USER IF EXISTS ${noPrivUser}"""
     target_sql """CREATE USER ${noPrivUser} IDENTIFIED BY '123456'"""
     target_sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
-    target_sql """GRANT ALL ON ${context.dbName}.${emptyTable} TO ${noPrivUser}"""
+    target_sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue(syncer.beginTxn("${txnTableName}") == false)
@@ -161,9 +161,9 @@ suite("test_txn_case") {
     syncer.context.passwd = "123456"
 
     def beginTxnCallback = { privStr ->
-        target_sql """GRANT ${privStr} ON ${context.dbName}.${txnTableName} TO ${lowPrivUser}"""
+        target_sql """GRANT ${privStr} ON TEST_${context.dbName}.${txnTableName} TO ${lowPrivUser}"""
         assertTrue((syncer.beginTxn("${txnTableName}")) == false)
-        target_sql """REVOKE ${privStr} ON ${context.dbName}.${txnTableName} FROM ${lowPrivUser}"""
+        target_sql """REVOKE ${privStr} ON TEST_${context.dbName}.${txnTableName} FROM ${lowPrivUser}"""
     }
 
     for (int i = 1; i <= 4; ++i) {
@@ -178,7 +178,7 @@ suite("test_txn_case") {
     target_sql """
                   GRANT 
                   SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, DROP_PRIV 
-                  ON ${context.dbName}.${txnTableName}
+                  ON TEST_${context.dbName}.${txnTableName}
                   TO ${showPrivUser}
                """
     syncer.context.user = "${showPrivUser}"
@@ -273,9 +273,9 @@ suite("test_txn_case") {
     syncer.context.passwd = "123456"
 
     def commitTxnCallback = { privStr ->
-        target_sql """GRANT ${privStr} ON ${context.dbName}.${txnTableName} TO ${lowPrivUser}"""
+        target_sql """GRANT ${privStr} ON TEST_${context.dbName}.${txnTableName} TO ${lowPrivUser}"""
         assertTrue(syncer.commitTxn() == false)
-        target_sql """REVOKE ${privStr} ON ${context.dbName}.${txnTableName} FROM ${lowPrivUser}"""
+        target_sql """REVOKE ${privStr} ON TEST_${context.dbName}.${txnTableName} FROM ${lowPrivUser}"""
     }
     for (int i = 1; i <= 4; ++i) {
         recursionPriv.call(fullPriv, 0, nowPriv, i, commitTxnCallback)

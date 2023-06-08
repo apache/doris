@@ -475,7 +475,7 @@ class Config {
         String dbUrl = buildUrl(targetJdbcUrl, dbName)
         tryCreateDbIfNotExist(targetJdbcUrl, dbName)
         log.info("connect to ${dbUrl}".toString())
-        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+        return DriverManager.getConnection(dbUrl, feSyncerUser, feSyncerPassword)
     }
 
     String getDbNameByFile(File suiteFile) {

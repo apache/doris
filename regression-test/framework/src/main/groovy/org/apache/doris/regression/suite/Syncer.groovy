@@ -368,7 +368,8 @@ class Syncer {
         Long dbId = -1
         sqlInfo = suite.target_sql(baseSQL + "'")
         for (List<Object> row : sqlInfo) {
-            if ((row[1] as String).contains(context.db)) {
+            String[] dbName = (row[1] as String).split(":")
+            if (dbName[1] == ("TEST_" + context.db)) {
                 dbId = row[0] as Long
                 break
             }
