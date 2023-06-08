@@ -31,5 +31,6 @@ suite("nereids_insert_array_type") {
     sql 'set enable_fallback_to_original_planner=true'
 
     sql 'insert into arr_t select id, kaint from src'
+    sql 'sync'
     sql 'select * from arr_t'
 }
