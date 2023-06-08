@@ -112,8 +112,6 @@ public class PropertyConverterTest extends TestWithFeService {
         OutFileClause outFileClauseNew = analyzedOutStmtNew.getOutFileClause();
         boolean isNewAnalyzed = Deencapsulation.getField(outFileClauseNew, "isAnalyzed");
         Assertions.assertTrue(isNewAnalyzed);
-
-        // check s3 correct properties
     }
 
     @Test
@@ -153,7 +151,6 @@ public class PropertyConverterTest extends TestWithFeService {
         Resource newResource = Resource.fromStmt(analyzedResourceStmtNew);
         // will add converted properties
         Assertions.assertEquals(newResource.getCopiedProperties().size(), 14);
-        // check s3 correct properties
 
     }
 
@@ -188,8 +185,6 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
         Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
-
-        // check s3 correct properties
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {

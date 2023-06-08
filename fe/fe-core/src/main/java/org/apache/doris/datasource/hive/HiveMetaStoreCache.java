@@ -108,6 +108,7 @@ public class HiveMetaStoreCache {
     private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
 
     private HMSExternalCatalog catalog;
+    private JobConf jobConf;
 
     private Executor executor;
 
@@ -373,12 +374,15 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private JobConf getJobConf() {
-        Configuration configuration = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
+    private synchronized JobConf getJobConf() {
+        if (jobConf == null) {
+            Configuration configuration = new HdfsConfiguration();
+            for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
+                configuration.set(entry.getKey(), entry.getValue());
+            }
+            jobConf = new JobConf(configuration);
         }
-        return new JobConf(configuration);
+        return jobConf;
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
