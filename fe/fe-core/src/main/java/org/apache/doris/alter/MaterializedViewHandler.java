@@ -572,6 +572,11 @@ public class MaterializedViewHandler extends AlterHandler {
             newColumn.setAggregationType(AggregateType.REPLACE, true);
             newMVColumns.add(newColumn);
         }
+        if (olapTable.storeRowColumn()) {
+            Column newColumn = new Column(olapTable.getRowStoreCol());
+            newColumn.setAggregationType(AggregateType.NONE, true);
+            newMVColumns.add(newColumn);
+        }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
             if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {

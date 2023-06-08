@@ -450,6 +450,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
+    ctx.write_type = DataWriteType::TYPE_COMPACTION;
     if (config::inverted_index_compaction_enable &&
         ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
