@@ -21,7 +21,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.StreamLoadStmt;
+import org.apache.doris.analysis.StreamLoadTask;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
@@ -1610,9 +1610,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
-            StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadStmt);
-            TExecPlanFragmentParams plan = planner.plan(streamLoadStmt.getId());
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
+            TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
@@ -1649,9 +1649,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
-            StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadStmt);
-            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadStmt.getId());
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
+            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId());
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());

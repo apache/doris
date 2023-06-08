@@ -40,7 +40,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class StreamLoadStmt implements LoadTaskInfo {
+public class StreamLoadTask implements LoadTaskInfo {
 
     public static class Property {
         public static final String COLUMNS = "columns";
@@ -76,7 +76,7 @@ public class StreamLoadStmt implements LoadTaskInfo {
 
     private static Map<String, String> properties;
 
-    private static final Logger LOG = LogManager.getLogger(StreamLoadStmt.class);
+    private static final Logger LOG = LogManager.getLogger(StreamLoadTask.class);
 
     private TUniqueId id;
     private long txnId;
@@ -117,7 +117,7 @@ public class StreamLoadStmt implements LoadTaskInfo {
     private int skipLines = 0;
     private boolean enableProfile = false;
 
-    public StreamLoadStmt(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
+    public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
         this.txnId = txnId;
@@ -292,16 +292,16 @@ public class StreamLoadStmt implements LoadTaskInfo {
         return isPartialUpdate;
     }
 
-    public static StreamLoadStmt fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
-        StreamLoadStmt streamLoadStmt = new StreamLoadStmt(request.getLoadId(), request.getTxnId(),
+    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
+        StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
-        StreamLoadStmt.properties = request.getProperties();
-        streamLoadStmt.setOptionalFromTSLPutRequest(request);
+        StreamLoadTask.properties = request.getProperties();
+        streamLoadTask.setOptionalFromTSLPutRequest(request);
         if (request.isSetFileSize()) {
-            streamLoadStmt.fileSize = request.getFileSize();
+            streamLoadTask.fileSize = request.getFileSize();
         }
-        return streamLoadStmt;
+        return streamLoadTask;
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {

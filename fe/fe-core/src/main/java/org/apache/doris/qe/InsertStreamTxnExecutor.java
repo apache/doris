@@ -17,7 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.StreamLoadStmt;
+import org.apache.doris.analysis.StreamLoadTask;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -65,12 +65,12 @@ public class InsertStreamTxnExecutor {
             InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         // StreamLoadTask's id == request's load_id
-        StreamLoadStmt streamLoadStmt = StreamLoadStmt.fromTStreamLoadPutRequest(request);
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(
-                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadStmt);
+                txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         // Will using load id as query id in fragment
         if (Config.enable_pipeline_load) {
-            TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadStmt.getId());
+            TPipelineFragmentParams tRequest = planner.planForPipeline(streamLoadTask.getId());
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
             List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (beIds.isEmpty()) {
@@ -111,7 +111,7 @@ public class InsertStreamTxnExecutor {
                 throw new TException(e);
             }
         } else {
-            TExecPlanFragmentParams tRequest = planner.plan(streamLoadStmt.getId());
+            TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().needQueryAvailable().build();
             List<Long> beIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
             if (beIds.isEmpty()) {

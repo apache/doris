@@ -18,7 +18,7 @@
 package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.StreamLoadStmt.Property;
+import org.apache.doris.analysis.StreamLoadTask.Property;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;

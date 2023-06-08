@@ -17,7 +17,7 @@
 
 package org.apache.doris.load.sync.canal;
 
-import org.apache.doris.analysis.StreamLoadStmt;
+import org.apache.doris.analysis.StreamLoadTask;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -88,7 +88,7 @@ public class CanalSyncDataTest {
     @Mocked
     Backend backend;
     @Mocked
-    StreamLoadStmt streamLoadStmt;
+    StreamLoadTask streamLoadTask;
     @Mocked
     StreamLoadPlanner streamLoadPlanner;
     @Mocked
