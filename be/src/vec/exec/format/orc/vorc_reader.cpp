@@ -1302,8 +1302,8 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     for (auto& conjunct : _lazy_read_ctx.conjuncts) {
         filter_conjuncts.push_back(conjunct);
     }
-    RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts(
-            filter_conjuncts, nullptr, block, _filter.get(), &can_filter_all)));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
+            filter_conjuncts, nullptr, block, _filter.get(), &can_filter_all));
 
     if (_lazy_read_ctx.resize_first_column) {
         block->get_by_position(0).column->assume_mutable()->clear();

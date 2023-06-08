@@ -160,8 +160,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up plan
     DCHECK(request.__isset.fragment);
-    RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(ExecNode::create_tree(
-            _runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan)));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ExecNode::create_tree(
+            _runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
@@ -212,10 +212,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(DataSink::create_data_sink(
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *desc_tbl)));
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_sink->prepare(runtime_state())));
+                row_desc(), runtime_state(), &_sink, *desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
