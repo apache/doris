@@ -139,7 +139,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public boolean isConstant() {
         if (this instanceof LeafExpression) {
-            return this instanceof Literal || this instanceof Foldable;
+            return this instanceof Literal;
         } else {
             return children().stream().allMatch(Expression::isConstant);
         }
