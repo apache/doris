@@ -59,8 +59,7 @@ suite("test_agg_state") {
     qt_group1 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""
     qt_merge1 """select max_by_merge(k2) from a_table;"""
     
-    sql "insert into a_table select k1+1, max_by_state(k2,k1) from d_table;"
-    sql "sync"
+    sql "insert into a_table select k1+1, max_by_state(k2,k1+10) from d_table;"
 
     qt_length2 """select k1,length(k2) from a_table order by k1;"""
     qt_group2 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""
