@@ -72,12 +72,10 @@ extern const uint32_t k_segment_magic_length;
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
-    bool is_direct_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
-    // If it is directly write from load procedure, else
-    // it could be compaction or schema change etc..
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
