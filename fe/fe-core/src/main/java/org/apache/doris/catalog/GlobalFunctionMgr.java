@@ -76,7 +76,7 @@ public class GlobalFunctionMgr extends MetaObject {
         try {
             function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
-            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
+            // CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

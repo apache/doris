@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -158,21 +159,23 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     private void analyze(ConnectContext ctx) throws AnalysisException {
-        String dbName;
-        if (functionNameParts.size() == 1) {
-            dbName = ctx.getDatabase();
-            fnName = functionNameParts.get(0);
-        } else if (functionNameParts.size() == 2) {
-            dbName = functionNameParts.get(0);
-            fnName = functionNameParts.get(1);
-        } else {
-            throw new AnalysisException(String.format("%s is an invalid name", functionNameParts));
+        if (!isGlobal) {
+            String dbName;
+            if (functionNameParts.size() == 1) {
+                dbName = ctx.getDatabase();
+                fnName = functionNameParts.get(0);
+            } else if (functionNameParts.size() == 2) {
+                dbName = functionNameParts.get(0);
+                fnName = functionNameParts.get(1);
+            } else {
+                throw new AnalysisException(String.format("%s is an invalid name", functionNameParts));
+            }
+            Optional<Database> optionalDB = Env.getCurrentEnv().getCurrentCatalog().getDb(dbName);
+            if (!optionalDB.isPresent()) {
+                throw new AnalysisException(String.format("database [%s] is not exist", dbName));
+            }
+            database = optionalDB.get();
         }
-        Optional<Database> optionalDB = ctx.getCurrentCatalog().getDb(dbName);
-        if (!optionalDB.isPresent()) {
-            throw new AnalysisException(String.format("database [%s] is not exist", dbName));
-        }
-        database = optionalDB.get();
         argTypes = argTypeStrings.stream().map(DataType::convertFromString).toArray(DataType[]::new);
         retType = retTypeString == null ? null : DataType.convertFromString(retTypeString);
     }
