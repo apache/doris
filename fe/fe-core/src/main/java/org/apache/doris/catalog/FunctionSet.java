@@ -1304,6 +1304,10 @@ public class FunctionSet<T> {
 
     public static final String GROUP_ARRAY = "group_array";
 
+    public static final String RETENTION_ANALYSIS = "retention_info";
+    public static final String RETENTION_ANALYSIS_COUNT = "retention_count";
+
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1505,6 +1509,36 @@ public class FunctionSet<T> {
                         "",
                         "",
                         true, false, true, true));
+
+        // retention_analysis vectorization
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION_ANALYSIS,
+                        Lists.newArrayList(Type.BIGINT, Type.VARCHAR, Type.BIGINT, Type.INT),
+                        Type.VARCHAR,
+                        Type.VARCHAR,
+                        true,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION_ANALYSIS_COUNT,
+                        Lists.newArrayList(Type.VARCHAR),
+                        Type.VARCHAR,
+                        Type.VARCHAR,
+                        true,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        true, false, true, true));
+
 
         for (Type t : Type.getTrivialTypes()) {
             if (t.isNull()) {

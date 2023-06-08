@@ -1342,6 +1342,45 @@ public class FunctionCallExpr extends Expr {
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.RETENTION_ANALYSIS)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() != 4) {
+                throw new AnalysisException("The " + fnName + " function must have 4 params");
+            }
+
+            if (!children.get(0).type.isIntegerType()) {
+                throw new AnalysisException("The 1st params of " + fnName + " function must be bigint");
+            }
+            if (!children.get(1).type.isStringType()) {
+                throw new AnalysisException("The 2nd param of " + fnName + " function must be varchar");
+            }
+            if (!children.get(2).type.isIntegerType()) {
+                throw new AnalysisException("The 3rd params of " + fnName + " function must be bigint");
+            }
+            if (!children.get(3).type.isIntegerType()) {
+                throw new AnalysisException("The 4th param of " + fnName + " function must be integer");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.RETENTION_ANALYSIS_COUNT)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() != 1) {
+                throw new AnalysisException("The " + fnName + " function must have 1 params");
+            }
+
+            if (!children.get(0).type.isStringType()) {
+                throw new AnalysisException("The params of " + fnName + " function must be varchar");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH)
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {

@@ -59,6 +59,8 @@ void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_retention_analysis(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_retention_analysis_count(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -99,6 +101,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_window_lead_lag_first_last(instance);
         register_aggregate_function_HLL_union_agg(instance);
         register_aggregate_function_percentile_approx(instance);
+        register_aggregate_function_retention_analysis(instance);
+        register_aggregate_function_retention_analysis_count(instance);
     });
     return instance;
 }
