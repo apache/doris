@@ -17,7 +17,7 @@
 version: '3'
 services:
   docker-fe-01:
-    image: "apache/doris:1.2.1-fe-x86_64"
+    image: "apache/doris:2.0.0_alpha-fe-x86_64"
     container_name: "doris-fe-01"
     hostname: "fe-01"
     environment:
@@ -33,7 +33,7 @@ services:
       doris_net:
         ipv4_address: 172.20.80.2
   docker-fe-02:
-    image: "apache/doris:1.2.1-fe-x86_64"
+    image: "apache/doris:2.0.0_alpha-fe-x86_64"
     container_name: "doris-fe-02"
     hostname: "fe-02"
     environment:
@@ -49,7 +49,7 @@ services:
       doris_net:
         ipv4_address: 172.20.80.3
   docker-fe-03:
-    image: "apache/doris:1.2.1-fe-x86_64"
+    image: "apache/doris:2.0.0_alpha-fe-x86_64"
     container_name: "doris-fe-03"
     hostname: "fe-03"
     environment:
@@ -65,7 +65,7 @@ services:
       doris_net:
         ipv4_address: 172.20.80.4
   docker-be-01:
-    image: "apache/doris:1.2.1-be-x86_64"
+    image: "apache/doris:2.0.0_alpha-be-x86_64"
     container_name: "doris-be-01"
     hostname: "be-01"
     depends_on:
@@ -85,7 +85,7 @@ services:
       doris_net:
         ipv4_address: 172.20.80.5
   docker-be-02:
-    image: "apache/doris:1.2.1-be-x86_64"
+    image: "apache/doris:2.0.0_alpha-be-x86_64"
     container_name: "doris-be-02"
     hostname: "be-02"
     depends_on:
@@ -105,7 +105,7 @@ services:
       doris_net:
         ipv4_address: 172.20.80.6
   docker-be-03:
-    image: "apache/doris:1.2.1-be-x86_64"
+    image: "apache/doris:2.0.0_alpha-be-x86_64"
     container_name: "doris-be-03"
     hostname: "be-03"
     depends_on:
@@ -128,4 +128,4 @@ networks:
   doris_net:
     ipam:
       config:
-        - subnet: 172.20.80.0/16
+        - subnet: 172.20.80.0/24
