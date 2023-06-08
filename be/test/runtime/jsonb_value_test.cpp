@@ -31,7 +31,7 @@ inline JsonBinaryValue FromStdString(const string& str) {
     return JsonBinaryValue(ptr, len);
 }
 
-TEST(DISABLED_JsonBinaryValueTest, TestValidation) {
+TEST(JsonBinaryValueTest, TestValidation) {
     JsonBinaryValue json_val;
 
     // single value not wrapped as an arrar or object is invalid

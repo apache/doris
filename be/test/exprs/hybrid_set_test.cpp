@@ -26,8 +26,6 @@
 
 namespace doris {
 
-#define HybridSetTest DISABLED_HybridSetTest
-
 // mock
 class HybridSetTest : public testing::Test {
 public:
