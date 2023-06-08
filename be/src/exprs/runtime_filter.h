@@ -291,6 +291,8 @@ public:
     // consumer should call before released
     Status consumer_close();
 
+    Status join_rpc();
+
     // async push runtimefilter to remote node
     Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
 
@@ -398,7 +400,7 @@ protected:
     const bool _enable_pipeline_exec;
 
     bool _profile_init = false;
-    doris::Mutex _profile_mutex;
+    std::mutex _profile_mutex;
     std::string _name;
     bool _opt_remote_rf;
 };

@@ -300,7 +300,7 @@ struct ProcessRuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            _join_node->_runtime_filter_slots->publish();
+            RETURN_IF_ERROR(_join_node->_runtime_filter_slots->publish());
         }
 
         return Status::OK();
@@ -935,7 +935,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           state, arg.hash_table.get_size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
-                                  _runtime_filter_slots->publish();
+                                  RETURN_IF_ERROR(_runtime_filter_slots->publish());
                                   return Status::OK();
                               }},
                     *_hash_table_variants);
@@ -1265,6 +1265,7 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
 }
 
 HashJoinNode::~HashJoinNode() {
+    _runtime_filter_slots->ready_for_publish();
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));

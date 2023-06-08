@@ -72,7 +72,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     _rpc_context->request.set_filter_id(_filter_id);
     _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
     _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
-    _rpc_context->cntl.set_timeout_ms(1000);
+    _rpc_context->cntl.set_timeout_ms(state->runtime_filter_wait_time_ms());
     _rpc_context->cid = _rpc_context->cntl.call_id();
 
     Status serialize_status = serialize(&_rpc_context->request, &data, &len);
@@ -83,19 +83,27 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
             DCHECK(data != nullptr);
             _rpc_context->cntl.request_attachment().append(data, len);
         }
-        if (config::runtime_filter_use_async_rpc) {
-            stub->merge_filter(&_rpc_context->cntl, &_rpc_context->request, &_rpc_context->response,
-                               brpc::DoNothing());
-        } else {
-            stub->merge_filter(&_rpc_context->cntl, &_rpc_context->request, &_rpc_context->response,
-                               nullptr);
-            _rpc_context.reset();
-        }
+        stub->merge_filter(&_rpc_context->cntl, &_rpc_context->request, &_rpc_context->response,
+                           brpc::DoNothing());
 
     } else {
         // we should reset context
         _rpc_context.reset();
     }
     return serialize_status;
+}
+
+Status IRuntimeFilter::join_rpc() {
+    DCHECK(is_producer());
+    if (_rpc_context != nullptr) {
+        brpc::Join(_rpc_context->cid);
+        if (_rpc_context->cntl.Failed()) {
+            LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
+            // reset stub cache
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    _rpc_context->cntl.remote_side());
+        }
+    }
+    return Status::OK();
 }
 } // namespace doris

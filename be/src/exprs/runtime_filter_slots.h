@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
@@ -60,7 +61,8 @@ public:
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
-            runtime_filter->publish();
+            RETURN_IF_ERROR(runtime_filter->publish());
+            return Status::OK();
         };
 
         // ordered vector: IN, IN_OR_BLOOM, others.
@@ -141,9 +143,9 @@ public:
                         "in_num({}) >= max_in_num({})",
                         print_id(state->fragment_instance_id()), filter_desc.filter_id,
                         hash_table_size, max_in_num);
-                ignore_remote_filter(runtime_filter, msg);
+                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, msg));
 #else
-                ignore_remote_filter(runtime_filter, "ignored");
+                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, "ignored"));
 #endif
                 continue;
             }
@@ -195,13 +197,22 @@ public:
         }
     }
 
-    // publish runtime filter
-    void publish() {
+    void ready_for_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->publish();
+                filter->join_rpc();
             }
         }
+    }
+
+    // publish runtime filter
+    Status publish() {
+        for (auto& pair : _runtime_filters) {
+            for (auto filter : pair.second) {
+                RETURN_IF_ERROR(filter->publish());
+            }
+        }
+        return Status::OK();
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
