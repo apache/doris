@@ -36,6 +36,9 @@ public class RewriteIsNullIsNotNullRule implements ExprRewriteRule {
         if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr functionExpr = ((FunctionCallExpr) expr);
             Function fn = functionExpr.getFn();
+            if (fn == null) {
+                return expr;
+            }
             if (fn.getFunctionName().getFunction().equals("is_null_pred")
                     && functionExpr.getChild(0).isNullable() == false) {
                 LiteralExpr literal = LiteralExpr.create("0", Type.BOOLEAN);
