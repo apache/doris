@@ -201,6 +201,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private static final Logger LOG = LogManager.getLogger(FrontendServiceImpl.class);
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
+    // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
+    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
+            new ConcurrentHashMap<>(64);
 
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
@@ -362,8 +365,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (typeDef.getType().isArrayType()) {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
-        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, defaultVal,
-                comment, true);
+        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
+            defaultVal, comment, true);
     }
 
     @Override
@@ -1725,9 +1728,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
-    private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap = new ConcurrentHashMap<>(64);
-
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
@@ -2279,15 +2279,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("prev_commit_seq is not set");
         }
 
+
+        // step 1: check auth
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-
-        // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
-                    request.getUserIp(), PrivPredicate.LOAD);
+                    request.getUserIp(), PrivPredicate.SELECT);
         }
 
         // step 3: check database
@@ -2334,6 +2334,184 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             binlogs.add(binlog);
             result.setBinlogs(binlogs);
         }
+        return result;
+    }
+
+    // getSnapshot
+    public TGetSnapshotResult getSnapshot(TGetSnapshotRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.trace("receive get snapshot info request: {}", request);
+
+        TGetSnapshotResult result = new TGetSnapshotResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = getSnapshotImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    // getSnapshotImpl
+    private TGetSnapshotResult getSnapshotImpl(TGetSnapshotRequest request, String clientIp)
+            throws UserException {
+        // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name, snapshot_type
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetLabelName()) {
+            throw new UserException("label_name is not set");
+        }
+        if (!request.isSetSnapshotName()) {
+            throw new UserException("snapshot_name is not set");
+        }
+        if (!request.isSetSnapshotType()) {
+            throw new UserException("snapshot_type is not set");
+        } else if (request.getSnapshotType() != TSnapshotType.LOCAL) {
+            throw new UserException("snapshot_type is not LOCAL");
+        }
+
+        // Step 2: check auth
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        LOG.info("get snapshot info, user: {}, db: {}, label_name: {}, snapshot_name: {}, snapshot_type: {}",
+                request.getUser(), request.getDb(), request.getLabelName(), request.getSnapshotName(),
+                request.getSnapshotType());
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.LOAD);
+        }
+
+        // Step 3: get snapshot
+        TGetSnapshotResult result = new TGetSnapshotResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(request.getLabelName());
+        if (snapshot == null) {
+            result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
+            result.getStatus().addToErrorMsgs("snapshot not exist");
+        } else {
+            result.setMeta(snapshot.getMeta());
+            result.setJobInfo(snapshot.getJobInfo());
+        }
+
+        return result;
+    }
+
+    // Restore Snapshot
+    public TRestoreSnapshotResult restoreSnapshot(TRestoreSnapshotRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.trace("receive restore snapshot info request: {}", request);
+
+        TRestoreSnapshotResult result = new TRestoreSnapshotResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = restoreSnapshotImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    // restoreSnapshotImpl
+    private TRestoreSnapshotResult restoreSnapshotImpl(TRestoreSnapshotRequest request, String clientIp)
+            throws UserException {
+        // Step 1: Check all required arg: user, passwd, db, label_name, repo_name, meta, info
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetLabelName()) {
+            throw new UserException("label_name is not set");
+        }
+        if (!request.isSetRepoName()) {
+            throw new UserException("repo_name is not set");
+        }
+        if (!request.isSetMeta()) {
+            throw new UserException("meta is not set");
+        }
+        if (!request.isSetJobInfo()) {
+            throw new UserException("job_info is not set");
+        }
+
+        // Step 2: check auth
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.LOAD);
+        }
+
+        // Step 3: get snapshot
+        TRestoreSnapshotResult result = new TRestoreSnapshotResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+
+        LabelName label = new LabelName(request.getDb(), request.getLabelName());
+        String repoName = request.getRepoName();
+        Map<String, String> properties = request.getProperties();
+        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
+                request.getJobInfo());
+        LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
+        try {
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx == null) {
+                ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+            ctx.setCluster(cluster);
+            ctx.setQualifiedUser(request.getUser());
+            UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            restoreStmt.analyze(analyzer);
+            DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
+        } catch (UserException e) {
+            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+
         return result;
     }
 }
