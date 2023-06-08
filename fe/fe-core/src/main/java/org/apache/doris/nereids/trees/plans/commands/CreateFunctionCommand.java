@@ -17,18 +17,25 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PlaceholderSlot;
+import org.apache.doris.nereids.trees.expressions.functions.AliasFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -36,13 +43,16 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
+import java.lang.reflect.Constructor;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * create function
@@ -85,15 +95,15 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws UserException {
         if (isAliasFunction) {
-            handleAliasFunction(ctx, executor);
+            handleAliasFunction(ctx, true);
         }
     }
 
-    private void handleAliasFunction(ConnectContext ctx, StmtExecutor executor) throws AnalysisException {
+    private void handleAliasFunction(ConnectContext ctx, boolean isAddToCatalog) throws UserException {
         checkDb(ctx);
-        Map<String, PlaceholderSlot> replaceMap = Maps.newHashMap();
+        Map<String, PlaceholderSlot> replaceMap = Maps.newLinkedHashMap();
         for (int i = 0; i < paramStrings.size(); ++i) {
             replaceMap.put(paramStrings.get(i), new PlaceholderSlot(paramStrings.get(i),
                     DataType.convertFromString(argTypeStrings.get(i))));
@@ -103,20 +113,35 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         // build a placeholder plan to analyze and optimize the function.
         UnboundOneRowRelation placeholderPlan = new UnboundOneRowRelation(RelationUtil.newRelationId(),
                 ImmutableList.of(new Alias(unboundOriginalFunction, "ORIGINAL_FUNCTION")));
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(placeholderPlan, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(adapter, ctx.getSessionVariable().toThrift());
+        PhysicalPlan physicalPlan = planner.plan(placeholderPlan, PhysicalProperties.ANY);
 
-        Expression optimizedFunction = ((Alias) ((PhysicalOneRowRelation) planner.getPhysicalPlan())
-                .getProjects().get(0)).child();
+        Expression optimizedExpression = ((Alias) ((PhysicalOneRowRelation) physicalPlan).getProjects().get(0)).child();
+        Preconditions.checkArgument(optimizedExpression instanceof BoundFunction);
+        BoundFunction optimizedFunction = ((BoundFunction) optimizedExpression);
 
-        optimizedFunction.hasUnbound();
+        AliasFunctionBuilder builder = new AliasFunctionBuilder(
+                optimizedFunction,
+                argTypeStrings.stream().map(DataType::convertFromString).collect(Collectors.toList()),
+                ImmutableList.copyOf(replaceMap.values()),
+                ((Constructor<BoundFunction>) optimizedFunction.getClass().getConstructors()[0]));
+
+        ctx.getFunctionRegistry().addAliasFunction(functionNameParts.get(functionNameParts.size() - 1), builder);
+
+        if (isAddToCatalog) {
+            Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
+            if (isGlobal) {
+                ctx.getEnv().getGlobalFunctionMgr().addFunction(expr.getFn(), false);
+            } else {
+                database.addFunction(expr.getFn(), false);
+            }
+        }
     }
 
     private void checkDb(ConnectContext ctx) throws AnalysisException {
         String dbName;
         if (functionNameParts.size() == 1) {
-            return;
+            dbName = ctx.getDatabase();
         } else if (functionNameParts.size() == 2) {
             dbName = functionNameParts.get(0);
         } else {
@@ -126,6 +151,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         if (!optionalDB.isPresent()) {
             throw new AnalysisException(String.format("database [%s] is not exist", dbName));
         }
+        database = optionalDB.get();
     }
 
     @VisibleForTesting

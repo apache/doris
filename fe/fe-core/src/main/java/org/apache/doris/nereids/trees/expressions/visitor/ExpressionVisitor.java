@@ -455,6 +455,6 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitPlaceholderSlot(PlaceholderSlot placeholderSlot, C context) {
-        return visitSlot(placeholderSlot, context);
+        return visitNamedExpression(placeholderSlot, context);
     }
 }

@@ -20,10 +20,12 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
+import java.util.Objects;
+
 /**
  * placeholder in create alias function
  */
-public class PlaceholderSlot extends Slot {
+public class PlaceholderSlot extends NamedExpression {
     private final DataType dataType;
     private final String name;
 
@@ -40,6 +42,23 @@ public class PlaceholderSlot extends Slot {
     @Override
     public DataType getDataType() {
         return dataType;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PlaceholderSlot that = (PlaceholderSlot) o;
+        return Objects.equals(dataType, that.dataType) && Objects.equals(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(dataType, name);
     }
 
     @Override

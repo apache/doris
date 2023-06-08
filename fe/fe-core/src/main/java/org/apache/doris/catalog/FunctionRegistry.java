@@ -19,10 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.AliasFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -39,9 +41,11 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public class FunctionRegistry {
     private final Map<String, List<FunctionBuilder>> name2Builders;
+    private final Map<String, List<FunctionBuilder>> name2AliasFunctionBuilders;
 
     public FunctionRegistry() {
         name2Builders = new ConcurrentHashMap<>();
+        name2AliasFunctionBuilders = new ConcurrentHashMap<>();
         registerBuiltinFunctions(name2Builders);
         afterRegisterBuiltinFunctions(name2Builders);
     }
@@ -95,5 +99,9 @@ public class FunctionRegistry {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
                 .collect(Collectors.joining(", ", "[", "]"));
+    }
+
+    public void addAliasFunction(String name, AliasFunctionBuilder builder) {
+        name2AliasFunctionBuilders.computeIfAbsent(name, k -> Lists.newArrayList()).add(builder);
     }
 }

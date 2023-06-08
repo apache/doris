@@ -717,6 +717,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
+        // add to nereids.
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
