@@ -720,7 +720,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
-            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
+            // CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
