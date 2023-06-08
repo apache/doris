@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -294,9 +295,9 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
-    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression date(DateTimeV2Literal dateTime) throws AnalysisException {
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
     /**
