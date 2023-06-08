@@ -29,8 +29,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -704,20 +706,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+    public synchronized void addFunction(Function function, boolean ifNotExists,
+            boolean isFromNereids) throws UserException {
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
+        }
+        if (!isFromNereids) {
+            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-        // add to nereids.
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {

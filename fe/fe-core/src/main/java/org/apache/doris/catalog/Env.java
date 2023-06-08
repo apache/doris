@@ -4851,10 +4851,10 @@ public class Env {
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
         if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists(), false);
         } else {
             Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
-            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
+            db.addFunction(stmt.getFunction(), stmt.isIfNotExists(), false);
         }
     }
 

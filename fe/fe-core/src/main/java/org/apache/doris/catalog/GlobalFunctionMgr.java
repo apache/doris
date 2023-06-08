@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -57,11 +59,15 @@ public class GlobalFunctionMgr extends MetaObject {
         FunctionUtil.readFields(in, name2Function);
     }
 
-    public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+    public synchronized void addFunction(Function function, boolean ifNotExists,
+            boolean isFromNereids) throws UserException {
         function.setGlobal(true);
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
+        }
+        if (!isFromNereids) {
+            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         }
     }
 
@@ -70,6 +76,7 @@ public class GlobalFunctionMgr extends MetaObject {
         try {
             function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            CreateFunctionCommand.buildFromCatalogFunction(function).run(ConnectContext.get(), null);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

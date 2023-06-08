@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,7 +44,6 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -97,11 +98,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws UserException {
         if (isAliasFunction) {
-            handleAliasFunction(ctx, true);
+            handleAliasFunction(ctx);
         }
     }
 
-    private void handleAliasFunction(ConnectContext ctx, boolean isAddToCatalog) throws UserException {
+    private void handleAliasFunction(ConnectContext ctx) throws UserException {
         checkDb(ctx);
         Map<String, PlaceholderSlot> replaceMap = Maps.newLinkedHashMap();
         for (int i = 0; i < paramStrings.size(); ++i) {
@@ -128,13 +129,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
 
         ctx.getFunctionRegistry().addAliasFunction(functionNameParts.get(functionNameParts.size() - 1), builder);
 
-        if (isAddToCatalog) {
-            Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
-            if (isGlobal) {
-                ctx.getEnv().getGlobalFunctionMgr().addFunction(expr.getFn(), false);
-            } else {
-                database.addFunction(expr.getFn(), false);
-            }
+        Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
+        if (isGlobal) {
+            ctx.getEnv().getGlobalFunctionMgr().addFunction(expr.getFn(), false, true);
+        } else {
+            database.addFunction(expr.getFn(), false, true);
         }
     }
 
@@ -154,9 +153,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         database = optionalDB.get();
     }
 
-    @VisibleForTesting
-    public Expression getOriginalFunction() {
-        return originalFunction;
+    public static CreateFunctionCommand buildFromCatalogFunction(Function function) {
+        return ((CreateFunctionCommand) new NereidsParser().parseSingle(function.toSql(false)));
     }
 
     @Override
