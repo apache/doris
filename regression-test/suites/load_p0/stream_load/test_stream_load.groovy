@@ -867,25 +867,25 @@ suite("test_stream_load", "p0") {
     streamLoad {
         table "${tableName11}"
 
-        set 'column_separator', '\t'
+        set 'column_separator', '|'
         set 'columns', 'k1, k2, v2, v10, v11'
         set 'where', 'k1<1000'
         set 'line_delimiter', '\n'
         set 'strict_mode', 'true'
         set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
-        set 'exec_mem_limit' '2147483648' // 2GB
-        set 'timeout' '259200' // 3days
-        set 'timezone' 'Asia/Shanghai'
-        set 'merge_type', 'merge'
-        set 'function_column.sequence_col', 'seq'
-        set 'send_batch_parallelism' '1'
-        set 'max_filter_ratio' '0.5'
-        set 'hidden_columns' ''
-        set 'load_to_single_tablet' 'false'
-        set 'trim_double_quotes' 'false'
-        set 'skip_lines' '0'
-        set 'enable_profile' 'false'
-        set 'partial_columns' 'false'
+        set 'exec_mem_limit', '2147483648' // 2GB
+        set 'timeout', '259200' // 3days
+        set 'timezone', 'Asia/Shanghai'
+        set 'merge_type', 'append'
+        set 'function_column.sequence_col', ''
+        set 'send_batch_parallelism', '1'
+        set 'max_filter_ratio', '0.5'
+        set 'hidden_columns', ''
+        set 'load_to_single_tablet', 'false'
+        set 'trim_double_quotes', 'false'
+        set 'skip_lines', '0'
+        set 'enable_profile', 'false'
+        set 'partial_columns', 'false'
 
         file 'test_properties.csv'
         time 10000 // limit inflight 10s
@@ -897,13 +897,13 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(2, json.NumberTotalRows)
+            assertEquals(4, json.NumberTotalRows)
             assertEquals(1, json.NumberFilteredRows)
+            assertEquals(2, json.NumberUnselectedRows)
         }
     }
 
     sql "sync"
-    qt_sql "select * from ${tableName} order by k1, k2"
 
 }
 

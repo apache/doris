@@ -366,9 +366,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (!Strings.isNullOrEmpty(properties.get(Property.MERGE_TYPE))) {
             try {
-                mergeType = LoadTask.MergeType.valueOf(properties.get(Property.MERGE_TYPE).toString());
+                mergeType = LoadTask.MergeType.valueOf(properties.get(Property.MERGE_TYPE).toUpperCase());
             } catch (IllegalArgumentException e) {
-                throw new UserException("unknown merge type " + properties.get(Property.MERGE_TYPE).toString());
+                throw new UserException("unknown merge type " + properties.get(Property.MERGE_TYPE));
             }
         }
         if (!Strings.isNullOrEmpty(properties.get(Property.DELETE_CONDITION))) {

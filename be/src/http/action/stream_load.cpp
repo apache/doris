@@ -422,6 +422,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->body_sink = file_sink;
     }
 
+    if (!http_req->header(HTTP_MAX_FILTER_RATIO).empty()) {
+        ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
+    }
     std::map<string, string> properties {};
     for (const auto& property : http_req->headers()) {
         properties.insert(std::pair(property.first, property.second));
