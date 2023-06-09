@@ -275,37 +275,6 @@ public abstract class JdbcClient {
     }
 
     /**
-     * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
-     */
-    private Map<String, String> getJdbcColumnsTypeInfo(String dbName, String tableName) {
-        Connection conn = getConnection();
-        ResultSet resultSet = null;
-        Map<String, String> fieldtoType = new HashMap<String, String>();
-
-        StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(tableName);
-        queryBuf.append(" FROM ");
-        queryBuf.append(dbName);
-        try (Statement stmt = conn.createStatement()) {
-            resultSet = stmt.executeQuery(queryBuf.toString());
-            while (resultSet.next()) {
-                // get column name
-                String fieldName = resultSet.getString("Field");
-                // get original type name
-                String typeName = resultSet.getString("Type");
-                fieldtoType.put(fieldName, typeName);
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
-                Util.getRootCauseMessage(e));
-        } finally {
-            close(resultSet, conn);
-        }
-
-        return fieldtoType;
-    }
-
-    /**
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
