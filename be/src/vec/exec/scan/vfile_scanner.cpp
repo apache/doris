@@ -309,16 +309,11 @@ Status VFileScanner::_init_src_block(Block* block) {
         auto it = _name_to_col_type.find(slot->col_name());
         if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
-            data_type =
-                    DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
+            RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
+                                              slot->type(), slot->is_nullable()));
         } else {
-            data_type = DataTypeFactory::instance().create_data_type(it->second, true);
-        }
-        if (data_type == nullptr) {
-            return Status::NotSupported("Not support data type {} for column {}",
-                                        it == _name_to_col_type.end() ? slot->type().debug_string()
-                                                                      : it->second.debug_string(),
-                                        slot->col_name());
+            RETURN_IF_CATCH_EXCEPTION(
+                    data_type = DataTypeFactory::instance().create_data_type(it->second, true));
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
