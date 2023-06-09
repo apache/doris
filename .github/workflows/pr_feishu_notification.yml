@@ -81,6 +81,6 @@ jobs:
           echo 'github.event.pull_request.body ${{ github.event.pull_request.body }}'
           echo 'github.event.pull_request.state ${{ github.event.pull_request.state }}'
 
-          url="http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event_name=${event_name}&context=${context}"
+          url="https://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event_name=$event_name&context=${context}"
           echo "url=${url}"
-          curl -d '{}' "${url}"
+          curl -kv -d '{}' "${url}"
