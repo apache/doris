@@ -132,17 +132,36 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
 ```
 
-3. 导入Json格式数据使用示例
+[3. 导入Json格式数据使用示例](#导入Json格式数据使用示例)
 
    Routine Load导入的json格式仅支持以下两种
 
    第一种只有一条记录，且为json对象：
-
+   当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
    ```json
    {"category":"a9jadhx","author":"test","price":895}
    ```
 
-   第二种为json数组，数组中可含多条记录
+当使用**动态/多表导入** Routine Load （即不指定具体的表名）时，json 数据格式如下
+
+  ```
+  table_name|{"category":"a9jadhx","author":"test","price":895}
+  ```
+假设我们需要导入数据到 user_address 以及 user_info 两张表，那么消息格式如下
+
+eg: user_address 表的 json 数据
+    
+```
+    user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
+ ```
+eg: user_info 表的 json 数据
+```
+    user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
+```
+
+第二种为json数组，数组中可含多条记录
+
+当使用**单表导入**（即通过 ON TABLE_NAME 指定 表名）时，json 数据格式如下
 
    ```json
    [
@@ -165,6 +184,70 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
            "timestamp":1589191387
        }
    ]
+   ```
+当使用**动态/多表导入**（即不指定具体的表名）时，json 数据格式如下
+```
+   table_name|[
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       },
+       {
+           "user_id":128787321878,
+           "address":"朝阳区朝阳大厦XXX号",
+           "timestamp":1589191587
+       }
+   ]
+```
+同样我们以 `user_address` 以及 `user_info` 两张表为例，那么消息格式如下
+    
+eg: user_address 表的 json 数据
+```
+     user_address|[
+       {   
+           "category":"11",
+           "author":"4avc",
+           "price":895,
+           "timestamp":1589191587
+       },
+       {
+           "category":"22",
+           "author":"2avc",
+           "price":895,
+           "timestamp":1589191487
+       },
+       {
+           "category":"33",
+           "author":"3avc",
+           "price":342,
+           "timestamp":1589191387
+       }
+     ]
+```
+eg: user_info 表的 json 数据
+```
+        user_info|[
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         },
+         {
+             "user_id":128787321878,
+             "address":"朝阳区朝阳大厦XXX号",
+             "timestamp":1589191587
+         }
    ```
    
    创建待导入的Doris数据表
