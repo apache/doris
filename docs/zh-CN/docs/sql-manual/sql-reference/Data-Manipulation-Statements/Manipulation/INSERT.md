@@ -45,7 +45,7 @@ INSERT INTO table_name
 
  Parameters
 
-> tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
+> table_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
 > partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
 >
