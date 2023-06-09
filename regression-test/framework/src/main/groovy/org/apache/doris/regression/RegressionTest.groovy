@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression
 
+
 import com.google.common.collect.Lists
 import groovy.transform.CompileStatic
 import jodd.util.Wildcard
