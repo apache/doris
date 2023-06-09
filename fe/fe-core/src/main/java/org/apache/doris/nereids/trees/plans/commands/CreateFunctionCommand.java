@@ -27,32 +27,22 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PlaceholderSlot;
 import org.apache.doris.nereids.trees.expressions.functions.AliasFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
@@ -124,19 +114,18 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         Expression unboundOriginalFunction = UnboundSlotReplacer.INSTANCE.replace(originalFunction, replaceMap);
 
-        Expression boundOriginalFunction = FunctionBinder.INSTANCE.visit(unboundOriginalFunction,
-                new ExpressionRewriteContext())
-        
+        Expression boundOriginalFunction = FunctionBinder.INSTANCE.visit(unboundOriginalFunction, null);
+
         AliasFunctionBuilder builder = new AliasFunctionBuilder(
-                optimizedFunction,
+                ((BoundFunction) boundOriginalFunction),
                 Arrays.asList(argTypes),
                 ImmutableList.copyOf(replaceMap.values()),
-                ((Constructor<BoundFunction>) optimizedFunction.getClass().getConstructors()[0]));
+                ((Constructor<BoundFunction>) boundOriginalFunction.getClass().getConstructors()[0]));
 
         Env.getCurrentEnv().getFunctionRegistry().addAliasFunction(fnName, builder);
 
         if (isAddToCatalog) {
-            Expr expr = ExpressionTranslator.translate(optimizedFunction, new PlanTranslatorContext());
+            Expr expr = ExpressionTranslator.translate(boundOriginalFunction, new PlanTranslatorContext());
             AliasFunction originalAliasFunction = AliasFunction.createFunction(
                     new FunctionName(database.getFullName(), fnName),
                     argTypeStrings.stream().map(arg -> Type.fromPrimitiveType(PrimitiveType.valueOf(arg)))

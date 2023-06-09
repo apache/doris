@@ -24,8 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -45,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -58,13 +57,13 @@ import java.util.stream.Collectors;
 /**
  * function binder
  */
-public class FunctionBinder extends AbstractExpressionRewriteRule {
+public class FunctionBinder extends DefaultExpressionRewriter<Void> {
 
     public static final FunctionBinder INSTANCE = new FunctionBinder();
 
     @Override
-    public Expression visit(Expression expr, ExpressionRewriteContext context) {
-        expr = super.visit(expr, context);
+    public Expression visit(Expression expr, Void unused) {
+        expr = super.visit(expr, null);
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
         if (expr instanceof ImplicitCastInputTypes) {
@@ -81,9 +80,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
      * ******************************************************************************************** */
 
     @Override
-    public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
+    public Expression visitUnboundFunction(UnboundFunction unboundFunction, Void unused) {
         unboundFunction = unboundFunction.withChildren(unboundFunction.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList()));
+                .map(e -> e.accept(this, null)).collect(Collectors.toList()));
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
@@ -100,7 +99,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
         if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
             return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                    .accept(this, context);
+                    .accept(this, null);
         }
 
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
@@ -113,9 +112,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
      * e.g. YEARS_ADD、YEARS_SUB、DAYS_ADD 、DAYS_SUB
      */
     @Override
-    public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
-        Expression left = arithmetic.left().accept(this, context);
-        Expression right = arithmetic.right().accept(this, context);
+    public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Void unused) {
+        Expression left = arithmetic.left().accept(this, null);
+        Expression right = arithmetic.right().accept(this, null);
 
         // bind function
         String funcOpName;
@@ -137,8 +136,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
      * ******************************************************************************************** */
 
     @Override
-    public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
-        Expression child = bitNot.child().accept(this, context);
+    public Expression visitBitNot(BitNot bitNot, Void unused) {
+        Expression child = bitNot.child().accept(this, null);
         // type coercion
         if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
             child = new Cast(child, BigIntType.INSTANCE);
@@ -147,41 +146,41 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
-        Expression left = divide.left().accept(this, context);
-        Expression right = divide.right().accept(this, context);
+    public Expression visitDivide(Divide divide, Void unused) {
+        Expression left = divide.left().accept(this, null);
+        Expression right = divide.right().accept(this, null);
 
         // type coercion
         return TypeCoercionUtils.processDivide(divide, left, right);
     }
 
     @Override
-    public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
-        Expression left = integralDivide.left().accept(this, context);
-        Expression right = integralDivide.right().accept(this, context);
+    public Expression visitIntegralDivide(IntegralDivide integralDivide, Void unused) {
+        Expression left = integralDivide.left().accept(this, null);
+        Expression right = integralDivide.right().accept(this, null);
 
         // type coercion
         return TypeCoercionUtils.processIntegralDivide(integralDivide, left, right);
     }
 
     @Override
-    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
-        Expression left = binaryArithmetic.left().accept(this, context);
-        Expression right = binaryArithmetic.right().accept(this, context);
+    public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, Void unused) {
+        Expression left = binaryArithmetic.left().accept(this, null);
+        Expression right = binaryArithmetic.right().accept(this, null);
         return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic, left, right);
     }
 
     @Override
-    public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, ExpressionRewriteContext context) {
-        Expression left = compoundPredicate.left().accept(this, context);
-        Expression right = compoundPredicate.right().accept(this, context);
+    public Expression visitCompoundPredicate(CompoundPredicate compoundPredicate, Void unused) {
+        Expression left = compoundPredicate.left().accept(this, null);
+        Expression right = compoundPredicate.right().accept(this, null);
         CompoundPredicate ret = (CompoundPredicate) compoundPredicate.withChildren(left, right);
         return TypeCoercionUtils.processCompoundPredicate(ret);
     }
 
     @Override
-    public Expression visitNot(Not not, ExpressionRewriteContext context) {
-        Expression child = not.child().accept(this, context);
+    public Expression visitNot(Not not, Void unused) {
+        Expression child = not.child().accept(this, null);
         if (!child.getDataType().isBooleanType() && !child.getDataType().isNullType()) {
             throw new AnalysisException(String.format(
                     "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
@@ -192,41 +191,41 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
-        Expression left = cp.left().accept(this, context);
-        Expression right = cp.right().accept(this, context);
+    public Expression visitComparisonPredicate(ComparisonPredicate cp, Void unused) {
+        Expression left = cp.left().accept(this, null);
+        Expression right = cp.right().accept(this, null);
         return TypeCoercionUtils.processComparisonPredicate(cp, left, right);
     }
 
     @Override
-    public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+    public Expression visitCaseWhen(CaseWhen caseWhen, Void unused) {
         List<Expression> rewrittenChildren = caseWhen.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
+                .map(e -> e.accept(this, null)).collect(Collectors.toList());
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
         newCaseWhen.checkLegalityBeforeTypeCoercion();
         return TypeCoercionUtils.processCaseWhen(newCaseWhen);
     }
 
     @Override
-    public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
+    public Expression visitInPredicate(InPredicate inPredicate, Void unused) {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
+                .map(e -> e.accept(this, null)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
     }
 
     @Override
-    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
+    public Expression visitBetween(Between between, Void unused) {
         List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
+                .map(e -> e.accept(this, null)).collect(Collectors.toList());
         Between newBetween = between.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processBetween(newBetween);
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery inSubquery, ExpressionRewriteContext context) {
-        Expression newCompareExpr = inSubquery.getCompareExpr().accept(this, context);
-        Expression newListQuery = inSubquery.getListQuery().accept(this, context);
+    public Expression visitInSubquery(InSubquery inSubquery, Void unused) {
+        Expression newCompareExpr = inSubquery.getCompareExpr().accept(this, null);
+        Expression newListQuery = inSubquery.getListQuery().accept(this, null);
         ComparisonPredicate newCpAfterUnNestingSubquery =
                 new EqualTo(newCompareExpr, ((ListQuery) newListQuery).getQueryPlan().getOutput().get(0));
         ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
