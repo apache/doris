@@ -575,7 +575,9 @@ public class OriginalPlanner extends Planner {
     // this opt will only work with nereidsPlanner
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
         Set<Integer> outputColumnUniqueIds = new HashSet<>();
-        // add '-1', make compatible for nereidsPlanner
+        // add '-1' to avoid the optimization incorrect work with OriginalPlanner,
+        // because in the storage layer will skip this optimization if outputColumnUniqueIds contains '-1',
+        // to ensure the optimization only correct work with nereidsPlanner
         outputColumnUniqueIds.add(-1);
 
         for (PlanFragment fragment : fragments) {
