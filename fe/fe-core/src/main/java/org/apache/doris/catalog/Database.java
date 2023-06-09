@@ -121,7 +121,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
-    @SerializedName(value = "binlogConfig")
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
