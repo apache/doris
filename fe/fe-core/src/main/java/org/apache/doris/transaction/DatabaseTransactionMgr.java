@@ -675,7 +675,11 @@ public class DatabaseTransactionMgr {
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
-        LOG.info("transaction:[{}] successfully committed", transactionState);
+        // do not log this info when enable 2pc, as 2pc will hold table write lock outside
+        // which will cause holding lock long time, and impact the parallelism of flink job
+        if (!is2PC) {
+            LOG.info("transaction:[{}] successfully committed", transactionState);
+        }
     }
 
     public boolean waitForTransactionFinished(DatabaseIf db, long transactionId, long timeoutMillis)
