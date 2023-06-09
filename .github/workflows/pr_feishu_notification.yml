@@ -67,6 +67,7 @@ jobs:
           state='${{ github.event.issue.state }}'
           action='${{ github.event.action }}'
           server='${{ env.APP_SERVER }}'
+          event='${{ github.event_name }}'
 
           echo "number: ${number}"
           echo "comment: ${comment}"
@@ -94,6 +95,6 @@ jobs:
           echo 'github.event.pull_request.body ${{ github.event.pull_request.body }}'
           echo 'github.event.pull_request.state ${{ github.event.pull_request.state }}'
 
-          echo "http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}"
-
-          curl -d '{}' "http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}"
+          url="http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event=$event"
+          echo "url=${url}"
+          curl -d '{}' "${url}"
