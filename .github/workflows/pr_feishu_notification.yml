@@ -1,0 +1,104 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+
+# https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
+#
+# For pull requests from a forked repository to the base repository, GitHub
+# sends the pull_request, issue_comment, pull_request_review_comment,
+# pull_request_review, and pull_request_target events to the base repository. No
+# pull request events occur on the forked repository.
+
+
+#   pull_request:
+#     types: [opened, reopened, closed]
+
+#   issue_comment:
+#     types: [created, edited]
+---
+name: Pull-Request Feishu Notification
+
+on:
+  issue_comment:
+    types: 
+      - created
+      - edited
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+env:
+  LATEST_COMMIT: $(curl -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')" > pr_details.json && jq -r '.head.sha' pr_details.json)
+  APP_SERVER: '43.138.9.29:8888'
+
+jobs:
+  feishu_notify:
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Pull-Request Comment Notification
+        run: |
+          number=${{ github.event.number }}
+          comment=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.comment.body }}")
+          title=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.pull_request.title }}")
+          url=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.pull_request.html_url }}")
+          user="${{ github.event.pull_request.user.login }}"
+          state="${{ github.event.pull_request.state }}"
+          latest_commit_id="${{ env.LATEST_COMMIT }}"
+          server="${{ env.APP_SERVER }}"
+
+          echo "number: ${number}"
+          echo "comment: ${comment}"
+          echo "latest_commit_id: ${latest_commit_id}"
+
+          echo "github.event.action ${{ github.event.action }}"
+          echo "github.event.comment ${{ github.event.comment }}"
+          echo "github.event.workflow ${{ github.event.workflow }}"
+          echo "github.event.base_ref ${{ github.event.base_ref }}"
+          echo "github.event.head_ref ${{ github.event.head_ref }}"
+          echo "github.event.ref ${{ github.event.ref }}"
+          echo "github.event.number ${{ github.event.number }}"
+          echo "github.event.created_at ${{ github.event.created_at }}"
+          echo "github.event.title ${{ github.event.title }}"
+          echo "github.event.sender.login ${{ github.event.sender.login }}"
+
+          echo "github.event.pull_request.action ${{ github.event.pull_request.action }}"
+          echo "github.event.pull_request.number ${{ github.event.pull_request.number }}"
+          echo "github.event.pull_request.title ${{ github.event.pull_request.title }}"
+          echo "github.event.pull_request.url ${{ github.event.pull_request.url }}"
+          echo "github.event.pull_request.user.login ${{ github.event.pull_request.user.login }}"
+          echo "github.event.pull_request.requested_reviewers ${{ github.event.pull_request.requested_reviewers }}"
+          echo "github.event.pull_request.merged ${{ github.event.pull_request.merged }}"
+          echo "github.event.pull_request.comment ${{ github.event.pull_request.comment }}"
+          echo "github.event.pull_request.html_utl ${{ github.event.pull_request.html_url }}"
+          echo "github.event.pull_request.body ${{ github.event.pull_request.body }}"
+          echo "github.event.pull_request.state ${{ github.event.pull_request.state }}"
+
+          echo "http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}"
+
+          curl -d '{}' "http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}"
