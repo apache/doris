@@ -64,11 +64,11 @@ jobs:
       - name: Pull-Request Comment Notification
         run: |
           number=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
-          comment=${{ github.event.comment.body }}
-          title=${{ github.event.title }}
-          url=${{ github.event.issue.pull_request.html_url }}
-          user=${{ github.event.user.name }}
-          state=${{ github.event.state }}
+          comment="${{ github.event.comment.body }}"
+          title="${{ github.event.title }}"
+          url="${{ github.event.issue.pull_request.html_url }}"
+          user="${{ github.event.user.name }}"
+          state="${{ github.event.state }}"
           server="${{ env.APP_SERVER }}"
 
           echo "number: ${number}"
