@@ -30,14 +30,16 @@ suite("test_time_diff_microseconds") {
         "replication_num" = "1"
         );
     """
+    sql """
+        INSERT INTO tbl_time VALUES(1,'0001-01-03 19:19:00.000000','0001-01-01 00:00:00.0000');
+    """
+
      sql """
-        INSERT INTO tbl_time VALUES(1,'0001-01-01 00:00:00.114514','0001-01-01 00:00:00.000000');
+        INSERT INTO tbl_time VALUES(2,'0001-01-02 00:00:00.514514','0001-01-01 00:00:00.000000');
     """
+
     sql """
-        INSERT INTO tbl_time VALUES(2,'0001-01-03 19:19:00.000000','0001-01-01 00:00:00.000000');
-    """
-    sql """
-        INSERT INTO tbl_time VALUES(3,'0001-01-03 19:00:00.000000','0001-01-22 00:00:00.000000');
+        INSERT INTO tbl_time VALUES(3,'0001-01-03 19:00:00.123123','0001-01-22 00:00:00.891312');
     """
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
