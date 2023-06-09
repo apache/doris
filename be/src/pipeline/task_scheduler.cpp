@@ -250,8 +250,8 @@ void TaskScheduler::_do_work(size_t index) {
         }
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
-        doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
-        doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
+        signal::query_id_hi = fragment_ctx->get_query_id().hi;
+        signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
         auto check_state = task->get_state();
@@ -279,7 +279,14 @@ void TaskScheduler::_do_work(size_t index) {
         DCHECK(check_state == PipelineTaskState::RUNNABLE);
         // task exec
         bool eos = false;
-        auto status = task->execute(&eos);
+        auto status = Status::OK();
+
+        try {
+            status = task->execute(&eos);
+        } catch (const Exception& e) {
+            status = Status::Error(e.code(), e.to_string());
+        }
+
         task->set_previous_core_id(index);
         if (!status.ok()) {
             LOG(WARNING) << fmt::format("Pipeline task [{}] failed: {}", task->debug_string(),
