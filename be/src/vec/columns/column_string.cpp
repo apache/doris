@@ -113,6 +113,9 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
         if (*x == -1) {
             ColumnString::insert_default();
         } else {
+            if (x + IColumn::PREFETCH_STEP < indices_end) {
+                ColumnString::prefetch(src, *(x + IColumn::PREFETCH_STEP));
+            }
             ColumnString::insert_from(src, *x);
         }
     }
