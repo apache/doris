@@ -164,10 +164,10 @@ fi
 
 if [[ "${ENABLE_PCH}" == "ON" ]]; then
     export CCACHE_PCH_EXTSUM=true
-    ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
+    export CCACHE_SLOPPINESS="pch_defines,time_macros"
 else
     export CCACHE_NOPCH_EXTSUM=true
-    ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
+    export CCACHE_SLOPPINESS="default"
 fi
 
 if [[ -z "${DORIS_BIN_UTILS}" ]]; then
@@ -271,4 +271,3 @@ export GENERATOR
 export BUILD_SYSTEM
 
 export PKG_CONFIG_PATH="${DORIS_HOME}/thirdparty/installed/lib64/pkgconfig:${PKG_CONFIG_PATH}"
-export CCACHE_SLOPPINESS="time_macros pch_defines"
