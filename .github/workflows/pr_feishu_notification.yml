@@ -52,9 +52,12 @@ on:
 env:
   LATEST_COMMIT: $(curl -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')" > pr_details.json && jq -r '.head.sha' pr_details.json)
   APP_SERVER: '43.138.9.29:8888'
+  number: $(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+  comment: "${{ github.event.comment.body }}"
 
 jobs:
   feishu_notify:
+    if: ${{ github.event_name }} == 'issue_comment'
     runs-on: ubuntu-latest
 
     env:
@@ -63,12 +66,10 @@ jobs:
     steps:
       - name: Pull-Request Comment Notification
         run: |
-          number=${{ github.event.number }}
-          comment=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.comment.body }}")
-          title=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.pull_request.title }}")
-          url=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.pull_request.html_url }}")
-          user="${{ github.event.pull_request.user.login }}"
-          state="${{ github.event.pull_request.state }}"
+          title=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.title }}")
+          url=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${{ github.event.issue.pull_request.url }}")
+          user="${{ github.event.user.name }}"
+          state="${{ github.event.state }}"
           latest_commit_id="${{ env.LATEST_COMMIT }}"
           server="${{ env.APP_SERVER }}"
 
