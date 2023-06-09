@@ -246,6 +246,13 @@ void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& nam
             MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
 }
 
+std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
+    if (!_query_mem_tracker) {
+        return _exec_env->orphan_mem_tracker();
+    }
+    return _query_mem_tracker;
+}
+
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 

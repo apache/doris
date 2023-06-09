@@ -116,12 +116,7 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() {
-        if (!_query_mem_tracker) {
-            init_mem_trackers();
-        }
-        return _query_mem_tracker;
-    }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
