@@ -80,11 +80,6 @@ static std::string broker_ip = "127.0.0.1";
 static int broker_port = 8008;
 static std::string broker_location = "hdfs://my_nameservice/user/doris";
 
-// commend out to enable specified test
-#define TestHdfsFileSystem DISABLED_TestHdfsFileSystem
-#define TestS3FileSystem DISABLED_TestS3FileSystem
-#define TestBrokerFileSystem DISABLED_TestBrokerFileSystem
-
 class RemoteFileSystemTest : public testing::Test {
 public:
     virtual void SetUp() {

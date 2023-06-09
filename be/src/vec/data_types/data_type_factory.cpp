@@ -38,6 +38,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -62,36 +63,7 @@
 namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
-    DataTypePtr nested = nullptr;
-    if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        DCHECK(col_desc.get_sub_field_count() == 1);
-        nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
-    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        DCHECK(col_desc.get_sub_field_count() == 2);
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(*col_desc.get_sub_field(0)),
-                create_data_type(*col_desc.get_sub_field(1)));
-    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        DCHECK(col_desc.get_sub_field_count() >= 1);
-        size_t field_size = col_desc.get_sub_field_count();
-        DataTypes dataTypes;
-        Strings names;
-        dataTypes.reserve(field_size);
-        names.reserve(field_size);
-        for (size_t i = 0; i < field_size; i++) {
-            dataTypes.push_back(create_data_type(*col_desc.get_sub_field(i)));
-            names.push_back(col_desc.get_sub_field(i)->name());
-        }
-        nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-    } else {
-        nested = _create_primitive_data_type(col_desc.type(), col_desc.get_precision(),
-                                             col_desc.get_scale());
-    }
-
-    if (col_desc.is_nullable() && nested) {
-        return std::make_shared<DataTypeNullable>(nested);
-    }
-    return nested;
+    return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }
 
 DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {

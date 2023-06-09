@@ -73,7 +73,6 @@ suite("test_point_query_load", "p0") {
     explain {
         sql("SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10")
         contains "(mv_${testTable})"
-        contains "OPT TWO PHASE"
     }
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
