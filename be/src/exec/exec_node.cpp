@@ -44,6 +44,8 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/exec/join/grace_hash_join_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -53,6 +55,7 @@
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/spill_sort_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
@@ -142,8 +145,10 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state));
+    if (_prepare_children) {
+        for (int i = 0; i < _children.size(); ++i) {
+            RETURN_IF_ERROR(_children[i]->prepare(state));
+        }
     }
     return Status::OK();
 }
@@ -375,7 +380,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        if (state->enable_pipeline_exec() && state->enable_join_spill()) {
+            *node = pool->add(new vectorized::GraceHashJoinNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:
@@ -395,7 +404,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::SORT_NODE:
-        *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
+        if (state->enable_pipeline_exec() && state->enable_join_spill()) {
+            *node = pool->add(new vectorized::SpillSortNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ANALYTIC_EVAL_NODE:

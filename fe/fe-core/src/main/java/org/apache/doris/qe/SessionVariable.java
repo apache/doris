@@ -349,6 +349,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
+    public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
+
+    public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
+
+    public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -977,6 +982,30 @@ public class SessionVariable implements Serializable, Writable {
             name = IGNORE_COMPLEX_TYPE_COLUMN
     )
     public boolean ignoreColumnWithComplexType = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_JOIN_SPILL,
+            description = {"控制是否启用join算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of join operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableJoinSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_SORT_SPILL,
+            description = {"控制是否启用排序算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of sort operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableSortSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_AGG_SPILL,
+            description = {"控制是否启用聚合算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of aggregation operation. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean enableAggSpill = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1647,6 +1676,29 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public boolean isEnableJoinSpill () {
+        return enableJoinSpill;
+    }
+
+    public void setEnableJoinSpill (boolean enableJoinSpill) {
+        this.enableJoinSpill = enableJoinSpill;
+    }
+
+    public boolean isEnableSortSpill () {
+        return enableSortSpill;
+    }
+
+    public void setEnableSortSpill (boolean enableSortSpill) {
+        this.enableSortSpill = enableSortSpill;
+    }
+
+    public boolean isEnableAggSpill () {
+        return enableAggSpill;
+    }
+
+    public void setEnableAggSpill (boolean enableAggSpill) {
+        this.enableAggSpill = enableAggSpill;
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2009,6 +2061,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         tResult.setEnableInsertStrict(enableInsertStrict);
+
+        tResult.setEnableJoinSpill(enableJoinSpill);
+        tResult.setEnableSortSpill(enableSortSpill);
+        tResult.setEnableAggSpill(enableAggSpill);
 
         return tResult;
     }

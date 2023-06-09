@@ -17,38 +17,33 @@
 
 #pragma once
 
-#include <cstddef>
+#include <stdint.h>
 
-#include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/path.h"
-#include "util/slice.h"
+#include "operator.h"
+#include "vec/exec/spill_sort_node.h"
 
 namespace doris {
-namespace io {
+class ExecNode;
 
-class LocalFileWriter final : public FileWriter {
+namespace pipeline {
+
+class SpillSortSinkOperatorBuilder final : public OperatorBuilder<vectorized::SpillSortNode> {
 public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs);
-    LocalFileWriter(Path path, int fd);
-    ~LocalFileWriter() override;
+    SpillSortSinkOperatorBuilder(int32_t id, ExecNode* sort_node);
 
-    Status close() override;
-    Status abort() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status write_at(size_t offset, const Slice& data) override;
-    Status finalize() override;
+    bool is_sink() const override { return true; }
 
-    int get_fd() const { return _fd; }
-
-private:
-    Status _close(bool sync);
-
-private:
-    int _fd; // owned
-    bool _dirty = false;
+    OperatorPtr build_operator() override;
 };
 
-} // namespace io
+class SpillSortSinkOperator final : public StreamingOperator<SpillSortSinkOperatorBuilder> {
+public:
+    SpillSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
+
+    bool can_write() override { return true; }
+
+    bool io_task_finished() override { return _node->io_task_finished(); }
+};
+
+} // namespace pipeline
 } // namespace doris

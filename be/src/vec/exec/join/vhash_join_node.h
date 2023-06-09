@@ -222,8 +222,13 @@ public:
     //  SQL hint to allow users to tune by hand.
     static constexpr int PREFETCH_STEP = 64;
 
-    HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                 bool enable_rf = true, bool need_evaluate_exprs = true);
     ~HashJoinNode() override;
+
+    static Status evaluate_exprs(Block& block, VExprContextSPtrs& exprs,
+                                 RuntimeProfile::Counter& expr_call_timer,
+                                 std::vector<int>& res_col_ids);
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -258,6 +263,20 @@ public:
         }
         return _runtime_filter_slots->ready_finish_publish();
     }
+    std::shared_ptr<std::vector<Block>> release_build_blocks() { return std::move(_build_blocks); }
+
+    bool current_probe_finished() const {
+        return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows());
+    }
+
+    void set_build_column_ids(const std::vector<int>& build_column_ids) {
+        _build_column_ids = build_column_ids;
+    }
+    void set_probe_column_ids(const std::vector<int>& probe_column_ids) {
+        _probe_column_ids = probe_column_ids;
+    }
+
+    bool is_merge_build_block_oom() const { return _is_merge_build_block_oom; }
 
 private:
     void _init_short_circuit_for_probe() override {
@@ -361,12 +380,15 @@ private:
 
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
+    bool _enable_runtime_filter = true;
+    bool _need_evaluate_exprs = true;
+    bool _is_merge_build_block_oom = false;
+    std::vector<int> _build_column_ids;
+    std::vector<int> _probe_column_ids;
+
     Status _materialize_build_side(RuntimeState* state) override;
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
-
-    Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
-                        RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
 
     template <bool BuildSide>
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,

@@ -225,6 +225,12 @@ struct TQueryOptions {
   74: optional bool enable_scan_node_run_serial = false; 
 
   75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_join_spill = false
+
+  77: optional bool enable_sort_spill = false
+
+  78: optional bool enable_agg_spill = false
 }
 
 

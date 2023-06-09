@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "vec/exec/join/grace_hash_join_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
@@ -42,6 +43,25 @@ public:
     // should skip `alloc_resource()` function call, only sink operator
     // call the function
     Status open(RuntimeState*) override { return Status::OK(); }
+};
+
+class GraceHashJoinProbeOperatorBuilder final
+        : public OperatorBuilder<vectorized::GraceHashJoinNode> {
+public:
+    GraceHashJoinProbeOperatorBuilder(int32_t, ExecNode*);
+
+    OperatorPtr build_operator() override;
+};
+
+class GraceHashJoinProbeOperator final
+        : public StatefulOperator<GraceHashJoinProbeOperatorBuilder> {
+public:
+    GraceHashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
+    // if exec node split to: sink, source operator. the source operator
+    // should skip `alloc_resource()` function call, only sink operator
+    // call the function
+    Status open(RuntimeState*) override { return Status::OK(); }
+    bool io_task_finished() override { return _node->io_task_finished(); }
 };
 
 } // namespace pipeline

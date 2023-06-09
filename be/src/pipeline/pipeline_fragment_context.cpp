@@ -74,6 +74,8 @@
 #include "pipeline/exec/set_source_operator.h"     // IWYU pragma: keep
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_sort_sink_operator.h"
+#include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/exec/table_function_operator.h"
@@ -95,6 +97,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
+#include "vec/exec/join/grace_hash_join_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -102,10 +105,13 @@
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/spill_sort_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
+#include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::pipeline {
 
@@ -526,13 +532,21 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto new_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
 
-        OperatorBuilderPtr sort_sink =
-                std::make_shared<SortSinkOperatorBuilder>(next_operator_builder_id(), node);
+        OperatorBuilderPtr sort_sink;
+        OperatorBuilderPtr sort_source;
+        if (_runtime_state->enable_sort_spill()) {
+            sort_sink = std::make_shared<SpillSortSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                       node);
+            sort_source = std::make_shared<SpillSortSourceOperatorBuilder>(
+                    next_operator_builder_id(), node);
+        } else {
+            sort_sink = std::make_shared<SortSinkOperatorBuilder>(next_operator_builder_id(), node);
+            sort_source =
+                    std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
+        }
         RETURN_IF_ERROR(new_pipeline->set_sink(sort_sink));
-
-        OperatorBuilderPtr sort_source =
-                std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
+
         break;
     }
     case TPlanNodeType::PARTITION_SORT_NODE: {
@@ -584,26 +598,48 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
-        auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
-        auto new_pipe = add_pipeline();
-        if (join_node->should_build_hash_table()) {
-            RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
-        } else {
-            OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
-                    next_operator_builder_id(), node->child(1)->row_desc(), node->child(1));
-            new_pipe->add_operator(builder);
-        }
-        OperatorBuilderPtr join_sink =
-                std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
-        RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
-        new_pipe->disable_task_steal();
+        auto st = std::visit(
+                [&](auto enable_join_spill) {
+                    using HashJoinNodeType =
+                            std::conditional_t<enable_join_spill, vectorized::GraceHashJoinNode,
+                                               vectorized::HashJoinNode>;
+                    auto* join_node = assert_cast<HashJoinNodeType*>(node);
+                    auto new_pipe = add_pipeline();
+                    if (join_node->should_build_hash_table()) {
+                        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+                    } else {
+                        OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
+                                next_operator_builder_id(), node->child(1)->row_desc(),
+                                node->child(1));
+                        new_pipe->add_operator(builder);
+                    }
+                    OperatorBuilderPtr join_sink;
+                    if (enable_join_spill) {
+                        join_sink = std::make_shared<GraceHashJoinBuildSinkBuilder>(
+                                next_operator_builder_id(), join_node);
+                    } else {
+                        join_sink = std::make_shared<HashJoinBuildSinkBuilder>(
+                                next_operator_builder_id(), join_node);
+                    }
+                    RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+                    new_pipe->disable_task_steal();
 
-        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
-        OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
-                next_operator_builder_id(), join_node);
-        RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
+                    RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+                    OperatorBuilderPtr join_source;
+                    if (enable_join_spill) {
+                        join_source = std::make_shared<GraceHashJoinProbeOperatorBuilder>(
+                                next_operator_builder_id(), join_node);
+                    } else {
+                        join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
+                                next_operator_builder_id(), join_node);
+                    }
+                    RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
 
-        cur_pipe->add_dependency(new_pipe);
+                    cur_pipe->add_dependency(new_pipe);
+                    return Status::OK();
+                },
+                vectorized::make_bool_variant(_runtime_state->enable_join_spill()));
+        RETURN_IF_ERROR(st);
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {

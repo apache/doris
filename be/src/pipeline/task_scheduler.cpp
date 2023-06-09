@@ -155,6 +155,12 @@ void BlockedTaskScheduler::_schedule() {
                 } else {
                     iter++;
                 }
+            } else if (state == PipelineTaskState::BLOCKED_FOR_IO) {
+                if (task->io_task_finished()) {
+                    _make_task_run(local_blocked_tasks, iter, ready_tasks);
+                } else {
+                    iter++;
+                }
             } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
                 if (task->sink_can_write()) {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
@@ -307,6 +313,7 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_SOURCE:
         case PipelineTaskState::BLOCKED_FOR_SINK:
         case PipelineTaskState::BLOCKED_FOR_RF:
+        case PipelineTaskState::BLOCKED_FOR_IO:
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
             _blocked_task_scheduler->add_blocked_task(task);
             break;

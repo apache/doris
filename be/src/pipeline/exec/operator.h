@@ -197,6 +197,8 @@ public:
 
     virtual bool runtime_filters_are_ready_or_timeout() { return true; } // for source
 
+    virtual bool io_task_finished() { return true; }
+
     virtual bool can_write() { return false; } // for sink
 
     /**

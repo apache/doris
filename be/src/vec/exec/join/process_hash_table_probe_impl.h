@@ -159,6 +159,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                                      bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
+    // LOG(WARNING) << "probe_index: " << probe_index << ", items_counts size: " << _items_counts.size() << ", probe_rows: " << probe_rows;
     if (probe_index == 0 && _items_counts.size() < probe_rows) {
         _items_counts.resize(probe_rows);
     }

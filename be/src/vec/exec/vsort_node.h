@@ -74,6 +74,14 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
+    Status release_sorted_blocks(RuntimeState* state, Blocks& blocks, int batch_size);
+
+    bool is_append_block_oom() const { return _sorter->is_append_block_oom(); }
+
+    Status sort_block(Block& block, Block& dest_block, SortDescription& sort_description);
+
+    const SortDescription& get_sort_description() { return _sorter->get_sort_description(); }
+
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
@@ -96,8 +104,6 @@ private:
     bool _reuse_mem;
 
     std::unique_ptr<Sorter> _sorter;
-
-    static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
 };
 
 } // namespace doris::vectorized
