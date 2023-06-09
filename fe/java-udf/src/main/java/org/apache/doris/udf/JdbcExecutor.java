@@ -89,12 +89,13 @@ public class JdbcExecutor {
         initPoolSize = Integer.valueOf(System.getProperty("JDBC_INIT_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
+        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
         minIdleSize = initPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set initPoolSize = " + initPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdelTime = " + maxIdelTime
-                + ", minIdleSize = " + minIdleSize);
-        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
+                + ", minIdleSize = " + minIdleSize
+                + ", minWaitTime = " + maxWaitTime);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
