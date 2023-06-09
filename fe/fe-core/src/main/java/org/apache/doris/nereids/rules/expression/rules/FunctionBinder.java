@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -87,7 +88,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .map(e -> e.accept(this, context)).collect(Collectors.toList()));
 
         // bind function
-        FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         // bind function, we select builtin function first, if not found, consider it's an alias function.
         // FunctionRegistry only support builtin functions.
         String functionName = unboundFunction.getName();

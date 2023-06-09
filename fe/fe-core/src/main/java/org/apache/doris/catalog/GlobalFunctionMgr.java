@@ -63,6 +63,10 @@ public class GlobalFunctionMgr extends MetaObject {
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
         }
+        if (function instanceof AliasFunction) {
+            org.apache.doris.nereids.trees.expressions.functions.udf.AliasFunction
+                    .translateToNereidsFunction(null, ((AliasFunction) function));
+        }
     }
 
 
