@@ -35,18 +35,47 @@ CREATE FUNCTION
 This statement creates a custom function. Executing this command requires the user to have `ADMIN` privileges.
 
 If `function_name` contains the database name, then the custom function will be created in the corresponding database, otherwise the function will be created in the database where the current session is located. The name and parameters of the new function cannot be the same as the existing functions in the current namespace, otherwise the creation will fail. But only with the same name and different parameters can be created successfully.
+
 grammar:
 
 ```sql
-CREATE FUNCTION 
-	name ([,...])
-	[RETURNS] rettype
-	PROPERTIES (["key"="value"][,...]) 
+CREATE [GLOBAL] [AGGREGATE] [ALIAS] FUNCTION function_name
+    (arg_type [, ...])
+    [RETURNS ret_type]
+    [INTERMEDIATE inter_type]
+    [WITH PARAMETER(param [,...]) AS origin_function]
+    [PROPERTIES ("key" = "value" [, ...]) ]
 ````
 
 Parameter Description:
 
-- `name`: A function belongs to a certain DB, and the name is in the form of `dbName`.`funcName`. When `dbName` is not specified explicitly, the db where the current session is located is used as `dbName`.
+- `GLOBAL`: If there is this item, it means that the created function is a global function.
+
+- `AGGREGATE`: If there is this item, it means that the created function is an aggregate function.
+
+
+- `ALIAS`: If there is this item, it means that the created function is an alias function.
+
+
+ If the above two items are absent, it means that the created function is a scalar function
+
+- `function_name`: The name of the function to be created, which can include the name of the database. For example: `db1.my_func`.
+
+
+- `arg_type`: The parameter type of the function, which is the same as the type defined when creating the table. Variable-length parameters can be represented by `, ...`. If it is a variable-length type, the type of the variable-length parameter is the same as that of the last non-variable-length parameter.
+
+  **NOTE**: `ALIAS FUNCTION` does not support variable-length arguments and must have at least one argument.
+
+- `ret_type`: Required for creating new functions. If you are aliasing an existing function, you do not need to fill in this parameter.
+
+
+- `inter_type`: The data type used to represent the intermediate stage of the aggregation function.
+
+
+- `param`: used to represent the parameter of the alias function, including at least one.
+
+
+- `origin_function`: used to represent the original function corresponding to the alias function.
 
 
 - `properties`: Used to set function-related properties, the properties that can be set include:
@@ -96,7 +125,7 @@ Parameter Description:
     ```sql
     CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
     ```
-   
+
 ### Keywords
 
     CREATE, FUNCTION
