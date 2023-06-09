@@ -41,7 +41,7 @@ The following figure shows the main flow of Stream load, omitting some import de
                          |      |
                          |   +--v-----------+
                          |   | FE           |
-5. Return result to user |   +--+-----------+
+4. Return result to user |   +--+-----------+
                          |      |
                          |      | 2. Redirect to BE
                          |      |
