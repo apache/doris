@@ -99,11 +99,10 @@ public:
                 result_offset_col[i] = off;
                 continue;
             }
-             
-            size_t src_off = src_offset_col[index_check_const(i, src_const)-1];
-            size_t src_len = src_offset_col[index_check_const(i , src_const)] - src_off;
-            result_nested_data_col.insert_range_from(src_nested_data_col,
-                                                     src_off, src_len);
+
+            size_t src_off = src_offset_col[index_check_const(i, src_const) - 1];
+            size_t src_len = src_offset_col[index_check_const(i, src_const)] - src_off;
+            result_nested_data_col.insert_range_from(src_nested_data_col, src_off, src_len);
 
             result_nested_data_col.insert((*right_column)[index_check_const(i, right_const)]);
             off += src_len + 1;
