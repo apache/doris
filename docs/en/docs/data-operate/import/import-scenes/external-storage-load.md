@@ -191,3 +191,11 @@ example:
 ```
 
 </version>
+
+2. If there is an error message like
+
+```
+[S3Storage.list():372] errors while get file status org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get S3 FileSystem for bucket is null/empty
+```
+
+it may be that there are special characters in your bucket name, such as `-`, `.`, `+`, etc. Please try not to use special characters.
