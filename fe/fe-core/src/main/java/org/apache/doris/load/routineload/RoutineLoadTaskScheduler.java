@@ -109,7 +109,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
-            return;
         }
     }
 
