@@ -467,11 +467,12 @@ private:
 
 class ORCFileInputStream : public orc::InputStream {
 public:
-    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
+    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
                        RuntimeProfile* profile)
             : _file_name(file_name),
-              _file_reader(file_reader),
+              _inner_reader(inner_reader),
+              _file_reader(inner_reader),
               _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
@@ -491,6 +492,7 @@ public:
 
 private:
     const std::string& _file_name;
+    io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;
