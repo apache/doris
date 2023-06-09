@@ -33,19 +33,29 @@ import java.util.List;
  */
 public class AliasFunction extends BoundFunction implements ExplicitlyCastableSignature {
     private final BoundFunction originalFunction;
+    private final List<String> parameters;
     private final List<DataType> argTypes;
 
     public AliasFunction(String name, List<DataType> argTypes, BoundFunction originalFunction,
-            Expression... arguments) {
+            List<String> parameters, Expression... arguments) {
         super(name, arguments);
-        this.argTypes = argTypes;
         this.originalFunction = originalFunction;
+        this.parameters = parameters;
+        this.argTypes = argTypes;
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(Suppliers.memoize(() -> FunctionSignature
                 .of(originalFunction.getSignature().returnType, argTypes)).get());
+    }
+
+    public List<String> getParameters() {
+        return parameters;
+    }
+
+    public BoundFunction getOriginalFunction() {
+        return originalFunction;
     }
 
     @Override
