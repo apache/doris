@@ -41,6 +41,7 @@ Status SelectNode::prepare(RuntimeState* state) {
 }
 
 Status SelectNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(child(0)->open(state));
