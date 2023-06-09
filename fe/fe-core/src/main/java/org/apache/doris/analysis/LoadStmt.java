@@ -371,8 +371,8 @@ public class LoadStmt extends DdlStmt {
         if (priority != null) {
             try {
                 LoadTask.Priority.valueOf(priority);
-            } catch (IllegalArgumentException|NullPointerException e) {
-                throw new DdlException(PRIORITY + " must be one of [LOW/NORMAL/HIGH].");
+            } catch (IllegalArgumentException | NullPointerException e) {
+                throw new DdlException(PRIORITY + " must be in [LOW/NORMAL/HIGH].");
             }
         }
     }

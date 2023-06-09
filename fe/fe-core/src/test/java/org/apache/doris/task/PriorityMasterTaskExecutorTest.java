@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 
 public class PriorityMasterTaskExecutorTest {
     private static final Logger LOG = LoggerFactory.getLogger(PriorityMasterTaskExecutorTest.class);
@@ -37,13 +38,14 @@ public class PriorityMasterTaskExecutorTest {
 
     private static final int THREAD_NUM = 1;
 
-    private PriorityMasterTaskExecutor<TestComparableMasterTask> executor;
+    private PriorityMasterTaskExecutor<TestMasterTask> executor;
 
     @Before
     public void setUp() {
-        Comparator<TestComparableMasterTask> comparator = Comparator.comparing(TestComparableMasterTask::getPriority)
-                .thenComparingLong(TestComparableMasterTask::getSignature);
-        executor = new PriorityMasterTaskExecutor("priority_master_task_executor_test", THREAD_NUM, comparator,false);
+        Comparator<TestMasterTask> comparator = Comparator.comparing(TestMasterTask::getPriority)
+                .thenComparingLong(TestMasterTask::getSignature);
+        executor = new PriorityMasterTaskExecutor("priority_master_task_executor_test", THREAD_NUM, comparator,
+                TestMasterTask.class, false);
         executor.start();
     }
 
@@ -57,19 +59,20 @@ public class PriorityMasterTaskExecutorTest {
     @Test
     public void testSubmit() {
 
-        MasterTask errorTask = new NotComparableMasterTask();
+        MasterTask errorTask = new ErrorMasterTask();
         try {
             executor.submit(errorTask);
             Assert.fail();
         } catch (Exception e) {
-            Assert.assertTrue(e instanceof ClassCastException);
+            Assert.assertTrue(e instanceof RejectedExecutionException);
+            Assert.assertTrue(("Task must be an instance of [" + TestMasterTask.class.getName() + "]").equals(e.getMessage()));
         }
 
 
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch finishLatch = new CountDownLatch(5);
         // submit task
-        MasterTask task1 = new TestComparableMasterTask(1L, 0, startLatch, finishLatch);
+        MasterTask task1 = new TestMasterTask(1L, 0, startLatch, finishLatch);
         Assert.assertTrue(executor.submit(task1));
         Assert.assertEquals(1, executor.getTaskNum());
 
@@ -78,16 +81,16 @@ public class PriorityMasterTaskExecutorTest {
         Assert.assertEquals(1, executor.getTaskNum());
 
         // submit some task with priority
-        MasterTask task5 = new TestComparableMasterTask(5L, 1, startLatch, finishLatch);
+        MasterTask task5 = new TestMasterTask(5L, 1, startLatch, finishLatch);
         executor.submit(task5);
 
-        MasterTask task2 = new TestComparableMasterTask(2L, 1, startLatch, finishLatch);
+        MasterTask task2 = new TestMasterTask(2L, 1, startLatch, finishLatch);
         executor.submit(task2);
 
-        MasterTask task4 = new TestComparableMasterTask(4L, 0, startLatch, finishLatch);
+        MasterTask task4 = new TestMasterTask(4L, 0, startLatch, finishLatch);
         executor.submit(task4);
 
-        MasterTask task3 = new TestComparableMasterTask(3L, 0, startLatch, finishLatch);
+        MasterTask task3 = new TestMasterTask(3L, 0, startLatch, finishLatch);
         executor.submit(task3);
 
         // start running tasks
@@ -111,7 +114,7 @@ public class PriorityMasterTaskExecutorTest {
         Assert.assertTrue(runningOrderList.get(4) == task5);
     }
 
-    private class NotComparableMasterTask extends MasterTask {
+    private class ErrorMasterTask extends MasterTask {
 
         @Override
         protected void exec() {
@@ -119,13 +122,13 @@ public class PriorityMasterTaskExecutorTest {
         }
     }
 
-    private class TestComparableMasterTask extends MasterTask {
+    private class TestMasterTask extends MasterTask {
 
         private final long priority;
         private final CountDownLatch startLatch;
         private final CountDownLatch finishLatch;
 
-        public TestComparableMasterTask(long signature, long priority, CountDownLatch startLatch, CountDownLatch finishLatch) {
+        public TestMasterTask(long signature, long priority, CountDownLatch startLatch, CountDownLatch finishLatch) {
             this.signature = signature;
             this.priority = priority;
             this.startLatch = startLatch;

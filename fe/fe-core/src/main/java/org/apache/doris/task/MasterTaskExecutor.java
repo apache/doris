@@ -27,8 +27,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 
@@ -41,7 +41,8 @@ public class MasterTaskExecutor {
 
     protected MasterTaskExecutor(String name, boolean needRegisterMetric) {
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+                name + "_scheduler_thread_pool", needRegisterMetric);
     }
 
     public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {

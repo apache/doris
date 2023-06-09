@@ -23,13 +23,15 @@ import java.util.Comparator;
 
 public class PriorityMasterTaskExecutor<T> extends MasterTaskExecutor {
 
-    public PriorityMasterTaskExecutor(String name, int threadNum, Comparator<T> comparator, boolean needRegisterMetric) {
-        this(name, threadNum, threadNum * 2, comparator, needRegisterMetric);
+    public PriorityMasterTaskExecutor(String name, int threadNum, Comparator<T> comparator,
+                                      Class<T> tClass, boolean needRegisterMetric) {
+        this(name, threadNum, threadNum * 2, comparator, tClass, needRegisterMetric);
     }
 
-    public PriorityMasterTaskExecutor(String name, int threadNum, int initQueueSize, Comparator<T> comparator, boolean needRegisterMetric) {
+    public PriorityMasterTaskExecutor(String name, int threadNum, int initQueueSize,
+                                      Comparator<T> comparator, Class<T> tClass, boolean needRegisterMetric) {
         super(name, needRegisterMetric);
-        executor = ThreadPoolManager.newDaemonFixedPriorityThreadPool(threadNum, initQueueSize, comparator,
+        executor = ThreadPoolManager.newDaemonFixedPriorityThreadPool(threadNum, initQueueSize, comparator, tClass,
                 name + "_pool", needRegisterMetric);
     }
 

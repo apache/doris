@@ -27,7 +27,6 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 import java.util.Map;
@@ -128,11 +127,11 @@ public class ThreadPoolManager {
     }
 
     public static <T> ThreadPoolExecutor newDaemonFixedPriorityThreadPool(int numThread, int initQueueSize,
-                                                                          Comparator<T> comparator,
+                                                                          Comparator<T> comparator, Class<T> tClass,
                                                                           String poolName, boolean needRegisterMetric) {
         return newDaemonPriorityThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
                     new PriorityBlockingQueue<>(initQueueSize), new BlockedPolicy(poolName, 60),
-                    comparator, poolName, needRegisterMetric);
+                    comparator, tClass, poolName, needRegisterMetric);
     }
 
     public static ThreadPoolExecutor newDaemonProfileThreadPool(int numThread, int queueSize, String poolName,
@@ -166,11 +165,12 @@ public class ThreadPoolManager {
                                                                  PriorityBlockingQueue<Runnable> workQueue,
                                                                  RejectedExecutionHandler handler,
                                                                  Comparator<T> comparator,
+                                                                 Class<T> tClass,
                                                                  String poolName,
                                                                  boolean needRegisterMetric) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ThreadPoolExecutor threadPool = new PriorityThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime,
-                    unit, workQueue, threadFactory, handler, comparator);
+                    unit, workQueue, threadFactory, handler, comparator, tClass);
         if (needRegisterMetric) {
             nameToThreadPoolMap.put(poolName, threadPool);
         }
@@ -201,51 +201,63 @@ public class ThreadPoolManager {
     private static class PriorityThreadPoolExecutor<T> extends ThreadPoolExecutor {
 
         private final Comparator<T> comparator;
+        private final Class<T> tClass;
 
         private PriorityThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit,
                                           BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory,
-                                          RejectedExecutionHandler handler, Comparator<T> comparator) {
+                                          RejectedExecutionHandler handler, Comparator<T> comparator, Class<T> tClass) {
             super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
             this.comparator = comparator;
+            this.tClass = tClass;
         }
 
-        static class ComparableFutureTask<V, T> extends FutureTask<V> implements Comparable<ComparableFutureTask<V, T>> {
+        private static class ComparableFutureTask<V, T> extends FutureTask<V>
+                    implements Comparable<ComparableFutureTask<V, T>> {
 
-            private final @Nullable T callable;
-            private final @Nullable T runnable;
+            private final @NotNull T t;
             private final Comparator<T> comparator;
 
-            public ComparableFutureTask(@NotNull Callable callable, Comparator<T> comparator) {
-                super(callable);
-                this.callable = (T) callable;
-                this.runnable = null;
+            public ComparableFutureTask(@NotNull Callable task, Comparator<T> comparator) {
+                super(task);
+                this.t = (T) task;
                 this.comparator = comparator;
             }
 
-            public ComparableFutureTask(@NotNull Runnable runnable, V result, Comparator<T> comparator) {
-                super(runnable, result);
-                this.runnable = (T) runnable;
-                this.callable = null;
+            public ComparableFutureTask(@NotNull Runnable task, V result, Comparator<T> comparator) {
+                super(task, result);
+                this.t = (T) task;
                 this.comparator = comparator;
             }
 
             @Override
             public int compareTo(@NotNull ComparableFutureTask<V, T> other) {
-                T leftObj = this.callable == null ? this.runnable : this.callable;
-                T rightObj = other.callable == null ? other.runnable : other.callable;
-                return comparator.compare(leftObj, rightObj);
+                return comparator.compare(t, other.t);
             }
 
         }
 
         @Override
-        protected <R> RunnableFuture<R> newTaskFor(Runnable runnable, R value) {
-            return new ComparableFutureTask<R, T>(runnable, value, comparator);
+        protected <R> RunnableFuture<R> newTaskFor(Runnable task, R value) {
+            if (!tClass.isInstance(task)) {
+                throw new RejectedExecutionException("Task must be an instance of [" + tClass.getName() + "]");
+            }
+            return new ComparableFutureTask<R, T>(task, value, comparator);
         }
 
         @Override
-        protected <R> RunnableFuture<R> newTaskFor(Callable<R> callable) {
-            return new ComparableFutureTask<R, T>(callable, comparator);
+        protected <R> RunnableFuture<R> newTaskFor(Callable<R> task) {
+            if (!tClass.isInstance(task)) {
+                throw new RejectedExecutionException("Task must be an instance of [" + tClass.getName() + "]");
+            }
+            return new ComparableFutureTask<R, T>(task, comparator);
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            if (!(task instanceof ComparableFutureTask) && !tClass.isInstance(task)) {
+                throw new RejectedExecutionException("Task must be an instance of [" + tClass.getName() + "]");
+            }
+            super.execute(task);
         }
     }
 
