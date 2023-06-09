@@ -41,9 +41,7 @@ struct FlushContext {
     TabletSchemaSPtr flush_schema = nullptr;
     const vectorized::Block* block = nullptr;
     std::optional<int32_t> segment_id = std::nullopt;
-    std::function<Status(int32_t)> generate_delete_bitmap = [](int32_t segment_id) {
-        return Status::OK();
-    };
+    std::function<Status(int32_t)> generate_delete_bitmap;
 };
 
 class RowsetWriter {

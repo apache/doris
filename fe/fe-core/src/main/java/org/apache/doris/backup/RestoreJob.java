@@ -71,6 +71,8 @@ import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.ReleaseSnapshotTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TRemoteTabletSnapshot;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -183,6 +185,18 @@ public class RestoreJob extends AbstractJob {
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
+    }
+
+    public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
+            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
+            boolean reserveDynamicPartitionEnable, Env env, long repoId, BackupMeta backupMeta) {
+        this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
+                reserveDynamicPartitionEnable, env, repoId);
+        this.backupMeta = backupMeta;
+    }
+
+    public boolean isFromLocalSnapshot() {
+        return repoId == Repository.KEEP_ON_LOCAL_REPO_ID;
     }
 
     public RestoreJobState getState() {
@@ -324,7 +338,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // get repo if not set
-        if (repo == null) {
+        if (repo == null && !isFromLocalSnapshot()) {
             repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
             if (repo == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
@@ -1109,6 +1123,15 @@ public class RestoreJob extends AbstractJob {
     }
 
     private boolean downloadAndDeserializeMetaInfo() {
+        if (isFromLocalSnapshot()) {
+            if (backupMeta != null) {
+                return true;
+            }
+
+            status = new Status(ErrCode.COMMON_ERROR, "backupMeta is null");
+            return false;
+        }
+
         List<BackupMeta> backupMetas = Lists.newArrayList();
         Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas,
                 this.metaVersion == -1 ? jobInfo.metaVersion : this.metaVersion);
@@ -1251,7 +1274,15 @@ public class RestoreJob extends AbstractJob {
     }
 
     private void downloadSnapshots() {
-        // Categorize snapshot infos by db id.
+        if (isFromLocalSnapshot()) {
+            downloadLocalSnapshots();
+        } else {
+            downloadRemoteSnapshots();
+        }
+    }
+
+    private void downloadRemoteSnapshots() {
+        // Categorize snapshot onfos by db id.
         ArrayListMultimap<Long, SnapshotInfo> dbToSnapshotInfos = ArrayListMultimap.create();
         for (SnapshotInfo info : snapshotInfos.values()) {
             dbToSnapshotInfos.put(info.getDbId(), info);
@@ -1289,7 +1320,8 @@ public class RestoreJob extends AbstractJob {
                     LOG.debug("backend {} has {} batch, total {} tasks, {}",
                               beId, batchNum, totalNum, this);
 
-                    List<FsBroker> brokerAddrs = Lists.newArrayList();
+                    List<FsBroker> brokerAddrs = null;
+                    brokerAddrs = Lists.newArrayList();
                     Status st = repo.getBrokerAddress(beId, env, brokerAddrs);
                     if (!st.ok()) {
                         status = st;
@@ -1380,6 +1412,174 @@ public class RestoreJob extends AbstractJob {
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
                                 brokerAddrs.get(0), repo.getRemoteFileSystem().getProperties(),
                                 repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        batchTask.addTask(task);
+                        unfinishedSignatureToId.put(signature, beId);
+                    }
+                }
+            } finally {
+                db.readUnlock();
+            }
+        }
+
+        // send task
+        for (AgentTask task : batchTask.getAllTasks()) {
+            AgentTaskQueue.addTask(task);
+        }
+        AgentTaskExecutor.submit(batchTask);
+
+        state = RestoreJobState.DOWNLOADING;
+
+        // No edit log here
+        LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
+    }
+
+    private void downloadLocalSnapshots() {
+        // Categorize snapshot infos by db id.
+        ArrayListMultimap<Long, SnapshotInfo> dbToSnapshotInfos = ArrayListMultimap.create();
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            dbToSnapshotInfos.put(info.getDbId(), info);
+        }
+
+        // Send download tasks
+        unfinishedSignatureToId.clear();
+        taskProgress.clear();
+        taskErrMsg.clear();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (long dbId : dbToSnapshotInfos.keySet()) {
+            List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
+
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
+                return;
+            }
+
+            // We classify the snapshot info by backend
+            ArrayListMultimap<Long, SnapshotInfo> beToSnapshots = ArrayListMultimap.create();
+            for (SnapshotInfo info : infos) {
+                beToSnapshots.put(info.getBeId(), info);
+            }
+
+            db.readLock();
+            try {
+                for (Long beId : beToSnapshots.keySet()) {
+                    List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
+                    int totalNum = beSnapshotInfos.size();
+                    // each backend allot at most 3 tasks
+                    int batchNum = Math.min(totalNum, 3);
+                    // each task contains several upload sub tasks
+                    int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
+
+                    // allot tasks
+                    int index = 0;
+                    for (int batch = 0; batch < batchNum; batch++) {
+                        List<TRemoteTabletSnapshot> remoteTabletSnapshots = Lists.newArrayList();
+                        int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
+                        for (int j = 0; j < currentBatchTaskNum; j++) {
+                            TRemoteTabletSnapshot remoteTabletSnapshot = new TRemoteTabletSnapshot();
+
+                            SnapshotInfo info = beSnapshotInfos.get(index++);
+                            Table tbl = db.getTableNullable(info.getTblId());
+                            if (tbl == null) {
+                                status = new Status(ErrCode.NOT_FOUND, "restored table "
+                                        + info.getTabletId() + " does not exist");
+                                return;
+                            }
+                            OlapTable olapTbl = (OlapTable) tbl;
+                            olapTbl.readLock();
+                            try {
+                                Partition part = olapTbl.getPartition(info.getPartitionId());
+                                if (part == null) {
+                                    status = new Status(ErrCode.NOT_FOUND, "partition "
+                                            + info.getPartitionId() + " does not exist in restored table: "
+                                            + tbl.getName());
+                                    return;
+                                }
+
+                                MaterializedIndex idx = part.getIndex(info.getIndexId());
+                                if (idx == null) {
+                                    status = new Status(ErrCode.NOT_FOUND, "index " + info.getIndexId()
+                                            + " does not exist in partion " + part.getName()
+                                            + "of restored table " + tbl.getName());
+                                    return;
+                                }
+
+                                Tablet tablet  = idx.getTablet(info.getTabletId());
+                                if (tablet == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "tablet " + info.getTabletId() + " does not exist in restored table "
+                                                    + tbl.getName());
+                                    return;
+                                }
+
+                                Replica replica = tablet.getReplicaByBackendId(info.getBeId());
+                                if (replica == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "replica in be " + info.getBeId() + " of tablet "
+                                                    + tablet.getId() + " does not exist in restored table "
+                                                    + tbl.getName());
+                                    return;
+                                }
+
+                                IdChain catalogIds = new IdChain(tbl.getId(), part.getId(), idx.getId(),
+                                        info.getTabletId(), replica.getId());
+                                IdChain repoIds = fileMapping.get(catalogIds);
+                                if (repoIds == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "failed to get id mapping of catalog ids: " + catalogIds.toString());
+                                    return;
+                                }
+
+                                SnapshotInfo snapshotInfo = snapshotInfos.get(info.getTabletId(), info.getBeId());
+                                Preconditions.checkNotNull(snapshotInfo, info.getTabletId() + "-" + info.getBeId());
+                                // download to previous exist snapshot dir
+                                String dest = snapshotInfo.getTabletPath();
+
+                                Long localTabletId = info.getTabletId();
+                                String localSnapshotPath = dest;
+                                Long remoteTabletId = repoIds.getTabletId();
+                                Long remoteBeId = jobInfo.getBeId(remoteTabletId);
+                                String remoteSnapshotPath = jobInfo.getTabletSnapshotPath(remoteTabletId);
+                                if (remoteSnapshotPath == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "failed to get remote snapshot path of tablet: " + remoteTabletId);
+                                    return;
+                                }
+                                Long schemaHash = jobInfo.getSchemaHash(
+                                        repoIds.getTblId(), repoIds.getPartId(), repoIds.getIdxId());
+                                if (schemaHash == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "failed to get schema hash of table: " + repoIds.getTblId()
+                                                    + ", partition: " + repoIds.getPartId()
+                                                    + ", index: " + repoIds.getIdxId());
+                                    return;
+                                }
+                                // remoteSnapshotPath = "${remoteSnapshotPath}/${remoteTabletId}/${schemaHash}"
+                                remoteSnapshotPath =
+                                        String.format("%s/%d/%d", remoteSnapshotPath, remoteTabletId, schemaHash);
+                                TNetworkAddress remoteBeAddr = jobInfo.getBeAddr(remoteBeId);
+                                if (remoteBeAddr == null) {
+                                    status = new Status(ErrCode.NOT_FOUND,
+                                            "failed to get remote be address of be: " + remoteBeId);
+                                    return;
+                                }
+                                String remoteToken = jobInfo.getToken();
+
+                                remoteTabletSnapshot.setLocalTabletId(localTabletId);
+                                remoteTabletSnapshot.setLocalSnapshotPath(localSnapshotPath);
+                                remoteTabletSnapshot.setRemoteTabletId(remoteTabletId);
+                                remoteTabletSnapshot.setRemoteBeId(remoteBeId);
+                                remoteTabletSnapshot.setRemoteBeAddr(remoteBeAddr);
+                                remoteTabletSnapshot.setRemoteSnapshotPath(remoteSnapshotPath);
+                                remoteTabletSnapshot.setRemoteToken(remoteToken);
+
+                                remoteTabletSnapshots.add(remoteTabletSnapshot);
+                            } finally {
+                                olapTbl.readUnlock();
+                            }
+                        }
+                        long signature = env.getNextId();
+                        DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, remoteTabletSnapshots);
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
                     }

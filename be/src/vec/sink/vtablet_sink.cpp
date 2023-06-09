@@ -1237,6 +1237,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         is_continue = true;
         return status;
     }
+    if ((*partition)->num_buckets <= 0) {
+        std::stringstream ss;
+        ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
+        return Status::InternalError(ss.str());
+    }
     _partition_ids.emplace((*partition)->id);
     if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
         if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {

@@ -402,7 +402,7 @@ public class HMSExternalTable extends ExternalTable {
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
                     true, null,
-                    true, null, field.getComment(), true, null,
+                    true, false, null, field.getComment(), true, null,
                     schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
         }
         return tmpSchema;
