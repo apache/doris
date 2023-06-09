@@ -134,7 +134,8 @@ public class ColumnStatistic {
                 ndv = count;
             }
             columnStatisticBuilder.setNdv(ndv);
-            columnStatisticBuilder.setNumNulls(Double.parseDouble(resultRow.getColumnValue("null_count")));
+            String nullCount = resultRow.getColumnValue("null_count");
+            columnStatisticBuilder.setNumNulls(nullCount == null ? 0 : Double.parseDouble(nullCount));
             columnStatisticBuilder.setDataSize(Double
                     .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()

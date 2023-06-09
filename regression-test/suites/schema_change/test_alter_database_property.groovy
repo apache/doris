@@ -15,10 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+suite("test_alter_database_property") {
+    sql "drop database if exists test_alter_database_property"
 
-/**
- * specifically for bound function can be folded to constant.
- */
-public interface Foldable {
+    sql """
+        create database test_alter_database_property
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+
+    sql """
+        alter database test_alter_database_property set properties ("binlog.enable" = "true")
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
+
+    sql "drop database if exists test_alter_database_property"
 }

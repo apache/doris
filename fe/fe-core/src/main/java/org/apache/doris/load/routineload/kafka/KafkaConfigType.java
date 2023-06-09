@@ -15,22 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.load.routineload.kafka;
 
-import org.apache.doris.qe.ConnectContext;
+public class KafkaConfigType {
 
-/**
- * Nondeterministic functions.
- *
- * e.g. 'rand()', 'random()'.
- *
- * note: no 'uuid' function currently.
- */
-public interface Nondeterministic extends ExpressionTrait {
-    @Override
-    default boolean foldable() {
-        return ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn();
+    /**
+     * support in future
+     */
+    enum TableNameLocation {
+        KEY
+    }
+
+    enum TableNameFormat {
+        TEXT
     }
 }

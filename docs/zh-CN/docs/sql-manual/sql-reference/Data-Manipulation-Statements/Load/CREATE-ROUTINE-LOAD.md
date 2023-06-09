@@ -35,12 +35,12 @@ CREATE ROUTINE LOAD
 
 例行导入（Routine Load）功能，支持用户提交一个常驻的导入任务，通过不断的从指定的数据源读取数据，将数据导入到 Doris 中。
 
-目前仅支持通过无认证或者 SSL 认证方式，从 Kakfa 导入 CSV 或 Json 格式的数据。
+目前仅支持通过无认证或者 SSL 认证方式，从 Kakfa 导入 CSV 或 Json 格式的数据。 [导入Json格式数据使用示例](../../../../data-operate/import/import-way/routine-load-manual.md#导入Json格式数据使用示例)
 
 语法：
 
 ```sql
-CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+CREATE ROUTINE LOAD [db.]job_name [ON tbl_name]
 [merge_type]
 [load_properties]
 [job_properties]
@@ -53,13 +53,19 @@ FROM data_source [data_source_properties]
 
   导入作业的名称，在同一个 database 内，相同名称只能有一个 job 在运行。
 
-- `tbl_name`
+- `tbl_name` 
 
-  指定需要导入的表的名称。
+  指定需要导入的表的名称，可选参数，如果不指定，则采用动态表的方式，这个时候需要 Kafka 中的数据包含表名的信息。
+  目前仅支持从 Kafka 的 Value 中获取表名，且需要符合这种格式：以 json 为例：`table_name|{"col1": "val1", "col2": "val2"}`, 
+  其中 `tbl_name` 为表名，以 `|` 作为表名和表数据的分隔符。csv 格式的数据也是类似的，如：`table_name|val1,val2,val3`。注意，这里的 
+  `table_name` 必须和 Doris 中的表名一致，否则会导致导入失败.
+  
+   tips: 动态表不支持 `columns_mapping` 参数。如果你的表结构和 Doris 中的表结构一致，且存在大量的表信息需要导入，那么这种方式将是不二选择。
 
 - `merge_type`
 
   数据合并类型。默认为 APPEND，表示导入的数据都是普通的追加写操作。MERGE 和 DELETE 类型仅适用于 Unique Key 模型表。其中 MERGE 类型需要配合 [DELETE ON] 语句使用，以标注 Delete Flag 列。而 DELETE 类型则表示导入的所有数据皆为删除数据。
+  tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表的类型，否则会导致导入失败。
 
 - load_properties
 
@@ -87,21 +93,29 @@ FROM data_source [data_source_properties]
 
     `(k1, k2, tmpk1, k3 = tmpk1 + 1)`
 
+    tips: 动态表不支持此参数。
+
   - `preceding_filter`
 
     过滤原始数据。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤] 文档。
+  
+    tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表的列，否则会导致导入失败。通常在使用动态多表的时候，我们仅建议通用公共列使用此参数。    
 
   - `where_predicates`
 
     根据条件对导入的数据进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤] 文档。
 
     `WHERE k1 > 100 and k2 = 1000`
+ 
+     tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表的列，否则会导致导入失败。通常在使用动态多表的时候，我们仅建议通用公共列使用此参数。  
 
   - `partitions`
 
     指定导入目的表的哪些 partition 中。如果不指定，则会自动导入到对应的 partition 中。
 
     `PARTITION(p1, p2, p3)`
+  
+     tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表，否则会导致导入失败。
 
   - `DELETE ON`
 
@@ -109,9 +123,13 @@ FROM data_source [data_source_properties]
 
     `DELETE ON v3 >100`
 
+    tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表，否则会导致导入失败。
+
   - `ORDER BY`
 
     仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。主要用于导入时保证数据顺序。
+
+    tips: 当使用动态多表的时候，请注意此参数应该符合每张动态表，否则会导致导入失败。
 
 - `job_properties`
 
@@ -360,7 +378,33 @@ FROM data_source [data_source_properties]
    );
    ```
 
-2. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。导入任务为严格模式。
+2. 为 example_db 创建一个名为 test1 的 Kafka 例行动态多表导入任务。指定列分隔符和 group.id 和 client.id，并且自动默认消费所有分区， 
+   且从有数据的位置（OFFSET_BEGINNING）开始订阅
+
+  我们假设需要将 Kafka 中的数据导入到 example_db 中的 test1 以及 test2 表中，我们创建了一个名为 test1 的例行导入任务，同时将 test1 和 
+  test2 中的数据写到一个名为 `my_topic` 的 Kafka 的 topic 中，这样就可以通过一个例行导入任务将 Kafka 中的数据导入到两个表中。
+
+   ```sql
+   CREATE ROUTINE LOAD example_db.test1
+   PROPERTIES
+   (
+       "desired_concurrent_number"="3",
+       "max_batch_interval" = "20",
+       "max_batch_rows" = "300000",
+       "max_batch_size" = "209715200",
+       "strict_mode" = "false"
+   )
+   FROM KAFKA
+   (
+       "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+       "kafka_topic" = "my_topic",
+       "property.group.id" = "xxx",
+       "property.client.id" = "xxx",
+       "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+   );
+   ```
+
+3. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。导入任务为严格模式。
 
    
 
@@ -386,7 +430,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-3. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式，时区为 Africa/Abidjan
+4. 通过 SSL 认证方式，从 Kafka 集群导入数据。同时设置 client.id 参数。导入任务为非严格模式，时区为 Africa/Abidjan
 
    
 
@@ -416,7 +460,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-4. 导入 Json 格式数据。默认使用 Json 中的字段名作为列名映射。指定导入 0,1,2 三个分区，起始 offset 都为 0
+5. 导入 Json 格式数据。默认使用 Json 中的字段名作为列名映射。指定导入 0,1,2 三个分区，起始 offset 都为 0
 
    
 
@@ -441,7 +485,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-5. 导入 Json 数据，并通过 Jsonpaths 抽取字段，并指定 Json 文档根节点
+6. 导入 Json 数据，并通过 Jsonpaths 抽取字段，并指定 Json 文档根节点
 
    
 
@@ -469,7 +513,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-6. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。并且使用条件过滤。
+7. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。并且使用条件过滤。
 
    
 
@@ -496,7 +540,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-7. 导入数据到含有 sequence 列的 Unique Key 模型表中
+8. 导入数据到含有 sequence 列的 Unique Key 模型表中
 
    
 
@@ -520,7 +564,7 @@ FROM data_source [data_source_properties]
    );
    ```
 
-8. 从指定的时间点开始消费
+9. 从指定的时间点开始消费
 
    
 

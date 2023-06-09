@@ -98,6 +98,7 @@ protected:
     using Offsets64 = PaddedPODArray<Offset64>;
 
 public:
+    static constexpr int PREFETCH_STEP = 64;
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;

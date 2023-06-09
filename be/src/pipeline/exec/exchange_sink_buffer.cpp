@@ -325,7 +325,6 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
 void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
                                       int64_t receive_rpc_time) {
     int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
-    DCHECK(rpc_spend_time > 0);
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
     if (rpc_spend_time > 0) {
         _instance_to_rpc_time[id] += rpc_spend_time;

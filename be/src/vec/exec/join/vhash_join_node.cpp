@@ -469,6 +469,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
+    _push_down_timer = ADD_TIMER(record_profile, "PublishRuntimeFilterTime");
+    _push_compute_timer = ADD_TIMER(record_profile, "PushDownComputeTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -484,8 +486,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
