@@ -1268,6 +1268,8 @@ HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
+    }
+    if (_runtime_filter_slots != nullptr) {
         _runtime_filter_slots->ready_for_publish();
     }
 }
