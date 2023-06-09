@@ -116,4 +116,4 @@ under the License.
 [S3Storage.list():372] errors while get file status org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get S3 FileSystem for bucket is null/empty
 ```
 
-那么可能是你 bucket 名中存在特殊字符，如`-`、`.`、`+`等，请尽量不要使用特殊字符。
+那么可能是你 bucket 名中存在不支持的字符，如`_`等，请尽量不要使用特殊字符。
