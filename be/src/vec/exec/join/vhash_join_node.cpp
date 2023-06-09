@@ -1265,10 +1265,10 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
 }
 
 HashJoinNode::~HashJoinNode() {
-    _runtime_filter_slots->ready_for_publish();
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
+        _runtime_filter_slots->ready_for_publish();
     }
 }
 
