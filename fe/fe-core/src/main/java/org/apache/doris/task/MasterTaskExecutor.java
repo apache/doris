@@ -27,17 +27,22 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 
 public class MasterTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterTaskExecutor.class);
 
-    private ThreadPoolExecutor executor;
-    private Map<Long, Future<?>> runningTasks;
-    public ScheduledThreadPoolExecutor scheduledThreadPool;
+    protected ThreadPoolExecutor executor;
+    protected Map<Long, Future<?>> runningTasks;
+    protected ScheduledThreadPoolExecutor scheduledThreadPool;
+
+    protected MasterTaskExecutor(String name, boolean needRegisterMetric) {
+        runningTasks = Maps.newHashMap();
+        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
+    }
 
     public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
         executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "-pool",

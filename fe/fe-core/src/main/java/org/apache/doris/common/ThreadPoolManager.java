@@ -26,12 +26,19 @@ import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Callable;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.RunnableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
@@ -120,6 +127,14 @@ public class ThreadPoolManager {
                 poolName, needRegisterMetric);
     }
 
+    public static <T> ThreadPoolExecutor newDaemonFixedPriorityThreadPool(int numThread, int initQueueSize,
+                                                                          Comparator<T> comparator,
+                                                                          String poolName, boolean needRegisterMetric) {
+        return newDaemonPriorityThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+                    new PriorityBlockingQueue<>(initQueueSize), new BlockedPolicy(poolName, 60),
+                    comparator, poolName, needRegisterMetric);
+    }
+
     public static ThreadPoolExecutor newDaemonProfileThreadPool(int numThread, int queueSize, String poolName,
                                                                 boolean needRegisterMetric) {
         return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
@@ -138,6 +153,24 @@ public class ThreadPoolManager {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 keepAliveTime, unit, workQueue, threadFactory, handler);
+        if (needRegisterMetric) {
+            nameToThreadPoolMap.put(poolName, threadPool);
+        }
+        return threadPool;
+    }
+
+    public static <T> ThreadPoolExecutor newDaemonPriorityThreadPool(int corePoolSize,
+                                                                 int maximumPoolSize,
+                                                                 long keepAliveTime,
+                                                                 TimeUnit unit,
+                                                                 PriorityBlockingQueue<Runnable> workQueue,
+                                                                 RejectedExecutionHandler handler,
+                                                                 Comparator<T> comparator,
+                                                                 String poolName,
+                                                                 boolean needRegisterMetric) {
+        ThreadFactory threadFactory = namedThreadFactory(poolName);
+        ThreadPoolExecutor threadPool = new PriorityThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime,
+                    unit, workQueue, threadFactory, handler, comparator);
         if (needRegisterMetric) {
             nameToThreadPoolMap.put(poolName, threadPool);
         }
@@ -163,6 +196,57 @@ public class ThreadPoolManager {
      */
     private static ThreadFactory namedThreadFactory(String poolName) {
         return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(poolName + "-%d").build();
+    }
+
+    private static class PriorityThreadPoolExecutor<T> extends ThreadPoolExecutor {
+
+        private final Comparator<T> comparator;
+
+        private PriorityThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit,
+                                          BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory,
+                                          RejectedExecutionHandler handler, Comparator<T> comparator) {
+            super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+            this.comparator = comparator;
+        }
+
+        static class ComparableFutureTask<V, T> extends FutureTask<V> implements Comparable<ComparableFutureTask<V, T>> {
+
+            private final @Nullable T callable;
+            private final @Nullable T runnable;
+            private final Comparator<T> comparator;
+
+            public ComparableFutureTask(@NotNull Callable callable, Comparator<T> comparator) {
+                super(callable);
+                this.callable = (T) callable;
+                this.runnable = null;
+                this.comparator = comparator;
+            }
+
+            public ComparableFutureTask(@NotNull Runnable runnable, V result, Comparator<T> comparator) {
+                super(runnable, result);
+                this.runnable = (T) runnable;
+                this.callable = null;
+                this.comparator = comparator;
+            }
+
+            @Override
+            public int compareTo(@NotNull ComparableFutureTask<V, T> other) {
+                T leftObj = this.callable == null ? this.runnable : this.callable;
+                T rightObj = other.callable == null ? other.runnable : other.callable;
+                return comparator.compare(leftObj, rightObj);
+            }
+
+        }
+
+        @Override
+        protected <R> RunnableFuture<R> newTaskFor(Runnable runnable, R value) {
+            return new ComparableFutureTask<R, T>(runnable, value, comparator);
+        }
+
+        @Override
+        protected <R> RunnableFuture<R> newTaskFor(Callable<R> callable) {
+            return new ComparableFutureTask<R, T>(callable, comparator);
+        }
     }
 
     /**
