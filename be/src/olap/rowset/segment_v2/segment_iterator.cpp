@@ -250,6 +250,10 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
         _vec_init_char_column_id();
     }
+
+    if (opts.output_columns != nullptr) {
+        _output_columns = *(opts.output_columns);
+    }
     return Status::OK();
 }
 
@@ -917,7 +921,20 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // TODO(xk) impl right logic
+    if (_output_columns.count(-1)) {
+        // if _output_columns contains -1, it means that the light
+        // weight schema change may not be enabled or other reasons
+        // caused the column unique_id not be set, to prevent errors
+        // occurring, return true here that column data needs to be read
+        return true;
+    }
+    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
+        _output_columns.count(unique_id) < 1) {
+        VLOG_DEBUG << "SegmentIterator no need read data for column: "
+                   << _opts.tablet_schema->column_by_uid(unique_id).name();
+        return false;
+    }
     return true;
 }
 
