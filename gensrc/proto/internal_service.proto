@@ -605,6 +605,7 @@ message PTabletWriteSlaveDoneResult {
 
 message PFetchTableSchemaRequest {
   optional bytes file_scan_range = 1;
+  optional int64 stream_tvf_id = 2;
 };
 
 message PFetchTableSchemaResult {
