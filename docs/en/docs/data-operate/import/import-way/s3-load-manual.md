@@ -116,4 +116,4 @@ example:
 [S3Storage.list():372] errors while get file status org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get S3 FileSystem for bucket is null/empty
 ```
 
-It may be that there are unsupported characters in your bucket name, such as `_`, etc. Please try not to use special characters.
+It may be that there are unsupported characters in your bucket name, such as `_`, etc. The bucket name should preferably consist of numbers, letters, and `-`.

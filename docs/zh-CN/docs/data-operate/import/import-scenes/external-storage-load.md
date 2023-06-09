@@ -204,4 +204,4 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 [S3Storage.list():372] errors while get file status org.apache.doris.common.UserException: errCode = 2, detailMessage = Failed to get S3 FileSystem for bucket is null/empty
 ```
 
-那么可能是你 bucket 名中存在不支持的字符，如`_`等，请尽量不要使用特殊字符。 
+那么可能是你 bucket 名中存在不支持的字符，如`_`等，桶名最好由数字、字母和`-`组成。
