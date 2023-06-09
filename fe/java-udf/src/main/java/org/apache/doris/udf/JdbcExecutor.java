@@ -99,7 +99,7 @@ public class JdbcExecutor {
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
         minIdleSize = initPoolSize > 0 ? 1 : 0;
-        LOG.info("JdbcExecutor set minPoolSize = " + initPoolSize
+        LOG.info("JdbcExecutor set initPoolSize = " + initPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdelTime = " + maxIdelTime
                 + ", minIdleSize = " + minIdleSize);
