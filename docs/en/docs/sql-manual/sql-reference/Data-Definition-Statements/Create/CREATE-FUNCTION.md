@@ -32,8 +32,9 @@ CREATE FUNCTION
 
 ### Description
 
-This statement create a UDF custom function. Users who use UDF functions must have the `SELECT` permission of the corresponding database
+This statement creates a custom function. Executing this command requires the user to have `ADMIN` privileges.
 
+If `function_name` contains the database name, then the custom function will be created in the corresponding database, otherwise the function will be created in the database where the current session is located. The name and parameters of the new function cannot be the same as the existing functions in the current namespace, otherwise the creation will fail. But only with the same name and different parameters can be created successfully.
 grammar:
 
 ```sql
