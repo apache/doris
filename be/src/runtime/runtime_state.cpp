@@ -241,10 +241,16 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
-Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
+void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
-    return Status::OK();
+            MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
+}
+
+std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
+    if (!_query_mem_tracker) {
+        return _exec_env->orphan_mem_tracker();
+    }
+    return _query_mem_tracker;
 }
 
 bool RuntimeState::log_error(const std::string& error) {
