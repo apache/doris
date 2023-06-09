@@ -28,29 +28,13 @@
 ---
 name: Pull-Request Feishu Notification
 
-on:
-  issue_comment:
-    types: 
-      - created
-      - edited
-  pull_request_review_comment:
-    types:
-      - created
-      - edited
-  pull_request_target:
-    types:
-      - opened
-      - edited
-      - synchronize
-  pull_request_review:
-    types: [submitted, edited, dismissed]
+on: issue_comment
 
 env:
   APP_SERVER: '43.138.9.29:8888'
 
 jobs:
   feishu_notify:
-    if: ${{ github.event_name }} == 'issue_comment'
     runs-on: ubuntu-latest
 
     env:
