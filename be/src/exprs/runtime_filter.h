@@ -291,6 +291,8 @@ public:
     // consumer should call before released
     Status consumer_close();
 
+    bool is_finish_rpc();
+
     Status join_rpc();
 
     // async push runtimefilter to remote node
@@ -386,9 +388,9 @@ protected:
 
     std::vector<doris::vectorized::VExprSPtr> _push_down_vexprs;
 
-    struct rpc_context;
+    struct RPCContext;
 
-    std::shared_ptr<rpc_context> _rpc_context;
+    std::shared_ptr<RPCContext> _rpc_context;
 
     // parent profile
     // only effect on consumer

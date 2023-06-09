@@ -38,11 +38,14 @@
 
 namespace doris {
 
-struct IRuntimeFilter::rpc_context {
+struct IRuntimeFilter::RPCContext {
     PMergeFilterRequest request;
     PMergeFilterResponse response;
     brpc::Controller cntl;
     brpc::CallId cid;
+    bool is_finished = false;
+
+    static void finish(std::shared_ptr<RPCContext> ctx) { ctx->is_finished = true; }
 };
 
 Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
@@ -54,10 +57,9 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     if (!stub) {
         std::string msg =
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
-        LOG(WARNING) << msg;
         return Status::InternalError(msg);
     }
-    _rpc_context = std::make_shared<IRuntimeFilter::rpc_context>();
+    _rpc_context = std::make_shared<IRuntimeFilter::RPCContext>();
     void* data = nullptr;
     int len = 0;
 
@@ -83,8 +85,9 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
             DCHECK(data != nullptr);
             _rpc_context->cntl.request_attachment().append(data, len);
         }
+
         stub->merge_filter(&_rpc_context->cntl, &_rpc_context->request, &_rpc_context->response,
-                           brpc::DoNothing());
+                           brpc::NewCallback(RPCContext::finish, _rpc_context));
 
     } else {
         // we should reset context
@@ -93,15 +96,25 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     return serialize_status;
 }
 
+bool IRuntimeFilter::is_finish_rpc() {
+    if (_rpc_context == nullptr) {
+        return true;
+    }
+    return _rpc_context->is_finished;
+}
+
 Status IRuntimeFilter::join_rpc() {
-    DCHECK(is_producer());
+    if (!is_producer()) {
+        return Status::InternalError("RuntimeFilter::join_rpc only called when rf is producer.");
+    }
     if (_rpc_context != nullptr) {
         brpc::Join(_rpc_context->cid);
         if (_rpc_context->cntl.Failed()) {
-            LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
             // reset stub cache
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
                     _rpc_context->cntl.remote_side());
+            return Status::InternalError("RuntimeFilter::join_rpc meet rpc error, msg={}.",
+                                         _rpc_context->cntl.ErrorText());
         }
     }
     return Status::OK();
