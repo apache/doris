@@ -34,11 +34,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import java.util.Arrays;
 import java.util.List;
@@ -103,18 +100,11 @@ public class UdfBinder {
     }
 
     private Expression handleJavaUdf(UnboundFunction nereidsFunction, ScalarFunction catalogFunction) {
-        return TypeCoercionUtils.processBoundFunction(new JavaUdf(catalogFunction,
-                getFunctionSignature(catalogFunction),
-                nereidsFunction.getName(),
-                nereidsFunction.children().toArray(new Expression[0])));
+        return null;
     }
 
     private Expression handleJavaUdaf(UnboundFunction nereidsFunction, AggregateFunction catalogFunction) {
-        return TypeCoercionUtils.processBoundFunction(new JavaUdaf(catalogFunction,
-                getFunctionSignature(catalogFunction),
-                nereidsFunction.getName(),
-                !catalogFunction.ignoresDistinct() && nereidsFunction.isDistinct(),
-                nereidsFunction.children().toArray(new Expression[0])));
+        return null;
     }
 
     private FunctionSignature getFunctionSignature(Function catalogFunction) {
