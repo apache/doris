@@ -179,7 +179,7 @@ Status VSortNode::open(RuntimeState* state) {
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(sink(state, upstream_block.get(), eos)));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(sink(state, upstream_block.get(), eos));
     } while (!eos);
 
     child(0)->close(state);
@@ -191,7 +191,7 @@ Status VSortNode::open(RuntimeState* state) {
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos)));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
     if (*eos) {
         _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");
