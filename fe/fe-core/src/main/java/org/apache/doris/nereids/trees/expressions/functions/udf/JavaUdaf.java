@@ -41,7 +41,6 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String finalizeFn;
     private final String prepareFn;
     private final String closeFn;
-    
 
     /**
      * Constructor of UDAF

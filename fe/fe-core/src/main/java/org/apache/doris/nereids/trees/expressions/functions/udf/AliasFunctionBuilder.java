@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.udf;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
-import java.lang.reflect.Constructor;
 import java.util.List;
 
 /**
@@ -41,8 +40,9 @@ public class AliasFunctionBuilder extends FunctionBuilder {
         }
         return true;
     }
-    
+
     @Override
     public BoundFunction build(String name, List<?> arguments) {
+        return null;
     }
 }
