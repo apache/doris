@@ -55,6 +55,7 @@ jobs:
 
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_CONTEXT: ${{ toJson(github) }}
 
     steps:
       - name: Pull-Request Comment Notification
@@ -67,7 +68,8 @@ jobs:
           state='${{ github.event.issue.state }}'
           action='${{ github.event.action }}'
           server='${{ env.APP_SERVER }}'
-          event='${{ github.event_name }}'
+          event_name='${{ github.event_name }}'
+          context=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' '${{ env.GITHUB_CONTEXT }}')
 
           echo "number: ${number}"
           echo "comment: ${comment}"
@@ -95,6 +97,6 @@ jobs:
           echo 'github.event.pull_request.body ${{ github.event.pull_request.body }}'
           echo 'github.event.pull_request.state ${{ github.event.pull_request.state }}'
 
-          url="http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event=$event"
+          url="http://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event_name=${event_name}&context=${context}"
           echo "url=${url}"
           curl -d '{}' "${url}"
