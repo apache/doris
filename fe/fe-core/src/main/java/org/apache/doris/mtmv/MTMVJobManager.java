@@ -102,6 +102,7 @@ public class MTMVJobManager {
                     return;
                 }
                 if (!tryLock()) {
+                    LOG.warn("Failed get job lock, retry the clean scheduler in the next.");
                     return;
                 }
                 try {
@@ -224,9 +225,7 @@ public class MTMVJobManager {
     }
 
     public void createJob(MTMVJob job, boolean isReplay) throws DdlException {
-        if (!tryLock()) {
-            throw new DdlException("Failed to get job manager lock when create Job [" + job.getName() + "]");
-        }
+        lock();
         try {
             if (nameToJobMap.containsKey(job.getName())) {
                 throw new DdlException("Job [" + job.getName() + "] already exists");
@@ -341,9 +340,7 @@ public class MTMVJobManager {
     }
 
     public void updateJob(ChangeMTMVJob changeJob, boolean isReplay) {
-        if (!tryLock()) {
-            return;
-        }
+        lock();
         try {
             MTMVJob job = idToJobMap.get(changeJob.getJobId());
             if (job == null) {
@@ -375,9 +372,7 @@ public class MTMVJobManager {
         if (jobIds.isEmpty()) {
             return;
         }
-        if (!tryLock()) {
-            return;
-        }
+        lock();
         try {
             for (long jobId : jobIds) {
                 MTMVJob job = idToJobMap.get(jobId);
@@ -430,11 +425,15 @@ public class MTMVJobManager {
 
     private boolean tryLock() {
         try {
-            return reentrantLock.tryLock(5, TimeUnit.SECONDS);
+            return reentrantLock.tryLock(10, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             LOG.warn("got exception while getting job manager lock", e);
         }
         return false;
+    }
+
+    private void lock() {
+        reentrantLock.lock();
     }
 
     public void unlock() {
@@ -480,6 +479,7 @@ public class MTMVJobManager {
 
         List<Long> jobIdsToDelete = Lists.newArrayList();
         if (!tryLock()) {
+            LOG.warn("Failed to get job lock, retry to remove expired job in the next time.");
             return;
         }
         try {

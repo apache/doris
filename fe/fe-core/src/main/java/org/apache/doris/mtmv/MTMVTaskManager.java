@@ -85,6 +85,7 @@ public class MTMVTaskManager {
         }
         taskScheduler.scheduleAtFixedRate(() -> {
             if (!tryLock()) {
+                LOG.warn("Failed to get task lock, retry the task scheduler in the next time.");
                 return;
             }
             try {
@@ -131,9 +132,7 @@ public class MTMVTaskManager {
 
     public boolean killTask(Long jobId, boolean clearPending) {
         if (clearPending) {
-            if (!tryLock()) {
-                return false;
-            }
+            lock();
             try {
                 getPendingTaskMap().remove(jobId);
             } catch (Exception ex) {
@@ -155,9 +154,7 @@ public class MTMVTaskManager {
     }
 
     public void arrangeToPendingTask(MTMVTaskExecutor task) {
-        if (!tryLock()) {
-            return;
-        }
+        lock();
         try {
             long jobId = task.getJobId();
             PriorityBlockingQueue<MTMVTaskExecutor> tasks =
@@ -252,6 +249,9 @@ public class MTMVTaskManager {
         return false;
     }
 
+    public void lock() {
+        reentrantLock.lock();
+    }
 
     public void unlock() {
         this.reentrantLock.unlock();
@@ -324,9 +324,7 @@ public class MTMVTaskManager {
     public void clearTasksByJobName(String jobName, boolean isReplay) {
         List<String> clearTasks = Lists.newArrayList();
 
-        if (!tryLock()) {
-            return;
-        }
+        lock();
         try {
             List<MTMVTask> taskHistory = showAllTasks();
             for (MTMVTask task : taskHistory) {
@@ -346,6 +344,7 @@ public class MTMVTaskManager {
         List<String> historyToDelete = Lists.newArrayList();
 
         if (!tryLock()) {
+            LOG.warn("Failed to get task lock, retry to remove expired tasks in next time.");
             return;
         }
         try {
@@ -366,9 +365,7 @@ public class MTMVTaskManager {
         if (taskIds.isEmpty()) {
             return;
         }
-        if (!tryLock()) {
-            return;
-        }
+        lock();
         try {
             Set<String> taskSet = new HashSet<>(taskIds);
             // Pending tasks will be clear directly. So we don't drop it again here.
