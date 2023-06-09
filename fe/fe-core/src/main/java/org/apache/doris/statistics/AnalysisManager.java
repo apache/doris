@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -153,6 +154,9 @@ public class AnalysisManager extends Daemon {
         try {
             List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
             for (TableIf table : tbls) {
+                if (table instanceof View) {
+                    continue;
+                }
                 TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
                         table.getName());
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
