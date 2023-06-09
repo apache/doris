@@ -7,12 +7,11 @@ CteAnchor[cteId= ( CTEId#4=] )
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN](date_dim.d_date_sk = wscs.sold_date_sk)
---------------PhysicalProject
-----------------PhysicalUnion
-------------------PhysicalProject
---------------------PhysicalOlapScan[web_sales]
-------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_sales]
+--------------PhysicalUnion
+----------------PhysicalProject
+------------------PhysicalOlapScan[web_sales]
+----------------PhysicalProject
+------------------PhysicalOlapScan[catalog_sales]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[date_dim]
