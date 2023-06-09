@@ -1063,7 +1063,7 @@ public class ScalarType extends Type {
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return t1.isFloatingPointType() ? t1 : t2;
+                return Type.DOUBLE;
             }
             return t1.isDecimalV2() ? t1 : t2;
         }

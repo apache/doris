@@ -1080,7 +1080,7 @@ public class TypeCoercionUtils {
         // decimalv3 and floating type
         if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
-                return t1.isDecimalV3Type() ? Optional.of(t2) : Optional.of(t1);
+                return Optional.of(DoubleType.INSTANCE);
             }
         }
 
@@ -1093,7 +1093,7 @@ public class TypeCoercionUtils {
         // decimalv2 and floating type
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
-                return t1.isDecimalV2Type() ? Optional.of(t2) : Optional.of(t1);
+                return Optional.of(DoubleType.INSTANCE);
             }
         }
 
