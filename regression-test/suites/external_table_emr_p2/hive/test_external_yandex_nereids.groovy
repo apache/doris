@@ -62,6 +62,7 @@ suite("test_external_yandex_nereids", "p2") {
         sql """use multi_catalog;"""
         logger.info("use multi_catalog")
         sql """set enable_nereids_planner=true"""
+        sql """set enable_fallback_to_original_planner=false"""
 
         for (String format in formats) {
             logger.info("Process format " + format)

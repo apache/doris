@@ -60,7 +60,9 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/paimon_reader.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -115,6 +117,7 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
+    _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -588,6 +591,26 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         // TODO: use data lake type
         switch (_params.format_type) {
+        case TFileFormatType::FORMAT_JNI: {
+            if (_real_tuple_desc->table_desc()->table_type() ==
+                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
+                const MaxComputeTableDescriptor* mc_desc =
+                        static_cast<const MaxComputeTableDescriptor*>(
+                                _real_tuple_desc->table_desc());
+                std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
+                        mc_desc, _file_slot_descs, range, _state, _profile);
+                init_status = mc_reader->init_reader(_colname_to_value_range);
+                _cur_reader = std::move(mc_reader);
+            }
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                _cur_reader =
+                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((PaimonJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
+            }
+            break;
+        }
         case TFileFormatType::FORMAT_PARQUET: {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
@@ -676,6 +699,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
+        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();

@@ -136,7 +136,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
     public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
-            if (p.second == ColumnStatistic.UNKNOWN) {
+            if (p.second.isUnKnown) {
                 return;
             }
             List<String> row = Lists.newArrayList();

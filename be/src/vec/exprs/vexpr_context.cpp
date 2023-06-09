@@ -195,6 +195,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
             // filter all
             if (!const_column->get_bool(0)) {
                 *can_filter_all = true;
+                memset(result_filter_data, 0, result_filter->size());
                 return Status::OK();
             }
         } else {

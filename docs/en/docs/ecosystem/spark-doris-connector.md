@@ -37,11 +37,10 @@ Github: https://github.com/apache/doris-spark-connector
 
 ## Version Compatibility
 
-| Connector     | Spark | Doris  | Java | Scala |
-|---------------| ----- | ------ | ---- | ----- |
-| 2.3.4-2.11.xx | 2.x   | 0.12+  | 8    | 2.11  |
-| 3.1.2-2.12.xx | 3.x   | 0.12.+ | 8    | 2.12  |
-| 3.2.0-2.12.xx | 3.2.x | 0.12.+ | 8    | 2.12  |
+| Connector | Spark         | Doris       | Java | Scala      |
+| --------- | ------------- |-------------| ---- | ---------- |
+| 1.1.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
+| 1.0.1     | 3.1, 2.3      | 0.12 - 0.15 | 8    | 2.12, 2.11 |
 
 ## Build and Install
 
@@ -58,14 +57,14 @@ Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For exa
 
 For example upload `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
 
-1. Upload  spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar  Jar to hdfs.
+1. Upload `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` Jar to hdfs.
 
 ```
 hdfs dfs -mkdir /spark-jars/
 hdfs dfs -put /your_local_path/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar /spark-jars/
 ```
 
-2. Add spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar  depence in Cluster.
+2. Add `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` dependency in Cluster.
 
 ```
 spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar
@@ -109,7 +108,7 @@ SELECT * FROM spark_doris;
 ```scala
 val dorisSparkDF = spark.read.format("doris")
   .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
-	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
   .load()
@@ -141,7 +140,7 @@ dorisSparkDF = spark.read.format("doris")
 .option("user", "$YOUR_DORIS_USERNAME")
 .option("password", "$YOUR_DORIS_PASSWORD")
 .load()
-# show 5 lines data 
+// show 5 lines data 
 dorisSparkDF.show(5)
 ```
 
@@ -176,7 +175,7 @@ mockDataDF.show(5)
 
 mockDataDF.write.format("doris")
   .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
-	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
   //other options
@@ -196,7 +195,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .format("doris")
   .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
   .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
-	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
   //other options

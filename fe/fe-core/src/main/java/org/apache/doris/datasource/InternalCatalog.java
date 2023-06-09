@@ -1192,7 +1192,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 ColumnDef columnDef;
                 if (resultExpr.getSrcSlotRef() == null) {
-                    columnDef = new ColumnDef(name, typeDef, false, null, true, new DefaultValue(false, null), "");
+                    columnDef = new ColumnDef(name, typeDef, false, null,
+                        true, false, new DefaultValue(false, null), "");
                 } else {
                     Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
@@ -1204,7 +1205,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
                     columnDef = new ColumnDef(name, typeDef, false, null,
-                            column.isAllowNull(), defaultValue, column.getComment());
+                            column.isAllowNull(), column.isAutoInc(), defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
@@ -1839,6 +1840,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create columns
         List<Column> baseSchema = stmt.getColumns();
         validateColumns(baseSchema, isKeysRequired);
+        checkAutoIncColummns(baseSchema, keysType);
 
         // analyze replica allocation
         ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
@@ -2582,7 +2584,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     /*
-     * generate and check columns' order and key's existence
+     * generate and check columns' order and key's existence,
      */
     private void validateColumns(List<Column> columns, boolean isKeysRequired) throws DdlException {
         if (columns.isEmpty()) {
@@ -2608,6 +2610,33 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     /*
+     * check column's auto increment property
+     */
+    private void checkAutoIncColummns(List<Column> columns, KeysType type) throws DdlException {
+        boolean encounterAutoIncColumn = false;
+        for (Column column : columns) {
+            if (column.isAutoInc()) {
+                if (encounterAutoIncColumn) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN);
+                }
+                encounterAutoIncColumn = true;
+                if (column.isAllowNull()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NULLABLE);
+                }
+                if (column.getDefaultValue() != null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE);
+                }
+                if (!column.getType().isBigIntType()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE);
+                }
+            }
+        }
+        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
+        }
+    }
+
+    /*
      * Truncate specified table or partitions.
      * The main idea is:
      *
@@ -2623,7 +2652,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         TableName dbTbl = tblRef.getName();
 
         // check, and save some info which need to be checked again later
-        Map<String, Long> origPartitions = Maps.newHashMap();
+        Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 

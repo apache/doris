@@ -47,4 +47,7 @@ suite("test_cast_as_decimalv3") {
     qt_select2 """
         select cast(1 as DECIMALV3(5, 2)) /  cast(3 as DECIMALV3(5, 2))
     """ 
+    qt_select3 """
+        select 1.0 / val from divtest order by id
+    """
 }

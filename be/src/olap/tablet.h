@@ -246,6 +246,8 @@ public:
 
     void delete_all_files();
 
+    void check_tablet_path_exists();
+
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
 
@@ -278,7 +280,8 @@ public:
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info,
-                                  bool enable_consecutive_missing_check = false);
+                                  bool enable_consecutive_missing_check = false,
+                                  bool enable_path_check = false);
 
     void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
     // caller should hold the _meta_lock before calling this method
@@ -364,24 +367,8 @@ public:
         return {_cooldown_replica_id, _cooldown_term};
     }
 
-    // return true if update success
-    bool update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
-        std::unique_lock wlock(_cooldown_conf_lock, std::try_to_lock);
-        if (!wlock.owns_lock()) {
-            LOG(INFO) << "try cooldown_conf_lock failed, tablet_id=" << tablet_id();
-            return false;
-        }
-        if (cooldown_term > _cooldown_term) {
-            LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
-                      << " cooldown_replica_id: " << _cooldown_replica_id << " -> "
-                      << cooldown_replica_id << ", cooldown_term: " << _cooldown_term << " -> "
-                      << cooldown_term;
-            _cooldown_replica_id = cooldown_replica_id;
-            _cooldown_term = cooldown_term;
-            return true;
-        }
-        return false;
-    }
+    // Return `true` if update success
+    bool update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id);
 
     Status remove_all_remote_rowsets();
 
@@ -403,6 +390,7 @@ public:
     std::shared_mutex& get_cooldown_conf_lock() { return _cooldown_conf_lock; }
 
     static void async_write_cooldown_meta(TabletSharedPtr tablet);
+    // Return `ABORTED` if should not to retry again
     Status write_cooldown_meta();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
@@ -628,6 +616,9 @@ private:
 
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
     std::atomic<bool> _is_clone_occurred;
+
+    // use a seperate thread to check all tablets paths existance
+    std::atomic<bool> _is_tablet_path_exists;
 
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;

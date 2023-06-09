@@ -1590,6 +1590,31 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (fn.getFunctionName().getFunction().equals("struct_element")) {
+            if (children.size() < 2) {
+                throw new AnalysisException(fnName.getFunction() + " needs two parameters: " + this.toSql());
+            }
+            if (getChild(0).type instanceof StructType) {
+                StructType s = ((StructType) children.get(0).type);
+                if (getChild(1) instanceof StringLiteral) {
+                    String fieldName = children.get(1).getStringValue();
+                    if (s.getField(fieldName) == null) {
+                        throw new AnalysisException(
+                                "the specified field name " + fieldName + " was not found: " + this.toSql());
+                    }
+                } else if (getChild(1) instanceof IntLiteral) {
+                    int pos = (int) ((IntLiteral) children.get(1)).getValue();
+                    if (pos < 1 || pos > s.getFields().size()) { // the index start from 1
+                        throw new AnalysisException(
+                                "the specified field index out of bound: " + this.toSql());
+                    }
+                } else {
+                    throw new AnalysisException(
+                            "struct_element only allows constant int or string second parameter: " + this.toSql());
+                }
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
@@ -1796,6 +1821,15 @@ public class FunctionCallExpr extends Expr {
             this.type = new StructType(newFields);
         } else if (fnName.getFunction().equalsIgnoreCase("topn_array")) {
             this.type = new ArrayType(children.get(0).getType());
+        } else if (fnName.getFunction().equalsIgnoreCase("struct_element")) {
+            if (children.get(1) instanceof StringLiteral) {
+                String fieldName = children.get(1).getStringValue();
+                fn.setReturnType(((StructType) children.get(0).type).getField(fieldName).getType());
+            } else if (children.get(1) instanceof IntLiteral) {
+                int pos = (int) ((IntLiteral) children.get(1)).getValue();
+                fn.setReturnType(((StructType) children.get(0).type).getFields().get(pos - 1).getType());
+            }
+            this.type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")

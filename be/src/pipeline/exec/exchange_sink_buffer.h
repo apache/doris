@@ -113,8 +113,8 @@ public:
             const std::function<void(const InstanceLoId&, const std::string&)>& fail_fn) {
         _fail_fn = fail_fn;
     }
-    void addSuccessHandler(
-            const std::function<void(const InstanceLoId&, const bool&, const T&)>& suc_fn) {
+    void addSuccessHandler(const std::function<void(const InstanceLoId&, const bool&, const T&,
+                                                    const int64_t&)>& suc_fn) {
         _suc_fn = suc_fn;
     }
 
@@ -131,7 +131,7 @@ public:
                         cntl.latency_us());
                 _fail_fn(_id, err);
             } else {
-                _suc_fn(_id, _eos, result);
+                _suc_fn(_id, _eos, result, start_rpc_time);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -142,10 +142,11 @@ public:
 
     brpc::Controller cntl;
     T result;
+    int64_t start_rpc_time;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const T&)> _suc_fn;
+    std::function<void(const InstanceLoId&, const bool&, const T&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
     vectorized::BroadcastPBlockHolder* _data;
@@ -162,6 +163,8 @@ public:
     bool can_write() const;
     bool is_pending_finish() const;
     void close();
+    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
+    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -180,6 +183,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, PUniqueId> _instance_to_finst_id;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
+    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;

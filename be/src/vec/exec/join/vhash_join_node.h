@@ -290,6 +290,9 @@ private:
     RuntimeProfile::Counter* _build_side_merge_block_timer;
     RuntimeProfile::Counter* _build_runtime_filter_timer;
 
+    RuntimeProfile::Counter* _open_timer;
+    RuntimeProfile::Counter* _allocate_resource_timer;
+
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
