@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.agg;
+package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -29,22 +31,27 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * Java UDAF for Nereids
+ * Java UDF for Nereids
  */
-public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSignature, Udf {
-    private final String functionName;
+public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
     private final FunctionSignature signature;
-    private final org.apache.doris.catalog.AggregateFunction catalogFunction;
+    private final String objectFile;
+    private final String symbol;
+    private final String prepareFn;
+    private final String closeFn;
 
     /**
-     * Constructor of UDAF
+     * Constructor of UDF
      */
-    public JavaUdaf(org.apache.doris.catalog.AggregateFunction catalogFunction, FunctionSignature signature,
-            String functionName, boolean isDistinct, Expression... args) {
-        super(functionName, isDistinct, args);
-        this.catalogFunction = catalogFunction;
+    public JavaUdf(String name, FunctionSignature signature,
+            String objectFile, String symbol, String prepareFn, String closeFn,
+            Expression... args) {
+        super(name, args);
         this.signature = signature;
-        this.functionName = functionName;
+        this.objectFile = objectFile;
+        this.symbol = symbol;
+        this.prepareFn = prepareFn;
+        this.closeFn = closeFn;
     }
 
     @Override
@@ -52,21 +59,23 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         return ImmutableList.of(signature);
     }
 
-    public org.apache.doris.catalog.AggregateFunction getCatalogFunction() {
-        return catalogFunction;
-    }
-
     /**
      * withChildren.
      */
     @Override
-    public JavaUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdaf(catalogFunction, signature, functionName, isDistinct, children.toArray(new Expression[0]));
+        return new JavaUdf(getName(), signature, objectFile, symbol, prepareFn, closeFn,
+                children.toArray(new Expression[0]));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitJavaUdaf(this, context);
+        return visitor.visitJavaUdf(this, context);
+    }
+
+    @Override
+    public Function getCatalogFunction() {
+        return null;
     }
 }
