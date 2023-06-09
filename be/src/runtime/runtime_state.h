@@ -83,7 +83,7 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
-    Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
+    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -116,7 +116,7 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
@@ -418,7 +418,7 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
