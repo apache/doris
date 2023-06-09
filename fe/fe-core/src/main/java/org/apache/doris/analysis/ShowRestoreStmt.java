@@ -162,7 +162,11 @@ public class ShowRestoreStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append("SHOW RESTORE");
+        if (needBriefResult) {
+            builder.append("SHOW BRIEF RESTORE");
+        } else {
+            builder.append("SHOW RESTORE");
+        }
         if (dbName != null) {
             builder.append(" FROM `").append(dbName).append("` ");
         }
