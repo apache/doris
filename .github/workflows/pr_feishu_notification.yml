@@ -67,7 +67,7 @@ jobs:
           comment="${{ github.event.comment.body }}"
           title="${{ github.event.issue.title }}"
           url="${{ github.event.issue.pull_request.html_url }}"
-          user="${{ github.event.issue.user.name }}"
+          user="${{ github.event.issue.user.login }}"
           state="${{ github.event.issue.state }}"
           server="${{ env.APP_SERVER }}"
 
