@@ -28,6 +28,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <map>
+#include <memory>
 #include <new>
 #include <ostream>
 #include <type_traits>
@@ -421,9 +422,30 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
+    _should_build_hash_table = true;
+    if (_is_broadcast_join) {
+        runtime_profile()->add_info_string("BroadcastJoin", "true");
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
+            _shared_hashtable_controller =
+                    state->get_query_ctx()->get_shared_hash_table_controller();
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
+            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
+                    state->fragment_instance_id(), id());
+        } else {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
+        }
+    }
 
-    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-    runtime_profile()->add_child(memory_usage, false, nullptr);
+    //some profile record of build phase are useless when it's shared hash table so add in faker profile
+    RuntimeProfile* memory_usage = nullptr;
+    if (_should_build_hash_table) {
+        memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
+        runtime_profile()->add_child(memory_usage, false, nullptr);
+    } else {
+        memory_usage = faker_runtime_profile();
+    }
+
     _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
     _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
     _build_arena_memory_usage =
@@ -436,16 +458,19 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
     _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
-    _build_table_insert_timer = ADD_TIMER(_build_phase_profile, "BuildTableInsertTime");
-    _build_expr_call_timer = ADD_TIMER(_build_phase_profile, "BuildExprCallTime");
-    _build_table_expanse_timer = ADD_TIMER(_build_phase_profile, "BuildTableExpanseTime");
-    _build_table_convert_timer =
-            ADD_TIMER(_build_phase_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
-    _build_side_compute_hash_timer = ADD_TIMER(_build_phase_profile, "BuildSideHashComputingTime");
-    _build_runtime_filter_timer = ADD_TIMER(_build_phase_profile, "BuildRuntimeFilterTime");
+
+    auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(record_profile, "BuildSideMergeBlockTime");
+    _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
+    _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
+    _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
+    _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
+    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
+    _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
+    _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
+    _push_down_timer = ADD_TIMER(record_profile, "PublishRuntimeFilterTime");
+    _push_compute_timer = ADD_TIMER(record_profile, "PushDownComputeTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -461,25 +486,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
-
-    _should_build_hash_table = true;
-    if (_is_broadcast_join) {
-        runtime_profile()->add_info_string("BroadcastJoin", "true");
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
-            _shared_hashtable_controller =
-                    state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
-            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), id());
-        } else {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
-        }
-    }
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));

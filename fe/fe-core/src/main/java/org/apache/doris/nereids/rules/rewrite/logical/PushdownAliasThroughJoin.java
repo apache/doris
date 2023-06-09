@@ -27,12 +27,13 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -41,22 +42,12 @@ import java.util.stream.Collectors;
  * Pushdown Alias (inside must be Slot) through Join.
  */
 public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
-    private boolean isAllSlotOrAliasSlot(LogicalProject<? extends Plan> project) {
-        return project.getProjects().stream().allMatch(expr -> {
-            if (expr instanceof Slot) {
-                return true;
-            }
-            if (expr instanceof Alias) {
-                return ((Alias) expr).child() instanceof Slot;
-            }
-            return false;
-        });
-    }
-
     @Override
     public Rule build() {
         return logicalProject(logicalJoin())
-            .when(this::isAllSlotOrAliasSlot)
+            .when(project -> project.getProjects().stream().allMatch(expr ->
+                    (expr instanceof Slot) || (expr instanceof Alias && ((Alias) expr).child() instanceof Slot)))
+            .when(project -> project.getProjects().stream().anyMatch(expr -> expr instanceof Alias))
             .then(project -> {
                 LogicalJoin<? extends Plan, ? extends Plan> join = project.child();
                 // aliasMap { Slot -> List<Alias<Slot>> }
@@ -71,9 +62,7 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
                             }
                             aliases.add(expr);
                         });
-                if (aliasMap.isEmpty()) {
-                    return null;
-                }
+                Preconditions.checkState(!aliasMap.isEmpty(), "aliasMap should not be empty");
                 List<NamedExpression> newProjects = project.getProjects().stream().map(NamedExpression::toSlot)
                         .collect(Collectors.toList());
 
@@ -122,15 +111,9 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
 
     private List<NamedExpression> createNewOutput(List<Slot> oldOutput,
             Map<Expression, List<NamedExpression>> aliasMap) {
-        List<NamedExpression> output = Lists.newArrayList();
-        oldOutput.stream().forEach(slot -> {
-            List<NamedExpression> alias = aliasMap.get(slot);
-            if (alias != null) {
-                output.addAll(alias);
-            } else {
-                output.add(slot);
-            }
-        });
+        List<NamedExpression> output = oldOutput.stream()
+                .flatMap(slot -> aliasMap.getOrDefault(slot, Collections.singletonList(slot)).stream())
+                .collect(Collectors.toList());
         return output;
     }
 }
