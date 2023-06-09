@@ -242,10 +242,10 @@ public class AnalysisManager extends Daemon implements Writable {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, false);
-
-        persistAnalysisJob(jobInfo);
-        analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-
+        if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+            persistAnalysisJob(jobInfo);
+            analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+        }
         try {
             updateTableStats(jobInfo);
         } catch (Throwable e) {
@@ -510,7 +510,9 @@ public class AnalysisManager extends Daemon implements Writable {
                 continue;
             }
             try {
-                logCreateAnalysisTask(analysisInfo);
+                if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+                    logCreateAnalysisTask(analysisInfo);
+                }
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
@@ -518,13 +520,13 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void logCreateAnalysisTask(AnalysisInfo analysisInfo) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
         analysisTaskInfoMap.put(analysisInfo.taskId, analysisInfo);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
     }
 
     private void logCreateAnalysisJob(AnalysisInfo analysisJob) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
         analysisJobInfoMap.put(analysisJob.jobId, analysisJob);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
     }
 
     private void createTaskForExternalTable(AnalysisInfo jobInfo,
