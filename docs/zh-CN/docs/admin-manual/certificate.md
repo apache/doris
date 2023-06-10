@@ -76,3 +76,7 @@ openssl pkcs12 -inkey server-key.pem -in server.pem -export -out server_certific
 ```
 
 >[参考文档](https://www.ibm.com/docs/en/api-connect/2018.x?topic=overview-generating-self-signed-certificate-using-openssl)
+
+## JDBC注意事项
+
+当使用JDBC连接Doris时，请使用8.0.19及以上版本以兼容Doris的SSL功能，否则可能会出现连接失败的问题。

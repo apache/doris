@@ -75,3 +75,7 @@ openssl pkcs12 -inkey server-key.pem -in server.pem -export -out server_certific
 ```
 
 >[reference documents](https://www.ibm.com/docs/en/api-connect/2018.x?topic=overview-generating-self-signed-certificate-using-openssl)
+
+## JDBC Attention
+
+When using JDBC to connect to Doris, please use version 8.0.19 and above to be compatible with Doris's SSL, otherwise connection failure may occur.
