@@ -20,6 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -73,8 +75,6 @@ public class HMSExternalTable extends ExternalTable {
 
     static {
         SUPPORTED_HUDI_FILE_FORMATS = Sets.newHashSet();
-        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
-        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
@@ -140,8 +140,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * Now we only support `Snapshot Queries` on both cow and mor table and `Read Optimized Queries` on cow table.
-     * And they both use the `HoodieParquetInputFormat` for the input format in hive metastore.
+     * `HoodieParquetInputFormat`: `Snapshot Queries` on cow and mor table and `Read Optimized Queries` on cow table
      */
     private boolean supportedHoodieTable() {
         if (remoteTable.getSd() == null) {
@@ -149,6 +148,14 @@ public class HMSExternalTable extends ExternalTable {
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
+    }
+
+    public boolean isHoodieCowTable() {
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName);
     }
 
     /**
@@ -367,16 +374,13 @@ public class HMSExternalTable extends ExternalTable {
         return columns;
     }
 
-
     public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
-        org.apache.avro.Schema schema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
-        for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
-                            IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS), true, null,
-                    true, null, field.getComment(), true, null,
-                    schema.getIndexNamed(field.getName()), null));
+        for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
+            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
+            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
+                    true, null, true, null, "", true, null, -1, null));
         }
         return tmpSchema;
     }

@@ -36,6 +36,8 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.hudi.HudiScanNode;
+import org.apache.doris.planner.external.hudi.HudiSplit;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
@@ -236,7 +238,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         // set hdfs params for hdfs file type.
         Map<String, String> locationProperties = getLocationProperties();
-        if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
+        if (fileFormatType == TFileFormatType.FORMAT_JNI) {
+            params.setProperties(locationProperties);
+        } else if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             String fsName = getFsName(inputSplit);
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             tHdfsParams.setFsName(fsName);
@@ -281,11 +285,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
             } else if (fileSplit instanceof PaimonSplit) {
                 PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
+            } else if (fileSplit instanceof HudiSplit) {
+                HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
             }
-
-            // if (fileSplit instanceof HudiSplit) {
-            //     HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
-            // }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();

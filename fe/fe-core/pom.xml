@@ -664,6 +664,12 @@ under the License.
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
 
+        <!-- for hudi catalog -->
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo-shaded</artifactId>
+        </dependency>
+
     </dependencies>
     <repositories>
         <!-- for huawei obs sdk -->
