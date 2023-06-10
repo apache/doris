@@ -44,43 +44,14 @@ jobs:
     steps:
       - name: Pull-Request Comment Notification
         run: |
-          number=$(echo '${{ github.event.issue.pull_request.url }}' | awk -F/ '{print $NF}')
-          comment=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' '${{ github.event.comment.body }}')
-          title=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' '${{ github.event.issue.title }}')
-          url=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' '${{ github.event.issue.pull_request.html_url }}')
-          user='${{ github.event.issue.user.login }}'
-          state='${{ github.event.issue.state }}'
           action='${{ github.event.action }}'
           server='${{ env.APP_SERVER }}'
           event_name='${{ github.event_name }}'
-          context=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' '${{ env.GITHUB_CONTEXT }}')
+          context=$(cat <<\EOF | perl -MURI::Escape -pe '$_=uri_escape($_);'
+          ${{ env.GITHUB_CONTEXT }}
+          EOF
+          )
 
-          echo "number: ${number}"
-          echo "comment: ${comment}"
-
-          echo 'github.event.action ${{ github.event.action }}'
-          echo 'github.event.comment ${{ github.event.comment }}'
-          echo 'github.event.workflow ${{ github.event.workflow }}'
-          echo 'github.event.base_ref ${{ github.event.base_ref }}'
-          echo 'github.event.head_ref ${{ github.event.head_ref }}'
-          echo 'github.event.ref ${{ github.event.ref }}'
-          echo 'github.event.number ${{ github.event.number }}'
-          echo 'github.event.created_at ${{ github.event.created_at }}'
-          echo 'github.event.title ${{ github.event.title }}'
-          echo 'github.event.sender.login ${{ github.event.sender.login }}'
-
-          echo 'github.event.pull_request.action ${{ github.event.pull_request.action }}'
-          echo 'github.event.pull_request.number ${{ github.event.pull_request.number }}'
-          echo 'github.event.pull_request.title ${{ github.event.pull_request.title }}'
-          echo 'github.event.pull_request.url ${{ github.event.pull_request.url }}'
-          echo 'github.event.pull_request.user.login ${{ github.event.pull_request.user.login }}'
-          echo 'github.event.pull_request.requested_reviewers ${{ github.event.pull_request.requested_reviewers }}'
-          echo 'github.event.pull_request.merged ${{ github.event.pull_request.merged }}'
-          echo 'github.event.pull_request.comment ${{ github.event.pull_request.comment }}'
-          echo 'github.event.pull_request.html_utl ${{ github.event.pull_request.html_url }}'
-          echo 'github.event.pull_request.body ${{ github.event.pull_request.body }}'
-          echo 'github.event.pull_request.state ${{ github.event.pull_request.state }}'
-
-          url="https://${server}/github?user=${user}&number=${number}&title=${title}&comment=${comment}&url=${url}&state=${state}&action=${action}&event_name=$event_name&context=${context}"
+          url="https://${server}/github?action=${action}&event_name=$event_name&context=${context}"
           echo "url=${url}"
           curl -kv -d '{}' "${url}"
