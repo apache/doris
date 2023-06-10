@@ -237,19 +237,19 @@ public class ThreadPoolManager {
         }
 
         @Override
-        protected <R> RunnableFuture<R> newTaskFor(Runnable task, R value) {
+        protected <V> RunnableFuture<V> newTaskFor(Runnable task, V value) {
             if (!tClass.isInstance(task)) {
                 throw new RejectedExecutionException("Task must be an instance of [" + tClass.getName() + "]");
             }
-            return new ComparableFutureTask<R, T>(task, value, comparator);
+            return new ComparableFutureTask<>(task, value, comparator);
         }
 
         @Override
-        protected <R> RunnableFuture<R> newTaskFor(Callable<R> task) {
+        protected <V> RunnableFuture<V> newTaskFor(Callable<V> task) {
             if (!tClass.isInstance(task)) {
                 throw new RejectedExecutionException("Task must be an instance of [" + tClass.getName() + "]");
             }
-            return new ComparableFutureTask<R, T>(task, comparator);
+            return new ComparableFutureTask<>(task, comparator);
         }
 
         @Override
