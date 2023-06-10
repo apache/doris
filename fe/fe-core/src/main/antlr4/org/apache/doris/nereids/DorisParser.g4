@@ -304,7 +304,7 @@ valueExpression
 datetimeUnit
     : YEAR | MONTH
     | WEEK | DAY
-    | HOUR | MINUTE | SECOND
+    | HOUR | MINUTE | SECOND | MICROSECOND
     ;
 
 primaryExpression
@@ -418,7 +418,7 @@ interval
     ;
 
 unitIdentifier
-    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
+    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | MICROSECOND
     ;
 
 dataType
@@ -602,6 +602,7 @@ nonReserved
     | MAP
     | MATCHED
     | MERGE
+    | MICROSECOND
     | MINUTE
     | MONTH
     | MSCK
