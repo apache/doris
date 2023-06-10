@@ -503,7 +503,8 @@ public class NativeInsertStmt extends InsertStmt {
         List<Column> baseColumns = targetTable.getBaseSchema();
         int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
         for (int i = 0; i < size; i++) {
-            slotToIndex.put(baseColumns.get(i).getName(), queryStmt.getResultExprs().get(i));
+            slotToIndex.put(baseColumns.get(i).getName(),
+                    queryStmt.getResultExprs().get(i).checkTypeCompatibility(baseColumns.get(i).getType()));
         }
 
         // handle VALUES() or SELECT constant list

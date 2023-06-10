@@ -21,16 +21,11 @@ import org.apache.doris.qe.ConnectContext;
 
 public class VectorizedUtil {
     /**
-     * 1. Return false if there is no current connection (Rule1 to be changed)
-     * 2. Returns the vectorized switch value of the query 'globalState.enableQueryVec'
-     * 3. If it is not currently a query, return the vectorized switch value of the session 'enableVectorizedEngine'
+     * 1. Returns the vectorized switch value of the query 'globalState.enableQueryVec'
+     * 2. If it is not currently a query, return the vectorized switch value of the session 'enableVectorizedEngine'
      * @return true: vec. false: non-vec
      */
     public static boolean isVectorized() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
         return true;
     }
 
