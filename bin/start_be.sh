@@ -269,20 +269,16 @@ java_version="$(
 )"
 
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
-LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
-COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
-
 if [[ "${java_version}" -gt 8 ]]; then
-    if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS}"
-else
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
-        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
+else
+    if [[ -z ${JAVA_OPTS} ]]; then
+        JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+    fi
+    final_java_opt="${JAVA_OPTS}"
 fi
 
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
