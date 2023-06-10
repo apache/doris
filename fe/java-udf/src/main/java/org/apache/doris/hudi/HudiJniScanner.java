@@ -18,6 +18,7 @@
 package org.apache.doris.hudi;
 
 import org.apache.doris.jni.JniScanner;
+import org.apache.doris.jni.utils.Utils;
 import org.apache.doris.jni.vec.ColumnValue;
 
 import org.apache.hadoop.fs.Path;
@@ -31,16 +32,22 @@ import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.hadoop.realtime.HoodieRealtimeFileSplit;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -48,15 +55,19 @@ import java.util.stream.Collectors;
  */
 public class HudiJniScanner extends JniScanner {
     private static final Logger LOG = Logger.getLogger(HudiJniScanner.class);
-    private HudiScanParam hudiScanParam;
+    private final HudiScanParam hudiScanParam;
 
+    UserGroupInformation ugi = null;
     private RecordReader<NullWritable, ArrayWritable> reader;
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     private final ClassLoader classLoader;
 
     public HudiJniScanner(int fetchSize, Map<String, String> params) {
-        LOG.debug("fetchSize:" + fetchSize + " , params: " + params);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Hudi JNI params:\n" + params.entrySet().stream().map(kv -> kv.getKey() + "=" + kv.getValue())
+                    .collect(Collectors.joining("\n")));
+        }
         this.hudiScanParam = new HudiScanParam(fetchSize, params);
         this.classLoader = this.getClass().getClassLoader();
     }
@@ -69,6 +80,7 @@ public class HudiJniScanner extends JniScanner {
                     hudiScanParam.getFetchSize());
             Properties properties = hudiScanParam.createProperties();
             JobConf jobConf = HudiScanUtils.createJobConf(properties);
+            ugi = Utils.getUserGroupInformation(jobConf);
             init(jobConf, properties);
         } catch (Exception e) {
             close();
@@ -106,7 +118,8 @@ public class HudiJniScanner extends JniScanner {
                     if (fieldData == null) {
                         appendData(i, null);
                     } else {
-                        ColumnValue fieldValue = new HudiColumnValue(hudiScanParam.getFieldInspectors()[i], fieldData);
+                        ColumnValue fieldValue = new HudiColumnValue(hudiScanParam.getFieldInspectors()[i], fieldData,
+                                hudiScanParam.getRequiredTypes()[i].getPrecision());
                         appendData(i, fieldValue);
                     }
                 }
@@ -127,8 +140,8 @@ public class HudiJniScanner extends JniScanner {
         String[] deltaFilePaths = hudiScanParam.getDeltaFilePaths();
         String[] requiredFields = hudiScanParam.getRequiredFields();
 
-        String realtimePath = dataFileLength != -1 ? dataFilePath : deltaFilePaths[0];
-        long realtimeLength = dataFileLength != -1 ? dataFileLength : 0;
+        String realtimePath = dataFilePath.isEmpty() ? deltaFilePaths[0] : dataFilePath;
+        long realtimeLength = dataFileLength > 0 ? dataFileLength : 0;
 
         Path path = new Path(realtimePath);
 
@@ -142,8 +155,40 @@ public class HudiJniScanner extends JniScanner {
 
         InputFormat<?, ?> inputFormatClass = HudiScanUtils.createInputFormat(jobConf, hudiScanParam.getInputFormat());
 
-        reader = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass
-                .getRecordReader(hudiSplit, jobConf, Reporter.NULL);
+        // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
+        // so use another process to kill this stuck process.
+        // TODO(gaoxin): better way to solve the stuck process?
+        AtomicBoolean isKilled = new AtomicBoolean(false);
+        ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+        executorService.scheduleAtFixedRate(() -> {
+            if (!isKilled.get()) {
+                synchronized (HudiJniScanner.class) {
+                    List<Long> pids = Utils.getChildProcessIds(Utils.getCurrentProcId());
+                    for (long pid : pids) {
+                        String cmd = Utils.getCommandLine(pid);
+                        if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
+                            Utils.killProcess(pid);
+                            isKilled.set(true);
+                            LOG.info("Kill hotspot debugger process " + pid);
+                        }
+                    }
+                }
+            }
+        }, 100, 1000, TimeUnit.MILLISECONDS);
+
+        if (ugi != null) {
+            reader = ugi.doAs((PrivilegedExceptionAction<RecordReader<NullWritable, ArrayWritable>>) () -> {
+                RecordReader<NullWritable, ArrayWritable> ugiReader
+                        = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass.getRecordReader(hudiSplit,
+                        jobConf, Reporter.NULL);
+                return ugiReader;
+            });
+        } else {
+            reader = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass
+                    .getRecordReader(hudiSplit, jobConf, Reporter.NULL);
+        }
+        isKilled.set(true);
+        executorService.shutdownNow();
 
         deserializer = HudiScanUtils.getDeserializer(jobConf, properties, hudiScanParam.getSerde());
 

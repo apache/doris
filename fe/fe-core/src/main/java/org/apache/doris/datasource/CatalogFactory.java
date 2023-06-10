@@ -129,9 +129,6 @@ public class CatalogFactory {
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
                 break;
-            // case "hudi":
-            //     catalog = new HudiHMSExternalCatalog(catalogId, name, resource, props, comment);
-            //     break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
                     throw new DdlException("test catalog is only for FE unit test");
