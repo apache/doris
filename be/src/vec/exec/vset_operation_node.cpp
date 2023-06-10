@@ -26,8 +26,7 @@ namespace vectorized {
 template <class HashTableContext>
 struct HashTableBuild {
     HashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode* operation_node, uint8_t offset,
-                   RuntimeState* state)
+                   VSetOperationNode* operation_node, uint8_t offset, RuntimeState* state)
             : _rows(rows),
               _offset(offset),
               _acquired_block(acquired_block),
