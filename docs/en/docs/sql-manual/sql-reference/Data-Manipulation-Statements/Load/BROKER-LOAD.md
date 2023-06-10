@@ -189,7 +189,7 @@ WITH BROKER broker_name
     
   - <version since="dev" type="inline"> priority </version>
     
-    Set the priority of the load job, there are three options: `HIGH/NORMAL/LOW`, use `NORMAL` priority as default. The pending broker load jobs which have higher priority will be chown to execute earlier.
+    Set the priority of the load job, there are three options: `HIGH/NORMAL/LOW`, use `NORMAL` priority as default. The pending broker load jobs which have higher priority will be chosen to execute earlier.
 
 -  <version since="1.2.3" type="inline"> comment </version>
     
