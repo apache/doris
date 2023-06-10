@@ -173,10 +173,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getAllBackendIds(true).size();
-            if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
-                beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
-            }
+            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
             int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
             beNumber = Math.max(1, beNumber);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();

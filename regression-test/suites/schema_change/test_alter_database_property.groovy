@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external.hudi;
+suite("test_alter_database_property") {
+    sql "drop database if exists test_alter_database_property"
 
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.thrift.TFileAttributes;
+    sql """
+        create database test_alter_database_property
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
 
-public interface HudiSource {
+    sql """
+        alter database test_alter_database_property set properties ("binlog.enable" = "true")
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
 
-    TupleDescriptor getDesc();
-
-    TableIf getTargetTable();
-
-    TFileAttributes getFileAttributes() throws UserException;
-
-    ExternalCatalog getCatalog();
-
-    String getFileFormat() throws DdlException, MetaNotFoundException;
+    sql "drop database if exists test_alter_database_property"
 }

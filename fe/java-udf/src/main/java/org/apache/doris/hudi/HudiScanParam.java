@@ -24,12 +24,9 @@ import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
-import org.apache.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
@@ -38,7 +35,8 @@ import java.util.stream.Collectors;
  * The hudi scan param
  */
 public class HudiScanParam {
-    private static final Logger LOG = Logger.getLogger(HudiScanParam.class);
+    public static String HADOOP_FS_PREFIX = "hadoop_fs.";
+
     private final int fetchSize;
     private final String basePath;
     private final String dataFilePath;
@@ -53,8 +51,9 @@ public class HudiScanParam {
     private final String instantTime;
     private final String serde;
     private final String inputFormat;
-    private ObjectInspector[] fieldInspectors;
-    private StructField[] structFields;
+    private final ObjectInspector[] fieldInspectors;
+    private final StructField[] structFields;
+    private final Map<String, String> hadoopConf;
 
     public HudiScanParam(int fetchSize, Map<String, String> params) {
         this.fetchSize = fetchSize;
@@ -78,6 +77,14 @@ public class HudiScanParam {
         this.inputFormat = params.get("input_format");
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.structFields = new StructField[requiredFields.length];
+
+        hadoopConf = new HashMap<>();
+        for (Map.Entry<String, String> kv : params.entrySet()) {
+            if (kv.getKey().startsWith(HADOOP_FS_PREFIX)) {
+                hadoopConf.put(kv.getKey().substring(HADOOP_FS_PREFIX.length()), kv.getValue());
+            }
+        }
+
         parseRequiredColumns();
     }
 
@@ -102,23 +109,19 @@ public class HudiScanParam {
         Properties properties = new Properties();
 
         properties.setProperty(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR,
-                Arrays.stream(this.requiredColumnIds).mapToObj(String::valueOf).collect(Collectors.joining(",")));
-
-        String[] requiredFields = this.getRequiredFields();
-        String[] hudiColumnTypes = this.getHudiColumnTypes();
-
+                Arrays.stream(requiredColumnIds).mapToObj(String::valueOf).collect(Collectors.joining(",")));
         properties.setProperty(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, String.join(",", requiredFields));
+        properties.setProperty(HudiScanUtils.COLUMNS, hudiColumnNames);
+        // recover INT64 based timestamp mark to hive type, timestamp(3)/timestamp(6) => timestamp
+        properties.setProperty(HudiScanUtils.COLUMNS_TYPES,
+                Arrays.stream(hudiColumnTypes).map(type -> type.startsWith("timestamp(") ? "timestamp" : type).collect(
+                        Collectors.joining(",")));
+        properties.setProperty(serdeConstants.SERIALIZATION_LIB, serde);
 
-        properties.setProperty(HudiScanUtils.COLUMNS, this.getHudiColumnNames());
-
-        List<String> types = new ArrayList<>();
-        for (int i = 0; i < hudiColumnTypes.length; i++) {
-            String type = hudiColumnTypes[i];
-            types.add(type);
+        for (Map.Entry<String, String> kv : hadoopConf.entrySet()) {
+            properties.setProperty(kv.getKey(), kv.getValue());
         }
-        properties.setProperty(HudiScanUtils.COLUMNS_TYPES, types.stream().collect(Collectors.joining(",")));
 
-        properties.setProperty(serdeConstants.SERIALIZATION_LIB, this.getSerde());
         return properties;
     }
 

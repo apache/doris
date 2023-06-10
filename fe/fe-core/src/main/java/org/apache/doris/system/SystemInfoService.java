@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
@@ -354,6 +355,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendIds() {
         return getAllBackendIds(false);
+    }
+
+    public int getBackendsNumber(boolean needAlive) {
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        if (beNumber == -1) {
+            beNumber = getAllBackendIds(needAlive).size();
+        }
+        return beNumber;
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
