@@ -18,18 +18,18 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
+import org.apache.doris.statistics.StatisticsRepository;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -47,6 +47,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -353,6 +354,14 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public Set<String> getPartitionNames() {
+        makeSureInitialized();
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        List<String> names = client.listPartitionNames(dbName, name);
+        return new HashSet<>(names);
+    }
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
@@ -387,13 +396,11 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long estimatedRowCount() {
-        ColumnStatistic cache = Config.enable_stats
-                ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
-                : ColumnStatistic.UNKNOWN;
-        if (cache.isUnKnown) {
+        try {
+            TableStatistic tableStatistic = StatisticsRepository.fetchTableLevelStats(id);
+            return tableStatistic.rowCount;
+        } catch (DdlException e) {
             return 1;
-        } else {
-            return (long) cache.count;
         }
     }
 

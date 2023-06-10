@@ -348,6 +348,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
+    public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -952,6 +954,14 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+    @VariableMgr.VarAttr(
+            name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
+            description = {"收集外表统计信息行数时选取的采样分区数，默认-1表示全部分区",
+                    "Number of sample partition for collecting external table line number, "
+                            + "default -1 means all partitions"},
+            needForward = false)
+    public int externalTableAnalyzePartNum = -1;
 
     @VariableMgr.VarAttr(
             name = INLINE_CTE_REFERENCED_THRESHOLD
@@ -1897,6 +1907,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isShowUserDefaultRole() {
         return showUserDefaultRole;
+    }
+
+    public int getExternalTableAnalyzePartNum() {
+        return externalTableAnalyzePartNum;
     }
 
     /**
