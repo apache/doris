@@ -152,7 +152,7 @@ private:
     RuntimeProfile::Counter* _data_arrival_timer;
     RuntimeProfile::Counter* _decompress_timer;
     RuntimeProfile::Counter* _decompress_bytes;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;

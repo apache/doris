@@ -437,16 +437,16 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         }
     }
 
-    _peak_memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "PeakMemoryUsage");
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
 
     _build_blocks_memory_usage =
-            ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "PeakMemoryUsage");
+            ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage");
     _hash_table_memory_usage =
-            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "PeakMemoryUsage");
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
     _build_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
-            "BuildKeyArena", TUnit::BYTES, "PeakMemoryUsage");
+            "BuildKeyArena", TUnit::BYTES, "MemoryUsage");
     _probe_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
-            "ProbeKeyArena", TUnit::BYTES, "PeakMemoryUsage");
+            "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
