@@ -63,6 +63,7 @@ suite("modify_replica_use_partition") {
     }
 
     def tableName = "lineitem3"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
             table tableName
