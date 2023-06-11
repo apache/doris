@@ -1450,3 +1450,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
 * 默认值: true
+
+### `enable_unify_properties_parse`
+
+* 描述: 如果为true，会统一stream loadbe端和fe端的属性解析。升级时，需要设置为false，不然会出现升级过程中stream load属性解析出错的问题。
+这是一个过渡配置，后续会删除这个配置。
+* 默认值: true

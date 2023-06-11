@@ -176,10 +176,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         return lineDelimiter;
     }
 
+    @Override
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
     }
 
+    @Override
     public boolean isLoadToSingleTablet() {
         return loadToSingleTablet;
     }
@@ -192,6 +194,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return path;
     }
 
+    @Override
     public long getFileSize() {
         return fileSize;
     }
@@ -216,14 +219,17 @@ public class StreamLoadTask implements LoadTaskInfo {
         return stripOuterArray;
     }
 
+    @Override
     public boolean isNumAsString() {
         return numAsString;
     }
 
+    @Override
     public boolean isReadJsonByLine() {
         return readJsonByLine;
     }
 
+    @Override
     public boolean isFuzzyParse() {
         return fuzzyParse;
     }
@@ -268,14 +274,17 @@ public class StreamLoadTask implements LoadTaskInfo {
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
+    @Override
     public String getSequenceCol() {
         return sequenceCol;
     }
 
+    @Override
     public List<String> getHiddenColumns() {
         return hiddenColumns;
     }
 
+    @Override
     public boolean getTrimDoubleQuotes() {
         return trimDoubleQuotes;
     }
@@ -284,10 +293,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         return skipLines;
     }
 
+    @Override
     public boolean getEnableProfile() {
         return enableProfile;
     }
 
+    @Override
     public boolean isPartialUpdate() {
         return isPartialUpdate;
     }
@@ -296,6 +307,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
+        if (request.isSetProperties()) {
+            StreamLoadTask.properties = request.getProperties();
+        }
         StreamLoadTask.properties = request.getProperties();
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         if (request.isSetFileSize()) {
@@ -305,6 +319,9 @@ public class StreamLoadTask implements LoadTaskInfo {
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
+        if (properties == null) {
+            return;
+        }
         if (!Strings.isNullOrEmpty(properties.get(Property.COLUMNS))) {
             setColumnToColumnExpr(properties.get(Property.COLUMNS));
         }
@@ -330,7 +347,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
-                // fall through to case FILE_LOCAL
+            // fall through to case FILE_LOCAL
             case FILE_LOCAL:
                 path = request.getPath();
                 break;
@@ -418,7 +435,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
+                     columnsSQL, parser.getErrorMsg(columnsSQL), e);
             String errorMessage = parser.getErrorMsg(columnsSQL);
             if (errorMessage == null) {
                 throw e;
@@ -446,7 +463,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze where statement failed, sql={}, error={}",
-                    whereSQL, parser.getErrorMsg(whereSQL), e);
+                     whereSQL, parser.getErrorMsg(whereSQL), e);
             String errorMessage = parser.getErrorMsg(whereSQL);
             if (errorMessage == null) {
                 throw e;
@@ -470,10 +487,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         lineDelimiter.analyze();
     }
 
+    @Override
     public long getMemLimit() {
         return execMemLimit;
     }
 
+    @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
     }

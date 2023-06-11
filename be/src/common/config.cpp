@@ -1022,6 +1022,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
+// enable unify parse stream load properties in BE and FE
+// it will delete after version upgrade
+DEFINE_Bool(enable_unify_properties_parse, "true");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
