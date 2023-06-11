@@ -630,6 +630,8 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `use_fix_replica`
 
+    <version since="1.2.0"></version>
+
     Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
 
 * `dry_run_query`
