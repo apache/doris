@@ -85,7 +85,6 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -3919,9 +3918,7 @@ public class Env {
             try {
                 if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
-                    if (olapTable.getState() != OlapTableState.NORMAL) {
-                        throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
-                    }
+                    olapTable.checkNormalStateForAlter();
                 }
 
                 String oldTableName = table.getName();
@@ -4104,10 +4101,7 @@ public class Env {
     public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            if (table.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-            }
-
+            table.checkNormalStateForAlter();
             String rollupName = renameClause.getRollupName();
             // check if it is base table name
             if (rollupName.equals(table.getName())) {
@@ -4165,10 +4159,7 @@ public class Env {
     public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            if (table.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-            }
-
+            table.checkNormalStateForAlter();
             if (table.getPartitionInfo().getType() != PartitionType.RANGE
                     && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException(
@@ -4223,10 +4214,7 @@ public class Env {
 
     private void renameColumn(Database db, OlapTable table, String colName,
                               String newColName, boolean isReplay) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-        }
-
+        table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
         }
