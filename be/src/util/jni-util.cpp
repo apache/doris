@@ -267,7 +267,7 @@ Status JniUtil::Init() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     // Find JniUtil class and create a global ref.
-    jclass local_jni_util_cl = env->FindClass("org/apache/doris/udf/JniUtil");
+    jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
     if (local_jni_util_cl == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil class.");
@@ -283,7 +283,8 @@ Status JniUtil::Init() {
     }
 
     // Find InternalException class and create a global ref.
-    jclass local_internal_exc_cl = env->FindClass("org/apache/doris/udf/InternalException");
+    jclass local_internal_exc_cl =
+            env->FindClass("org/apache/doris/common/exception/InternalException");
     if (local_internal_exc_cl == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil class.");
@@ -299,7 +300,8 @@ Status JniUtil::Init() {
     }
 
     // Find JNINativeMethod class and create a global ref.
-    jclass local_jni_native_exc_cl = env->FindClass("org/apache/doris/udf/JNINativeMethod");
+    jclass local_jni_native_exc_cl =
+            env->FindClass("org/apache/doris/common/jni/utils/JNINativeMethod");
     if (local_jni_native_exc_cl == nullptr) {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
