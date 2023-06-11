@@ -37,13 +37,13 @@ ALTER MATERIALIZED VIEW
 语法：
 
 ```sql
-ALTER MATERIALIZED VIEW mv_name refreshInfo;
+ALTER MATERIALIZED VIEW mv_name mv_refersh_info;
 ```
 
 说明：
 
 1. mv_name： 待变更的物化视图的名称。
-2. refreshInfo：新的刷新机制，详细信息请见[创建物化视图参数](../Create/CREATE-MATERIALIZED-VIEW.md)
+2. mv_refersh_info：新的刷新机制，详细信息请见[创建物化视图参数](../Create/CREATE-MATERIALIZED-VIEW.md)
 
 ### Example
 
