@@ -293,6 +293,7 @@ private:
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
 
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
