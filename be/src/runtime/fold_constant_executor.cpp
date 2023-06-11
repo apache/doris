@@ -148,11 +148,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
         return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(_query_id);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
-        return status;
-    }
+    _runtime_state->init_mem_trackers(_query_id, "FoldConstant");
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");

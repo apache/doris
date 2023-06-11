@@ -51,7 +51,7 @@ Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space
     size_t uncompressed_size = Slice::compute_total_size(body);
     if (codec != nullptr && !codec->exceed_max_compress_len(uncompressed_size)) {
         faststring buf;
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(codec->compress(body, uncompressed_size, &buf)));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(body, uncompressed_size, &buf));
         double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
         // return compressed body only when it saves more than min_space_saving
         if (space_saving > 0 && space_saving >= min_space_saving) {

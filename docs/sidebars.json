@@ -206,21 +206,12 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
                         "lakehouse/multi-catalog/faq"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "External Table",
-                    "items": [
-                        "lakehouse/external-table/es",
-                        "lakehouse/external-table/jdbc",
-                        "lakehouse/external-table/odbc",
-                        "lakehouse/external-table/hive"
                     ]
                 },
                 "lakehouse/file",

@@ -440,9 +440,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
         for (auto uid : _olap_scan_node.output_column_unique_ids) {
-            if (uid < 0) {
-                continue;
-            }
             _maybe_read_column_ids.emplace(uid);
         }
     }
@@ -513,6 +510,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 key_ranges, rs_readers, rs_reader_seg_offsets, _need_agg_finalize,
                 _scanner_profile.get());
 
+        RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
         scanner->set_compound_filters(_compound_filters);
         scanners->push_back(scanner);
         return Status::OK();

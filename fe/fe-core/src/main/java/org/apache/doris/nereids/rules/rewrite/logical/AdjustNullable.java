@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -146,11 +147,12 @@ public class AdjustNullable extends DefaultPlanRewriter<Void> implements CustomR
         List<NamedExpression> outputs = setOperation.getOutputs();
         List<NamedExpression> newOutputs = Lists.newArrayListWithCapacity(outputs.size());
         for (int i = 0; i < inputNullable.size(); i++) {
-            SlotReference slotReference = (SlotReference) outputs.get(i);
+            NamedExpression ne = outputs.get(i);
+            Slot slot = ne instanceof Alias ? (Slot) ((Alias) ne).child() : (Slot) ne;
             if (inputNullable.get(i)) {
-                slotReference = slotReference.withNullable(true);
+                slot = slot.withNullable(true);
             }
-            newOutputs.add(slotReference);
+            newOutputs.add(ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot);
         }
         return setOperation.withNewOutputs(newOutputs).recomputeLogicalProperties();
     }

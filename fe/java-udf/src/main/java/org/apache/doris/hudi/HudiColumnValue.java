@@ -21,20 +21,40 @@ import org.apache.doris.jni.vec.ColumnValue;
 
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.HiveDecimalObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
+import org.apache.hadoop.io.LongWritable;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 public class HudiColumnValue implements ColumnValue {
+    public enum TimeUnit {
+        MILLIS, MICROS
+    }
+
     private final Object fieldData;
     private final ObjectInspector fieldInspector;
+    private final TimeUnit timeUnit;
 
     HudiColumnValue(ObjectInspector fieldInspector, Object fieldData) {
+        this(fieldInspector, fieldData, TimeUnit.MICROS);
+    }
+
+    HudiColumnValue(ObjectInspector fieldInspector, Object fieldData, int timePrecision) {
+        this(fieldInspector, fieldData, timePrecision == 3 ? TimeUnit.MILLIS : TimeUnit.MICROS);
+    }
+
+    HudiColumnValue(ObjectInspector fieldInspector, Object fieldData, TimeUnit timeUnit) {
         this.fieldInspector = fieldInspector;
         this.fieldData = fieldData;
+        this.timeUnit = timeUnit;
     }
 
     private Object inspectObject() {
@@ -83,12 +103,12 @@ public class HudiColumnValue implements ColumnValue {
 
     @Override
     public BigInteger getBigInteger() {
-        return null;
+        throw new UnsupportedOperationException("Hudi type does not support largeint");
     }
 
     @Override
     public BigDecimal getDecimal() {
-        return null;
+        return ((HiveDecimalObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).bigDecimalValue();
     }
 
     @Override
@@ -98,12 +118,26 @@ public class HudiColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
-        return null;
+        return ((DateObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).toLocalDate();
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        return null;
+        if (fieldData instanceof LongWritable) {
+            long datetime = ((LongWritable) fieldData).get();
+            long seconds;
+            long nanoseconds;
+            if (timeUnit == TimeUnit.MILLIS) {
+                seconds = datetime / 1000;
+                nanoseconds = (datetime % 1000) * 1000000;
+            } else {
+                seconds = datetime / 1000000;
+                nanoseconds = (datetime % 1000000) * 1000;
+            }
+            return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), ZoneId.systemDefault());
+        } else {
+            return ((TimestampObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).toLocalDateTime();
+        }
     }
 
     @Override

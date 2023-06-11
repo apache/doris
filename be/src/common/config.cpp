@@ -784,6 +784,10 @@ DEFINE_String(kafka_broker_version_fallback, "0.10.0");
 // Change this size to 0 to fix it temporarily.
 DEFINE_Int32(routine_load_consumer_pool_size, "10");
 
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
@@ -993,6 +997,10 @@ DEFINE_Int32(max_depth_of_expr_tree, "600");
 
 // Report a tablet as bad when io errors occurs more than this value.
 DEFINE_mInt64(max_tablet_io_errors, "-1");
+
+// Report a tablet as bad when its path not found
+DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
+DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");

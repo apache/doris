@@ -98,6 +98,7 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
     _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
+    _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
@@ -605,43 +606,53 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
-    auto num_rows = block.rows();
-    std::vector<MysqlRowBuffer<is_binary_format>> rows_buffer;
-    rows_buffer.resize(num_rows);
-    if constexpr (is_binary_format) {
-        for (MysqlRowBuffer<is_binary_format>& buf : rows_buffer) {
-            buf.start_binary_row(_output_vexpr_ctxs.size());
-        }
-    }
 
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
-    for (int i = 0; status.ok() && i < _output_vexpr_ctxs.size(); ++i) {
-        const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
-        auto type_ptr = block.get_by_position(i).type;
+    auto num_rows = block.rows();
 
-        DCHECK(num_rows == block.get_by_position(i).column->size())
-                << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
-                               block.get_by_position(i).column->size());
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        if (_rows_buffer.size() < num_rows) {
+            _rows_buffer.resize(num_rows);
+        }
 
-        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(
-                *column_ptr, output_object_data(), rows_buffer, 0, 0, num_rows, col_const));
+        for (size_t i = 0; i != num_rows; ++i) {
+            _rows_buffer[i].reset();
+            if constexpr (is_binary_format) {
+                _rows_buffer[i].start_binary_row(_output_vexpr_ctxs.size());
+            }
+        }
 
-        if (!status) {
-            LOG(WARNING) << "convert row to mysql result failed. block_struct="
-                         << block.dump_structure();
-            break;
+        for (int i = 0; status.ok() && i < _output_vexpr_ctxs.size(); ++i) {
+            const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
+            auto type_ptr = block.get_by_position(i).type;
+
+            DCHECK(num_rows == block.get_by_position(i).column->size())
+                    << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
+                                   block.get_by_position(i).column->size());
+
+            RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(
+                    *column_ptr, output_object_data(), _rows_buffer, 0, 0, num_rows, col_const));
+
+            if (!status) {
+                LOG(WARNING) << "convert row to mysql result failed. block_struct="
+                             << block.dump_structure();
+                break;
+            }
         }
     }
 
     uint64_t bytes_sent = 0;
     // copy MysqlRowBuffer to Thrift
-    result->result_batch.rows.resize(num_rows);
-    for (int i = 0; i < num_rows; ++i) {
-        result->result_batch.rows[i].append(rows_buffer[i].buf(), rows_buffer[i].length());
-        bytes_sent += rows_buffer[i].length();
+    {
+        SCOPED_TIMER(_copy_buffer_timer);
+        result->result_batch.rows.resize(num_rows);
+        for (int i = 0; i < num_rows; ++i) {
+            result->result_batch.rows[i].append(_rows_buffer[i].buf(), _rows_buffer[i].length());
+            bytes_sent += _rows_buffer[i].length();
+        }
     }
-
     if (status) {
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block

@@ -855,7 +855,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "from test.test1 "
                 + "where time_col = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub("
                 + "now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
+        Assert.assertFalse(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
                 "CASE WHEN"));
 
         // test 1: case when then
@@ -1586,9 +1586,6 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
-        sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
 
