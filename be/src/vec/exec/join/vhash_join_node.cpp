@@ -437,8 +437,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         }
     }
 
-    _peak_memory_usage_counter =
-            ADD_LABEL_COUNTER(runtime_profile(), "PeakMemoryUsage", TUnit::BYTES);
+    _peak_memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "PeakMemoryUsage");
 
     _build_blocks_memory_usage =
             ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "PeakMemoryUsage");
