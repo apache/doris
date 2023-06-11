@@ -1,8 +1,9 @@
 ---
 {
-    "title": "INSERT",
+    "title": "INSERT-OVERWRITE",
     "language": "zh-CN"
 }
+
 ---
 
 <!--
@@ -60,6 +61,7 @@ INSERT OVERWRITE table table_name
 > query: 一个普通查询，查询的结果会重写到目标中
 >
 > hint: 用于指示 `INSERT` 执行行为的一些指示符。目前 hint 有三个可选值`/*+ STREAMING */`、`/*+ SHUFFLE */`或`/*+ NOSHUFFLE */`
+>
 > 1. STREAMING：目前无实际作用，只是为了兼容之前的版本，因此保留。（之前的版本加上这个 hint 会返回 label，现在默认都会返回 label）
 > 2. SHUFFLE：当目标表是分区表，开启这个 hint 会进行 repartiiton。
 > 3. NOSHUFFLE：即使目标表是分区表，也不会进行 repartiiton，但会做一些其他操作以保证数据正确落到各个分区中。
@@ -98,12 +100,12 @@ PROPERTIES (
 1. VALUES的形式重写`test`表
 
 ```sql
-// 单行重写
+# 单行重写
 INSERT OVERWRITE table test VALUES (1, 2);
 INSERT OVERWRITE table test (c1, c2) VALUES (1, 2);
 INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT);
 INSERT OVERWRITE table test (c1) VALUES (1);
-// 多行重写
+# 多行重写
 INSERT OVERWRITE table test VALUES (1, 2), (3, 2 + 2);
 INSERT OVERWRITE table test (c1, c2) VALUES (1, 2), (3, 2 * 2);
 INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT), (3, DEFAULT);
@@ -115,7 +117,6 @@ INSERT OVERWRITE table test (c1) VALUES (1), (3);
 - 第五条语句和第六条语句的效果一致，在语句中可以使用表达式（如`2+2`，`2*2`），执行语句的时候会计算出表达式的结果再重写表`test`。重写成功后表`test`中有两行数据。
 
 - 第七条语句和第八条语句的效果一致，没有指定的列`c2`会使用默认值1来完成数据重写。重写成功后表`test`中有两行数据。
-
 
 2. 查询语句的形式重写`test`表，表`test2`和表`test`的数据格式需要保持一致，如果不一致会触发数据类型的隐式转换
 
@@ -141,12 +142,12 @@ INSERT OVERWRITE table test WITH LABEL `label2` (c1, c2) SELECT * from test2;
 1. VALUES的形式重写`test`表分区`P1`和`p2`
 
 ```sql
-// 单行重写
+# 单行重写
 INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2);
 INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2);
 INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT);
 INSERT OVERWRITE table test PARTITION(p1,p2) (c1) VALUES (1);
-// 多行重写
+# 多行重写
 INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2), (4, 2 + 2);
 INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2), (4, 2 * 2);
 INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT), (4, DEFAULT);
