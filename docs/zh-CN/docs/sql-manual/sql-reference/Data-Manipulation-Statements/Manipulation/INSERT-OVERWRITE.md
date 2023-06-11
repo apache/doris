@@ -99,18 +99,18 @@ PROPERTIES (
 
 1. VALUES的形式重写`test`表
 
-```sql
-# 单行重写
-INSERT OVERWRITE table test VALUES (1, 2);
-INSERT OVERWRITE table test (c1, c2) VALUES (1, 2);
-INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT);
-INSERT OVERWRITE table test (c1) VALUES (1);
-# 多行重写
-INSERT OVERWRITE table test VALUES (1, 2), (3, 2 + 2);
-INSERT OVERWRITE table test (c1, c2) VALUES (1, 2), (3, 2 * 2);
-INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT), (3, DEFAULT);
-INSERT OVERWRITE table test (c1) VALUES (1), (3);
-```
+    ```sql
+    # 单行重写
+    INSERT OVERWRITE table test VALUES (1, 2);
+    INSERT OVERWRITE table test (c1, c2) VALUES (1, 2);
+    INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT);
+    INSERT OVERWRITE table test (c1) VALUES (1);
+    # 多行重写
+    INSERT OVERWRITE table test VALUES (1, 2), (3, 2 + 2);
+    INSERT OVERWRITE table test (c1, c2) VALUES (1, 2), (3, 2 * 2);
+    INSERT OVERWRITE table test (c1, c2) VALUES (1, DEFAULT), (3, DEFAULT);
+    INSERT OVERWRITE table test (c1) VALUES (1), (3);
+    ```
 
 - 第一条语句和第二条语句的效果一致，重写时如果不指定目标列，会使用表中的列顺序来作为默认的目标列。重写成功后表`test`中只有一行数据。
 - 第三条语句和第四条语句的效果一致，没有指定的列`c2`会使用默认值1来完成数据重写。重写成功后表`test`中只有一行数据。
@@ -120,19 +120,19 @@ INSERT OVERWRITE table test (c1) VALUES (1), (3);
 
 2. 查询语句的形式重写`test`表，表`test2`和表`test`的数据格式需要保持一致，如果不一致会触发数据类型的隐式转换
 
-```sql
-INSERT OVERWRITE table test SELECT * FROM test2;
-INSERT OVERWRITE table test (c1, c2) SELECT * from test2;
-```
+    ```sql
+    INSERT OVERWRITE table test SELECT * FROM test2;
+    INSERT OVERWRITE table test (c1, c2) SELECT * from test2;
+    ```
 
 - 第一条语句和第二条语句的效果一致，该语句的作用是将数据从表`test2`中取出，使用取出的数据重写表`test`。重写成功后表`test`中的数据和表`test2`中的数据保持一致。
 
 3. 重写 `test` 表并指定label
 
-```sql
-INSERT OVERWRITE table test WITH LABEL `label1` SELECT * FROM test2;
-INSERT OVERWRITE table test WITH LABEL `label2` (c1, c2) SELECT * from test2;
-```
+    ```sql
+    INSERT OVERWRITE table test WITH LABEL `label1` SELECT * FROM test2;
+    INSERT OVERWRITE table test WITH LABEL `label2` (c1, c2) SELECT * from test2;
+    ```
 
 - 使用label会将此任务封装成一个**异步任务**，执行语句之后，相关操作都会异步执行，用户可以通过`SHOW LOAD;`命令查看此`label`导入作业的状态。需要注意的是label具有唯一性。
 
@@ -141,43 +141,42 @@ INSERT OVERWRITE table test WITH LABEL `label2` (c1, c2) SELECT * from test2;
 
 1. VALUES的形式重写`test`表分区`P1`和`p2`
 
-```sql
-# 单行重写
-INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1) VALUES (1);
-# 多行重写
-INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2), (4, 2 + 2);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2), (4, 2 * 2);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT), (4, DEFAULT);
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1) VALUES (1), (4);
-```
+    ```sql
+    # 单行重写
+    INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1) VALUES (1);
+    # 多行重写
+    INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (1, 2), (4, 2 + 2);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, 2), (4, 2 * 2);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) VALUES (1, DEFAULT), (4, DEFAULT);
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1) VALUES (1), (4);
+    ```
 
-以上语句与重写表不同的是，它们都是重写表中的分区。分区可以一次重写一个分区也可以一次重写多个分区。需要注意的是，只有满足对应分区过滤条件的数据才能够重写成功。如果重写的数据中有数据不满足其中任意一个分区，那么本次重写会失败。一个失败的例子如下所示
+    以上语句与重写表不同的是，它们都是重写表中的分区。分区可以一次重写一个分区也可以一次重写多个分区。需要注意的是，只有满足对应分区过滤条件的数据才能够重写成功。如果重写的数据中有数据不满足其中任意一个分区，那么本次重写会失败。一个失败的例子如下所示
 
-```sql
-INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (7, 2);
-```
+    ```sql
+    INSERT OVERWRITE table test PARTITION(p1,p2) VALUES (7, 2);
+    ```
 
-以上语句重写的数据`c1=7`分区`p1`和`p2`的条件都不满足，因此会重写失败。
+    以上语句重写的数据`c1=7`分区`p1`和`p2`的条件都不满足，因此会重写失败。
 
 2. 查询语句的形式重写`test`表分区`P1`和`p2`，表`test2`和表`test`的数据格式需要保持一致，如果不一致会触发数据类型的隐式转换
 
-```sql
-INSERT OVERWRITE table test PARTITION(p1,p2) SELECT * FROM test2;
-INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) SELECT * from test2;
-```
+    ```sql
+    INSERT OVERWRITE table test PARTITION(p1,p2) SELECT * FROM test2;
+    INSERT OVERWRITE table test PARTITION(p1,p2) (c1, c2) SELECT * from test2;
+    ```
 
 3. 重写 `test` 表分区`P1`和`p2`并指定label
 
-```sql
-INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label3` SELECT * FROM test2;
-INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label4` (c1, c2) SELECT * from test2;
-```
+    ```sql
+    INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label3` SELECT * FROM test2;
+    INSERT OVERWRITE table test PARTITION(p1,p2) WITH LABEL `label4` (c1, c2) SELECT * from test2;
+    ```
 
 ### Keywords
 
-```sql
-INSERT OVERWRITE
-```
+    INSERT OVERWRITE
+
