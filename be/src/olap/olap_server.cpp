@@ -239,6 +239,11 @@ Status StorageEngine::start_bg_threads() {
             .set_max_threads(config::tablet_publish_txn_max_thread)
             .build(&_tablet_publish_txn_thread_pool);
 
+    ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::calc_delete_bitmap_max_thread)
+            .build(&_calc_delete_bitmap_thread_pool);
+
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
 }
