@@ -457,17 +457,34 @@ endif()
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
-set(clucene_options -w -Wall)
+set(clucene_c_options -w -Wall)
+set(clucene_cxx_options -w -Wall -Wno-non-virtual-dtor)
+
 if (COMPILER_CLANG)
-    set(clucene_options ${clucene_options} -Wno-c++11-narrowing)
+    set(clucene_cxx_options ${clucene_cxx_options} -Wno-c++11-narrowing)
 else ()
-    set(clucene_options ${clucene_options} -Wno-narrowing)
+    set(clucene_cxx_options ${clucene_cxx_options} -Wno-narrowing)
 endif()
 
-target_compile_options(clucene-core-static PRIVATE ${clucene_options})
-target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
-target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
-target_compile_options(ic PRIVATE ${clucene_options})
+target_compile_options(clucene-core-static PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:${clucene_c_options}>
+    $<$<COMPILE_LANGUAGE:CXX>:${clucene_cxx_options}>
+)
+
+target_compile_options(clucene-shared-static PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:${clucene_c_options}>
+    $<$<COMPILE_LANGUAGE:CXX>:${clucene_cxx_options}>
+)
+
+target_compile_options(clucene-contribs-lib PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:${clucene_c_options}>
+    $<$<COMPILE_LANGUAGE:CXX>:${clucene_cxx_options}>
+)
+
+target_compile_options(ic PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:${clucene_c_options}>
+    $<$<COMPILE_LANGUAGE:CXX>:${clucene_cxx_options}>
+)
 
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
