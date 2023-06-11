@@ -197,7 +197,7 @@ public class InsertStmtTest {
         stmt.setQueryStmt(queryStmt);
 
         Deencapsulation.invoke(stmt, "analyzeSubquery", analyzer);
-        System.out.println(stmt.getQueryStmt());
+        System.out.println(stmt.getQueryStmt().toSql());
 
         QueryStmt queryStmtSubstitute = stmt.getQueryStmt();
         Assert.assertEquals(6, queryStmtSubstitute.getResultExprs().size());
@@ -206,8 +206,8 @@ public class InsertStmtTest {
         FunctionCallExpr expr4 = (FunctionCallExpr) queryStmtSubstitute.getResultExprs().get(4);
         Assert.assertEquals(expr4.getFnName().getFunction(), "to_bitmap");
         List<Expr> slots = Lists.newArrayList();
-        expr4.collect(StringLiteral.class, slots);
-        Assert.assertEquals(1, slots.size());
+        expr4.collect(IntLiteral.class, slots);
+        Assert.assertEquals(expr4.toSql(), 1, slots.size());
         Assert.assertEquals(queryStmtSubstitute.getResultExprs().get(0).getStringValue(),
                 slots.get(0).getStringValue());
 
