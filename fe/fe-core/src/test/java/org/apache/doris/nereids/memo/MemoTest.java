@@ -95,7 +95,7 @@ class MemoTest implements MemoPatternMatchSupported {
         FakePlan fakePlan = new FakePlan();
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
         Group srcParentGroup = new Group(new GroupId(0), srcParentExpression, new LogicalProperties(ArrayList::new));
-        srcParentGroup.setBestPlan(srcParentExpression, Cost.zero(false), PhysicalProperties.ANY);
+        srcParentGroup.setBestPlan(srcParentExpression, Cost.zero(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
         Group dstParentGroup = new Group(new GroupId(1), dstParentExpression, new LogicalProperties(ArrayList::new));
 

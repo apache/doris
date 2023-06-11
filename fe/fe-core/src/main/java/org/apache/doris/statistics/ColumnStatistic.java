@@ -134,7 +134,8 @@ public class ColumnStatistic {
                 ndv = count;
             }
             columnStatisticBuilder.setNdv(ndv);
-            columnStatisticBuilder.setNumNulls(Double.parseDouble(resultRow.getColumnValue("null_count")));
+            String nullCount = resultRow.getColumnValue("null_count");
+            columnStatisticBuilder.setNumNulls(nullCount == null ? 0 : Double.parseDouble(nullCount));
             columnStatisticBuilder.setDataSize(Double
                     .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
@@ -146,9 +147,10 @@ public class ColumnStatistic {
             String colName = resultRow.getColumnValue("col_id");
             Column col = StatisticsUtil.findColumn(catalogId, dbID, tblId, idxId, colName);
             if (col == null) {
-                // Col is null indicates this information is external table level info,
-                // which doesn't have a column.
-                return columnStatisticBuilder.build();
+                LOG.warn("Failed to deserialize column statistics, ctlId: {} dbId: {}"
+                        + "tblId: {} column: {} not exists",
+                        catalogId, dbID, tblId, colName);
+                return ColumnStatistic.UNKNOWN;
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");

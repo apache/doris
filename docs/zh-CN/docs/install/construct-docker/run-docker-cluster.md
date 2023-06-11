@@ -76,13 +76,13 @@ Doris Docker 适用的网络模式有两种。
 
 从 `Apache Doris 1.2.1 Docker Image` 版本起，各个进程镜像接口列表如下：
 
-| 进程名         | 接口名         | 接口定义          | 接口示例             |
-| -------------- |-------------|---------------|------------------|
-| FE\| BE\         | BROKER        | FE_SERVERS       | FE 节点主要信息     | fe1:172.20.80.2:9010,fe2:172.20.80.3:9010,fe3:172.20.80.4:9010 |
-| FE             | FE_ID       | FE 节点 ID      | 1                |
-| BE             | BE_ADDR     | BE 节点主要信息     | 172.20.80.5:9050 |
-| BE             | NODE_ROLE   | BE 节点类型       | computation      |
-| BROKER         | BROKER_ADDR | BROKER 节点主要信息 | 172.20.80.6:8000 |
+| 进程名    | 接口名         | 接口定义          | 接口示例             |
+|--------|-------------|---------------|------------------|
+| FE     | BE          | BROKER        | FE_SERVERS       | FE 节点主要信息     | fe1:172.20.80.2:9010,fe2:172.20.80.3:9010,fe3:172.20.80.4:9010 |
+| FE     | FE_ID       | FE 节点 ID      | 1                |
+| BE     | BE_ADDR     | BE 节点主要信息     | 172.20.80.5:9050 |
+| BE     | NODE_ROLE   | BE 节点类型       | computation      |
+| BROKER | BROKER_ADDR | BROKER 节点主要信息 | 172.20.80.6:8000 |
 
 注意，以上接口必须填写信息，否则进程无法启动。
 
@@ -100,37 +100,31 @@ Doris Docker 适用的网络模式有两种。
 
 #### Docker Run 命令
 
-创建子网网桥
-
-``` shell
-docker network create --driver bridge --subnet=172.20.80.0/24 doris-network
-```
-
 1FE & 1BE 命令模板
 
-```shell
+注意需要修改 `${当前机器的内网IP}` 替换为当前机器的内网IP
+
+```shell 
 docker run -itd \
 --name=fe \
---env FE_SERVERS="fe1:172.20.80.2:9010" \
+--env FE_SERVERS="fe1:${当前机器的内网IP}:9010" \
 --env FE_ID=1 \
 -p 8030:8030 \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/log:/opt/apache-doris/fe/log \
---network=doris-network \
---ip=172.20.80.2 \
-apache/doris:1.2.1-fe-x86_64
+--net=host \
+apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
 --name=be \
---env FE_SERVERS="fe1:172.20.80.2:9010" \
---env BE_ADDR="172.20.80.3:9050" \
+--env FE_SERVERS="fe1:${当前机器的内网IP}:9010" \
+--env BE_ADDR="${当前机器的内网IP}:9050" \
 -p 8040:8040 \
 -v /data/be/storage:/opt/apache-doris/be/storage \
 -v /data/be/log:/opt/apache-doris/be/log \
---network=doris-network \
---ip=172.20.80.3 \
-apache/doris:1.2.1-be-x86_64
+--net=host \
+apache/doris:2.0.0_alpha-be-x86_64
 ```
 
 3FE & 3BE Run 命令模板如有需要[点击此处](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh)访问下载。
@@ -139,48 +133,33 @@ apache/doris:1.2.1-be-x86_64
 
 1FE & 1BE 模板
 
-``` yaml 
-version: '3'
+注意需要修改 `${当前机器的内网IP}` 替换为当前机器的内网IP
+
+``` yaml
+version: "3"
 services:
-  docker-fe:
-    image: "apache/doris:1.2.1-fe-x86_64"
-    container_name: "doris-fe"
-    hostname: "fe"
+  fe:
+    image: apache/doris:2.0.0_alpha-fe-x86_64
+    hostname: fe
     environment:
-      - FE_SERVERS=fe1:172.20.80.2:9010
-      - FE_ID=1
-    ports:
-      - 8030:8030
-      - 9030:9030
+     - FE_SERVERS=fe1:${当前机器的内网IP}:9010
+     - FE_ID=1
     volumes:
-      - /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta
-      - /data/fe/log:/opt/apache-doris/fe/log
-    networks:
-      doris_net:
-        ipv4_address: 172.20.80.2
-  docker-be:
-    image: "apache/doris:1.2.1-be-x86_64"
-    container_name: "doris-be"
-    hostname: "be"
+     - /data/fe/doris-meta/:/opt/apache-doris/fe/doris-meta/
+     - /data/fe/log/:/opt/apache-doris/fe/log/
+    network_mode: host
+  be:
+    image: apache/doris:2.0.0_alpha-be-x86_64
+    hostname: be
+    environment:
+     - FE_SERVERS=fe1:${当前机器的内网IP}:9010
+     - BE_ADDR=${当前机器的内网IP}:9050
+    volumes:
+     - /data/be/storage/:/opt/apache-doris/be/storage/
+     - /data/be/script/:/docker-entrypoint-initdb.d/
     depends_on:
-      - docker-fe
-    environment:
-      - FE_SERVERS=fe1:172.20.80.2:9010
-      - BE_ADDR=172.20.80.3:9050
-    ports:
-      - 8040:8040
-    volumes:
-      - /data/be/storage:/opt/apache-doris/be/storage
-      - /data/be/script:/docker-entrypoint-initdb.d
-      - /data/be/log:/opt/apache-doris/be/log
-    networks:
-      doris_net:
-        ipv4_address: 172.20.80.3
-networks:
-  doris_net:
-    ipam:
-      config:
-        - subnet: 172.20.80.0/16
+      - fe
+    network_mode: host
 ```
 
 3FE & 3BE Docker Compose 脚本模板如有需要[点击此处](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/3fe_3be/docker-compose.yaml)访问下载。

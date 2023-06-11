@@ -532,10 +532,10 @@ suite("test_window_function") {
     String cur
     for (p in range(0, 829)) {
         if (p == 0) {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
         }
         else {
-            cur = """(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
+            cur = """(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
                     limit ${p}, 1 ) """.toString()
 
         }
@@ -559,9 +559,9 @@ suite("test_window_function") {
     line = "("
     for (p in range(0, 829)) {
         if (p == 0 ) {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ * from baseall order by k1, k6 limit 1)"
         } else {
-            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit ${p}, 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1, parallel_pipeline_task_num=1) */ * from baseall order by k1, k6 limit ${p}, 1)"
         }
         if (p < 828) {
             line = line + cur + " union all "

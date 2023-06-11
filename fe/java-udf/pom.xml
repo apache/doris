@@ -36,8 +36,8 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
-        <hudi.version>0.12.2</hudi.version>
         <paimon.version>0.4-SNAPSHOT</paimon.version>
+        <hudi.version>0.13.0</hudi.version>
     </properties>
 
     <dependencies>
@@ -45,11 +45,6 @@ under the License.
             <groupId>com.vesoft</groupId>
             <artifactId>client</artifactId>
             <version>3.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-common</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -125,7 +120,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-presto-bundle</artifactId>
+            <artifactId>hudi-hadoop-mr-bundle</artifactId>
             <version>${hudi.version}</version>
             <exclusions>
                 <exclusion>
@@ -141,10 +136,6 @@ under the License.
                     <artifactId>hudi-common</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>org.apache.hudi</groupId>
-                    <artifactId>hudi-hadoop-mr-bundle</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>org.apache.parquet</groupId>
                     <artifactId>parquet-avro</artifactId>
                 </exclusion>
@@ -154,7 +145,6 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-
         <dependency>
             <groupId>com.facebook.presto.hive</groupId>
             <artifactId>hive-apache</artifactId>
@@ -166,7 +156,6 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-
         <dependency>
             <groupId>com.facebook.presto.hadoop</groupId>
             <artifactId>hadoop-apache2</artifactId>
@@ -177,6 +166,12 @@ under the License.
                     <artifactId>slf4j-log4j12</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- conflict with hudi-*-bundle -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-common</artifactId>
+            <version>${project.version}</version>
         </dependency>
 
     </dependencies>

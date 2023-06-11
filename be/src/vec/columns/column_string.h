@@ -149,6 +149,11 @@ public:
         offsets.push_back(new_size);
     }
 
+    void prefetch(const IColumn& src_, size_t n) {
+        const ColumnString& src = assert_cast<const ColumnString&>(src_);
+        __builtin_prefetch(&src.chars[src.offsets[n - 1]], 0, 1);
+    }
+
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
         const size_t size_to_append =

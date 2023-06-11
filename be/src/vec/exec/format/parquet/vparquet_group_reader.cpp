@@ -785,8 +785,8 @@ Status RowGroupReader::_rewrite_dict_predicates() {
             // The following process may be tricky and time-consuming, but we have no other way.
             temp_block.get_by_position(0).column->assume_mutable()->resize(dict_value_column_size);
         }
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep)));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts_and_filter_block(
+                ctxs, nullptr, &temp_block, columns_to_filter, column_to_keep));
         if (dict_pos != 0) {
             // We have to clean the first column to insert right data.
             temp_block.get_by_position(0).column->assume_mutable()->clear();
