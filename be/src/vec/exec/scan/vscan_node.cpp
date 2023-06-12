@@ -271,11 +271,11 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_scanner_profile, "MemoryUsage");
     _queued_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+            _scanner_profile->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES, "MemoryUsage");
+    _free_blocks_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage");
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
