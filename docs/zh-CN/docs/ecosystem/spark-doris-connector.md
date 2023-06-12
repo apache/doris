@@ -39,6 +39,7 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 | Connector | Spark         | Doris       | Java | Scala      |
 | --------- | ------------- |-------------| ---- | ---------- |
+| 1.2.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
 | 1.1.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
 | 1.0.1     | 3.1, 2.3      | 0.12 - 0.15 | 8    | 2.12, 2.11 |
 
@@ -52,24 +53,24 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 `sh build.sh`
 根据提示输入你需要的 Scala 与 Spark 版本进行编译。
 
-编译成功后，会在 `dist` 目录生成目标jar包，如：`spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar`。
+编译成功后，会在 `dist` 目录生成目标jar包，如：`spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar`。
 将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。
 
 例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
 
-例如将 `spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar` 上传到 hdfs 并在 `spark.yarn.jars` 参数上添加 hdfs 上的 Jar 包路径
+例如将 `spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar` 上传到 hdfs 并在 `spark.yarn.jars` 参数上添加 hdfs 上的 Jar 包路径
 
-1. 上传 `spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar` 到hdfs。
+1. 上传 `spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar` 到hdfs。
 
 ```
 hdfs dfs -mkdir /spark-jars/
-hdfs dfs -put /your_local_path/spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar /spark-jars/
+hdfs dfs -put /your_local_path/spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar /spark-jars/
 ```
 
-2. 在集群中添加 `spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar` 依赖。
+2. 在集群中添加 `spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar` 依赖。
 
 ```
-spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT.jar
+spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT.jar
 ```
 
 ## 使用Maven管理
@@ -78,7 +79,7 @@ spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.2_2.12-1.1.0-SNAPSHOT
 <dependency>
     <groupId>org.apache.doris</groupId>
     <artifactId>spark-doris-connector-3.2_2.12</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 </dependency>
 ```
 
