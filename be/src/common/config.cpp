@@ -988,6 +988,12 @@ DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 DEFINE_Bool(enable_parse_multi_dimession_array, "true");
 
+// time series compaction mode
+DEFINE_Bool(enable_time_series_compaction_mode, "false");
+DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
+DEFINE_mInt64(time_series_compaction_file_count_threshold, "10000");
+DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
+
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
 

@@ -1004,6 +1004,12 @@ DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
 
+// time series compaction mode
+DECLARE_Bool(enable_time_series_compaction_mode);
+DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
+DECLARE_mInt64(time_series_compaction_file_count_threshold);
+DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
+
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
 

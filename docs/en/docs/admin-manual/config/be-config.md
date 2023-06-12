@@ -649,6 +649,32 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Minimal interval (s) to update peer replica infos
 * Default value: 10 (s)
 
+#### `enable_time_series_compaction_mode`
+
+* Type: bool
+* Description: In a time series scenario, enabling time series compaction helps reduce write amplification and prevents prolonged compaction from consuming a significant amount of CPU resources.
+  - In the case of enabling time series compaction, the execution of compaction is adjusted using parameters that have the prefix time_series_compaction.
+* Default value: 10
+
+#### `time_series_compaction_goal_size_mbytes`
+
+* Type: int64
+* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size may be slightly smaller than the configured value.
+* Default value: 1024
+
+#### `time_series_compaction_file_count_threshold`
+
+* Type: int64
+* Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
+  - Enabling single tablet load can result in a large number of empty rowsets. To mitigate this, you can increase the value of the time_series_compaction_file_count_threshold parameter.
+* Default value: 10000
+
+#### `time_series_compaction_time_threshold_seconds`
+
+* Type: int64
+* Description: When time series compaction is enabled, a significant duration passes without a compaction being executed, a compaction will be triggered.
+* Default value: 3600 (s)
+
 
 ### Load
 
