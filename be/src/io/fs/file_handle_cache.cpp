@@ -90,6 +90,7 @@ void FileHandleCache::Accessor::destroy() {
 
 FileHandleCache::Accessor::~Accessor() {
     if (_cache_accessor.get()) {
+#ifdef USE_HADOOP_HDFS
         if (hdfsUnbufferFile(get()->file()) != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
                       << _cache_accessor.get_key()->first;
@@ -98,6 +99,9 @@ FileHandleCache::Accessor::~Accessor() {
             // Calling explicit release to handle metrics
             release();
         }
+#else
+        destroy();
+#endif
     }
 }
 

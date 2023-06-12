@@ -218,6 +218,7 @@ echo "******************************"
 cd "${DORIS_HOME}"
 export DORIS_TEST_BINARY_DIR="${CMAKE_BUILD_DIR}/test/"
 
+# prepare conf dir
 CONF_DIR="${DORIS_TEST_BINARY_DIR}/conf"
 rm -rf "${CONF_DIR}"
 mkdir "${CONF_DIR}"
@@ -230,6 +231,7 @@ while read -r variable; do
     eval "export ${variable}"
 done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_TEST_BINARY_DIR}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
+# prepare log dir
 mkdir -p "${LOG_DIR}"
 mkdir -p "${UDF_RUNTIME_DIR}"
 rm -f "${UDF_RUNTIME_DIR}"/*
@@ -238,31 +240,6 @@ rm -f "${UDF_RUNTIME_DIR}"/*
 while read -r gcda_file; do
     rm "${gcda_file}"
 done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
-
-#export DORIS_TEST_BINARY_DIR="${DORIS_TEST_BINARY_DIR}/test"
-
-jdk_version() {
-    local java_cmd="${1}"
-    local result
-    local IFS=$'\n'
-
-    if [[ -z "${java_cmd}" ]]; then
-        result=no_java
-        return 1
-    else
-        local version
-        # remove \r for Cygwin
-        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
-        version="${version//\"/}"
-        if [[ "${version}" =~ ^1\. ]]; then
-            result="$(echo "${version}" | awk -F '.' '{print $2}')"
-        else
-            result="$(echo "${version}" | awk -F '.' '{print $1}')"
-        fi
-    fi
-    echo "${result}"
-    return 0
-}
 
 # prepare gtest output dir
 GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
@@ -287,7 +264,9 @@ LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
 cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
-cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
+if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
+    cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
+fi
 
 # add java libs
 for f in "${LIB_DIR}"/*.jar; do
@@ -319,6 +298,29 @@ fi
 export CLASSPATH="${DORIS_CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
+
+jdk_version() {
+    local java_cmd="${1}"
+    local result
+    local IFS=$'\n'
+
+    if [[ -z "${java_cmd}" ]]; then
+        result=no_java
+        return 1
+    else
+        local version
+        # remove \r for Cygwin
+        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
+        version="${version//\"/}"
+        if [[ "${version}" =~ ^1\. ]]; then
+            result="$(echo "${version}" | awk -F '.' '{print $2}')"
+        else
+            result="$(echo "${version}" | awk -F '.' '{print $1}')"
+        fi
+    fi
+    echo "${result}"
+    return 0
+}
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
@@ -365,11 +367,6 @@ export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xloggc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
 
-# mkdir log dir
-LOG_DIR="${DORIS_TEST_BINARY_DIR}/log/"
-rm -rf "${LOG_DIR}"
-mkdir "${LOG_DIR}"
-
 # find all executable test files
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
@@ -385,3 +382,4 @@ if [[ -f "${test}" ]]; then
 else
     echo "unit test file: ${test} does not exist."
 fi
+
