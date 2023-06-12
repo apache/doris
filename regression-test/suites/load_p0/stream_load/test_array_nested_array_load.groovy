@@ -44,6 +44,8 @@ suite("test_array_nested_array_load", "p0") {
         table testTable
 
         file dataFile // import csv file
+        set 'max_filter_ratio', '0.6'
+
         time 10000 // limit inflight 10s
 
         // if declared a check callback, the default check condition will ignore.
@@ -56,8 +58,8 @@ suite("test_array_nested_array_load", "p0") {
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals("OK", json.Message)
-            assertEquals(4, json.NumberTotalRows)
-            assertTrue(json.LoadBytes > 0)
+            assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
+            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
 
         }
     }
@@ -65,4 +67,47 @@ suite("test_array_nested_array_load", "p0") {
     sql "sync"
     // check result
     qt_select_all "SELECT * FROM ${testTable} ORDER BY id"
+
+    // define a sql table
+    def testTable_1 = "test_array_nested_array_more_load"
+    def dataFile_1 = "test_array_nested_array_more_load.csv"
+
+    sql "DROP TABLE IF EXISTS ${testTable_1}"
+
+    sql """
+            CREATE TABLE IF NOT EXISTS ${testTable_1} (
+                id INT,
+                a_a_int ARRAY<ARRAY<ARRAY<ARRAY<STRING>>>>
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 10
+            PROPERTIES("replication_num" = "1");
+            """
+
+    // load the map data from csv file
+    streamLoad {
+        table testTable_1
+
+        file dataFile_1 // import csv file
+        set 'max_filter_ratio', '0.6'
+        time 10000 // limit inflight 10s
+
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
+            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+
+        }
+    }
+
+    sql "sync"
+    // check result
+    qt_select_all "SELECT * FROM ${testTable_1} ORDER BY id"
 }

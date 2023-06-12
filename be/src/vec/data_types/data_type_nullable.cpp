@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "util/simd/vstring_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -84,20 +85,23 @@ Status DataTypeNullable::from_json(simdjson::ondemand::value& json_value, IColum
     DCHECK(is_complex_type(nested_data_type));
     Status st = Status::OK();
     auto* null_column = assert_cast<ColumnNullable*>(column);
-    if (json_value.is_null()) {
-        null_column->get_nested_column().insert_default();
-        null_column->get_null_map_data().push_back(1);
-    } else if (st = nested_data_type->from_json(json_value, &null_column->get_nested_column());
-               st.ok()) {
-        null_column->get_null_map_data().push_back(0);
+    try {
+        if (json_value.is_null()) {
+            null_column->get_nested_column().insert_default();
+            null_column->get_null_map_data().push_back(1);
+        } else if (st = nested_data_type->from_json(json_value, &null_column->get_nested_column());
+                   st.ok()) {
+            null_column->get_null_map_data().push_back(0);
+        }
+    } catch (simdjson::simdjson_error& e) {
+        return Status::InternalError("Failed to parse json: {}", e.what());
     }
     return st;
 }
 
 Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* null_column = assert_cast<ColumnNullable*>(column);
-    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
-        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
+    if (rb.count() == 4 && strncasecmp(rb.position(), "null", 4) == 0) {
         null_column->insert_data(nullptr, 0);
         return Status::OK();
     }

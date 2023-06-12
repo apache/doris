@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "runtime/decimalv2_value.h"
+#include "util/simd/vstring_function.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -189,24 +190,39 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
 }
 
 Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* column) const {
-    CHECK(json_value.type() == simdjson::ondemand::json_type::array);
+    if (json_value.type() != simdjson::ondemand::json_type::array) {
+        return Status::InvalidArgument("Parse json data failed, not array type '{}'",
+                                       json_value.type().take_value());
+    }
     simdjson::ondemand::array outer_array = json_value.get_array();
     auto* array_column = assert_cast<ColumnArray*>(column);
     auto& offsets = array_column->get_offsets();
     IColumn& nested_column = array_column->get_data();
     DCHECK(nested_column.is_nullable());
     auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-
+    bool is_string_nested = is_string(remove_nullable(nested));
     size_t element_num = 0;
     for (auto it = outer_array.begin(); it != outer_array.end(); ++it) {
         Status st;
         try {
             if (is_complex_type(remove_nullable(nested))) {
                 simdjson::ondemand::value val;
-                (*it).get(val);
-                st = nested->from_json(val, &nested_null_col);
+                auto error_code = (*it).get(val);
+                if (simdjson::SUCCESS != (*it).get(val)) {
+                    st = Status::InvalidArgument(
+                            "Parse json data failed, error code: {}, error "
+                            "info: {}",
+                            error_code, simdjson::error_message(error_code));
+                } else {
+                    st = nested->from_json(val, &nested_null_col);
+                }
             } else {
-                std::string_view sv = (*it).raw_json_token().value();
+                std::string_view sv = simdjson::trim((*it).raw_json_token().value());
+                if (is_string_nested) {
+                    StringRef sr(sv.data(), sv.size());
+                    StringRef del("\"");
+                    sv = simd::VStringFunctions::trim(sr, del);
+                }
                 ReadBuffer nested_rb(const_cast<char*>(sv.data()), sv.size());
                 st = nested->from_string(nested_rb, &nested_column);
             }
@@ -240,14 +256,22 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
                                        *(rb.end() - 1));
     }
     // json parser
-    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser =
+    std::unique_ptr<simdjson::ondemand::parser> ondemand_json_parser =
             std::make_unique<simdjson::ondemand::parser>();
-    size_t _padded_size = rb.count() + simdjson::SIMDJSON_PADDING;
-    std::string _simdjson_ondemand_padding_buffer;
-    _simdjson_ondemand_padding_buffer.resize(_padded_size);
-    memcpy(&_simdjson_ondemand_padding_buffer.front(), rb.position(), rb.count());
-    simdjson::ondemand::document array_doc = _ondemand_json_parser->iterate(
-            std::string_view(_simdjson_ondemand_padding_buffer.data(), rb.count()), _padded_size);
+    size_t padded_size = rb.count() + simdjson::SIMDJSON_PADDING;
+    std::string simdjson_ondemand_padding_buffer;
+    simdjson_ondemand_padding_buffer.resize(padded_size);
+    memcpy(&simdjson_ondemand_padding_buffer.front(), rb.position(), rb.count());
+    simdjson::ondemand::document array_doc;
+    auto error_code =
+            ondemand_json_parser
+                    ->iterate(std::string_view(simdjson_ondemand_padding_buffer.data(), rb.count()),
+                              padded_size)
+                    .get(array_doc);
+    if (error_code != simdjson::SUCCESS) {
+        return Status::InternalError("Parse json data failed. code: {}, error info: {}", error_code,
+                                     simdjson::error_message(error_code));
+    }
     auto value = array_doc.get_value();
     return from_json(value.value(), column);
 }
