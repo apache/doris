@@ -197,7 +197,7 @@ public:
         }
     }
 
-    bool read_finish_publish() {
+    bool ready_finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
                 if (!filter->is_finish_rpc()) {

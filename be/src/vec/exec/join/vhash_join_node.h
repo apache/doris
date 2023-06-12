@@ -256,7 +256,7 @@ public:
         if (_runtime_filter_slots == nullptr) {
             return true;
         }
-        return _runtime_filter_slots->read_finish_publish();
+        return _runtime_filter_slots->ready_finish_publish();
     }
 
 private:
