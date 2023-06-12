@@ -99,23 +99,32 @@ public class DateLiteral extends LiteralExpr {
 
     static {
         try {
-            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
-            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
-            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
-            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter();
+            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter();
+                    .toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
