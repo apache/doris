@@ -19,8 +19,6 @@ package org.apache.doris.regression.suite
 
 import com.google.gson.Gson
 import org.apache.doris.regression.Config
-import org.apache.doris.regression.json.PartitionData
-import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.regression.util.SyncerUtils
@@ -497,60 +495,65 @@ class Syncer {
 
         // step 1: Check meta data is valid
         if (!context.metaIsValid()) {
-            logger.error("Meta data miss match")
+            logger.error("Meta data miss match, src: ${context.sourceTableMap}, target: ${context.targetTableMap}")
             return false
         }
 
-        // step 2: Begin ingest task
-        Iterator sourcePartitionIter = context.sourcePartitionMap.iterator()
-        Iterator targetPartitionIter = context.targetPartitionMap.iterator()
+        // step 2: Begin ingest binlog
+        // step 2.1: ingest each table in meta
+        context.sourceTableMap.forEach((tableName, srcTableMeta) -> {
+            TableMeta tarTableMeta = context.targetTableMap.get(tableName)
 
-        // step 3:
-        while (sourcePartitionIter.hasNext()) {
-            Entry srcPartition = sourcePartitionIter.next()
-            Entry tarPartition = targetPartitionIter.next()
-            Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
-            Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
+            Iterator sourcePartitionIter = srcTableMeta.partitionMap.iterator()
+            Iterator targetPartitionIter = tarTableMeta.partitionMap.iterator()
+            // step 2.2: ingest each partition in the table
+            while (sourcePartitionIter.hasNext()) {
+                Entry srcPartition = sourcePartitionIter.next()
+                Entry tarPartition = targetPartitionIter.next()
+                Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
+                Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
 
-            while (srcTabletIter.hasNext()) {
-                Entry srcTabletMap = srcTabletIter.next()
-                Entry tarTabletMap = tarTabletIter.next()
+                // step 2.3: ingest each tablet in the partition
+                while (srcTabletIter.hasNext()) {
+                    Entry srcTabletMap = srcTabletIter.next()
+                    Entry tarTabletMap = tarTabletIter.next()
 
-                BackendClientImpl srcClient = context.sourceBackendClients.get(srcTabletMap.value)
-                if (srcClient == null) {
-                    logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcTabletMap.value}")
-                    return false
+                    BackendClientImpl srcClient = context.sourceBackendClients.get(srcTabletMap.value)
+                    if (srcClient == null) {
+                        logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcTabletMap.value}")
+                        return false
+                    }
+                    BackendClientImpl tarClient = context.targetBackendClients.get(tarTabletMap.value)
+                    if (tarClient == null) {
+                        logger.error("Can't find target tabletId-${tarTabletMap.key} -> beId-${tarTabletMap.value}")
+                        return false
+                    }
+
+                    tarPartition.value.version = srcPartition.value.version
+                    long partitionId = fakePartitionId == -1 ? srcPartition.key : fakePartitionId
+                    long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
+
+                    TIngestBinlogRequest request = new TIngestBinlogRequest()
+                    TUniqueId uid = new TUniqueId(-1, -1)
+                    request.setTxnId(context.txnId)
+                    request.setRemoteTabletId(srcTabletMap.key)
+                    request.setBinlogVersion(version)
+                    request.setRemoteHost(srcClient.address.hostname)
+                    request.setRemotePort(srcClient.httpPort.toString())
+                    request.setPartitionId(partitionId)
+                    request.setLocalTabletId(tarTabletMap.key)
+                    request.setLoadId(uid)
+                    logger.info("request -> ${request}")
+                    TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
+                    if (!checkIngestBinlog(result)) {
+                        logger.error("Ingest result error.")
+                        return false
+                    }
+
+                    addCommitInfo(tarTabletMap.key, tarTabletMap.value)
                 }
-                BackendClientImpl tarClient = context.targetBackendClients.get(tarTabletMap.value)
-                if (tarClient == null) {
-                    logger.error("Can't find target tabletId-${tarTabletMap.key} -> beId-${tarTabletMap.value}")
-                    return false
-                }
-
-                tarPartition.value.version = srcPartition.value.version
-                long partitionId = fakePartitionId == -1 ? srcPartition.key : fakePartitionId
-                long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
-
-                TIngestBinlogRequest request = new TIngestBinlogRequest()
-                TUniqueId uid = new TUniqueId(-1, -1)
-                request.setTxnId(context.txnId)
-                request.setRemoteTabletId(srcTabletMap.key)
-                request.setBinlogVersion(version)
-                request.setRemoteHost(srcClient.address.hostname)
-                request.setRemotePort(srcClient.httpPort.toString())
-                request.setPartitionId(partitionId)
-                request.setLocalTabletId(tarTabletMap.key)
-                request.setLoadId(uid)
-                logger.info("request -> ${request}")
-                TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
-                if (!checkIngestBinlog(result)) {
-                    logger.error("Ingest result error.")
-                    return false
-                }
-
-                addCommitInfo(tarTabletMap.key, tarTabletMap.value)
             }
-        }
+        })
 
         return true
     }

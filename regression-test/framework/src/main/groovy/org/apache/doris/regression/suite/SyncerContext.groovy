@@ -23,7 +23,6 @@ import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
 
 import java.sql.Connection
-import java.util.Map.Entry
 
 class PartitionMeta {
     public long version
@@ -119,13 +118,18 @@ class SyncerContext {
             Iterator srcPartitionIter = srcTableMeta.partitionMap.iterator()
             Iterator tarPartitionIter = tarTableMeta.partitionMap.iterator()
             while (srcPartitionIter.hasNext()) {
-                Entry srcPartitionEntry = srcPartitionIter.next()
-                Entry tarPartitionEntry = tarPartitionIter.next()
+                Map srcTabletMeta = srcPartitionIter.next().value.tabletMeta
+                Map tarTabletMeta = tarPartitionIter.next().value.tabletMeta
 
-
+                if (srcTabletMeta.isEmpty() && tarTabletMeta.isEmpty()) {
+                    return false
+                } else if (srcTabletMeta.size() != tarTabletMeta.size()) {
+                    return false
+                }
             }
-
         })
+
+        return true
     }
 
     void closeBackendClients() {
