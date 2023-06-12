@@ -76,6 +76,7 @@ public class JdbcExecutor {
     private int maxPoolSize;
     private int minIdleSize;
     private int maxIdelTime;
+    private int maxWaitTime;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -88,11 +89,13 @@ public class JdbcExecutor {
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
+        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdelTime = " + maxIdelTime
-                + ", minIdleSize = " + minIdleSize);
+                + ", minIdleSize = " + minIdleSize
+                + ", maxWaitTime = " + maxWaitTime);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -276,7 +279,7 @@ public class JdbcExecutor {
                 ds.setMinIdle(minIdleSize);
                 ds.setInitialSize(minPoolSize);
                 ds.setMaxActive(maxPoolSize);
-                ds.setMaxWait(5000);
+                ds.setMaxWait(maxWaitTime);
                 ds.setTestWhileIdle(true);
                 ds.setTestOnBorrow(false);
                 setValidationQuery(ds, tableType);
