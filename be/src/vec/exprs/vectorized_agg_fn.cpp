@@ -169,6 +169,16 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     argument_types[0]->get_family_name());
         }
         if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
+            if (_data_type->is_nullable()) {
+                return Status::InternalError(
+                        "Union function return type must be not nullable, real={}",
+                        _data_type->get_name());
+            }
+            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                return Status::InternalError(
+                        "Union function return type must be AGG_STATE, real={}",
+                        _data_type->get_name());
+            }
             _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
         } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
             _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);

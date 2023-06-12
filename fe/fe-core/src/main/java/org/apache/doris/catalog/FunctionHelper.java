@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -107,7 +108,7 @@ public interface FunctionHelper {
             this.names = Arrays.stream(names)
                     .map(String::toLowerCase)
                     .collect(ImmutableList.toImmutableList());
-            this.functionBuilders = FunctionBuilder.resolve(functionClass);
+            this.functionBuilders = BuiltinFunctionBuilder.resolve(functionClass);
         }
     }
 
