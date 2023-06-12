@@ -875,6 +875,8 @@ public class SingleNodePlannerTest {
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
         PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
+        Assert.assertEquals(Lists.newArrayList(tupleId4, tupleId1, tupleId2, tupleId3),
+                cheapestJoinNode.getTupleIds());
     }
 
     /*
@@ -1082,6 +1084,8 @@ public class SingleNodePlannerTest {
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
         PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
+        Assert.assertEquals(Lists.newArrayList(tupleId4, tupleId1, tupleId2, tupleId3),
+                cheapestJoinNode.getTupleIds());
     }
 
     /*
