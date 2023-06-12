@@ -62,11 +62,11 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
         super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
-        paimonCatalogType = PAIMON_HMS;
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        paimonCatalogType = PAIMON_HMS;
         String metastoreUris = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         String warehouse = catalogProperty.getOrDefault(PaimonProperties.WAREHOUSE, "");
         Options options = new Options();
