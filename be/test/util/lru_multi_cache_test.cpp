@@ -19,50 +19,49 @@
 // https://github.com/apache/impala/blob/master/be/src/util/lru-multi-cache-test.cc
 // and modified by Doris
 
-#include "util/lru_multi_cache.inline.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include "gtest/gtest_pred_impl.h"
 
 #include <memory>
 
+#include "gtest/gtest_pred_impl.h"
+#include "util/lru_multi_cache.inline.h"
+
 struct CollidingKey {
-  CollidingKey(const std::string& s) : s(s) {}
-  CollidingKey(const char* s) : s(s) {}
-  std::string s;
+    CollidingKey(const std::string& s) : s(s) {}
+    CollidingKey(const char* s) : s(s) {}
+    std::string s;
 };
 
 bool operator==(const CollidingKey& k1, const CollidingKey& k2) {
-  return k1.s == k2.s;
+    return k1.s == k2.s;
 }
 
 template <>
 struct std::hash<CollidingKey> {
-  size_t operator()(const CollidingKey& k) const noexcept { return 0; }
+    size_t operator()(const CollidingKey& k) const noexcept { return 0; }
 };
 
 namespace doris {
 
 struct TestType {
-  // Testing emplace_and_get with perfect forwarding
-  explicit TestType(int i, float) : i(i) {}
-  int i;
+    // Testing emplace_and_get with perfect forwarding
+    explicit TestType(int i, float) : i(i) {}
+    int i;
 
-  // Making sure nothing is being copied or moved
-  TestType(const TestType&) = delete;
-  TestType(TestType&&) = delete;
+    // Making sure nothing is being copied or moved
+    TestType(const TestType&) = delete;
+    TestType(TestType&&) = delete;
 
-  TestType& operator=(const TestType&) = delete;
-  TestType& operator=(const TestType&&) = delete;
+    TestType& operator=(const TestType&) = delete;
+    TestType& operator=(const TestType&&) = delete;
 };
 
-class LruMultiCacheTest: public testing::Test {
+class LruMultiCacheTest : public testing::Test {
 public:
-    virtual void SetUp() {
-    }
+    void SetUp() override {}
 
-    virtual void TearDown() {}
+    void TearDown() override {}
 };
 
 // Notation for implied state of inner data structure:
@@ -72,402 +71,410 @@ public:
 // 7 + 3 = 10 total elements in cache
 
 TEST(LruMultiCacheTest, BasicTests) {
-  LruMultiCache<std::string, TestType> cache(100);
+    LruMultiCache<std::string, TestType> cache(100);
 
-  const size_t num_of_parallel_keys = 5;
-  std::string keys[num_of_parallel_keys] = {"a", "b", "c", "d", "e"};
-  int value_bases[num_of_parallel_keys] = {1, 10, 100, 1000, 10000};
+    const size_t num_of_parallel_keys = 5;
+    std::string keys[num_of_parallel_keys] = {"a", "b", "c", "d", "e"};
+    int value_bases[num_of_parallel_keys] = {1, 10, 100, 1000, 10000};
 
-  for (size_t i = 0; i < 5; i++) {
-    std::string& key = keys[i];
-    int& value_base = value_bases[i];
+    for (size_t i = 0; i < 5; i++) {
+        std::string& key = keys[i];
+        int& value_base = value_bases[i];
 
-    // {}
-    ASSERT_EQ(nullptr, cache.get(key).get());
+        // {}
+        ASSERT_EQ(nullptr, cache.get(key).get());
 
-    auto value = cache.emplace_and_get(key, value_base, 1.0f);
+        auto value = cache.emplace_and_get(key, value_base, 1.0f);
 
-    ASSERT_EQ(nullptr, cache.get(key).get());
+        ASSERT_EQ(nullptr, cache.get(key).get());
 
-    value.release();
+        value.release();
 
-    // 1
-    value = cache.get(key);
+        // 1
+        value = cache.get(key);
 
-    ASSERT_NE(nullptr, value.get());
+        ASSERT_NE(nullptr, value.get());
 
-    value.release();
+        value.release();
 
-    auto value2 = cache.emplace_and_get(key, value_base + 1, 1.0f);
+        auto value2 = cache.emplace_and_get(key, value_base + 1, 1.0f);
 
-    value = cache.get(key);
+        value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    value.release();
-    value2.release();
-    // 2 -> 1
-  }
+        value.release();
+        value2.release();
+        // 2 -> 1
+    }
 
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(10, cache.number_of_available_objects());
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(10, cache.number_of_available_objects());
 
-  for (size_t i = 0; i < 5; i++) {
-    std::string& key = keys[i];
-    int& value_base = value_bases[i];
+    for (size_t i = 0; i < 5; i++) {
+        std::string& key = keys[i];
+        int& value_base = value_bases[i];
 
-    // 2 -> 1
-    auto value2 = cache.get(key);
+        // 2 -> 1
+        auto value2 = cache.get(key);
 
-    ASSERT_EQ(value_base + 1, value2.get()->i);
+        ASSERT_EQ(value_base + 1, value2.get()->i);
 
-    auto value = cache.get(key);
+        auto value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    value2.release();
-    value.release();
+        value2.release();
+        value.release();
 
-    // 1 -> 2
+        // 1 -> 2
 
-    value = cache.get(key);
+        value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    cache.rehash();
+        cache.rehash();
 
-    value2 = cache.get(key);
+        value2 = cache.get(key);
 
-    ASSERT_EQ(value_base + 1, value2.get()->i);
+        ASSERT_EQ(value_base + 1, value2.get()->i);
 
-    value.release();
-    value2.release();
-    // 2 -> 1
+        value.release();
+        value2.release();
+        // 2 -> 1
 
-    cache.rehash();
-  }
+        cache.rehash();
+    }
 }
 
 TEST(LruMultiCacheTest, EvictionTests) {
-  const size_t cache_capacity = 10;
-  LruMultiCache<std::string, TestType> cache(cache_capacity);
-  std::string key = "a";
+    const size_t cache_capacity = 10;
+    LruMultiCache<std::string, TestType> cache(cache_capacity);
+    std::string key = "a";
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    cache.emplace_and_get(key, i, 1.0f).release();
-    ASSERT_EQ(i + 1, cache.size());
-    ASSERT_EQ(i + 1, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        cache.emplace_and_get(key, i, 1.0f).release();
+        ASSERT_EQ(i + 1, cache.size());
+        ASSERT_EQ(i + 1, cache.number_of_available_objects());
+    }
 
-  // 9 -> 8 .... -> 0
-  auto value = cache.get(key);
+    // 9 -> 8 .... -> 0
+    auto value = cache.get(key);
 
-  ASSERT_EQ(9, value.get()->i);
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(9, cache.number_of_available_objects());
-
-  value.release();
-
-  for (size_t i = 0; i < cache_capacity; i++) {
-    cache.emplace_and_get(key, 10 + i, 1.0f).release();
+    ASSERT_EQ(9, value.get()->i);
     ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(10, cache.number_of_available_objects());
-  }
+    ASSERT_EQ(9, cache.number_of_available_objects());
 
-  // 19 -> 18 .... -> 10
-  value = cache.get(key);
-  ASSERT_EQ(19, value.get()->i);
+    value.release();
 
-  // 18 .... -> 10 | (19)
-  auto value2 = cache.get(key);
-  ASSERT_EQ(18, value2.get()->i);
+    for (size_t i = 0; i < cache_capacity; i++) {
+        cache.emplace_and_get(key, 10 + i, 1.0f).release();
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(10, cache.number_of_available_objects());
+    }
 
-  // 17 -> 16 .... -> 10 | (19) (18)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(8, cache.number_of_available_objects());
+    // 19 -> 18 .... -> 10
+    value = cache.get(key);
+    ASSERT_EQ(19, value.get()->i);
 
-  cache.rehash();
+    // 18 .... -> 10 | (19)
+    auto value2 = cache.get(key);
+    ASSERT_EQ(18, value2.get()->i);
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    cache.emplace_and_get(key, 100 + i, 1.0f).release();
+    // 17 -> 16 .... -> 10 | (19) (18)
     ASSERT_EQ(10, cache.size());
     ASSERT_EQ(8, cache.number_of_available_objects());
-  }
 
-  // 109 -> 108 .... -> 102 | (19) (18)
-  auto value3 = cache.get(key);
-  ASSERT_EQ(109, value3.get()->i);
+    cache.rehash();
 
-  // 108 .... -> 102 | (19) (18) (109)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(7, cache.number_of_available_objects());
+    for (size_t i = 0; i < cache_capacity; i++) {
+        cache.emplace_and_get(key, 100 + i, 1.0f).release();
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(8, cache.number_of_available_objects());
+    }
 
-  value2.release();
+    // 109 -> 108 .... -> 102 | (19) (18)
+    auto value3 = cache.get(key);
+    ASSERT_EQ(109, value3.get()->i);
 
-  // 18 -> 108 .... -> 102 | (19) (109)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(8, cache.number_of_available_objects());
-
-  auto value4 = cache.get(key);
-  ASSERT_EQ(18, value4.get()->i);
-
-  // 108 .... -> 102 | (19) (109) (18)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(7, cache.number_of_available_objects());
-
-  value.release();
-  value3.release();
-  value4.release();
-
-  for (size_t i = 0; i < cache_capacity; i++) {
-    cache.emplace_and_get(key, 1000 + i, 1.0f).release();
+    // 108 .... -> 102 | (19) (18) (109)
     ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(10, cache.number_of_available_objects());
-  }
+    ASSERT_EQ(7, cache.number_of_available_objects());
 
-  // 1009 .... -> 1000
+    value2.release();
 
-  std::vector<LruMultiCache<std::string, TestType>::Accessor> values;
+    // 18 -> 108 .... -> 102 | (19) (109)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(8, cache.number_of_available_objects());
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    values.push_back(cache.get(key));
-    ASSERT_EQ(1000 + (cache_capacity - 1 - i), values[i].get()->i);
-  }
+    auto value4 = cache.get(key);
+    ASSERT_EQ(18, value4.get()->i);
 
-  // {} | (1009) ... (1000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(0, cache.number_of_available_objects());
+    // 108 .... -> 102 | (19) (109) (18)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(7, cache.number_of_available_objects());
 
-  value = cache.emplace_and_get(key, 10000, 1.0f);
-  ASSERT_EQ(10000, value.get()->i);
+    value.release();
+    value3.release();
+    value4.release();
 
-  // {} | (10001) (1009) ... (1000)
-  ASSERT_EQ(11, cache.size());
-  ASSERT_EQ(0, cache.number_of_available_objects());
+    for (size_t i = 0; i < cache_capacity; i++) {
+        cache.emplace_and_get(key, 1000 + i, 1.0f).release();
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(10, cache.number_of_available_objects());
+    }
 
-  value2 = cache.emplace_and_get(key, 10001, 1.0f);
-  ASSERT_EQ(10001, value2.get()->i);
+    // 1009 .... -> 1000
 
-  // {} | (10001) (10000) (1009) ... (1000)
-  ASSERT_EQ(12, cache.size());
-  ASSERT_EQ(0, cache.number_of_available_objects());
+    std::vector<LruMultiCache<std::string, TestType>::Accessor> values;
 
-  values[0].release();
-  values[1].release();
+    for (size_t i = 0; i < cache_capacity; i++) {
+        values.push_back(cache.get(key));
+        ASSERT_EQ(1000 + (cache_capacity - 1 - i), values[i].get()->i);
+    }
 
-  // {} | (10001) (10000) (1007) ... (1000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(0, cache.number_of_available_objects());
+    // {} | (1009) ... (1000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(0, cache.number_of_available_objects());
 
-  for (size_t i = 2; i < cache_capacity; i++) {
-    values[i].release();
-  }
+    value = cache.emplace_and_get(key, 10000, 1.0f);
+    ASSERT_EQ(10000, value.get()->i);
 
-  // 1000 -> ... -> 1007 | (10001) (10000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(8, cache.number_of_available_objects());
+    // {} | (10001) (1009) ... (1000)
+    ASSERT_EQ(11, cache.size());
+    ASSERT_EQ(0, cache.number_of_available_objects());
 
-  value3 = cache.get(key);
-  ASSERT_EQ(1000, value3.get()->i);
+    value2 = cache.emplace_and_get(key, 10001, 1.0f);
+    ASSERT_EQ(10001, value2.get()->i);
 
-  // 1001 -> ... -> 1007 | (10001) (10000) (1000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(7, cache.number_of_available_objects());
+    // {} | (10001) (10000) (1009) ... (1000)
+    ASSERT_EQ(12, cache.size());
+    ASSERT_EQ(0, cache.number_of_available_objects());
 
-  value2.release();
+    values[0].release();
+    values[1].release();
 
-  // 10001 -> 1001 -> ... -> 1007 | (10000) (1000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(8, cache.number_of_available_objects());
+    // {} | (10001) (10000) (1007) ... (1000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(0, cache.number_of_available_objects());
 
-  value4 = cache.get(key);
-  ASSERT_EQ(10001, value4.get()->i);
+    for (size_t i = 2; i < cache_capacity; i++) {
+        values[i].release();
+    }
 
-  // 1001 -> ... -> 1007 | (10001) (10000) (1000)
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(7, cache.number_of_available_objects());
+    // 1000 -> ... -> 1007 | (10001) (10000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(8, cache.number_of_available_objects());
+
+    value3 = cache.get(key);
+    ASSERT_EQ(1000, value3.get()->i);
+
+    // 1001 -> ... -> 1007 | (10001) (10000) (1000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(7, cache.number_of_available_objects());
+
+    value2.release();
+
+    // 10001 -> 1001 -> ... -> 1007 | (10000) (1000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(8, cache.number_of_available_objects());
+
+    value4 = cache.get(key);
+    ASSERT_EQ(10001, value4.get()->i);
+
+    // 1001 -> ... -> 1007 | (10001) (10000) (1000)
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(7, cache.number_of_available_objects());
 }
 
 TEST(LruMultiCacheTest, AutoRelease) {
-  const size_t cache_capacity = 10;
-  LruMultiCache<std::string, TestType> cache(cache_capacity);
-  std::string key = "a";
+    const size_t cache_capacity = 10;
+    LruMultiCache<std::string, TestType> cache(cache_capacity);
+    std::string key = "a";
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    { auto accessor = cache.emplace_and_get(key, i, 1.0f); }
-    ASSERT_EQ(i + 1, cache.size());
-    ASSERT_EQ(i + 1, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        {
+            auto accessor = cache.emplace_and_get(key, i, 1.0f);
+        }
+        ASSERT_EQ(i + 1, cache.size());
+        ASSERT_EQ(i + 1, cache.number_of_available_objects());
+    }
 
-  // 9 -> 8 .... -> 0
-  {
-    auto value = cache.get(key);
+    // 9 -> 8 .... -> 0
+    {
+        auto value = cache.get(key);
 
-    ASSERT_EQ(9, value.get()->i);
-    ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(9, cache.number_of_available_objects());
-  }
+        ASSERT_EQ(9, value.get()->i);
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(9, cache.number_of_available_objects());
+    }
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    { auto accessor = cache.emplace_and_get(key, 10 + i, 1.0f); }
-    ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(10, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        {
+            auto accessor = cache.emplace_and_get(key, 10 + i, 1.0f);
+        }
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(10, cache.number_of_available_objects());
+    }
 }
 
 TEST(LruMultiCacheTest, destroy) {
-  const size_t cache_capacity = 10;
-  LruMultiCache<std::string, TestType> cache(cache_capacity);
-  std::string key = "a";
+    const size_t cache_capacity = 10;
+    LruMultiCache<std::string, TestType> cache(cache_capacity);
+    std::string key = "a";
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    { auto accessor = cache.emplace_and_get(key, i, 1.0f); }
-    ASSERT_EQ(i + 1, cache.size());
-    ASSERT_EQ(i + 1, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        {
+            auto accessor = cache.emplace_and_get(key, i, 1.0f);
+        }
+        ASSERT_EQ(i + 1, cache.size());
+        ASSERT_EQ(i + 1, cache.number_of_available_objects());
+    }
 
-  // 9 -> 8 .... -> 0
-  {
-    auto value = cache.get(key);
+    // 9 -> 8 .... -> 0
+    {
+        auto value = cache.get(key);
 
-    ASSERT_EQ(9, value.get()->i);
-    ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(9, cache.number_of_available_objects());
+        ASSERT_EQ(9, value.get()->i);
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(9, cache.number_of_available_objects());
 
-    // 8 -> .... -> 0
-    value.destroy();
+        // 8 -> .... -> 0
+        value.destroy();
+        ASSERT_EQ(9, cache.size());
+        ASSERT_EQ(9, cache.number_of_available_objects());
+    }
+
     ASSERT_EQ(9, cache.size());
     ASSERT_EQ(9, cache.number_of_available_objects());
-  }
 
-  ASSERT_EQ(9, cache.size());
-  ASSERT_EQ(9, cache.number_of_available_objects());
-
-  for (size_t i = 0; i < cache_capacity; i++) {
-    { auto accessor = cache.emplace_and_get(key, 10 + i, 1.0f); }
-    ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(10, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        {
+            auto accessor = cache.emplace_and_get(key, 10 + i, 1.0f);
+        }
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(10, cache.number_of_available_objects());
+    }
 }
 
 TEST(LruMultiCacheTest, RemoveEmptyList) {
-  const size_t cache_capacity = 10;
-  LruMultiCache<std::string, TestType> cache(cache_capacity);
-  std::string key = "a";
+    const size_t cache_capacity = 10;
+    LruMultiCache<std::string, TestType> cache(cache_capacity);
+    std::string key = "a";
 
-  ASSERT_EQ(0, cache.number_of_keys());
+    ASSERT_EQ(0, cache.number_of_keys());
 
-  auto accessor = cache.emplace_and_get(key, 0, 1.0f);
-  ASSERT_EQ(1, cache.number_of_keys());
+    auto accessor = cache.emplace_and_get(key, 0, 1.0f);
+    ASSERT_EQ(1, cache.number_of_keys());
 
-  // Last element is destroyed in "a" list
-  accessor.destroy();
-  ASSERT_EQ(0, cache.number_of_keys());
+    // Last element is destroyed in "a" list
+    accessor.destroy();
+    ASSERT_EQ(0, cache.number_of_keys());
 
-  // Removed by eviction
+    // Removed by eviction
 
-  for (size_t i = 0; i < cache_capacity; i++) {
-    cache.emplace_and_get(key, i, 1.0f).release();
-    ASSERT_EQ(i + 1, cache.size());
-    ASSERT_EQ(i + 1, cache.number_of_available_objects());
-  }
+    for (size_t i = 0; i < cache_capacity; i++) {
+        cache.emplace_and_get(key, i, 1.0f).release();
+        ASSERT_EQ(i + 1, cache.size());
+        ASSERT_EQ(i + 1, cache.number_of_available_objects());
+    }
 
-  // All in "a" list
-  ASSERT_EQ(1, cache.number_of_keys());
+    // All in "a" list
+    ASSERT_EQ(1, cache.number_of_keys());
 
-  std::string key2 = "b";
+    std::string key2 = "b";
 
-  for (size_t i = 0; i < (cache_capacity - 1); i++) {
-    cache.emplace_and_get(key2, 10 + i, 1.0f).release();
-    ASSERT_EQ(10, cache.size());
-    ASSERT_EQ(10, cache.number_of_available_objects());
+    for (size_t i = 0; i < (cache_capacity - 1); i++) {
+        cache.emplace_and_get(key2, 10 + i, 1.0f).release();
+        ASSERT_EQ(10, cache.size());
+        ASSERT_EQ(10, cache.number_of_available_objects());
 
-    // 9-i in "a" list, i+1 in "b" list
-    ASSERT_EQ(2, cache.number_of_keys());
-  }
+        // 9-i in "a" list, i+1 in "b" list
+        ASSERT_EQ(2, cache.number_of_keys());
+    }
 
-  cache.emplace_and_get(key2, 19, 1.0f).release();
+    cache.emplace_and_get(key2, 19, 1.0f).release();
 
-  // 10 in "b" list, "a" is removed
-  ASSERT_EQ(1, cache.number_of_keys());
+    // 10 in "b" list, "a" is removed
+    ASSERT_EQ(1, cache.number_of_keys());
 }
 
 TEST(LruMultiCacheTest, HashCollision) {
-  const size_t cache_capacity = 10;
-  LruMultiCache<CollidingKey, TestType> cache(cache_capacity);
+    const size_t cache_capacity = 10;
+    LruMultiCache<CollidingKey, TestType> cache(cache_capacity);
 
-  const size_t num_of_parallel_keys = 5;
-  CollidingKey keys[num_of_parallel_keys] = {"a", "b", "c", "d", "e"};
-  int value_bases[num_of_parallel_keys] = {1, 10, 100, 1000, 10000};
+    const size_t num_of_parallel_keys = 5;
+    CollidingKey keys[num_of_parallel_keys] = {"a", "b", "c", "d", "e"};
+    int value_bases[num_of_parallel_keys] = {1, 10, 100, 1000, 10000};
 
-  for (size_t i = 0; i < 5; i++) {
-    CollidingKey& key = keys[i];
-    int& value_base = value_bases[i];
+    for (size_t i = 0; i < 5; i++) {
+        CollidingKey& key = keys[i];
+        int& value_base = value_bases[i];
 
-    // {}
-    ASSERT_EQ(nullptr, cache.get(key).get());
+        // {}
+        ASSERT_EQ(nullptr, cache.get(key).get());
 
-    auto value = cache.emplace_and_get(key, value_base, 1.0f);
+        auto value = cache.emplace_and_get(key, value_base, 1.0f);
 
-    ASSERT_EQ(nullptr, cache.get(key).get());
+        ASSERT_EQ(nullptr, cache.get(key).get());
 
-    value.release();
+        value.release();
 
-    // 1
-    value = cache.get(key);
+        // 1
+        value = cache.get(key);
 
-    ASSERT_NE(nullptr, value.get());
+        ASSERT_NE(nullptr, value.get());
 
-    value.release();
+        value.release();
 
-    auto value2 = cache.emplace_and_get(key, value_base + 1, 1.0f);
+        auto value2 = cache.emplace_and_get(key, value_base + 1, 1.0f);
 
-    value = cache.get(key);
+        value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    value.release();
-    value2.release();
-    // 2 -> 1
-  }
+        value.release();
+        value2.release();
+        // 2 -> 1
+    }
 
-  ASSERT_EQ(10, cache.size());
-  ASSERT_EQ(10, cache.number_of_available_objects());
+    ASSERT_EQ(10, cache.size());
+    ASSERT_EQ(10, cache.number_of_available_objects());
 
-  for (size_t i = 0; i < 5; i++) {
-    CollidingKey& key = keys[i];
-    int& value_base = value_bases[i];
+    for (size_t i = 0; i < 5; i++) {
+        CollidingKey& key = keys[i];
+        int& value_base = value_bases[i];
 
-    // 2 -> 1
-    auto value2 = cache.get(key);
+        // 2 -> 1
+        auto value2 = cache.get(key);
 
-    ASSERT_EQ(value_base + 1, value2.get()->i);
+        ASSERT_EQ(value_base + 1, value2.get()->i);
 
-    auto value = cache.get(key);
+        auto value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    value2.release();
-    value.release();
+        value2.release();
+        value.release();
 
-    // 1 -> 2
+        // 1 -> 2
 
-    value = cache.get(key);
+        value = cache.get(key);
 
-    ASSERT_EQ(value_base, value.get()->i);
+        ASSERT_EQ(value_base, value.get()->i);
 
-    cache.rehash();
+        cache.rehash();
 
-    value2 = cache.get(key);
+        value2 = cache.get(key);
 
-    ASSERT_EQ(value_base + 1, value2.get()->i);
+        ASSERT_EQ(value_base + 1, value2.get()->i);
 
-    value.release();
-    value2.release();
-    // 2 -> 1
+        value.release();
+        value2.release();
+        // 2 -> 1
 
-    cache.rehash();
-  }
+        cache.rehash();
+    }
 }
 
 } // namespace doris
