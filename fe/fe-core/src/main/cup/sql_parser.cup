@@ -3450,6 +3450,10 @@ opt_default_value ::=
     {:
         RESULT = new ColumnDef.DefaultValue(true, value);
     :}
+    | KW_DEFAULT INTEGER_LITERAL:value
+    {:
+        RESULT = new ColumnDef.DefaultValue(true, value);
+    :}
     | KW_DEFAULT KW_NULL
     {:
         RESULT = ColumnDef.DefaultValue.NULL_DEFAULT_VALUE;

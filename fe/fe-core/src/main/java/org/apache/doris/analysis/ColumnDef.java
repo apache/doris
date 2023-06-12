@@ -69,9 +69,13 @@ public class ColumnDef {
         // used for column which defaultValue is an expression.
         public DefaultValueExprDef defaultValueExprDef;
 
-        public DefaultValue(boolean isSet, String value) {
+        public DefaultValue(boolean isSet, Object value) {
+            if (value instanceof String) {
+                this.value = (String) value;
+            } else if (value instanceof Long) {
+                this.value = String.valueOf(value);
+            }
             this.isSet = isSet;
-            this.value = value;
             this.defaultValueExprDef = null;
         }
 
