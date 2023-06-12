@@ -323,11 +323,11 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
-    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-    runtime_profile()->add_child(memory_usage, false, nullptr);
-    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
-    _serialize_key_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _serialize_key_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
