@@ -317,7 +317,7 @@ class Syncer {
 
             partitionRecord.partitionRecords.forEach {
                 String partitionSQL = metaSQL + "/" + tableId.toString() + "/partitions/"
-                                                    + it.toString()
+                                                    + it.partitionId.toString()
                 sqlInfo = suite.sql(partitionSQL + "'")
                 PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, it.version)
                 partitionSQL += "/" + partitionMeta.indexId.toString()
