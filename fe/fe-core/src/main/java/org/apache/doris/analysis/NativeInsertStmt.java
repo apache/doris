@@ -44,7 +44,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.JdbcExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
@@ -497,13 +496,16 @@ public class NativeInsertStmt extends InsertStmt {
         // should try to insert default values for all columns in tbl if set
         if (isValuesOrConstantSelect) {
             final ValueList valueList = ((SelectStmt) queryStmt).getValueList();
-            if (valueList != null && valueList.getFirstRow().isEmpty()) {
+            if (valueList != null && valueList.getFirstRow().isEmpty() && CollectionUtils.isEmpty(targetColumnNames)) {
                 final int rowSize = mentionedColumns.size();
+                final List<String> colLabels = queryStmt.getColLabels();
                 final List<Expr> resultExprs = queryStmt.getResultExprs();
                 Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
                 for (int i = 0; i < rowSize; i++) {
                     resultExprs.add(new IntLiteral(1));
-                    valueList.getFirstRow().add(new DefaultValueExpr());
+                    final DefaultValueExpr defaultValueExpr = new DefaultValueExpr();
+                    valueList.getFirstRow().add(defaultValueExpr);
+                    colLabels.add(defaultValueExpr.toColumnLabel());
                 }
             }
         }

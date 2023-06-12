@@ -50,7 +50,7 @@ suite("test_insert") {
     qt_sql1 "select * from ${insert_tbl} order by 1, 2, 3, 4"
 
     def insert_tbl_dft = "test_insert_dft_tbl"
-    sql """ DROP TABLE IF EXISTS ${insert_tbl}"""
+    sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
     sql """
         CREATE TABLE ${insert_tbl_dft} (
             `k1` char(8) DEFAULT "hello",
@@ -67,5 +67,5 @@ suite("test_insert") {
 
     sql """ insert into ${insert_tbl_dft} values() """
 
-    qt_select """ select count(*) from ${insert_tbl_dft} """
+    qt_select """ select * from ${insert_tbl_dft} """
 }

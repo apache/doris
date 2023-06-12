@@ -11,3 +11,6 @@ true	3021	10	15
 true	25699	6	21
 true	2147483647	3	24
 
+-- !select --
+hello	world	0
+
