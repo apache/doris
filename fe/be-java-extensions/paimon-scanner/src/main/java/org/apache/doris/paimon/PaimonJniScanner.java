@@ -72,8 +72,6 @@ public class PaimonJniScanner extends JniScanner {
         lengthByte = Integer.parseInt(params.get("length_byte"));
         dbName = params.get("db_name");
         tblName = params.get("table_name");
-        LOG.info("columns_id:" + params.get("columns_id"));
-        LOG.info("types:" + params.get("columns_types"));
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = Arrays.stream(params.get("columns_types").split("#"))
             .map(s -> s.replaceAll("\\s+", ""))
@@ -128,8 +126,6 @@ public class PaimonJniScanner extends JniScanner {
                 while ((record = batch.next()) != null) {
                     columnValue.setOffsetRow((ColumnarRow) record);
                     for (int i = 0; i < ids.length; i++) {
-                        LOG.info("types:" + types[i].getPrecision() + types[i].getScale());
-                        LOG.info("isNullAt:" + ((ColumnarRow) record).isNullAt(i));
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
