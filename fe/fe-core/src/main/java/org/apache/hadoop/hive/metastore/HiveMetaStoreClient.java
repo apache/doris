@@ -217,8 +217,8 @@ import org.apache.hadoop.hive.metastore.utils.SecurityUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
 import shade.doris.hive.org.apache.thrift.TException;
 import shade.doris.hive.org.apache.thrift.protocol.TBinaryProtocol;
@@ -316,7 +316,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
   private final HiveVersion hiveVersion;
 
-  static final protected Logger LOG = LoggerFactory.getLogger(HiveMetaStoreClient.class);
+  private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClient.class);
 
   //copied from ErrorMsg.java
   public static final String REPL_EVENTS_MISSING_IN_METASTORE = "Notification events are missing in the meta store.";
