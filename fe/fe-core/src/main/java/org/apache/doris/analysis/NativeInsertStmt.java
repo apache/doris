@@ -44,6 +44,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.JdbcExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
@@ -63,6 +64,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -490,6 +492,21 @@ public class NativeInsertStmt extends InsertStmt {
         // parse query statement
         queryStmt.setFromInsert(true);
         queryStmt.analyze(analyzer);
+
+        // deal with this case: insert into tbl values();
+        // should try to insert default values for all columns in tbl if set
+        if (isValuesOrConstantSelect) {
+            final ValueList valueList = ((SelectStmt) queryStmt).getValueList();
+            if (valueList != null && valueList.getFirstRow().isEmpty()) {
+                final int rowSize = mentionedColumns.size();
+                final List<Expr> resultExprs = queryStmt.getResultExprs();
+                Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
+                for (int i = 0; i < rowSize; i++) {
+                    resultExprs.add(new IntLiteral(1));
+                    valueList.getFirstRow().add(new DefaultValueExpr());
+                }
+            }
+        }
 
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
