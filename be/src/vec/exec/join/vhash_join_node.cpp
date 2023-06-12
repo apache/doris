@@ -454,11 +454,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             memory_usage->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES);
 
     // Build phase
-    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
-    runtime_profile()->add_child(_build_phase_profile, false, nullptr);
-    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
     _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
     _build_side_merge_block_timer = ADD_TIMER(record_profile, "BuildSideMergeBlockTime");
@@ -466,26 +461,21 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
     _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
 
     // Probe phase
-    auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(probe_phase_profile, "ProbeTime");
+    auto probe_phase_profile = _probe_phase_profile;
     _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _probe_rows_counter = ADD_COUNTER(probe_phase_profile, "ProbeRows", TUnit::UNIT);
     _search_hashtable_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime");
     _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
+    _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
