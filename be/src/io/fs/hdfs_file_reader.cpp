@@ -72,7 +72,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t bytes_req = result.size;
     char* to = result.data;
-    bytes_req = std::min(bytes_req, _handle->file_size() - offset);
+    bytes_req = std::min(bytes_req, (size_t) (_handle->file_size() - offset));
     *bytes_read = 0;
     if (UNLIKELY(bytes_req == 0)) {
         return Status::OK();
