@@ -303,7 +303,7 @@ class Syncer {
         context.sourceDbId = binlogData.dbId
 
         String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString()
-        List<List<Object>> sqlInfo = suite.sql(metaSQL)
+        List<List<Object>> sqlInfo = suite.sql(metaSQL + "'")
 
         // Get table information
         for (List<Object> row : sqlInfo) {
