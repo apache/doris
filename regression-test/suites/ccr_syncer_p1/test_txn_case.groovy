@@ -86,7 +86,7 @@ suite("test_txn_case") {
     assertTrue(syncer.beginTxn("${txnTableName}"))
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
-    assertTrue(syncer.checkTargetVersion("${txnTableName}"))
+    assertTrue(syncer.checkTargetVersion())
     def res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
     assertTrue(res.size() == 1)
 
@@ -187,7 +187,7 @@ suite("test_txn_case") {
     assertTrue(syncer.getBackendClients())
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
-    assertTrue(syncer.checkTargetVersion("${txnTableName}"))
+    assertTrue(syncer.checkTargetVersion())
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
     assertTrue(res.size() == 1)
 
@@ -233,7 +233,7 @@ suite("test_txn_case") {
     // TODO: bugfix
     // def lastCommitInfo = syncer.copyCommitInfos()
     assertTrue(syncer.commitTxn())
-    assertTrue(syncer.checkTargetVersion("${txnTableName}"))
+    assertTrue(syncer.checkTargetVersion())
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
     assertTrue(res.size() == 1)
     // syncer.context.commitInfos = lastCommitInfo
@@ -286,7 +286,7 @@ suite("test_txn_case") {
     syncer.context.user = "${showPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue(syncer.commitTxn())
-    assertTrue(syncer.checkTargetVersion("${txnTableName}"))
+    assertTrue(syncer.checkTargetVersion())
     res = target_sql """SELECT * FROM ${txnTableName} WHERE test=${test_num}"""
     assertTrue(res.size() == 1)
 

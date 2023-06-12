@@ -297,6 +297,7 @@ class Syncer {
     }
 
     void getSourceMeta(BinlogData binlogData) {
+        logger.info("data struct: ${binlogData}")
         context.sourceTableIdToName.clear()
         context.sourceTableMap.clear()
 
@@ -316,8 +317,7 @@ class Syncer {
             TableMeta tableMeta = new TableMeta(tableId)
 
             partitionRecord.partitionRecords.forEach {
-                String partitionSQL = metaSQL + "/" + tableId.toString() + "/partitions/"
-                                                    + it.partitionId.toString()
+                String partitionSQL = metaSQL + "/" + tableId.toString() + "/partitions/" + it.partitionId.toString()
                 sqlInfo = suite.sql(partitionSQL + "'")
                 PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, it.version)
                 partitionSQL += "/" + partitionMeta.indexId.toString()
@@ -501,7 +501,9 @@ class Syncer {
 
         // step 2: Begin ingest binlog
         // step 2.1: ingest each table in meta
-        context.sourceTableMap.forEach((tableName, srcTableMeta) -> {
+        for (Entry<String, TableMeta> tableInfo : context.sourceTableMap) {
+            String tableName = tableInfo.key
+            TableMeta srcTableMeta = tableInfo.value
             TableMeta tarTableMeta = context.targetTableMap.get(tableName)
 
             Iterator sourcePartitionIter = srcTableMeta.partitionMap.iterator()
@@ -546,14 +548,13 @@ class Syncer {
                     logger.info("request -> ${request}")
                     TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
                     if (!checkIngestBinlog(result)) {
-                        logger.error("Ingest result error.")
                         return false
                     }
 
                     addCommitInfo(tarTabletMap.key, tarTabletMap.value)
                 }
             }
-        })
+        }
 
         return true
     }

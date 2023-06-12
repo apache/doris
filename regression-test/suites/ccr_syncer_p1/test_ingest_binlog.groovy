@@ -67,7 +67,7 @@ suite("test_ingest_binlog") {
         assertTrue(syncer.getBackendClients())
         assertTrue(syncer.ingestBinlog())
         assertTrue(syncer.commitTxn())
-        assertTrue(syncer.checkTargetVersion("${tableName}"))
+        assertTrue(syncer.checkTargetVersion())
         syncer.closeBackendClients()
     }
 
@@ -109,7 +109,7 @@ suite("test_ingest_binlog") {
     logger.info("=== Test 2.4: Right case")
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
-    assertTrue(syncer.checkTargetVersion("${tableName}"))
+    assertTrue(syncer.checkTargetVersion())
     res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
     assertTrue(res.size() == 1)
 
