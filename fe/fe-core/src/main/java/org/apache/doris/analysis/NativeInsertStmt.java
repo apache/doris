@@ -500,11 +500,9 @@ public class NativeInsertStmt extends InsertStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        List<Column> baseColumns = targetTable.getBaseSchema();
-        int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
-        for (int i = 0; i < size; i++) {
-            slotToIndex.put(baseColumns.get(i).getName(),
-                    queryStmt.getResultExprs().get(i).checkTypeCompatibility(baseColumns.get(i).getType()));
+        for (int i = 0; i < targetColumnNames.size(); i++) {
+            slotToIndex.put(targetColumnNames.get(i), queryStmt.getResultExprs().get(i)
+                    .checkTypeCompatibility(targetTable.getColumn(targetColumnNames.get(i)).getType()));
         }
 
         // handle VALUES() or SELECT constant list
