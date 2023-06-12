@@ -183,7 +183,7 @@ private:
                     col_default_value_ctx);
 
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                bool* valid);                                   
+                                bool* valid);
 
     RuntimeState* _state;
     RuntimeProfile* _profile;

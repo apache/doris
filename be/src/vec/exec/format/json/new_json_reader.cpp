@@ -151,7 +151,8 @@ void NewJsonReader::_init_file_description() {
 }
 
 Status NewJsonReader::init_reader(
-        const std::unordered_map<std::string, vectorized::VExprContextSPtr>& col_default_value_ctx) {    
+        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                col_default_value_ctx) {
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
 
@@ -903,7 +904,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
                     slot_desc->col_name(), valid));
             return Status::OK();
         }
-        
+
         // return immediately to prevent from repeatedly insert_data
         *valid = true;
         return Status::OK();
@@ -1685,7 +1686,8 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
 
 Status NewJsonReader::_get_column_default_value(
         const std::vector<SlotDescriptor*>& slot_descs,
-        const std::unordered_map<std::string, vectorized::VExprContextSPtr>& col_default_value_ctx) {
+        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                col_default_value_ctx) {
     for (auto slot_desc : slot_descs) {
         auto it = col_default_value_ctx.find(slot_desc->col_name());
         if (it != col_default_value_ctx.end() && it->second != nullptr) {
