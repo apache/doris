@@ -345,6 +345,7 @@ else
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 fi
 
+MACHINE_OS=$(uname -s)
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     max_fd_limit='-XX:-MaxFDLimit'
 
@@ -364,7 +365,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
 export UBSAN_OPTIONS=print_stacktrace=1
-export JAVA_OPTS="-Xmx1024m -DlogPath=$DORIS_HOME/log/jni.log -Xloggc:$DORIS_HOME/log/be.gc.log.$CUR_DATE -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
+export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
 
 # find all executable test files
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
