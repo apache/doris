@@ -66,10 +66,9 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
+            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                            "string column length is too large: total_length={}, element_number={}",
+                            total_length, element_number);
         }
     }
 
@@ -137,7 +136,7 @@ public:
     }
 
     void insert(const Field& x) override {
-        const String& s = doris::vectorized::get<const String&>(x);
+        const String& s = vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
         const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;

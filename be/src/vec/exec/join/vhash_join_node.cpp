@@ -437,21 +437,16 @@ Status HashJoinNode::prepare(RuntimeState* state) {
         }
     }
 
-    //some profile record of build phase are useless when it's shared hash table so add in faker profile
-    RuntimeProfile* memory_usage = nullptr;
-    if (_should_build_hash_table) {
-        memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-        runtime_profile()->add_child(memory_usage, false, nullptr);
-    } else {
-        memory_usage = faker_runtime_profile();
-    }
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
 
-    _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
-    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
-    _build_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES);
-    _probe_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES);
+    _build_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _build_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "BuildKeyArena", TUnit::BYTES, "MemoryUsage");
+    _probe_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
