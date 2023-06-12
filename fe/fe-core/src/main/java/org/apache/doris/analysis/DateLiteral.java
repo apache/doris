@@ -347,7 +347,7 @@ public class DateLiteral extends LiteralExpr {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {
                     try {
-                        dateTime = formatter.parse(s);
+                        dateTime = formatter.withResolverStyle(ResolverStyle.STRICT).parse(s);
                         parsed = true;
                         break;
                     } catch (DateTimeParseException ex) {
