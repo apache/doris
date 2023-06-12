@@ -92,3 +92,25 @@ inline std::string Exception::to_string() const {
             }                                                                                    \
         }                                                                                        \
     } while (0)
+
+#define RETURN_IF_ERROR_OR_CATCH_EXCEPTION(stmt)                                                 \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            {                                                                                    \
+                Status _status_ = (stmt);                                                        \
+                if (UNLIKELY(!_status_.ok())) {                                                  \
+                    return _status_;                                                             \
+                }                                                                                \
+            }                                                                                    \
+        } catch (const doris::Exception& e) {                                                    \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                return Status::MemoryLimitExceeded(fmt::format(                                  \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            } else {                                                                             \
+                return Status::Error(e.code(), e.to_string());                                   \
+            }                                                                                    \
+        }                                                                                        \
+    } while (0)

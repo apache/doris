@@ -214,16 +214,6 @@
                         "lakehouse/multi-catalog/faq"
                     ]
                 },
-                {
-                    "type": "category",
-                    "label": "External Table",
-                    "items": [
-                        "lakehouse/external-table/es",
-                        "lakehouse/external-table/jdbc",
-                        "lakehouse/external-table/odbc",
-                        "lakehouse/external-table/hive"
-                    ]
-                },
                 "lakehouse/file",
                 "lakehouse/filecache"
             ]

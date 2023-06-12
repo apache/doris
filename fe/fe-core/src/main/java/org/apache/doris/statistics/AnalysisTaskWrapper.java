@@ -76,12 +76,12 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         }
     }
 
-    public boolean cancel() {
+    public boolean cancel(String msg) {
         try {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", task.toString()));
+            LOG.warn(String.format("Cancel job failed job info : %s", msg));
         }
         return super.cancel(false);
     }

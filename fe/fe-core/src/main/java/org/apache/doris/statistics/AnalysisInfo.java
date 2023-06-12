@@ -17,12 +17,16 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,7 +38,6 @@ import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.StringJoiner;
 
@@ -71,62 +74,94 @@ public class AnalysisInfo implements Writable {
         AUTOMATIC
     }
 
+    @SerializedName("jobId")
     public final long jobId;
 
+    @SerializedName("taskId")
     public final long taskId;
 
+    @SerializedName("catalogName")
     public final String catalogName;
 
+    @SerializedName("dbName")
     public final String dbName;
 
+    @SerializedName("tblName")
     public final String tblName;
 
+    @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
+    @SerializedName("partitionNames")
+    public final Set<String> partitionNames;
+
+    @SerializedName("colName")
     public final String colName;
 
+    @SerializedName("indexId")
     public final long indexId;
 
+    @SerializedName("jobType")
     public final JobType jobType;
 
+    @SerializedName("analysisMode")
     public final AnalysisMode analysisMode;
 
+    @SerializedName("analysisMethod")
     public final AnalysisMethod analysisMethod;
 
+    @SerializedName("analysisType")
     public final AnalysisType analysisType;
 
+    @SerializedName("samplePercent")
     public final int samplePercent;
 
+    @SerializedName("sampleRows")
     public final int sampleRows;
 
+    @SerializedName("maxBucketNum")
     public final int maxBucketNum;
 
+    @SerializedName("periodTimeInMs")
     public final long periodTimeInMs;
 
     // finished or failed
+    @SerializedName("lastExecTimeInMs")
     public long lastExecTimeInMs;
 
+    @SerializedName("state")
     public AnalysisState state;
 
+    @SerializedName("scheduleType")
     public final ScheduleType scheduleType;
 
+    @SerializedName("message")
     public String message;
 
     // True means this task is a table level task for external table.
     // This kind of task is mainly to collect the number of rows of a table.
+    @SerializedName("externalTableLevelTask")
     public boolean externalTableLevelTask;
 
+    @SerializedName("partitionOnly")
+    public boolean partitionOnly;
+
+    @SerializedName("samplingPartition")
+    public boolean samplingPartition;
+
     public AnalysisInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
-            Map<String, Set<String>> colToPartitions, String colName, Long indexId, JobType jobType,
-            AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
+            Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
+            JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
-            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask) {
+            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask,
+            boolean partitionOnly, boolean samplingPartition) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
         this.colToPartitions = colToPartitions;
+        this.partitionNames = partitionNames;
         this.colName = colName;
         this.indexId = indexId;
         this.jobType = jobType;
@@ -142,6 +177,8 @@ public class AnalysisInfo implements Writable {
         this.state = state;
         this.scheduleType = scheduleType;
         this.externalTableLevelTask = isExternalTableLevelTask;
+        this.partitionOnly = partitionOnly;
+        this.samplingPartition = samplingPartition;
     }
 
     @Override
@@ -257,71 +294,50 @@ public class AnalysisInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(jobId);
-        out.writeLong(taskId);
-        Text.writeString(out, catalogName);
-        Text.writeString(out, dbName);
-        Text.writeString(out, tblName);
-        out.writeInt(colToPartitions.size());
-        for (Entry<String, Set<String>> entry : colToPartitions.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (String part : entry.getValue()) {
-                Text.writeString(out, part);
-            }
-        }
-        Text.writeString(out, colName);
-        out.writeLong(indexId);
-        Text.writeString(out, jobType.toString());
-        Text.writeString(out, analysisMode.toString());
-        Text.writeString(out, analysisMethod.toString());
-        Text.writeString(out, analysisType.toString());
-        out.writeInt(samplePercent);
-        out.writeInt(sampleRows);
-        out.writeInt(maxBucketNum);
-        out.writeLong(periodTimeInMs);
-        out.writeLong(lastExecTimeInMs);
-        Text.writeString(out, state.toString());
-        Text.writeString(out, scheduleType.toString());
-        Text.writeString(out, message);
-        out.writeBoolean(externalTableLevelTask);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static AnalysisInfo read(DataInput dataInput) throws IOException {
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-        analysisInfoBuilder.setJobId(dataInput.readLong());
-        long taskId = dataInput.readLong();
-        analysisInfoBuilder.setTaskId(taskId);
-        analysisInfoBuilder.setCatalogName(Text.readString(dataInput));
-        analysisInfoBuilder.setDbName(Text.readString(dataInput));
-        analysisInfoBuilder.setTblName(Text.readString(dataInput));
-        int size = dataInput.readInt();
-        Map<String, Set<String>> colToPartitions = new HashMap<>();
-        for (int i = 0; i < size; i++) {
-            String k = Text.readString(dataInput);
-            int partSize = dataInput.readInt();
-            Set<String> parts = new HashSet<>();
-            for (int j = 0; j < partSize; j++) {
-                parts.add(Text.readString(dataInput));
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_123) {
+            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
+            analysisInfoBuilder.setJobId(dataInput.readLong());
+            long taskId = dataInput.readLong();
+            analysisInfoBuilder.setTaskId(taskId);
+            analysisInfoBuilder.setCatalogName(Text.readString(dataInput));
+            analysisInfoBuilder.setDbName(Text.readString(dataInput));
+            analysisInfoBuilder.setTblName(Text.readString(dataInput));
+            int size = dataInput.readInt();
+            Map<String, Set<String>> colToPartitions = new HashMap<>();
+            for (int i = 0; i < size; i++) {
+                String k = Text.readString(dataInput);
+                int partSize = dataInput.readInt();
+                Set<String> parts = new HashSet<>();
+                for (int j = 0; j < partSize; j++) {
+                    parts.add(Text.readString(dataInput));
+                }
+                colToPartitions.put(k, parts);
             }
-            colToPartitions.put(k, parts);
+            analysisInfoBuilder.setColToPartitions(colToPartitions);
+            analysisInfoBuilder.setColName(Text.readString(dataInput));
+            analysisInfoBuilder.setIndexId(dataInput.readLong());
+            analysisInfoBuilder.setJobType(JobType.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setSamplePercent(dataInput.readInt());
+            analysisInfoBuilder.setSampleRows(dataInput.readInt());
+            analysisInfoBuilder.setMaxBucketNum(dataInput.readInt());
+            analysisInfoBuilder.setPeriodTimeInMs(dataInput.readLong());
+            analysisInfoBuilder.setLastExecTimeInMs(dataInput.readLong());
+            analysisInfoBuilder.setState(AnalysisState.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(Text.readString(dataInput)));
+            analysisInfoBuilder.setMessage(Text.readString(dataInput));
+            analysisInfoBuilder.setExternalTableLevelTask(dataInput.readBoolean());
+            return analysisInfoBuilder.build();
+        } else {
+            String json = Text.readString(dataInput);
+            return GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
         }
-        analysisInfoBuilder.setColToPartitions(colToPartitions);
-        analysisInfoBuilder.setColName(Text.readString(dataInput));
-        analysisInfoBuilder.setIndexId(dataInput.readLong());
-        analysisInfoBuilder.setJobType(JobType.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setSamplePercent(dataInput.readInt());
-        analysisInfoBuilder.setSampleRows(dataInput.readInt());
-        analysisInfoBuilder.setMaxBucketNum(dataInput.readInt());
-        analysisInfoBuilder.setPeriodTimeInMs(dataInput.readLong());
-        analysisInfoBuilder.setLastExecTimeInMs(dataInput.readLong());
-        analysisInfoBuilder.setState(AnalysisState.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(Text.readString(dataInput)));
-        analysisInfoBuilder.setMessage(Text.readString(dataInput));
-        analysisInfoBuilder.setExternalTableLevelTask(dataInput.readBoolean());
-        return analysisInfoBuilder.build();
     }
 }

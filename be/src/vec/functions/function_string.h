@@ -60,14 +60,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/io/io_helper.h"
+
 #ifndef USE_LIBCPP
 #include <memory_resource>
-
 #define PMR std::pmr
 #else
 #include <boost/container/pmr/monotonic_buffer_resource.hpp>
 #include <boost/container/pmr/vector.hpp>
-
 #define PMR boost::container::pmr
 #endif
 
@@ -408,19 +407,25 @@ public:
         if (arguments.size() > 1) {
             auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) upper = *string_ref.data;
+            if (string_ref.size > 0) {
+                upper = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 2) {
             auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) lower = *string_ref.data;
+            if (string_ref.size > 0) {
+                lower = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 3) {
             auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) number = *string_ref.data;
+            if (string_ref.size > 0) {
+                number = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 4) {
@@ -536,10 +541,14 @@ private:
             int len = offsets[i] - offset;
             if constexpr (Reverse) {
                 auto start = std::max(len - n, 0);
-                if (start > 0) memcpy(&res[offset], &chars[offset], start);
+                if (start > 0) {
+                    memcpy(&res[offset], &chars[offset], start);
+                }
                 offset += start;
             } else {
-                if (n < len) memcpy(&res[offset + n], &chars[offset + n], len - n);
+                if (n < len) {
+                    memcpy(&res[offset + n], &chars[offset + n], len - n);
+                }
             }
 
             len = std::min(n, len);
@@ -2179,9 +2188,13 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
     }
     for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
         *(result_data + j) = *(value.data() + i);
-        if (i - 1 < 0) break;
+        if (i - 1 < 0) {
+            break;
+        }
         *(result_data + j - 1) = *(value.data() + i - 1);
-        if (i - 2 < 0) break;
+        if (i - 2 < 0) {
+            break;
+        }
         *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
             *(result_data + j - 3) = ',';
@@ -2693,7 +2706,7 @@ public:
                     "character argument to convert function must be constant.");
         }
         const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
-        if (!doris::iequal(character_data.to_string(), "gbk")) {
+        if (!iequal(character_data.to_string(), "gbk")) {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
                     "convert to character set of gbk");

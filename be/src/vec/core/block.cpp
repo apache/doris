@@ -828,8 +828,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(codec->compress(
-                Slice(column_values.data(), content_uncompressed_size), &buf_compressed)));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
+                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
         size_t compressed_size = buf_compressed.size();
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -134,6 +135,7 @@ import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -751,6 +753,33 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        Database db = (Database) getDbOrDdlException(dbName);
+        Map<String, String> properties = stmt.getProperties();
+
+        db.writeLockOrDdlException();
+        try {
+            db.updateDbProperties(properties);
+
+            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
+            Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
+            throws MetaNotFoundException {
+        Database db = (Database) getDbOrMetaException(dbName);
+        db.writeLock();
+        try {
+            db.updateDbProperties(properties);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
         String fullDbName = stmt.getDbName();
         String newFullDbName = stmt.getNewDbName();
@@ -1315,16 +1344,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         String partitionName = singlePartitionDesc.getPartitionName();
 
         // check
-        Table table = db.getOlapTableOrDdlException(tableName);
-        // check state
-        OlapTable olapTable = (OlapTable) table;
-
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.readLock();
         try {
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
-            }
-
+            olapTable.checkNormalStateForAlter();
             // check partition type
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
@@ -1483,14 +1506,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.skipWriteIndexOnLoad(), olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
             // check again
-            table = db.getOlapTableOrDdlException(tableName);
-            table.writeLockOrDdlException();
+            olapTable = db.getOlapTableOrDdlException(tableName);
+            olapTable.writeLockOrDdlException();
             try {
-                olapTable = (OlapTable) table;
-                if (olapTable.getState() != OlapTableState.NORMAL) {
-                    throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
-                }
-
+                olapTable.checkNormalStateForAlter();
                 // check partition name
                 if (olapTable.checkPartitionNameExist(partitionName)) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
@@ -1558,7 +1577,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
             } finally {
-                table.writeUnlock();
+                olapTable.writeUnlock();
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
@@ -1619,10 +1638,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String partitionName = clause.getPartitionName();
         boolean isTempPartition = clause.isTempPartition();
 
-        if (olapTable.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
-        }
-
+        olapTable.checkNormalStateForAlter();
         if (!olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
             if (clause.isSetIfExists()) {
                 LOG.info("drop partition[{}] which does not exist", partitionName);
@@ -2652,7 +2668,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         TableName dbTbl = tblRef.getName();
 
         // check, and save some info which need to be checked again later
-        Map<String, Long> origPartitions = Maps.newHashMap();
+        Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
@@ -2663,10 +2679,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         olapTable.readLock();
         try {
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
-            }
-
+            olapTable.checkNormalStateForAlter();
             if (!truncateEntireTable) {
                 for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
@@ -2732,10 +2745,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
         olapTable.writeLockOrDdlException();
         try {
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
-            }
-
+            olapTable.checkNormalStateForAlter();
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
                 Partition partition = copiedTbl.getPartition(entry.getValue());

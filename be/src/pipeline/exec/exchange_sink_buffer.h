@@ -32,6 +32,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -163,8 +164,8 @@ public:
     bool can_write() const;
     bool is_pending_finish() const;
     void close();
-    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_profile(RuntimeProfile* profile);
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -191,7 +192,7 @@ private:
     // Sender instance id, unique within a fragment. StreamSender save the variable
     int _sender_id;
     int _be_number;
-
+    std::atomic<int64_t> _rpc_count = 0;
     PipelineFragmentContext* _context;
 
     Status _send_rpc(InstanceLoId);
@@ -201,6 +202,8 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
+    int64_t get_sum_rpc_time();
 };
 
 } // namespace pipeline

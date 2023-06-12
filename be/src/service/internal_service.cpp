@@ -147,9 +147,8 @@ class NewHttpClosure : public ::google::protobuf::Closure {
 public:
     NewHttpClosure(google::protobuf::Closure* done) : _done(done) {}
     NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
-    ~NewHttpClosure() {}
 
-    void Run() {
+    void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (_request != nullptr) {
             delete _request;
@@ -285,7 +284,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     try {
         st = _exec_plan_fragment(request->request(), version, compact);
-    } catch (const doris::Exception& e) {
+    } catch (const Exception& e) {
         st = Status::Error(e.code(), e.to_string());
     }
     if (!st.ok()) {
