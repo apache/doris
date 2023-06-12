@@ -421,6 +421,7 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | VARCHAR | VARCHAR | |
 | STRING | STRING | |
 | TEXT | STRING | |
+| HLL | HLL | `return_object_data_as_binary=true` is required when query HLL column |
 |Other| UNSUPPORTED |
 
 ### SAP HANA
