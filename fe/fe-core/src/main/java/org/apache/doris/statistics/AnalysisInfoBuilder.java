@@ -33,6 +33,7 @@ public class AnalysisInfoBuilder {
     private String dbName;
     private String tblName;
     private Map<String, Set<String>> colToPartitions;
+    private Set<String> partitionNames;
     private String colName;
     private long indexId = -1L;
     private JobType jobType;
@@ -48,6 +49,8 @@ public class AnalysisInfoBuilder {
     private ScheduleType scheduleType;
     private String message = "";
     private boolean externalTableLevelTask;
+    private boolean partitionOnly;
+    private boolean samplingPartition;
 
     public AnalysisInfoBuilder() {
     }
@@ -59,6 +62,7 @@ public class AnalysisInfoBuilder {
         dbName = info.dbName;
         tblName = info.tblName;
         colToPartitions = info.colToPartitions;
+        partitionNames = info.partitionNames;
         colName = info.colName;
         indexId = info.indexId;
         jobType = info.jobType;
@@ -73,6 +77,9 @@ public class AnalysisInfoBuilder {
         lastExecTimeInMs = info.lastExecTimeInMs;
         state = info.state;
         scheduleType = info.scheduleType;
+        externalTableLevelTask = info.externalTableLevelTask;
+        partitionOnly = info.partitionOnly;
+        samplingPartition = info.samplingPartition;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -107,6 +114,11 @@ public class AnalysisInfoBuilder {
 
     public AnalysisInfoBuilder setColName(String colName) {
         this.colName = colName;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setPartitionNames(Set<String> partitionNames) {
+        this.partitionNames = partitionNames;
         return this;
     }
 
@@ -180,11 +192,21 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setPartitionOnly(boolean isPartitionOnly) {
+        this.partitionOnly = isPartitionOnly;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setSamplingPartition(boolean samplingPartition) {
+        this.samplingPartition = samplingPartition;
+        return this;
+    }
+
     public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions,
+        return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
-                externalTableLevelTask);
+                externalTableLevelTask, partitionOnly, samplingPartition);
     }
 
     public AnalysisInfoBuilder copy() {
@@ -209,6 +231,6 @@ public class AnalysisInfoBuilder {
                 .setLastExecTimeInMs(lastExecTimeInMs)
                 .setState(state)
                 .setScheduleType(scheduleType)
-                .setExternalTableLevelTask(false);
+                .setExternalTableLevelTask(externalTableLevelTask);
     }
 }

@@ -636,7 +636,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `segcompaction_small_threshold`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
 
 #### `disable_compaction_trace_log`

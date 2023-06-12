@@ -355,6 +355,15 @@ public:
         return false;
     }
 
+    bool has_hll_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_hll_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     TupleId id() const { return _id; }
 
     std::string debug_string() const;

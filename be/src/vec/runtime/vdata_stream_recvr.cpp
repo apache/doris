@@ -320,9 +320,8 @@ VDataStreamRecvr::VDataStreamRecvr(
     }
 
     // Initialize the counters
-    auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
-    _profile->add_child(memory_usage, false, nullptr);
-    _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
+    _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 

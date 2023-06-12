@@ -28,6 +28,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <map>
+#include <memory>
 #include <new>
 #include <ostream>
 #include <type_traits>
@@ -421,31 +422,50 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
+    _should_build_hash_table = true;
+    if (_is_broadcast_join) {
+        runtime_profile()->add_info_string("BroadcastJoin", "true");
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
+            _shared_hashtable_controller =
+                    state->get_query_ctx()->get_shared_hash_table_controller();
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
+            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
+                    state->fragment_instance_id(), id());
+        } else {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
+        }
+    }
 
-    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-    runtime_profile()->add_child(memory_usage, false, nullptr);
-    _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
-    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
-    _build_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES);
-    _probe_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+
+    _build_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _build_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "BuildKeyArena", TUnit::BYTES, "MemoryUsage");
+    _probe_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
     _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
-    _build_table_insert_timer = ADD_TIMER(_build_phase_profile, "BuildTableInsertTime");
-    _build_expr_call_timer = ADD_TIMER(_build_phase_profile, "BuildExprCallTime");
-    _build_table_expanse_timer = ADD_TIMER(_build_phase_profile, "BuildTableExpanseTime");
-    _build_table_convert_timer =
-            ADD_TIMER(_build_phase_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
-    _build_side_compute_hash_timer = ADD_TIMER(_build_phase_profile, "BuildSideHashComputingTime");
-    _build_runtime_filter_timer = ADD_TIMER(_build_phase_profile, "BuildRuntimeFilterTime");
+
+    auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(record_profile, "BuildSideMergeBlockTime");
+    _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
+    _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
+    _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
+    _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
+    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
+    _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
+    _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
+    _push_down_timer = ADD_TIMER(record_profile, "PublishRuntimeFilterTime");
+    _push_compute_timer = ADD_TIMER(record_profile, "PushDownComputeTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -461,25 +481,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
-
-    _should_build_hash_table = true;
-    if (_is_broadcast_join) {
-        runtime_profile()->add_info_string("BroadcastJoin", "true");
-        if (state->enable_share_hash_table_for_broadcast_join()) {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
-            _shared_hashtable_controller =
-                    state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
-            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), id());
-        } else {
-            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
-        }
-    }
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
@@ -518,7 +521,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_null_in_probe_side;
+           !_short_circuit_for_probe;
 }
 
 void HashJoinNode::prepare_for_next() {
@@ -528,9 +531,8 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -661,9 +663,8 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -949,6 +950,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
+    _init_short_circuit_for_probe();
+
     return Status::OK();
 }
 
@@ -957,7 +960,7 @@ void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
          << " _probe_eos=" << _probe_eos
-         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+         << " _short_circuit_for_probe_side=" << _short_circuit_for_probe;
     *out << ")\n children=(";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";

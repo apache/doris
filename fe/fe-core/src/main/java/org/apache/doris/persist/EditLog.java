@@ -69,7 +69,6 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -917,8 +916,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CHANGE_MTMV_TASK: {
-                    final ChangeMTMVTask changeTask = (ChangeMTMVTask) journal.getData();
-                    env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
                 }
                 case OperationType.OP_DROP_MTMV_TASK: {
@@ -1025,6 +1022,13 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_ANALYSIS_TASK: {
                     env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                    AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
+                    LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);
+                    env.replayAlterDatabaseProperty(alterDatabasePropertyInfo.getDbName(),
+                            alterDatabasePropertyInfo.getProperties());
                     break;
                 }
                 default: {
@@ -1694,10 +1698,6 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
     }
 
-    public void logChangeMTMVTask(ChangeMTMVTask changeTaskRecord) {
-        logEdit(OperationType.OP_CHANGE_MTMV_TASK, changeTaskRecord);
-    }
-
     public void logDropMTMVTasks(List<String> taskIds) {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
     }
@@ -1792,5 +1792,9 @@ public class EditLog {
 
     public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
         logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
+    }
+
+    public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
+        logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
     }
 }

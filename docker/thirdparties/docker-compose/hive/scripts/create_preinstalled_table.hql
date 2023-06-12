@@ -594,4 +594,31 @@ CREATE TABLE `unsupported_type_table`(
   k6 int
 );
 
+CREATE TABLE `schema_evo_test_text`(
+  id int,
+  name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED by ',';
+insert into `schema_evo_test_text` select 1, "kaka";
+alter table `schema_evo_test_text` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_text` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_parquet`(
+  id int,
+  name string
+)
+stored as parquet;
+insert into `schema_evo_test_parquet` select 1, "kaka";
+alter table `schema_evo_test_parquet` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_parquet` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_orc`(
+  id int,
+  name string
+)
+stored as orc;
+insert into `schema_evo_test_orc` select 1, "kaka";
+alter table `schema_evo_test_orc` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
 show tables;

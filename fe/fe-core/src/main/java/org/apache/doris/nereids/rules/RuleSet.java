@@ -72,10 +72,12 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTE;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
@@ -84,6 +86,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTE;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTEAnchor;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
@@ -124,14 +127,17 @@ public class RuleSet {
             new PushdownFilterThroughSetOperation(),
             new PushdownFilterThroughWindow(),
             new PushdownProjectThroughLimit(),
-            new PushdownAliasThroughJoin(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
             new MergeLimits(),
             new PushdownFilterThroughCTE(),
-            new PushdownProjectThroughCTE());
+            new PushdownProjectThroughCTE(),
+            new PushdownFilterThroughCTEAnchor(),
+            new PushdownProjectThroughCTEAnchor(),
+            new PushdownAliasThroughJoin(),
+            new PushdownAliasIntoUnionAll());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProduceToPhysicalCTEProduce())

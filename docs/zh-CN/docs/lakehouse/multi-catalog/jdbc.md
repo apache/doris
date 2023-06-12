@@ -420,6 +420,7 @@ set enable_odbc_transcation = true;
 | VARCHAR | VARCHAR | |
 | STRING | STRING | |
 | TEXT | STRING | |
+| HLL | HLL | 查询HLL需要设置`return_object_data_as_binary=true` |
 |Other| UNSUPPORTED |
 
 ### SAP HANA

@@ -45,13 +45,15 @@ PhysicalLimit
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](web_sales.ws_bill_customer_sk = customer.c_customer_sk)
---------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+--------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[web_sales]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((date_dim.d_month_seq <= 1194)(date_dim.d_month_seq >= 1183))
-----------------------------------PhysicalOlapScan[date_dim]
+------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((date_dim.d_month_seq <= 1194)(date_dim.d_month_seq >= 1183))
+--------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer]

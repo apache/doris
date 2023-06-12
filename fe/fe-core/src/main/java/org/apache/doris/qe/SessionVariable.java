@@ -104,6 +104,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
+    public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
@@ -239,6 +240,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
 
+    public static final String ENABLE_FOLD_NONDETERMINISTIC_FN = "enable_fold_nondeterministic_fn";
+
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
@@ -344,6 +347,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
 
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
+
+    public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -533,6 +538,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
     public int parallelExecInstanceNum = 1;
 
+    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true)
+    public int parallelPipelineTaskNum = 0;
+
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
 
@@ -599,7 +607,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
-    public boolean enablePipelineEngine = false;
+    public boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
@@ -909,6 +917,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
+    public boolean enableFoldNondeterministicFn = true;
+
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
 
@@ -945,6 +956,14 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableOrcLazyMat = true;
 
     @VariableMgr.VarAttr(
+            name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
+            description = {"收集外表统计信息行数时选取的采样分区数，默认-1表示全部分区",
+                    "Number of sample partition for collecting external table line number, "
+                            + "default -1 means all partitions"},
+            needForward = false)
+    public int externalTableAnalyzePartNum = -1;
+
+    @VariableMgr.VarAttr(
             name = INLINE_CTE_REFERENCED_THRESHOLD
     )
     public int inlineCTEReferencedThreshold = 1;
@@ -964,6 +983,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
@@ -1338,9 +1358,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        if (enablePipelineEngine && parallelExecInstanceNum == 0) {
+        if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
             Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
             return beinfoCollector.getParallelExecInstanceNum();
+        } else if (enablePipelineEngine) {
+            return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;
         }
@@ -1703,6 +1725,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePartitionTopN = enablePartitionTopN;
     }
 
+    public boolean isEnableFoldNondeterministicFn() {
+        return enableFoldNondeterministicFn;
+    }
+
+    public void setEnableFoldNondeterministicFn(boolean enableFoldNondeterministicFn) {
+        this.enableFoldNondeterministicFn = enableFoldNondeterministicFn;
+    }
+
     public boolean isReturnObjectDataAsBinary() {
         return returnObjectDataAsBinary;
     }
@@ -1877,6 +1907,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isShowUserDefaultRole() {
         return showUserDefaultRole;
+    }
+
+    public int getExternalTableAnalyzePartNum() {
+        return externalTableAnalyzePartNum;
     }
 
     /**

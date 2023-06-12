@@ -447,7 +447,7 @@ Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> table
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = tablet->table_id();
     context.tablet = tablet;
-    context.is_direct_write = true;
+    context.write_type = DataWriteType::TYPE_DIRECT;
     RETURN_IF_ERROR(tablet->create_transient_rowset_writer(context, rowset_ptr->rowset_id(),
                                                            rowset_writer));
     (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());

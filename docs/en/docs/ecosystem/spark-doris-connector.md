@@ -39,6 +39,7 @@ Github: https://github.com/apache/doris-spark-connector
 
 | Connector | Spark         | Doris       | Java | Scala      |
 | --------- | ------------- |-------------| ---- | ---------- |
+| 1.2.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
 | 1.1.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
 | 1.0.1     | 3.1, 2.3      | 0.12 - 0.15 | 8    | 2.12, 2.11 |
 
@@ -52,22 +53,22 @@ Ready to work
 `sh build.sh`
 Follow the prompts to enter the Scala and Spark versions you need to start compiling.
 
-After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar`.
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar`.
 Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
-For example upload `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
+For example upload `spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
 
-1. Upload `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` Jar to hdfs.
+1. Upload `spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar` Jar to hdfs.
 
 ```
 hdfs dfs -mkdir /spark-jars/
-hdfs dfs -put /your_local_path/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar /spark-jars/
+hdfs dfs -put /your_local_path/spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar /spark-jars/
 ```
 
-2. Add `spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar` dependency in Cluster.
+2. Add `spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar` dependency in Cluster.
 
 ```
-spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT.jar
+spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.2.0-SNAPSHOT.jar
 ```
 
 
@@ -77,7 +78,7 @@ spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.1_2.12-1.1.0-SNAPSHOT
 <dependency>
     <groupId>org.apache.doris</groupId>
     <artifactId>spark-doris-connector-3.1_2.12</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
 </dependency>
 ```
 

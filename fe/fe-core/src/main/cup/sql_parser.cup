@@ -792,6 +792,7 @@ nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
+nonterminal String optional_on_ident;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -2604,7 +2605,7 @@ resource_desc ::=
 
 // Routine load statement
 create_routine_load_stmt ::=
-    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel KW_ON ident:tableName
+    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
     opt_with_merge_type:mergeType
     opt_load_property_list:loadPropertyList
     opt_properties:properties
@@ -2615,7 +2616,9 @@ create_routine_load_stmt ::=
          properties, type, customProperties, mergeType, comment);
     :}
     ;
-
+optional_on_ident ::= KW_ON ident:tableName 
+                    {: RESULT = tableName; :}
+                  | {: RESULT = null; :};
 opt_load_property_list ::=
     {:
         RESULT = null;
@@ -2788,7 +2791,7 @@ show_create_reporitory_stmt ::=
 // analyze statment
 analyze_stmt ::=
     // statistics
-    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols
+    KW_ANALYZE KW_TABLE table_name:tbl opt_partition_names:partitions opt_col_list:cols
       opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
@@ -2802,7 +2805,7 @@ analyze_stmt ::=
             properties.put("analysis.type", "FUNDAMENTALS");
         }
         AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeTblStmt(tbl, cols, analyzeProperties);
+        RESULT = new AnalyzeTblStmt(tbl, partitions, cols, analyzeProperties);
     :}
     | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
           opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
@@ -3236,6 +3239,10 @@ fixed_multi_partition_key_desc ::=
     {:
         RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
+    | KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval
+      {:
+          RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, num_interval);
+      :}
     ;
 
 partition_key_desc ::=
@@ -3285,6 +3292,10 @@ partition_value_list ::=
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
     /* multi partition keys : (1, "beijing") */
     | LPAREN partition_key_item_list:l RPAREN
     {:
@@ -3303,6 +3314,15 @@ partition_key_item_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | partition_key_item_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     ;
 
 partition_key_list ::=
@@ -3316,12 +3336,21 @@ partition_key_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | partition_key_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     | partition_key_list:l COMMA KW_MAX_VALUE
     {:
         l.add(PartitionValue.MAX_VALUE);
         RESULT = l;
     :}
     | STRING_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | INTEGER_LITERAL:item
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}

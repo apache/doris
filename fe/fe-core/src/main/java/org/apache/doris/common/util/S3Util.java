@@ -26,19 +26,22 @@ public class S3Util {
     private static final Logger LOG = LogManager.getLogger(S3Util.class);
 
     public static boolean isObjStorage(String location) {
+        return isS3CompatibleObjStorage(location) || location.startsWith(FeConstants.FS_PREFIX_OBS);
+    }
+
+    private static boolean isS3CompatibleObjStorage(String location) {
         return location.startsWith(FeConstants.FS_PREFIX_S3)
-            || location.startsWith(FeConstants.FS_PREFIX_S3A)
-            || location.startsWith(FeConstants.FS_PREFIX_S3N)
-            || location.startsWith(FeConstants.FS_PREFIX_GCS)
-            || location.startsWith(FeConstants.FS_PREFIX_BOS)
-            || location.startsWith(FeConstants.FS_PREFIX_COS)
-            || location.startsWith(FeConstants.FS_PREFIX_OSS)
-            || location.startsWith(FeConstants.FS_PREFIX_OBS);
+                || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                || location.startsWith(FeConstants.FS_PREFIX_GCS)
+                || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                || location.startsWith(FeConstants.FS_PREFIX_COS)
+                || location.startsWith(FeConstants.FS_PREFIX_OSS);
     }
 
     public static  String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
-        if (isObjStorage(location)) {
+        if (isS3CompatibleObjStorage(location)) {
             int pos = location.indexOf("://");
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
@@ -47,4 +50,5 @@ public class S3Util {
         }
         return location;
     }
+
 }

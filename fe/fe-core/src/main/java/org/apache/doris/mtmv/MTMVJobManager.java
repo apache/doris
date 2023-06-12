@@ -17,19 +17,22 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
-import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
+import org.apache.doris.mtmv.MTMVUtils.TaskSubmitStatus;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVCheckpointData;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob.JobSchedule;
@@ -88,8 +91,6 @@ public class MTMVJobManager {
 
     public void start() {
         if (isStarted.compareAndSet(false, true)) {
-            taskManager.clearUnfinishedTasks();
-
             // check the scheduler before using it
             // since it may be shutdown when master change to follower without process shutdown.
             if (periodScheduler.isShutdown()) {
@@ -219,11 +220,9 @@ public class MTMVJobManager {
                 periodFutureMap.put(job.getId(), future);
                 periodNum++;
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
-                if (job.getRetryPolicy() == TaskRetryPolicy.ALWAYS || job.getRetryPolicy() == TaskRetryPolicy.TIMES) {
-                    MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
-                    submitJobTask(job.getName(), executeOption);
-                    onceNum++;
-                }
+                MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
+                submitJobTask(job.getName(), executeOption);
+                onceNum++;
             }
         }
         LOG.info("Register {} period jobs and {} once jobs in the total {} jobs.", periodNum, onceNum, num);
@@ -267,7 +266,10 @@ public class MTMVJobManager {
                 if (!isReplay) {
                     Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
-                    submitJobTask(job.getName(), executeOption);
+                    MTMVUtils.TaskSubmitStatus status = submitJobTask(job.getName(), executeOption);
+                    if (status != TaskSubmitStatus.SUBMITTED) {
+                        throw new DdlException("submit job task with: " + status.toString());
+                    }
                 }
             } else if (job.getTriggerMode() == TriggerMode.MANUAL) {
                 // only change once job state from unknown to active. if job is completed, only put it in map
@@ -324,14 +326,12 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
-    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
-        for (String jobName : nameToJobMap.keySet()) {
-            MTMVJob job = nameToJobMap.get(jobName);
-            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                return submitJobTask(jobName);
-            }
-        }
-        throw new DdlException("No job find for the MaterializedView " + dbName + "." + mvName + " .");
+    public void refreshMTMV(String dbName, String mvName)
+            throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        MaterializedView mv = (MaterializedView) db.getTableOrMetaException(mvName, TableType.MATERIALIZED_VIEW);
+        MTMVJob mtmvJob = MTMVJobFactory.genOnceJob(mv, dbName);
+        createJob(mtmvJob, false);
     }
 
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName) {
@@ -477,10 +477,6 @@ public class MTMVJobManager {
         taskManager.replayCreateJobTask(task);
     }
 
-    public void replayUpdateTask(ChangeMTMVTask changeTask) {
-        taskManager.replayUpdateTask(changeTask);
-    }
-
     public void replayDropJobTasks(List<String> taskIds) {
         taskManager.dropTasks(taskIds, true);
     }
@@ -527,7 +523,7 @@ public class MTMVJobManager {
     public long write(DataOutputStream dos, long checksum) throws IOException {
         MTMVCheckpointData data = new MTMVCheckpointData();
         data.jobs = new ArrayList<>(nameToJobMap.values());
-        data.tasks = taskManager.showTasks(null);
+        data.tasks = Lists.newArrayList(taskManager.getHistoryTasks());
         String s = GsonUtils.GSON.toJson(data);
         Text.writeString(dos, s);
         return checksum;
@@ -553,7 +549,6 @@ public class MTMVJobManager {
         return mtmvJobManager;
     }
 
-    // for test only
     public MTMVTaskManager getTaskManager() {
         return taskManager;
     }

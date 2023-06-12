@@ -338,6 +338,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
     _page_no_cache_mem_tracker =
             std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+    _brpc_iobuf_block_memory_tracker =
+            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -409,6 +411,7 @@ void ExecEnv::_destroy() {
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
 
+    _new_load_stream_mgr.reset();
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);

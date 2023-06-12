@@ -1237,6 +1237,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         is_continue = true;
         return status;
     }
+    if ((*partition)->num_buckets <= 0) {
+        std::stringstream ss;
+        ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
+        return Status::InternalError(ss.str());
+    }
     _partition_ids.emplace((*partition)->id);
     if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
         if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
@@ -1684,7 +1689,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                 assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                         real_column_ptr.get()));
-
+        const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+        const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
@@ -1705,8 +1711,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
-                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
                 if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
@@ -1730,6 +1734,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
     auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
             assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
                     real_column_ptr.get()));                                                       \
+    const auto& max_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);     \
+    const auto& min_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);      \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \
@@ -1738,10 +1744,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         if (need_to_validate(j, row)) {                                                            \
             auto dec_val = column_decimal->get_data()[j];                                          \
             bool invalid = false;                                                                  \
-            const auto& max_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);               \
-            const auto& min_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);                \
             if (dec_val > max_decimal || dec_val < min_decimal) {                                  \
                 fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");      \
                 fmt::format_to(error_msg, ", value={}", dec_val);                                  \

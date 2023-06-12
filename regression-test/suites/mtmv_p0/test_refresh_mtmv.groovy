@@ -19,6 +19,7 @@ suite("test_refresh_mtmv") {
     def tableName = "t_test_refresh_mtmv_user"
     def tableNamePv = "t_test_refresh_mtmv_user_pv"
     def mvName = "multi_mv_test_refresh_mtmv"
+    def mvNameDemand = "multi_mv_test_refresh_demand_mtmv"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${tableNamePv}`"""
@@ -81,5 +82,29 @@ suite("test_refresh_mtmv") {
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
+    """
+
+    sql """drop materialized view if exists ${mvNameDemand}"""
+
+    sql """
+            CREATE MATERIALIZED VIEW ${mvNameDemand}
+            BUILD DEFERRED REFRESH COMPLETE ON DEMAND
+            KEY(username)
+            DISTRIBUTED BY HASH (username)  buckets 1
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvNameDemand} COMPLETE
+    """
+    waitingMTMVTaskFinished(mvName)
+
+    def show_task_result = sql "SHOW MTMV TASK ON ${mvNameDemand}"
+    assertEquals 1, show_task_result.size(), show_task_result.toString()
+
+    sql """
+        DROP MATERIALIZED VIEW ${mvNameDemand}
     """
 }
