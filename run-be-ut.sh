@@ -328,7 +328,6 @@ java_version="$(
     jdk_version "${JAVA_HOME}/bin/java"
 )"
 
-
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_TEST_BINARY_DIR}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBETEST -XX:-CriticalJNINatives"
@@ -382,4 +381,3 @@ if [[ -f "${test}" ]]; then
 else
     echo "unit test file: ${test} does not exist."
 fi
-
