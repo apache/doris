@@ -19,6 +19,7 @@ package org.apache.doris.regression.suite
 
 import com.google.gson.Gson
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.json.PartitionData
 import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
@@ -60,7 +61,7 @@ class Syncer {
         TARGET
     }
 
-    private Boolean checkBinlog(String table, TBinlog binlog, Boolean update) {
+    private Boolean checkBinlog(TBinlog binlog, Boolean update) {
 
         // step 1: check binlog availability
         if (binlog == null) {
@@ -102,8 +103,8 @@ class Syncer {
             logger.info("binlog data is ${data}")
             if (update) {
                 Gson gson = new Gson()
-                getSourceMeta(table, gson.fromJson(data, BinlogData.class))
-                logger.info("Source tableId: ${context.sourceTableMap}, ${context.sourcePartitionMap}")
+                getSourceMeta(gson.fromJson(data, BinlogData.class))
+                logger.info("Source tableId: ${context.sourceTableMap}, ${context.sourceTableMap}")
             }
         } else {
             logger.error("binlog data is not contains data!")
@@ -155,7 +156,7 @@ class Syncer {
         }
 
         // step 2: check binlog
-        return checkBinlog(table, binlog, update)
+        return checkBinlog(binlog, update)
     }
 
     private Boolean checkBeginTxn(TBeginTxnResult result) {
@@ -274,7 +275,6 @@ class Syncer {
 
         if (isCheckedOK) {
             logger.info("CommitInfos: ${context.commitInfos}")
-            context.sourcePartitionMap.clear()
             context.commitInfos.clear()
         }
 
@@ -298,25 +298,38 @@ class Syncer {
         return clientsMap
     }
 
-    void getSourceMeta(String table, BinlogData binlogData) {
-        Entry<Long, PartitionRecords> tableEntry = binlogData.tableRecords.entrySet()[0]
-        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString() + "/" +
-                tableEntry.key.toString() + "/partitions/"
+    void getSourceMeta(BinlogData binlogData) {
+        context.sourceTableIdToName.clear()
+        context.sourceTableMap.clear()
 
         context.sourceDbId = binlogData.dbId
-        context.sourceTableMap.put(table, tableEntry.key)
-        tableEntry.value.partitionRecords.forEach(data -> {
 
-            List<List<Object>> sqlInfo
-            String partitionSQL = metaSQL + data.partitionId.toString()
-            sqlInfo = suite.sql(partitionSQL + "'")
-            PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, data.version)
-            partitionSQL += "/" + partitionMeta.indexId.toString()
-            sqlInfo = suite.sql(partitionSQL + "'")
-            sqlInfo.forEach(row -> {
-                partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
-            })
-            context.sourcePartitionMap.put(data.partitionId, partitionMeta)
+        String metaSQL = "SHOW PROC '/dbs/" + binlogData.dbId.toString()
+        List<List<Object>> sqlInfo = suite.sql(metaSQL)
+
+        // Get table information
+        for (List<Object> row : sqlInfo) {
+            context.sourceTableIdToName.put(row[0] as Long, row[1] as String)
+        }
+
+        // Get table meta in binlog
+        binlogData.tableRecords.forEach((tableId, partitionRecord) -> {
+            String tableName = context.sourceTableIdToName.get(tableId)
+            TableMeta tableMeta = new TableMeta(tableId)
+
+            partitionRecord.partitionRecords.forEach {
+                String partitionSQL = metaSQL + "/" + tableId.toString() + "/partitions/"
+                                                    + it.toString()
+                sqlInfo = suite.sql(partitionSQL + "'")
+                PartitionMeta partitionMeta = new PartitionMeta(sqlInfo[0][0] as Long, it.version)
+                partitionSQL += "/" + partitionMeta.indexId.toString()
+                sqlInfo = suite.sql(partitionSQL + "'")
+                sqlInfo.forEach(row -> {
+                    partitionMeta.tabletMeta.put((row[0] as Long), (row[2] as Long))
+                })
+                tableMeta.partitionMap.put(it.partitionId, partitionMeta)
+            }
+            context.sourceTableMap.put(tableName, tableMeta)
         })
     }
 
@@ -359,7 +372,7 @@ class Syncer {
         context.closeBackendClients()
     }
 
-    Boolean getTargetMeta(String table) {
+    Boolean getTargetMeta(String table = "") {
         logger.info("Get target cluster meta data.")
         String baseSQL = "SHOW PROC '/dbs"
         List<List<Object>> sqlInfo
@@ -383,93 +396,89 @@ class Syncer {
         // step 2: get target dbId/tableId
         baseSQL += "/" + dbId.toString()
         sqlInfo = suite.target_sql(baseSQL + "'")
-        Long tableId = -1
-        for (List<Object> row : sqlInfo) {
-            if ((row[1] as String).contains(table)) {
-                tableId = (row[0] as Long)
-                break
-            }
-        }
-        if (tableId == -1) {
-            logger.error("Target cluster get ${table} tableId fault.")
-            return false
-        }
-        context.targetTableMap.put(table, tableId)
-
-        // step 3: get partitionIds
-        baseSQL += "/" + tableId.toString() + "/partitions"
-        ArrayList<Long> partitionIds = new ArrayList<Long>()
-        sqlInfo = suite.target_sql(baseSQL + "'")
-        for (List<Object> row : sqlInfo) {
-            partitionIds.add(row[0] as Long)
-        }
-        if (partitionIds.isEmpty()) {
-            logger.error("Target cluster get partitions fault.")
-            return false
-        }
-
-        // step 4: get partitionMetas
-        for (Long id : partitionIds) {
-
-            // step 4.1: get partition/indexId
-            String partitionSQl = baseSQL + "/" + id.toString()
-            sqlInfo = suite.target_sql(partitionSQl + "'")
-            if (sqlInfo.isEmpty()) {
-                logger.error("Target cluster partition-${id} indexId fault.")
-                return false
-            }
-            PartitionMeta meta = new PartitionMeta(sqlInfo[0][0] as Long, -1)
-
-            // step 4.2: get partition/indexId/tabletId
-            partitionSQl += "/" + meta.indexId.toString()
-            sqlInfo = suite.target_sql(partitionSQl + "'")
+        if (table == "") {
             for (List<Object> row : sqlInfo) {
-                meta.tabletMeta.put(row[0] as Long, row[2] as Long)
+                context.targetTableMap.put(row[1] as String, new TableMeta(row[0] as long))
             }
-            if (meta.tabletMeta.isEmpty()) {
-                logger.error("Target cluster get (partitionId/indexId)-(${id}/${meta.indexId}) tabletIds fault.")
-                return false
-            }
-
-            context.targetPartitionMap.put(id, meta)
-        }
-
-        logger.info("Target cluster metadata: ${context.targetPartitionMap}")
-        return true
-    }
-
-    Boolean checkTargetVersion(String table) {
-        logger.info("Check target tablets version")
-        Long tableId = context.targetTableMap.get(table)
-        if (tableId == null) {
-            logger.error("Table ${table} not exist!")
-            return false
-        }
-
-        String baseSQL = "SHOW PROC '/dbs/" + context.targetDbId.toString() + "/" +
-                tableId.toString() + "/partitions/"
-        Iterator partitionIter = context.targetPartitionMap.iterator()
-        while (partitionIter.hasNext()) {
-            Entry partitionEntry = partitionIter.next()
-            Long partitionId = partitionEntry.key
-            PartitionMeta meta = partitionEntry.value
-
-            String versionSQL = baseSQL + partitionId.toString() + "/" + meta.indexId.toString()
-            List<List<Object>> sqlInfo = suite.target_sql(versionSQL + "'")
+        } else {
             for (List<Object> row : sqlInfo) {
-                Long tabletVersion = row[4] as Long
-                if (tabletVersion != meta.version) {
-                    logger.error(
-                            "Version miss match! partitionId: ${partitionId}, tabletId: ${row[0] as Long}," +
-                                    " Now version is ${meta.version}, but tablet version is ${tabletVersion}")
-                    return false
+                if ((row[1] as String) == table) {
+                    context.targetTableMap.put(row[1] as String, new TableMeta(row[0] as long))
+                    break
                 }
             }
         }
+
+
+        // step 3: get partitionIds
+        context.targetTableMap.values().forEach {
+            baseSQL += "/" + it.id.toString() + "/partitions"
+            ArrayList<Long> partitionIds = new ArrayList<Long>()
+            sqlInfo = suite.target_sql(baseSQL + "'")
+            for (List<Object> row : sqlInfo) {
+                partitionIds.add(row[0] as Long)
+            }
+            if (partitionIds.isEmpty()) {
+                logger.error("Target cluster get partitions fault.")
+                return false
+            }
+
+            // step 4: get partitionMetas
+            for (Long id : partitionIds) {
+
+                // step 4.1: get partition/indexId
+                String partitionSQl = baseSQL + "/" + id.toString()
+                sqlInfo = suite.target_sql(partitionSQl + "'")
+                if (sqlInfo.isEmpty()) {
+                    logger.error("Target cluster partition-${id} indexId fault.")
+                    return false
+                }
+                PartitionMeta meta = new PartitionMeta(sqlInfo[0][0] as Long, -1)
+
+                // step 4.2: get partition/indexId/tabletId
+                partitionSQl += "/" + meta.indexId.toString()
+                sqlInfo = suite.target_sql(partitionSQl + "'")
+                for (List<Object> row : sqlInfo) {
+                    meta.tabletMeta.put(row[0] as Long, row[2] as Long)
+                }
+                if (meta.tabletMeta.isEmpty()) {
+                    logger.error("Target cluster get (partitionId/indexId)-(${id}/${meta.indexId}) tabletIds fault.")
+                    return false
+                }
+
+                it.partitionMap.put(id, meta)
+            }
+        }
+
+
+        logger.info("Target cluster metadata: ${context.targetTableMap}")
         return true
     }
 
-    Boolean getBinlog(String table, Boolean update = true) {
+    Boolean checkTargetVersion() {
+        logger.info("Check target tablets version")
+        context.targetTableMap.values().forEach {
+            String baseSQL = "SHOW PROC '/dbs/" + context.targetDbId.toString() + "/" +
+                    it.id.toString() + "/partitions/"
+            it.partitionMap.forEach((id, meta) -> {
+                String versionSQL = baseSQL + id.toString() + "/" + meta.indexId.toString()
+                List<List<Object>> sqlInfo = suite.target_sql(versionSQL + "'")
+                for (List<Object> row : sqlInfo) {
+                    Long tabletVersion = row[4] as Long
+                    if (tabletVersion != meta.version) {
+                        logger.error(
+                                "Version miss match! partitionId: ${id}, tabletId: ${row[0] as Long}," +
+                                " Now version is ${meta.version}, but tablet version is ${tabletVersion}")
+                        return false
+                    }
+                }
+            })
+        }
+
+        return true
+    }
+
+    Boolean getBinlog(String table = "", Boolean update = true) {
         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}, binlog seq: ${context.seq}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
         TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, context, table)

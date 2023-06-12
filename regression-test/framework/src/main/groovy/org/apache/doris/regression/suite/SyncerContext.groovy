@@ -23,6 +23,7 @@ import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
 
 import java.sql.Connection
+import java.util.Map.Entry
 
 class PartitionMeta {
     public long version
@@ -38,7 +39,19 @@ class PartitionMeta {
     String toString() {
         return "PartitionMeta: { version: " + version.toString() + ", " + tabletMeta.toString() + " }"
     }
+}
 
+class TableMeta {
+    public long id
+    public TreeMap<Long, PartitionMeta> partitionMap = new TreeMap<>()
+
+    TableMeta(long tableId) {
+        this.id = tableId
+    }
+
+    String toString() {
+        return "TableMeta: { id: " + id.toString() + ", " + partitionMap.toString() + " }"
+    }
 }
 
 class SyncerContext {
@@ -47,11 +60,10 @@ class SyncerContext {
     protected FrontendClientImpl targetFrontendClient
 
     protected Long sourceDbId
-    protected HashMap<String, Long> sourceTableMap = new HashMap<String, Long>()
-    protected TreeMap<Long, PartitionMeta> sourcePartitionMap = new TreeMap<Long, PartitionMeta>()
+    protected HashMap<Long, String> sourceTableIdToName = new HashMap<>()
+    protected HashMap<String, TableMeta> sourceTableMap = new HashMap<>()
     protected Long targetDbId
-    protected HashMap<String, Long> targetTableMap = new HashMap<String, Long>()
-    protected TreeMap<Long, PartitionMeta> targetPartitionMap = new TreeMap<Long, PartitionMeta>()
+    protected HashMap<String, TableMeta> targetTableMap = new HashMap<>()
 
     protected HashMap<Long, BackendClientImpl> sourceBackendClients = new HashMap<Long, BackendClientImpl>()
     protected HashMap<Long, BackendClientImpl> targetBackendClients = new HashMap<Long, BackendClientImpl>()
@@ -88,24 +100,32 @@ class SyncerContext {
     }
 
     Boolean metaIsValid() {
-        if (sourcePartitionMap.isEmpty() || targetPartitionMap.isEmpty()) {
+        if (sourceTableMap.isEmpty() && targetTableMap.isEmpty()) {
+            return false
+        } else if (sourceTableMap.size() != targetTableMap.size()) {
             return false
         }
 
-        if (sourcePartitionMap.size() != targetPartitionMap.size()) {
-            return false
-        }
-
-        Iterator sourceIter = sourcePartitionMap.iterator()
-        Iterator targetIter = targetPartitionMap.iterator()
-        while (sourceIter.hasNext()) {
-            if (sourceIter.next().value.tabletMeta.size() !=
-                    targetIter.next().value.tabletMeta.size()) {
+        sourceTableMap.forEach((tableName, srcTableMeta) -> {
+            TableMeta tarTableMeta = targetTableMap.get(tableName)
+            if (tarTableMeta == null) {
+                return false
+            } else if (srcTableMeta.partitionMap.isEmpty() && tarTableMeta.partitionMap.isEmpty()) {
+                return false
+            } else if (srcTableMeta.partitionMap.size() != tarTableMeta.partitionMap.size()) {
                 return false
             }
-        }
 
-        return true
+            Iterator srcPartitionIter = srcTableMeta.partitionMap.iterator()
+            Iterator tarPartitionIter = tarTableMeta.partitionMap.iterator()
+            while (srcPartitionIter.hasNext()) {
+                Entry srcPartitionEntry = srcPartitionIter.next()
+                Entry tarPartitionEntry = tarPartitionIter.next()
+
+
+            }
+
+        })
     }
 
     void closeBackendClients() {
