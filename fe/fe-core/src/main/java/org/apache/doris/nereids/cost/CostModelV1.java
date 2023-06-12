@@ -161,27 +161,27 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
+        int kBytes = 1024;
         Statistics childStatistics = context.getChildStatistics(0);
         DistributionSpec spec = distribute.getDistributionSpec();
+        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
+        beNumber = Math.max(1, beNumber);
+        double dataSize = childStatistics.computeSize() / kBytes; // in K bytes
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    dataSize / beNumber);
         }
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
-            int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            beNumber = Math.max(1, beNumber);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
             //if build side is big, avoid use broadcast join
             double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
             double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
-            double buildSize = childStatistics.computeSize();
-            if (buildSize * instanceNumber > memLimit * brMemlimit
+            if (dataSize > memLimit * brMemlimit / kBytes
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
@@ -191,7 +191,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
+                    dataSize, 0.0);
 
         }
 
@@ -200,7 +200,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    dataSize / beNumber);
         }
 
         // any
