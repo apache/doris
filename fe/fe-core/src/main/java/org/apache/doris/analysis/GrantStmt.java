@@ -53,49 +53,36 @@ public class GrantStmt extends DdlStmt {
     private List<String> roles;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
-        this.userIdent = userIdent;
-        this.role = role;
-        this.tblPattern = tblPattern;
-        this.resourcePattern = null;
-        this.workloadGroupPattern = null;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this(userIdent, role, tblPattern, null, null, privileges);
     }
 
     public GrantStmt(UserIdentity userIdent, String role,
             ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
-        this.userIdent = userIdent;
-        this.role = role;
-        this.tblPattern = null;
-        this.resourcePattern = resourcePattern;
-        this.workloadGroupPattern = null;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this(userIdent, role, null, resourcePattern, null, privileges);
     }
 
     public GrantStmt(UserIdentity userIdent, String role,
             WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
+        this(userIdent, role, null, null, workloadGroupPattern, privileges);
+    }
+
+    public GrantStmt(List<String> roles, UserIdentity userIdent) {
+        this.userIdent = userIdent;
+        this.roles = roles;
+    }
+
+    private GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
-        this.tblPattern = null;
-        this.resourcePattern = null;
+        this.tblPattern = tblPattern;
+        this.resourcePattern = resourcePattern;
         this.workloadGroupPattern = workloadGroupPattern;
         PrivBitSet privs = PrivBitSet.of();
         for (AccessPrivilege accessPrivilege : privileges) {
             privs.or(accessPrivilege.toPaloPrivilege());
         }
         this.privileges = privs.toPrivilegeList();
-    }
-
-    public GrantStmt(List<String> roles, UserIdentity userIdent) {
-        this.userIdent = userIdent;
-        this.roles = roles;
     }
 
     public UserIdentity getUserIdent() {

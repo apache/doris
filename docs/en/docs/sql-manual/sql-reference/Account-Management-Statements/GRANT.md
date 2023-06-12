@@ -46,10 +46,10 @@ GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 
-<version since="dev">GRANT privilege_list ON WORKLOAD GROUP workload_group_name TO user_identity [ROLE role_name]</version>
-
 GRANT role_list TO user_identity
 ````
+
+<version since="dev">GRANT privilege_list ON WORKLOAD GROUP workload_group_name TO user_identity [ROLE role_name]</version>
 
 privilege_list is a list of privileges to be granted, separated by commas. Currently Doris supports the following permissions:
 
@@ -70,7 +70,7 @@ Permission classification:
 
     1. Node Privilege: NODE_PRIV
     2. database table permissions: SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, DROP_PRIV
-    3. Resource  <version since="dev">and workload groups</version> Privilege: USAGE_PRIV
+    3. Resource  <version since="dev" type="inline" >and workload groups</version> Privilege: USAGE_PRIV
 
 Priv_level supports the following four forms:
 

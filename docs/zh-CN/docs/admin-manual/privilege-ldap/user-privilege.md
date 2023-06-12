@@ -149,7 +149,7 @@ Doris 目前支持以下几种权限
 
 8. Usage_priv
 
-   资源的使用权限<version since="dev">和workload group权限</version>。
+   资源的使用权限<version since="dev" type="inline" >和workload group权限</version>。
 
 ## 权限层级
 

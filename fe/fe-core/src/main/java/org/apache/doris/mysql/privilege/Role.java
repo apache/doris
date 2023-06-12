@@ -60,7 +60,7 @@ public class Role implements Writable, GsonPostProcessable {
 
     static {
         try {
-            // Global privileges do not distinguish Patter, global admin and node privileges contain all privileges
+            // Global privileges do not distinguish Pattern, global admin and node privileges contain all privileges
             // and do not need repeated authorization.
             OPERATOR = new Role(OPERATOR_ROLE,
                     TablePattern.ALL, PrivBitSet.of(Privilege.NODE_PRIV, Privilege.ADMIN_PRIV));

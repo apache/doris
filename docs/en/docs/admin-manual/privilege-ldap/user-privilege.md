@@ -151,7 +151,7 @@ Doris currently supports the following permissions
 
 8. Usage_priv
 
-   Use of resources <version since="dev">and workload groups</version>.
+   Use of resources <version since="dev" type="inline" >and workload groups</version>.
 
 ## Permission hierarchy
 

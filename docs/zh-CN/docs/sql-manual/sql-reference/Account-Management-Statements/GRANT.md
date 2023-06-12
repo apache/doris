@@ -46,10 +46,10 @@ GRANT privilege_list ON priv_level TO user_identity [ROLE role_name]
 
 GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 
-<version since="dev">GRANT privilege_list ON WORKLOAD GROUP workload_group_name TO user_identity [ROLE role_name]</version>
-
 GRANT role_list TO user_identity
 ```
+
+<version since="dev">GRANT privilege_list ON WORKLOAD GROUP workload_group_name TO user_identity [ROLE role_name]</version>
 
 privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
 
@@ -61,7 +61,7 @@ privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris �
     ALTER_PRIV：对指定的库或表的schema变更权限
     CREATE_PRIV：对指定的库或表的创建权限
     DROP_PRIV：对指定的库或表的删除权限
-    USAGE_PRIV: 对指定资源的使用权限<version since="dev">和workload group权限</version>
+    USAGE_PRIV: 对指定资源的使用权限<version since="dev" type="inline" >和workload group权限</version>
     
     旧版权限中的 ALL 和 READ_WRITE 会被转换成：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
     READ_ONLY 会被转换为 SELECT_PRIV。
@@ -70,7 +70,7 @@ privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris �
 
     1. 节点权限：NODE_PRIV
     2. 库表权限：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV
-    3. 资源权限<version since="dev">和workload group权限</version>：USAGE_PRIV
+    3. 资源权限<version since="dev" type="inline" >和workload group权限</version>：USAGE_PRIV
 
 priv_level 支持以下四种形式：
 
