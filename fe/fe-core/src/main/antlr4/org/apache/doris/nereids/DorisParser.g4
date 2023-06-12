@@ -304,7 +304,7 @@ valueExpression
 datetimeUnit
     : YEAR | MONTH
     | WEEK | DAY
-    | HOUR | MINUTE | SECOND | MICROSECOND
+    | HOUR | MINUTE | SECOND
     ;
 
 primaryExpression
@@ -418,7 +418,7 @@ interval
     ;
 
 unitIdentifier
-    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | MICROSECOND
+    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
 dataType
