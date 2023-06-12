@@ -310,6 +310,10 @@ std::string PipelineTask::debug_string() {
     _fresh_profile_counter();
     _task_profile->pretty_print(&profile_ss, "");
 
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+                   print_id(fragment_context()->get_fragment_instance_id()));
+
     fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
