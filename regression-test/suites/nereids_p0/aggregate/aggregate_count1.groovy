@@ -73,5 +73,33 @@ suite("aggregate_count1", "query") {
                     (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId
             ORDER BY identityCode) t_a76fe3e829ddb51;
             """
+    sql """set experimental_enable_pipeline_engine=true"""
+    qt_select2 """ SELECT count(1) FROM (WITH t1 AS (
+                 WITH t AS (
+                            SELECT * FROM aggregate_count1
+                    )
+                    SELECT
+                            identityCode,
+                            COUNT(1) as dataAmount,
+                            ROUND(COUNT(1) / tableWithSum.sumResult,4) as proportion,
+                           MD5(identityCode) as virtuleUniqKey
+                    FROM t,(SELECT COUNT(1) as sumResult from t) tableWithSum
+                    GROUP BY identityCode ,tableWithSum.sumResult
+            )
+            SELECT
+                    identityCode,dataAmount,
+                    (
+                            CASE
+                            WHEN t1.virtuleUniqKey = tableWithMaxId.max_virtuleUniqKey THEN
+                                    ROUND(proportion + calcTheTail, 4)
+                            ELSE
+                                    proportion
+                          END
+                    ) proportion
+            FROM t1,
+                    (SELECT (1 - sum(t1.proportion)) as calcTheTail FROM t1 ) tableWithTail,
+                    (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId
+            ORDER BY identityCode) t_a76fe3e829ddb51;
+            """
     sql "drop table aggregate_count1"
 }

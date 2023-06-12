@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -133,7 +134,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .build();
 
     private final LabelName labelName;
-    private final String tableName;
+    private String tableName;
     private final List<ParseNode> loadPropertyList;
     private final Map<String, String> jobProperties;
     private final String typeName;
@@ -170,6 +171,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private LoadTask.MergeType mergeType;
 
+    private boolean isMultiTable = false;
+
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 5 && v <= 60;
@@ -183,12 +186,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
         this.labelName = labelName;
+        if (StringUtils.isBlank(tableName)) {
+            this.isMultiTable = true;
+        }
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(typeName, dataSourceProperties);
+                .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
         if (comment != null) {
             this.comment = comment;
@@ -316,10 +322,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         labelName.analyze(analyzer);
         dbName = labelName.getDbName();
         name = labelName.getLabelName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        if (isMultiTable) {
+            return;
+        }
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
@@ -352,6 +361,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
+                    if (isMultiTable) {
+                        throw new AnalysisException("Multi-table load does not support setting columns info");
+                    }
                     // check columns info
                     if (importColumnsStmt != null) {
                         throw new AnalysisException("repeat setting of columns info");

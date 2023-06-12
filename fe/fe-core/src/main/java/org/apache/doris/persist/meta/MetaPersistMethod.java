@@ -210,6 +210,9 @@ public class MetaPersistMethod {
                         CountingDataOutputStream.class, long.class);
                 break;
             case "workloadGroups":
+            case "resourceGroups":
+                // In 2.0 alpha, there are many people using resource groups, maybe not upgrade from 2.0 alpha.
+                // So that add a compatible code here.
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadWorkloadGroups", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
@@ -220,6 +223,12 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("loadBinlogs", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveBinlogs", CountingDataOutputStream.class, long.class);
+                break;
+            case "AnalysisMgr":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadAnalysisManager", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveAnalysisMgr", CountingDataOutputStream.class, long.class);
                 break;
             default:
                 break;

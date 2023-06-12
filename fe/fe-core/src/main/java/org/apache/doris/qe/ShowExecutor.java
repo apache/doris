@@ -28,6 +28,7 @@ import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
+import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
@@ -187,6 +188,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -221,6 +223,9 @@ import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -416,6 +421,8 @@ public class ShowExecutor {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
             handleShowBuildIndexStmt();
+        } else if (stmt instanceof ShowAnalyzeTaskStatus) {
+            handleShowAnalyzeTaskStatus();
         } else {
             handleEmtpy();
         }
@@ -1403,6 +1410,18 @@ public class ShowExecutor {
                                     + "The job will be cancelled automatically")
                             .build(), e);
                 }
+                if (routineLoadJob.isMultiTable()) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), dbFullName, PrivPredicate.LOAD)) {
+                        LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
+                                        "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
+                                .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
+                                .add("table_name", tableName).add("error_msg", "The database access denied"));
+                        continue;
+                    }
+                    rows.add(routineLoadJob.getShowInfo());
+                    continue;
+                }
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), dbFullName, tableName, PrivPredicate.LOAD)) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
@@ -1411,7 +1430,6 @@ public class ShowExecutor {
                             .add("table_name", tableName).add("error_msg", "The table access denied"));
                     continue;
                 }
-
                 // get routine load info
                 rows.add(routineLoadJob.getShowInfo());
             }
@@ -1451,6 +1469,17 @@ public class ShowExecutor {
         } catch (MetaNotFoundException e) {
             throw new AnalysisException("The table metadata of job has been changed."
                     + " The job will be cancelled automatically", e);
+        }
+        if (routineLoadJob.isMultiTable()) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbFullName, PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        dbFullName);
+            }
+            rows.addAll(routineLoadJob.getTasksShowInfo());
+            resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
+            return;
         }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbFullName, tableName, PrivPredicate.LOAD)) {
@@ -2505,36 +2534,26 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-
-        List<List<Comparable>> results;
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
+                .showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
-
-        try {
-            results = Env.getCurrentEnv().getAnalysisManager()
-                    .showAnalysisJob(showStmt);
-        } catch (DdlException e) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-            return;
-        }
-
-        // order the result
-        ListComparator<List<Comparable>> comparator;
-        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-        if (orderByPairs == null) {
-            // sort by id asc
-            comparator = new ListComparator<>(0);
-        } else {
-            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-        }
-        results.sort(comparator);
-
-        // convert to result and return it
-        for (List<Comparable> result : results) {
-            List<String> row = result.stream().map(Object::toString).collect(Collectors.toList());
+        for (AnalysisInfo analysisInfo : results) {
+            List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.jobId));
+            row.add(analysisInfo.catalogName);
+            row.add(analysisInfo.dbName);
+            row.add(analysisInfo.tblName);
+            row.add(analysisInfo.colName);
+            row.add(analysisInfo.jobType.toString());
+            row.add(analysisInfo.analysisType.toString());
+            row.add(analysisInfo.message);
+            row.add(TimeUtils.DATETIME_FORMAT.format(
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                            ZoneId.systemDefault())));
+            row.add(analysisInfo.state.toString());
+            row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }
-
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
@@ -2719,5 +2738,24 @@ public class ShowExecutor {
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
+
+    private void handleShowAnalyzeTaskStatus() {
+        ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
+        List<List<String>> rows = new ArrayList<>();
+        for (AnalysisInfo analysisInfo : analysisInfos) {
+            List<String> row = new ArrayList<>();
+            row.add(String.valueOf(analysisInfo.taskId));
+            row.add(analysisInfo.colName);
+            row.add(analysisInfo.message);
+            row.add(TimeUtils.DATETIME_FORMAT.format(
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                            ZoneId.systemDefault())));
+            row.add(analysisInfo.state.toString());
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
 

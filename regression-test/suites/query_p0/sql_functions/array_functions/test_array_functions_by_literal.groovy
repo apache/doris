@@ -219,6 +219,12 @@ suite("test_array_functions_by_literal") {
     qt_sql "select (array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)))[1:2]"
     qt_sql "select (array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))))[1:2]"
 
+    // array_intersect
+    qt_sql_intersect_1 "select array_intersect([1,2,3], [1,2,3], [null])"
+    qt_sql_intersect_2 "select array_intersect([1, 2, null], [1, 3, null], [1,2,3,null])"
+    qt_sql_intersect_3 "select array_intersect([1,2,3, null], [1,2,3,null], [1,2,null], [1, null])"
+    qt_sql_intersect_4 "select array_intersect([1,2,3], [1,2,3], [null], [])"
+
     // array_popfront function
     qt_sql "select array_popfront([1,2,3,4,5,6])"
     qt_sql "select array_popfront([])"

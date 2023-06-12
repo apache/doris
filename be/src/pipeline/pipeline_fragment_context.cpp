@@ -107,19 +107,6 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
-namespace apache {
-namespace thrift {
-class TException;
-
-namespace transport {
-class TTransportException;
-} // namespace transport
-} // namespace thrift
-} // namespace apache
-
-using apache::thrift::transport::TTransportException;
-using apache::thrift::TException;
-
 namespace doris::pipeline {
 
 PipelineFragmentContext::PipelineFragmentContext(
@@ -143,7 +130,14 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
-    _call_back(_runtime_state.get(), &_exec_status);
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        _call_back(_runtime_state.get(), &_exec_status);
+        _runtime_state.reset();
+    } else {
+        _call_back(_runtime_state.get(), &_exec_status);
+    }
     DCHECK(!_report_thread_active);
 }
 
@@ -302,7 +296,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
 
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
                 _runtime_state.get(), &_sink, *desc_tbl));
@@ -589,7 +583,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
-                    next_operator_builder_id(), node->child(1)->row_desc());
+                    next_operator_builder_id(), node->child(1)->row_desc(), node->child(1));
             new_pipe->add_operator(builder);
         }
         OperatorBuilderPtr join_sink =

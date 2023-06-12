@@ -7,11 +7,11 @@ PhysicalTopN
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN](customer.c_nationkey = nation.n_nationkey)
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
+--------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer]
+----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[customer]
-------------------PhysicalDistribute
 --------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
 ----------------------PhysicalProject
 ------------------------filter((lineitem.l_returnflag = 'R'))

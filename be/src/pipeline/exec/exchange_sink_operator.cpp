@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
-#include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -83,6 +82,7 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperator::close(state));
+    _sink_buffer->update_profile(_sink->profile());
     _sink_buffer->close();
     return Status::OK();
 }

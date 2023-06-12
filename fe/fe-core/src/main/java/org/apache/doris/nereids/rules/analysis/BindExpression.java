@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -538,6 +539,13 @@ public class BindExpression implements AnalysisRuleFactory {
                     UnboundTVFRelation relation = ctx.root;
                     return bindTableValuedFunction(relation, ctx.statementContext);
                 })
+            ),
+            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
+                logicalSubQueryAlias().thenApply(ctx -> {
+                    LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
+                    checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
+                    return subQueryAlias;
+                })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
     }
@@ -675,6 +683,18 @@ public class BindExpression implements AnalysisRuleFactory {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
         return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
+    }
+
+    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+        Set<String> nameSlots = new HashSet<>();
+        for (Slot s : childOutputs) {
+            if (nameSlots.contains(s.getName())) {
+                throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
+                        + "'" + " in inline view: '" + subQueryAlias + "'");
+            } else {
+                nameSlots.add(s.getName());
+            }
+        }
     }
 
     private BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,

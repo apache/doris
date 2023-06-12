@@ -262,7 +262,7 @@ E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
-E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
+E(INVERTED_INDEX_BYPASS, -6004);
 E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
@@ -293,11 +293,12 @@ constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
-        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
+        && code != ErrorCode::INVERTED_INDEX_BYPASS
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
         && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TABLE_ALREADY_DELETED_ERROR
         && code != ErrorCode::TRANSACTION_NOT_EXIST
         && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
         && code != ErrorCode::TOO_MANY_TRANSACTIONS
@@ -421,6 +422,8 @@ public:
     bool is() const {
         return code == _code;
     }
+
+    void set_code(int code) { _code = code; }
 
     bool ok() const { return _code == ErrorCode::OK; }
 

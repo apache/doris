@@ -48,8 +48,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
@@ -1019,6 +1019,15 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public Column getRowStoreCol() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isRowStoreColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1071,11 +1080,11 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
             return new HistogramTask(info);
         }
-        if (info.analysisType.equals(AnalysisType.COLUMN)) {
+        if (info.analysisType.equals(AnalysisType.FUNDAMENTALS)) {
             return new OlapAnalysisTask(info);
         }
         return new MVAnalysisTask(info);
@@ -1489,21 +1498,9 @@ public class OlapTable extends Table {
         return replicaCount;
     }
 
-    public void checkStableAndNormal(String clusterName) throws DdlException {
+    public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
-                    + "Do not allow doing materialized view");
-        }
-        // check if all tablets are healthy, and no tablet is in tablet scheduler
-        boolean isStable = isStable(Env.getCurrentSystemInfo(),
-                Env.getCurrentEnv().getTabletScheduler(),
-                clusterName);
-        if (!isStable) {
-            throw new DdlException("table [" + name + "] is not stable."
-                    + " Some tablets of this table may not be healthy or are being "
-                    + "scheduled."
-                    + " You need to repair the table first"
-                    + " or stop cluster balance. See 'help admin;'.");
+            throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
         }
     }
 
@@ -1767,7 +1764,7 @@ public class OlapTable extends Table {
     }
 
     public boolean isCcrEnable() {
-        return tableProperty != null ?  tableProperty.isCcrEnable() : false;
+        return tableProperty != null && tableProperty.isCcrEnable();
     }
 
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {
@@ -1810,6 +1807,20 @@ public class OlapTable extends Table {
     public Boolean storeRowColumn() {
         if (tableProperty != null) {
             return tableProperty.storeRowColumn();
+        }
+        return false;
+    }
+
+    public void setSkipWriteIndexOnLoad(boolean skipWriteIndexOnLoad) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
+                Boolean.valueOf(skipWriteIndexOnLoad).toString());
+        tableProperty.buildSkipWriteIndexOnLoad();
+    }
+
+    public Boolean skipWriteIndexOnLoad() {
+        if (tableProperty != null) {
+            return tableProperty.skipWriteIndexOnLoad();
         }
         return false;
     }

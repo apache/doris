@@ -138,7 +138,7 @@ set runtime_filter_type=7;
   - 当同时指定In predicate和其他filter，并且in的过滤数值没达到runtime_filter_max_in_num时，会尝试把其他filter去除掉。原因是In predicate是精确的过滤条件，即使没有其他filter也可以高效过滤，如果同时使用则其他filter会做无用功。目前仅在Runtime filter的生产者和消费者处于同一个fragment时才会有去除非in filter的逻辑。
 - **Bitmap Filter**:
   - 当前仅当[in subquery](../../sql-manual/sql-reference/Operators/in.md)操作中的子查询返回bitmap列时会使用bitmap filter.
-  - 当前只在仅在向量化引擎中支持bitmap filter.
+  - 当前仅在向量化引擎中支持bitmap filter.
 
 #### 2.runtime_filter_mode
 

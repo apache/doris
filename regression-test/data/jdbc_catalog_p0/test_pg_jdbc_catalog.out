@@ -2161,11 +2161,7 @@ doris3	20
 doris_test
 
 -- !specified_database_2 --
-catalog_pg_test
-information_schema
-pg_catalog
-pg_toast
-public
+doris_test
 
 -- !specified_database_3 --
 catalog_pg_test
@@ -2175,11 +2171,6 @@ pg_toast
 public
 
 -- !specified_database_4 --
-catalog_pg_test
-information_schema
-pg_catalog
-pg_toast
-public
 
 -- !test_old --
 123	abc

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "冷热分离",
+    "title": "冷热分层",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 冷热分离
+# 冷热分层
 
 ## 需求场景
 
@@ -37,19 +37,19 @@ under the License.
 ## 解决方案
 在Partition级别上设置freeze time，表示多久这个Partition会被freeze，并且定义freeze之后存储的remote storage的位置。在be上daemon线程会周期性的判断表是否需要freeze，若freeze后会将数据上传到s3上。
 
-冷热分离支持所有doris功能，只是把部分数据放到对象存储上，以节省成本，不牺牲功能。因此有如下特点：
+冷热分层支持所有doris功能，只是把部分数据放到对象存储上，以节省成本，不牺牲功能。因此有如下特点：
 
 - 冷数据放到对象存储上，用户无需担心数据一致性和数据安全性问题
 - 灵活的freeze策略，冷却远程存储property可以应用到表和partition级别
 - 用户查询数据，无需关注数据分布位置，若数据不在本地，会拉取对象上的数据，并cache到be本地
 - 副本clone优化，若存储数据在对象上，则副本clone的时候不用去拉取存储数据到本地
-- 远程对象空间回收recycler，若表、分区被删除，或者冷热分离过程中异常情况产生的空间浪费，则会有recycler线程周期性的回收，节约存储资源
-- cache优化，将访问过的冷数据cache到be本地，达到非冷热分离的查询性能
+- 远程对象空间回收recycler，若表、分区被删除，或者冷热分层过程中异常情况产生的空间浪费，则会有recycler线程周期性的回收，节约存储资源
+- cache优化，将访问过的冷数据cache到be本地，达到非冷热分层的查询性能
 - be线程池优化，区分数据来源是本地还是对象存储，防止读取对象延时影响查询性能
 
 ## Storage policy的使用
 
-存储策略是使用冷热分离功能的入口，用户只需要在建表或使用doris过程中，给表或分区关联上storage policy，即可以使用冷热分离的功能。
+存储策略是使用冷热分层功能的入口，用户只需要在建表或使用doris过程中，给表或分区关联上storage policy，即可以使用冷热分层的功能。
 
 <version since="dev"></version> 创建S3 RESOURCE的时候，会进行S3远端的链接校验，以保证RESOURCE创建的正确。
 

@@ -88,7 +88,6 @@ public class StatisticsCleaner extends MasterDaemon {
         }
         clearStats(colStatsTbl);
         clearStats(histStatsTbl);
-        clearJobTbl();
     }
 
     private void clearStats(OlapTable statsTbl) {
@@ -99,11 +98,6 @@ public class StatisticsCleaner extends MasterDaemon {
             offset = findExpiredStats(statsTbl, expiredStats, offset);
             deleteExpiredStats(expiredStats, statsTbl.getName());
         } while (!expiredStats.isEmpty());
-    }
-
-    private void clearJobTbl() {
-        clearJobTbl(StatisticsRepository::fetchExpiredAutoJob, true);
-        clearJobTbl(StatisticsRepository::fetchExpiredOnceJobs, false);
     }
 
     private void clearJobTbl(BiFunction<Integer, Long, List<ResultRow>> fetchFunc, boolean taskOnly) {

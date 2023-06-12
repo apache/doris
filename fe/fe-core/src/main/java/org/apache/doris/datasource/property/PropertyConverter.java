@@ -35,6 +35,7 @@ import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.obs.OBSConstants;
+import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
@@ -93,9 +94,7 @@ public class PropertyConverter {
      * Support other cloud client here.
      */
     public static Map<String, String> convertToHadoopFSProperties(Map<String, String> props) {
-        if (props.containsKey(S3Properties.ENDPOINT)) {
-            return convertToS3Properties(props, S3Properties.getCredential(props));
-        } else if (props.containsKey(ObsProperties.ENDPOINT)) {
+        if (props.containsKey(ObsProperties.ENDPOINT)) {
             return convertToOBSProperties(props, ObsProperties.getCredential(props));
         } else if (props.containsKey(GCSProperties.ENDPOINT)) {
             return convertToGCSProperties(props, GCSProperties.getCredential(props));
@@ -103,6 +102,8 @@ public class PropertyConverter {
             return convertToOSSProperties(props, OssProperties.getCredential(props));
         } else if (props.containsKey(CosProperties.ENDPOINT)) {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
+        } else if (props.containsKey(S3Properties.ENDPOINT)) {
+            return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
@@ -117,6 +118,7 @@ public class PropertyConverter {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
         obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
+        obsProperties.put("fs.obs.impl", OBSFileSystem.class.getName());
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
             obsProperties.put(OBSConstants.SECRET_KEY, credential.getSecretKey());
@@ -237,6 +239,7 @@ public class PropertyConverter {
         getPropertiesFromDLFConf(props);
         // if configure DLF properties in catalog properties, use them to override config in hive-site.xml
         getPropertiesFromDLFProps(props, credential);
+        props.put(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
         return props;
     }
 
@@ -267,7 +270,7 @@ public class PropertyConverter {
             // And add "-internal" to access oss within vpc
             props.put(S3Properties.REGION, "oss-" + region);
             String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
-            props.put(S3Properties.ENDPOINT, getDLFEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            props.put(S3Properties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
         }
         // 2. ak and sk
         String ak = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID);
@@ -296,34 +299,36 @@ public class PropertyConverter {
             if (Strings.isNullOrEmpty(uid)) {
                 throw new IllegalArgumentException("Required dlf property: " + DLFProperties.UID);
             }
-            props.put(DataLakeConfig.CATALOG_ENDPOINT, props.get(DLFProperties.ENDPOINT));
+            String endpoint = props.get(DLFProperties.ENDPOINT);
+            props.put(DataLakeConfig.CATALOG_ENDPOINT, endpoint);
+            props.put(DataLakeConfig.CATALOG_REGION_ID, props.getOrDefault(DLFProperties.REGION,
+                    S3Properties.getRegionOfEndpoint(endpoint)));
             props.put(DataLakeConfig.CATALOG_PROXY_MODE, props.getOrDefault(DLFProperties.PROXY_MODE, "DLF_ONLY"));
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_ID, credential.getAccessKey());
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, credential.getSecretKey());
-            props.put(DLFProperties.Site.ACCESS_PUBLIC, props.get(DLFProperties.ACCESS_PUBLIC));
+            props.put(DLFProperties.Site.ACCESS_PUBLIC, props.getOrDefault(DLFProperties.ACCESS_PUBLIC, "false"));
         }
         String uid = props.get(DataLakeConfig.CATALOG_USER_ID);
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
         // convert to s3 client property
-        if (props.containsKey(props.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID))) {
-            props.put(S3Properties.ACCESS_KEY, props.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
+        if (credential.isWhole()) {
+            props.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
+            props.put(S3Properties.SECRET_KEY, credential.getSecretKey());
         }
-        if (props.containsKey(props.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET))) {
-            props.put(S3Properties.SECRET_KEY, props.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
+        if (credential.isTemporary()) {
+            props.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
         }
         String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
-        String region = props.get(DataLakeConfig.CATALOG_REGION_ID);
-        String endpoint = props.getOrDefault(DataLakeConfig.CATALOG_ENDPOINT,
-                getDLFEndpoint(region, Boolean.parseBoolean(publicAccess)));
+        String region = props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID, props.get(DLFProperties.REGION));
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, "oss-" + region);
-            props.put(S3Properties.ENDPOINT, endpoint);
+            props.put(S3Properties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
         }
     }
 
-    private static String getDLFEndpoint(String region, boolean publicAccess) {
+    private static String getOssEndpoint(String region, boolean publicAccess) {
         String prefix = "http://oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {

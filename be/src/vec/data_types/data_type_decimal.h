@@ -476,7 +476,7 @@ void convert_decimal_cols(
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         for (size_t i = 0; i < sz; i++) {
-            vec_to[i] = vec_from[i] / multiplier;
+            vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
         }
     }
 

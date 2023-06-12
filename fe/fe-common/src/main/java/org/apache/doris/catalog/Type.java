@@ -102,7 +102,7 @@ public abstract class Type {
     public static final ScalarType CHAR = ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     public static final ScalarType QUANTILE_STATE = new ScalarType(PrimitiveType.QUANTILE_STATE);
-    public static final ScalarType AGG_STATE = new ScalarType(PrimitiveType.AGG_STATE);
+    public static final AggStateType AGG_STATE = new AggStateType(null, null, null, null);
     public static final ScalarType LAMBDA_FUNCTION = new ScalarType(PrimitiveType.LAMBDA_FUNCTION);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
@@ -112,7 +112,8 @@ public abstract class Type {
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
-    public static final AnyType ANY_TYPE = new AnyType();
+    public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
+    public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
@@ -446,7 +447,7 @@ public abstract class Type {
 
     public static final String OnlyMetricTypeErrorMsg =
             "Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't"
-                    + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
+                    + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"
                     + " or 'help map' or 'help struct' or 'help jsonb' in your mysql client.";
 
     public boolean isHllType() {
@@ -566,6 +567,10 @@ public abstract class Type {
 
     public boolean isStructType() {
         return this instanceof StructType;
+    }
+
+    public boolean isAnyType() {
+        return this instanceof AnyType;
     }
 
     public boolean isDate() {
@@ -710,8 +715,8 @@ public abstract class Type {
         } else if (sourceType.isMapType() && targetType.isMapType()) {
             return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
         } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
-                && !sourceType.isNull()) {
-            // TODO: current not support cast any non-array type(except for null) to nested array type.
+                && !sourceType.isNull() && !sourceType.isStringType()) {
+            // TODO: current not support cast any non-array type(except null and charFamily) to nested array type.
             return false;
         } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
             return true;

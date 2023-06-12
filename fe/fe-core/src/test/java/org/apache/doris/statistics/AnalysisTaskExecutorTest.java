@@ -17,14 +17,15 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisMode;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisTaskInfo.JobType;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.BlockingCounter;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 
@@ -56,8 +58,6 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                     + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 1\n"
                     + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n"
                     + ");");
-            InternalSchemaInitializer storageInitializer = new InternalSchemaInitializer();
-            Env.getCurrentEnv().createTable(storageInitializer.buildAnalysisJobTblStmt());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -65,12 +65,12 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
 
     @Test
     public void testExpiredJobCancellation() throws Exception {
-        AnalysisTaskInfo analysisJobInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
+        AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL)
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.COLUMN)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
@@ -97,18 +97,33 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
 
     @Test
     public void testTaskExecution() throws Exception {
+
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return Collections.emptyList();
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public void execSQL(String sql) throws Exception {
+
+            }
+        };
+
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));
-        AnalysisTaskInfo analysisTaskInfo = new AnalysisTaskInfoBuilder().setJobId(0).setTaskId(0)
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogName("internal").setDbName("default_cluster:analysis_job_test").setTblName("t1")
                 .setColName("col1").setJobType(JobType.MANUAL)
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.COLUMN)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setColToPartitions(colToPartitions)
                 .build();
-        OlapAnalysisTask task = new OlapAnalysisTask(analysisTaskInfo);
+        OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
         new MockUp<AnalysisTaskScheduler>() {
             @Mock
             public synchronized BaseAnalysisTask getPendingTasks() {
@@ -117,7 +132,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         };
         new MockUp<AnalysisManager>() {
             @Mock
-            public void updateTaskStatus(AnalysisTaskInfo info, AnalysisState jobState, String message, long time) {}
+            public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
         };
         new Expectations() {
             {

@@ -42,4 +42,20 @@ suite("test_unique_table") {
     order_qt_select_uniq_table "select * from ${tbName}"
     qt_desc_uniq_table "desc ${tbName}"
     sql "DROP TABLE ${tbName}"
+
+    def table_auto_inc = "test_aggregate_tab_with_auto_inc_col"
+    sql "drop table if exists ${table_auto_inc}"
+    test {
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_auto_inc} (
+                k BIGINT NOT NULL AUTO_INCREMENT,
+                int_value int,
+                char_value char(10),
+                date_value date
+            )
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+        """
+        exception "the auto increment is only supported in duplicate table."
+    }
 }

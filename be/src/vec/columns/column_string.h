@@ -64,6 +64,14 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    void static check_chars_length(size_t total_length, size_t element_number) {
+        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                            "string column length is too large: total_length={}, element_number={}",
+                            total_length, element_number);
+        }
+    }
+
 private:
     // currently Offsets is uint32, if chars.size() exceeds 4G, offset will overflow.
     // limit chars.size() and check the size when inserting data into ColumnString.
@@ -83,15 +91,6 @@ private:
 
     /// Size of i-th element, including terminating zero.
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
-
-    void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
-        }
-    }
 
     template <bool positive>
     struct less;
@@ -137,7 +136,7 @@ public:
     }
 
     void insert(const Field& x) override {
-        const String& s = doris::vectorized::get<const String&>(x);
+        const String& s = vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
         const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;
@@ -147,6 +146,11 @@ public:
         chars.resize(new_size);
         memcpy(chars.data() + old_size, s.c_str(), size_to_append);
         offsets.push_back(new_size);
+    }
+
+    void prefetch(const IColumn& src_, size_t n) {
+        const ColumnString& src = assert_cast<const ColumnString&>(src_);
+        __builtin_prefetch(&src.chars[src.offsets[n - 1]], 0, 1);
     }
 
     void insert_from(const IColumn& src_, size_t n) override {

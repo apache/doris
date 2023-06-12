@@ -167,6 +167,11 @@ Status StorageEngine::start_bg_threads() {
             &_tablet_checkpoint_tasks_producer_thread));
     LOG(INFO) << "tablet checkpoint tasks producer thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "tablet_path_check_thread",
+            [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
+    LOG(INFO) << "tablet path check thread started";
+
     // fd cache clean thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "fd_cache_clean_thread",
@@ -393,6 +398,83 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_tablet_path_check_callback() {
+    struct TabletIdComparator {
+        bool operator()(Tablet* a, Tablet* b) { return a->tablet_id() < b->tablet_id(); }
+    };
+
+    using TabletQueue = std::priority_queue<Tablet*, std::vector<Tablet*>, TabletIdComparator>;
+
+    int64_t interval = config::tablet_path_check_interval_seconds;
+    if (interval <= 0) {
+        return;
+    }
+
+    int64_t last_tablet_id = 0;
+    do {
+        int32_t batch_size = config::tablet_path_check_batch_size;
+        if (batch_size <= 0) {
+            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                break;
+            }
+            continue;
+        }
+
+        LOG(INFO) << "start to check tablet path";
+
+        auto all_tablets = _tablet_manager->get_all_tablet(
+                [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
+
+        TabletQueue big_id_tablets;
+        TabletQueue small_id_tablets;
+        for (auto tablet : all_tablets) {
+            auto tablet_id = tablet->tablet_id();
+            TabletQueue* belong_tablets = nullptr;
+            if (tablet_id > last_tablet_id) {
+                if (big_id_tablets.size() < batch_size ||
+                    big_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &big_id_tablets;
+                }
+            } else if (big_id_tablets.size() < batch_size) {
+                if (small_id_tablets.size() < batch_size ||
+                    small_id_tablets.top()->tablet_id() > tablet_id) {
+                    belong_tablets = &small_id_tablets;
+                }
+            }
+            if (belong_tablets != nullptr) {
+                belong_tablets->push(tablet.get());
+                if (belong_tablets->size() > batch_size) {
+                    belong_tablets->pop();
+                }
+            }
+        }
+
+        int32_t need_small_id_tablet_size =
+                batch_size - static_cast<int32_t>(big_id_tablets.size());
+
+        if (!big_id_tablets.empty()) {
+            last_tablet_id = big_id_tablets.top()->tablet_id();
+        }
+        while (!big_id_tablets.empty()) {
+            big_id_tablets.top()->check_tablet_path_exists();
+            big_id_tablets.pop();
+        }
+
+        if (!small_id_tablets.empty() && need_small_id_tablet_size > 0) {
+            while (static_cast<int32_t>(small_id_tablets.size()) > need_small_id_tablet_size) {
+                small_id_tablets.pop();
+            }
+
+            last_tablet_id = small_id_tablets.top()->tablet_id();
+            while (!small_id_tablets.empty()) {
+                small_id_tablets.top()->check_tablet_path_exists();
+                small_id_tablets.pop();
+            }
+        }
+
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

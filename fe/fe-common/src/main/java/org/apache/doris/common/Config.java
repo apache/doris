@@ -562,7 +562,7 @@ public class Config extends ConfigBase {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
-    public static int max_running_txn_num_per_db = 100;
+    public static int max_running_txn_num_per_db = 1000;
 
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
             + "并且应小于 `max_running_txn_num_per_db`。",
@@ -783,7 +783,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int storage_flood_stage_usage_percent = 95;
     @ConfField(mutable = true, masterOnly = true)
-    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 100MB
+    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
@@ -1445,7 +1445,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_sec = 300;
+    public static int auto_check_statistics_in_minutes = 5;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -1486,7 +1486,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_pipeline_load = false;
+    public static boolean enable_pipeline_load = true;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
@@ -1921,13 +1921,6 @@ public class Config extends ConfigBase {
     public static boolean enable_stats = true;
 
     /**
-     * Whether create a duplicate table without keys by default
-     * when creating a table which not set key type and key columns
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean experimental_enable_duplicate_without_keys_by_default = false;
-
-    /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
      * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
@@ -1953,6 +1946,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int max_instance_num = 128;
+
+    /*
+     * This variable indicates the number of digits by which to increase the scale
+     * of the result of division operations performed with the `/` operator. The
+     * default value is 4, and it is currently only used for the DECIMALV3 type.
+     */
+    @ConfField(mutable = true)
+    public static int div_precision_increment = 4;
 
     /**
      * This config used for export/outfile.

@@ -396,49 +396,49 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
 
     /// Check args: txn_id, remote_tablet_id, binlog_version, remote_host, remote_port, partition_id, load_id
-    if (request.__isset.txn_id) {
+    if (!request.__isset.txn_id) {
         LOG(WARNING) << "txn_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("txn_id is empty");
         return;
     }
-    if (request.__isset.remote_tablet_id) {
+    if (!request.__isset.remote_tablet_id) {
         LOG(WARNING) << "remote_tablet_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_tablet_id is empty");
         return;
     }
-    if (request.__isset.binlog_version) {
+    if (!request.__isset.binlog_version) {
         LOG(WARNING) << "binlog_version is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("binlog_version is empty");
         return;
     }
-    if (request.__isset.remote_host) {
+    if (!request.__isset.remote_host) {
         LOG(WARNING) << "remote_host is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_host is empty");
         return;
     }
-    if (request.__isset.remote_port) {
+    if (!request.__isset.remote_port) {
         LOG(WARNING) << "remote_port is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_port is empty");
         return;
     }
-    if (request.__isset.partition_id) {
+    if (!request.__isset.partition_id) {
         LOG(WARNING) << "partition_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("partition_id is empty");
         return;
     }
-    if (request.__isset.load_id) {
+    if (!request.__isset.load_id) {
         LOG(WARNING) << "load_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;

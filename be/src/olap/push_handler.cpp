@@ -371,11 +371,7 @@ Status PushBrokerReader::init() {
         return Status::Error<PUSH_INIT_ERROR>();
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(dummy_id);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
-        return Status::Error<PUSH_INIT_ERROR>();
-    }
+    _runtime_state->init_mem_trackers(dummy_id, "PushBrokerReader");
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
 

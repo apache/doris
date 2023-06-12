@@ -196,6 +196,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.io_ctx.file_cache_stats = &read_context->stats->file_cache_stats;
     _read_options.runtime_state = read_context->runtime_state;
     _read_options.output_columns = read_context->output_columns;
 
@@ -304,10 +305,12 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y]
+    // must be compaction, not overlapping and don't have sequence column
     return _rowset->keys_type() == UNIQUE_KEYS &&
            (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
-             !_rowset->_rowset_meta->is_segments_overlapping()) ||
+             !_rowset->_rowset_meta->is_segments_overlapping() &&
+             _context->sequence_id_idx == -1) ||
             _context->enable_unique_key_merge_on_write);
 }
 

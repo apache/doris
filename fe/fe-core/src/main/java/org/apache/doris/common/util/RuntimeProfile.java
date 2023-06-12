@@ -322,6 +322,10 @@ public class RuntimeProfile {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
+            case NONE: {
+                // Do nothing, it is just a label
+                break;
+            }
             case UNIT: {
                 Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
                 if (pair.second.isEmpty()) {

@@ -219,12 +219,6 @@ public class HiveMetaStoreCache {
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
-            try {
-                partitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
             long partitionId = idx++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types);
             idToPartitionItem.put(partitionId, listPartitionItem);
@@ -259,7 +253,15 @@ public class HiveMetaStoreCache {
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
-            values.add(new PartitionValue(kv[1], HIVE_DEFAULT_PARTITION.equals(kv[1])));
+            String partitionValue;
+            try {
+                // hive partition value maybe contains special characters like '=' and '/'
+                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // It should not be here
+                throw new RuntimeException(e);
+            }
+            values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
@@ -289,7 +291,14 @@ public class HiveMetaStoreCache {
         result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
         try {
-            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
+            // For Tez engine, it may generate subdirectoies for "union" query.
+            // So there may be files and directories in the table directory at the same time. eg:
+            //      /user/hive/warehouse/region_tmp_union_all2/000000_0
+            //      /user/hive/warehouse/region_tmp_union_all2/1
+            //      /user/hive/warehouse/region_tmp_union_all2/2
+            // So we need to recursively list data location.
+            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+            RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
             locatedFiles.files().forEach(result::addFile);
         } catch (Exception e) {
             // User may manually remove partition under HDFS, in this case,

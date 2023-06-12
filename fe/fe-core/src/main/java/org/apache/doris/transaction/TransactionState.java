@@ -35,6 +35,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -175,6 +177,8 @@ public class TransactionState implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableIdList")
+    @Setter
+    @Getter
     private List<Long> tableIdList;
     private int replicaNum = 0;
     @SerializedName(value = "txnId")
@@ -555,16 +559,10 @@ public class TransactionState implements Writable {
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
-        Set<Long> indexIds = loadedTblIndexes.get(table.getId());
-        if (indexIds == null) {
-            indexIds = Sets.newHashSet();
-            loadedTblIndexes.put(table.getId(), indexIds);
-        }
+        Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> Sets.newHashSet());
         // always equal the index ids
         indexIds.clear();
-        for (Long indexId : table.getIndexIdToMeta().keySet()) {
-            indexIds.add(indexId);
-        }
+        indexIds.addAll(table.getIndexIdToMeta().keySet());
     }
 
     public Map<Long, Set<Long>> getLoadedTblIndexes() {
@@ -651,8 +649,8 @@ public class TransactionState implements Writable {
         out.writeLong(callbackId);
         out.writeLong(timeoutMs);
         out.writeInt(tableIdList.size());
-        for (int i = 0; i < tableIdList.size(); i++) {
-            out.writeLong(tableIdList.get(i));
+        for (Long aLong : tableIdList) {
+            out.writeLong(aLong);
         }
     }
 

@@ -28,6 +28,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,10 +65,13 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     .map(column -> scanOutput.get(column.getName().toLowerCase()))
                     .collect(Collectors.toList());
 
-            List<Long> prunedPartitions = PartitionPruner.prune(
-                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext);
-
-            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
+            List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
+                    partitionSlots, filter.getPredicate(), partitionInfo, ctx.cascadesContext));
+            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
+            if (!CollectionUtils.isEmpty(manuallySpecifiedPartitions)) {
+                prunedPartitions.retainAll(manuallySpecifiedPartitions);
+            }
+            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(ImmutableList.copyOf(prunedPartitions));
             return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }

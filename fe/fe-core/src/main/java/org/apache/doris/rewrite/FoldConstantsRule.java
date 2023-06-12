@@ -29,7 +29,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.SysVariableDesc;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -109,6 +109,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
+            if (castExpr.isNotFold()) {
+                return castExpr;
+            }
             if (castExpr.getChild(0) instanceof NullLiteral) {
                 return castExpr.getChild(0);
             }
@@ -216,7 +219,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return;
             }
             // collect sysVariableDesc expr
-            if (expr.contains(Predicates.instanceOf(SysVariableDesc.class))) {
+            if (expr.contains(Predicates.instanceOf(VariableExpr.class))) {
                 getSysVarDescExpr(expr, sysVarMap);
                 return;
             }
@@ -244,14 +247,14 @@ public class FoldConstantsRule implements ExprRewriteRule {
     }
 
     private void getSysVarDescExpr(Expr expr, Map<String, Expr> sysVarMap) {
-        if (expr instanceof SysVariableDesc) {
-            Expr literalExpr = ((SysVariableDesc) expr).getLiteralExpr();
+        if (expr instanceof VariableExpr) {
+            Expr literalExpr = ((VariableExpr) expr).getLiteralExpr();
             if (literalExpr == null) {
                 try {
-                    VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) expr);
-                    literalExpr = ((SysVariableDesc) expr).getLiteralExpr();
+                    VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (VariableExpr) expr);
+                    literalExpr = ((VariableExpr) expr).getLiteralExpr();
                 } catch (AnalysisException e) {
-                    LOG.warn("failed to get session variable value: " + ((SysVariableDesc) expr).getName());
+                    LOG.warn("failed to get session variable value: " + ((VariableExpr) expr).getName());
                 }
             }
             sysVarMap.put(expr.getId().toString(), literalExpr);

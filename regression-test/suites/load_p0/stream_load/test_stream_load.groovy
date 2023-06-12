@@ -89,6 +89,7 @@ suite("test_stream_load", "p0") {
         }
     }
 
+    sql "sync"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -177,6 +178,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberFilteredRows)
         }
     }
+    sql "sync"
     order_qt_sql1 " SELECT * FROM ${tableName2}"
 
     // test common case
@@ -358,6 +360,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberLoadedRows)
         }
     }
+    sql "sync"
 
     // load with skip 2 columns, with gzip
     streamLoad {
