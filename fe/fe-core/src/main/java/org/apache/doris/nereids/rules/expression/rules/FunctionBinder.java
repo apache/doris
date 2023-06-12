@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.PrimitiveType;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -107,17 +109,12 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        try {
-            FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
-            BoundFunction boundFunction = builder.build(functionName, arguments);
-            return TypeCoercionUtils.processBoundFunction(boundFunction);
-        } catch (AnalysisException e) {
-            UdfBinder udfBinder = new UdfBinder();
-            Expression boundFunction = udfBinder.rewriteFunction(unboundFunction, context);
-            if (boundFunction == null) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+        BoundFunction boundFunction = builder.build(functionName, arguments);
+        if (builder instanceof AliasFunctionBuilder) {
             return boundFunction;
+        } else {
+            return TypeCoercionUtils.processBoundFunction(boundFunction);
         }
     }
 
