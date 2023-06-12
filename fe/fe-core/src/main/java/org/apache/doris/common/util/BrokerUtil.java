@@ -126,6 +126,7 @@ public class BrokerUtil {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
+        // if it is ACID, the path count is 3. The hdfs path is hdfs://xxx/table_name/par=xxx/delta(or base)_xxx/.
         int pathCount = isACID ? 3 : 2;
         if (!caseSensitive) {
             for (int i = 0; i < columnsFromPath.size(); i++) {

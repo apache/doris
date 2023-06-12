@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.datasource.hive.AcidInfo;
+import org.apache.doris.spi.Split;
 
 import org.apache.hadoop.fs.Path;
 
@@ -45,5 +46,24 @@ public class HiveSplit extends FileSplit {
 
     public boolean isACID() {
         return acidInfo != null;
+    }
+
+    public static class HiveSplitCreator implements SplitCreator {
+
+        private AcidInfo acidInfo;
+
+        public HiveSplitCreator(AcidInfo acidInfo) {
+            this.acidInfo = acidInfo;
+        }
+
+        public HiveSplitCreator() {
+            this(null);
+        }
+
+        @Override
+        public Split create(Path path, long start, long length, long fileLength, long modificationTime, String[] hosts,
+                List<String> partitionValues) {
+            return new HiveSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues, acidInfo);
+        }
     }
 }
