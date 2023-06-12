@@ -6077,3 +6077,5 @@ true
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_agg_phase_4_notnull --
 12	1
 
+-- !max_null --
+\N

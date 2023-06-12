@@ -384,6 +384,13 @@ public class DecimalLiteral extends LiteralExpr {
         return super.uncheckedCastTo(targetType);
     }
 
+    public Expr castToDecimalV3ByDivde(Type targetType) {
+        // onlye use in DecimalLiteral divide DecimalV3
+        CastExpr expr = new CastExpr(targetType, this);
+        expr.setNotFold(true);
+        return expr;
+    }
+
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);

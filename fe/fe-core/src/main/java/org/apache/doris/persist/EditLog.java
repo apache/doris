@@ -1024,6 +1024,13 @@ public class EditLog {
                     env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                    AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
+                    LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);
+                    env.replayAlterDatabaseProperty(alterDatabasePropertyInfo.getDbName(),
+                            alterDatabasePropertyInfo.getProperties());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1785,5 +1792,9 @@ public class EditLog {
 
     public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
         logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
+    }
+
+    public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
+        logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
     }
 }

@@ -332,13 +332,13 @@ public:
         bool then_null = false;
         for (int i = 1 + has_case; i < arguments.size() - has_else; i += 2) {
             auto then_column_ptr = block.get_by_position(arguments[i]).column;
-            if (then_column_ptr->is_nullable()) {
+            if (then_column_ptr->get_data_type() == TypeIndex::Nullable) {
                 then_null = true;
             }
         }
         if constexpr (has_else) {
             auto else_column_ptr = block.get_by_position(arguments[arguments.size() - 1]).column;
-            if (else_column_ptr->is_nullable()) {
+            if (else_column_ptr->get_data_type() == TypeIndex::Nullable) {
                 then_null = true;
             }
         } else {
@@ -364,13 +364,13 @@ public:
         bool when_null = false;
         if constexpr (has_case) {
             auto case_column_ptr = block.get_by_position(arguments[0]).column;
-            if (case_column_ptr->is_nullable()) {
+            if (case_column_ptr->get_data_type() == TypeIndex::Nullable) {
                 when_null = true;
             }
         }
         for (int i = has_case; i < arguments.size() - has_else; i += 2) {
             auto when_column_ptr = block.get_by_position(arguments[i]).column;
-            if (when_column_ptr->is_nullable()) {
+            if (when_column_ptr->get_data_type() == TypeIndex::Nullable) {
                 when_null = true;
             }
         }
