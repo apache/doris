@@ -32,12 +32,14 @@ import java.util.List;
 public class PaimonColumnValue implements ColumnValue {
     private int idx;
     private ColumnarRow record;
+    ColumnType dorisType;
 
     public PaimonColumnValue() {
     }
 
-    public void setIdx(int idx) {
+    public void setIdx(int idx, ColumnType dorisType) {
         this.idx = idx;
+        this.dorisType = dorisType;
     }
 
     public void setOffsetRow(ColumnarRow record) {
@@ -86,7 +88,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return BigDecimal.valueOf(getDouble());
+        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
     }
 
     @Override

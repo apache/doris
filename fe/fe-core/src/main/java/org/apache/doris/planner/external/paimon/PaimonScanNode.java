@@ -95,7 +95,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         for (SlotDescriptor slot : source.getDesc().getSlots()) {
             if (!isFirst) {
                 columnNamesBuilder.append(",");
-                columnTypesBuilder.append(",");
+                columnTypesBuilder.append("#");
                 columnIdsBuilder.append(",");
             }
             columnNamesBuilder.append(slot.getColumn().getName());

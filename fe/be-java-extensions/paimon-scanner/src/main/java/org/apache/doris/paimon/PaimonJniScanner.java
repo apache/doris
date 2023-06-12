@@ -75,7 +75,7 @@ public class PaimonJniScanner extends JniScanner {
         LOG.info("columns_id:" + params.get("columns_id"));
         LOG.info("types:" + params.get("columns_types"));
         String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = params.get("columns_types").split(",");
+        String[] types = params.get("columns_types").split("#");
         ids = params.get("columns_id").split(",");
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
@@ -127,7 +127,7 @@ public class PaimonJniScanner extends JniScanner {
                     columnValue.setOffsetRow((ColumnarRow) record);
                     for (int i = 0; i < ids.length; i++) {
                         LOG.info("types:" + types[i].getPrecision() + types[i].getScale());
-                        columnValue.setIdx(i);
+                        columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
                     rows++;
