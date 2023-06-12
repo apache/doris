@@ -856,7 +856,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     }
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    if (tablet_meta->create_from_file(header_path) != Status::OK()) {
+    if (!tablet_meta->create_from_file(header_path).ok()) {
         LOG(WARNING) << "fail to load tablet_meta. file_path=" << header_path;
         return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>();
     }
