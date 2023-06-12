@@ -118,15 +118,6 @@ void BlockedTaskScheduler::_schedule() {
                                    PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->fragment_context()->is_canceled()) {
-                std::string task_ds;
-#ifndef NDEBUG
-                task_ds = task->debug_string();
-#endif
-                LOG(WARNING) << "Canceled, query_id=" << print_id(task->query_context()->query_id)
-                             << ", instance_id="
-                             << print_id(task->fragment_context()->get_fragment_instance_id())
-                             << (task_ds.empty() ? "" : task_ds);
-
                 if (task->is_pending_finish()) {
                     task->set_state(PipelineTaskState::PENDING_FINISH);
                     iter++;
@@ -213,8 +204,6 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     ready_tasks.emplace_back(task);
 }
 
-/////////////////////////  TaskScheduler  ///////////////////////////////////////////////////////////////////////////
-
 TaskScheduler::~TaskScheduler() {
     shutdown();
 }
@@ -289,8 +278,8 @@ void TaskScheduler::_do_work(size_t index) {
 
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << fmt::format("Pipeline task [{}] failed: {}", task->debug_string(),
-                                        status.to_string());
+            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}, task: \n{}",
+                                        status.to_string(), task->debug_string());
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
             fragment_ctx->send_report(true);
