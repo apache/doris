@@ -128,12 +128,12 @@
 
     qt_query """ select cast(round(sum(d1), 6) as double), cast(round(sum(d2), 6) as double), cast(round(sum(d3), 6) as double) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), 2) as double), cast(round(sum(d2), 2) as double), cast(round(sum(d3),2) as double) from ${tableName3} """
-    qt_query """ select cast(round(sum(d1), -2) as double), cast(round(sum(d2), 2) as double), cast(round(sum(d3), -2) as double) from ${tableName3} """
-    qt_query """ select cast(round(sum(d1), -4) as double), cast(round(sum(d2), 4) as double), cast(round(sum(d3), -4) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as double), cast(round(sum(d2), -2) as double), cast(round(sum(d3), -2) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as double), cast(round(sum(d2), -4) as double), cast(round(sum(d3), -4) as double) from ${tableName3} """
 
     qt_query """ select cast(round(sum(d1), 6) as decimalv3(27, 3)), cast(round(sum(d2), 6) as decimalv3(27, 3)), cast(round(sum(d3), 6) as decimalv3(27, 3)) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), 2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3),2) as decimalv3(27, 3)) from ${tableName3} """
-    qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
-    qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), 4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), -2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), -4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
 
 }
