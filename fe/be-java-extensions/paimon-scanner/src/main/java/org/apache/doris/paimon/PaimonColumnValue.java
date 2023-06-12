@@ -110,7 +110,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public boolean isNull() {
-        return record.isNullAt(idx);
+        return !record.isNullAt(idx);
     }
 
     @Override
