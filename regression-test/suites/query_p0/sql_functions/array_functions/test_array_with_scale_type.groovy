@@ -94,6 +94,12 @@ suite("test_array_with_scale_type") {
         qt_select "select array_pushfront(c_array_decimal, cast (25.99 as decimalv3(10,3))) from ${tableName}"
         qt_select "select c_decimal, c_array_decimal, array_pushfront(c_array_decimal, c_decimal) from ${tableName}"
 
+        qt_select "select array_pushback(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3))),cast ('2022-12-02 22:23:23.997799' as datetimev2(3))) from ${tableName}"
+        qt_select "select array_pushback(c_array_datetimev2, cast ('2023-03-08 23:23:23.997799' as datetimev2(3))) from ${tableName}"
+        qt_select "select c_datetimev2, c_array_datetimev2, array_pushback(c_array_datetimev2, c_datetimev2) from ${tableName}"
+        qt_select "select array_pushback(c_array_decimal, cast (25.99 as decimalv3(10,3))) from ${tableName}"
+        qt_select "select c_decimal, c_array_decimal, array_pushback(c_array_decimal, c_decimal) from ${tableName}"
+        
         qt_select  "select array_cum_sum(array(cast (22.99 as decimal), cast (-11.99 as decimal)))"
         qt_select  "select array_cum_sum(array(cast (22.99 as decimal(10,3)), cast (-11.99 as decimal(10,3))))"
         qt_select  "select array_cum_sum(array(cast (22.99 as decimal(10,6)), cast (-11.991 as decimal(10,6))))"
