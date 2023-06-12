@@ -129,6 +129,7 @@ public class PaimonJniScanner extends JniScanner {
                     columnValue.setOffsetRow((ColumnarRow) record);
                     for (int i = 0; i < ids.length; i++) {
                         LOG.info("types:" + types[i].getPrecision() + types[i].getScale());
+                        LOG.info("isNullAt:" + ((ColumnarRow) record).isNullAt(i));
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
