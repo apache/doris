@@ -414,7 +414,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithCountDistinctMulti(
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
         Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
         List<Expression> localAggGroupBy = ImmutableList.copyOf(ImmutableSet.<Expression>builder()
@@ -441,7 +441,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build();
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
-                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true),
                 maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
                 logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child()
         );
@@ -530,7 +530,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<? extends Plan>> threePhaseAggregateWithCountDistinctMulti(
             LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Collection<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
 
@@ -558,7 +558,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build();
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
-                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true),
                 maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child()
         );
@@ -686,7 +686,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      */
     private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
         Map<AggregateFunction, Alias> inputToBufferAliases = logicalAgg.getAggregateFunctions()
                 .stream()
                 .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
@@ -917,7 +917,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(distinctArguments)
                 .build();
 
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
 
         Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .filter(aggregateFunction -> !aggregateFunction.isDistinct())
@@ -1115,7 +1115,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<? extends Plan>> twoPhaseAggregateWithMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, true);
         Map<AggregateFunction, Alias> aggFunctionToAliasPhase1 = aggregateFunctions.stream()
                 .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                     AggregateFunction multiDistinct = tryConvertToMultiDistinct(function);
