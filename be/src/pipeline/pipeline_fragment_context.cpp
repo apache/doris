@@ -152,6 +152,12 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+
+        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+        for (auto& task : _tasks) {
+            LOG(WARNING) << task->debug_string();
+        }
+
         _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -321,6 +327,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TPipelineFragmentParams& request) {
+    _total_tasks = 0;
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();
@@ -329,8 +336,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         Operators operators;
         RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->pipeline_profile());
+        auto task =
+                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                               operators, sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
@@ -339,7 +347,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
-    _total_tasks = _tasks.size();
 
     // register the profile of child data stream sender
     for (auto& sender : _multi_cast_stream_sink_senders) {
