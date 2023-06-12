@@ -116,7 +116,7 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     return buffer - begin;
 }
 
-int32_t timev2_to_buffer_from_double(double time, char* buffer) {
+int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     char* begin = buffer;
     if (time < 0) {
         time = -time;
@@ -153,6 +153,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer) {
         m_time /= 10;
         it--;
     }
+    buffer-=(6 - scale);
     return buffer - begin;
 }
 

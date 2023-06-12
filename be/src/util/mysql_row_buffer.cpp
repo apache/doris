@@ -195,8 +195,8 @@ static char* add_time(double data, char* pos, bool dynamic_mode) {
     return pos + length;
 }
 
-static char* add_timev2(double data, char* pos, bool dynamic_mode) {
-    int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode);
+static char* add_timev2(double data, char* pos, bool dynamic_mode, int scale) {
+    int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -430,7 +430,7 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
 }
 
 template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_timev2(double data) {
+int MysqlRowBuffer<is_binary_format>::push_timev2(double data,int scale) {
     if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;
@@ -445,7 +445,7 @@ int MysqlRowBuffer<is_binary_format>::push_timev2(double data) {
         return ret;
     }
 
-    _pos = add_timev2(data, _pos, _dynamic_mode);
+    _pos = add_timev2(data, _pos, _dynamic_mode, scale);
     return 0;
 }
 template <bool is_binary_format>

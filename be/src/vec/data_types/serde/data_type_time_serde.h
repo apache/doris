@@ -42,6 +42,8 @@ private:
                                   int row_idx, bool col_const) const;
 };
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
+public:
+    DataTypeTimeV2SerDe(int scale = -1) : scale(scale) {};
     Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                  std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
                                  int end, bool col_const) const override {
@@ -69,11 +71,12 @@ private:
                 return Status::InternalError("pack mysql buffer failed.");
             }
             const auto col_index = index_check_const(i, col_const);
-            buf_ret = result[row_idx].push_timev2(data[col_index]);
+            buf_ret = result[row_idx].push_timev2(data[col_index],scale);
             ++row_idx;
         }
         return Status::OK();
     }
+    int scale[[maybe_unused]];
 };
 } // namespace vectorized
 } // namespace doris

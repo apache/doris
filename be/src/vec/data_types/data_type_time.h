@@ -46,7 +46,7 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeTime : public DataTypeNumberBase<Float64> {
+class DataTypeTime final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTime() = default;
 
@@ -72,10 +72,13 @@ public:
     const char* get_family_name() const override { return "time"; }
 };
 
-class DataTypeTimeV2 : public DataTypeNumberBase<Float64> {
+class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
-    DataTypeTimeV2() = default;
-
+    DataTypeTimeV2(int scale = 6) : _scale(scale) {
+        if (UNLIKELY(scale > 6)) {
+            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+        }
+    }
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
@@ -93,10 +96,18 @@ public:
     bool can_be_used_in_boolean_context() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
+    void to_pb_column_meta(PColumnMeta* col_meta) const override {
+        IDataType::to_pb_column_meta(col_meta);
+        col_meta->mutable_decimal_param()->set_scale(_scale);
+    }
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeTimeV2SerDe>();
+        return std::make_shared<DataTypeTimeV2SerDe>(_scale);
     };
     TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     const char* get_family_name() const override { return "timev2"; }
+    UInt32 get_scale() const { return _scale; }
+
+private:
+    UInt32 _scale;
 };
 } // namespace doris::vectorized
