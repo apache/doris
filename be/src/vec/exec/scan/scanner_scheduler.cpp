@@ -238,7 +238,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                     auto work_func = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
                     };
-                    taskgroup::ScanTask scan_task = {work_func, ctx};
+                    taskgroup::ScanTask scan_task = {work_func, ctx, nice};
                     if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                         ret = _local_scan_queue->push_back<TabletStorageType::STORAGE_TYPE_LOCAL>(
                                 scan_task);

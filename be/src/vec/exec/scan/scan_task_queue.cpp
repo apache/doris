@@ -24,22 +24,30 @@
 namespace doris {
 namespace taskgroup {
 static void empty_function() {}
-ScanTask::ScanTask() : ScanTask(empty_function, nullptr) {}
+ScanTask::ScanTask() : ScanTask(empty_function, nullptr, 1) {}
 
-ScanTask::ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context)
-        : scan_func(std::move(scan_func)), scanner_context(scanner_context) {}
+ScanTask::ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context,
+                   int priority)
+        : scan_func(std::move(scan_func)), scanner_context(scanner_context), priority(priority) {}
 
 ScanTaskQueue::ScanTaskQueue() : _queue(config::doris_scanner_thread_pool_queue_size) {}
 
 Status ScanTaskQueue::try_push_back(ScanTask scan_task) {
     if (_queue.try_put(std::move(scan_task))) {
+        VLOG_DEBUG << "try_push_back scan task " << scan_task.scanner_context->ctx_id << " "
+                   << scan_task.priority;
         return Status::OK();
     } else {
         return Status::InternalError("failed to submit scan task to ScanTaskQueue");
     }
 }
 bool ScanTaskQueue::try_get(ScanTask* scan_task, uint32_t timeout_ms) {
-    return _queue.blocking_get(scan_task, timeout_ms);
+    auto r = _queue.blocking_get(scan_task, timeout_ms);
+    if (r) {
+        VLOG_DEBUG << "try get scan task " << scan_task->scanner_context->ctx_id << " "
+                   << scan_task->priority;
+    }
+    return r;
 }
 
 ScanTaskTaskGroupQueue::ScanTaskTaskGroupQueue(size_t core_size) : _core_size(core_size) {}
@@ -175,7 +183,7 @@ void ScanTaskTaskGroupQueue::_enqueue_task_group(TGSTEntityPtr tg_entity) {
 void ScanTaskTaskGroupQueue::_dequeue_task_group(TGSTEntityPtr tg_entity) {
     _total_cpu_share -= tg_entity->cpu_share();
     _group_entities.erase(tg_entity);
-    VLOG_DEBUG << "dequeue tg " << tg_entity->debug_string()
+    VLOG_DEBUG << "scan task group queue dequeue tg " << tg_entity->debug_string()
                << ", group entity size: " << _group_entities.size();
     _update_min_tg();
 }

@@ -247,14 +247,20 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
+        std::stringstream scanner_wait_worker_time;
         scanner_statistics << "[";
         scanner_rows_read << "[";
+        scanner_wait_worker_time << "[";
         for (auto finished_scanner_time : _finished_scanner_runtime) {
             scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
                                << ", ";
         }
         for (auto finished_scanner_rows : _finished_scanner_rows_read) {
             scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+        }
+        for (auto finished_scanner_wait_time : _finished_scanner_wait_worker_time) {
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(finished_scanner_wait_time, TUnit::TIME_NS) << ", ";
         }
         // Only unfinished scanners here
         for (auto& scanner : _scanners) {
@@ -265,11 +271,17 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
                               << ", ";
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(scanner->get_scanner_wait_worker_timer(),
+                                            TUnit::TIME_NS)
+                    << ", ";
         }
         scanner_statistics << "]";
         scanner_rows_read << "]";
+        scanner_wait_worker_time << "]";
         node->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         node->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+        node->_scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {
@@ -380,6 +392,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             if (scanner->need_to_close()) {
                 _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
                 _finished_scanner_rows_read.push_back(scanner->get_rows_read());
+                _finished_scanner_wait_worker_time.push_back(
+                        scanner->get_scanner_wait_worker_timer());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);

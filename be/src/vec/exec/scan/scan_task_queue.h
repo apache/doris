@@ -33,16 +33,16 @@ static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 // Like PriorityThreadPool::Task
 struct ScanTask {
     ScanTask();
-    ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context);
+    ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context, int priority);
     bool operator<(const ScanTask& o) const { return priority < o.priority; }
     ScanTask& operator++() {
         priority += 2;
         return *this;
     }
 
-    int priority;
     WorkFunction scan_func;
     vectorized::ScannerContext* scanner_context;
+    int priority;
 };
 
 // Like pipeline::PriorityTaskQueue use BlockingPriorityQueue directly?

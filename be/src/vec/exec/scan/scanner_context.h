@@ -253,6 +253,7 @@ protected:
     std::list<VScannerSPtr> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
+    std::vector<int64_t> _finished_scanner_wait_worker_time;
 
     const int _num_parallel_instances;
 
