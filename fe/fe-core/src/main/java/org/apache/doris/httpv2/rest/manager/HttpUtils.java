@@ -74,7 +74,7 @@ public class HttpUtils {
         return url.toString();
     }
 
-    static String doGet(String url, Map<String, String> headers) throws IOException {
+    public static String doGet(String url, Map<String, String> headers) throws IOException {
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers);
         return executeRequest(httpGet);

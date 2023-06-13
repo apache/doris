@@ -133,6 +133,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -147,6 +148,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -186,6 +188,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 
@@ -1815,8 +1818,35 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "The BE is not available,please check BE status!";
-                // clear tasks
+                SystemInfoService infoService = Env.getCurrentSystemInfo();
+                List<String> allBEHost =countDownLatch.getLeftMarks().stream().map(item->{return infoService.getBackend(item.getKey()).getHost();}).distinct().collect(Collectors.toList());
+                List<String> downBEList = countDownLatch.getLeftMarks().stream()
+                    .map(item->{return infoService.getBackend(item.getKey());})
+                    .distinct()
+                    .filter(new Predicate<Backend>() {
+                        @Override
+                        public boolean test(Backend backend) {
+                            String ip = "http://" + backend.getHost() + ":"+backend.getBePort()+"/api/health";
+                            try {
+                              HttpUtils.doGet(ip, null);
+                            } catch (Exception e) {
+                                return true;
+                            }
+                            return false;
+                        }
+                    })
+                    .map(Backend::getHost)
+                    .collect(Collectors.toList());
+                if (null != downBEList || downBEList.size() !=0 ){
+                    String downBE= StringUtils.join(downBEList, ",");
+                    errMsg = "The BE "+downBE+" is down,please check BE status!";
+                    allBEHost.removeAll(downBEList);
+                }
+                if (null != allBEHost || allBEHost.size() !=0 ) {
+                    String timeoutBE = StringUtils.join(allBEHost, ",");
+                    errMsg += "Failed to create partition[" + partitionName + "] in " + timeoutBE + ". Timeout:" + (timeout / 1000) + " seconds.";
+                }
+                    // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
                 if (!countDownLatch.getStatus().ok()) {
