@@ -53,9 +53,10 @@ suite("test_insert") {
     sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
     sql """
         CREATE TABLE ${insert_tbl_dft} (
-            `k1` char(8) DEFAULT "hello",
-            `k2` char(8) DEFAULT "world",
-            `k3` int(10) DEFAULT "0"
+            `k1` char(16) DEFAULT "hello world",
+            `k2` int(10) DEFAULT "0",
+	    `k3` date DEFAULT "2023-06-13",
+	    `k4` datetime DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`, `k2`, `k3`)
         COMMENT 'OLAP'
