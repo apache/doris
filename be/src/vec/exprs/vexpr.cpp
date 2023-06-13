@@ -123,7 +123,7 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
 
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(, context, scope);
+        _children[i]->close(context, scope);
     }
 }
 
