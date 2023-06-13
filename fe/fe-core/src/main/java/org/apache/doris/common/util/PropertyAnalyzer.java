@@ -140,12 +140,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
                                                                         "enable_duplicate_without_keys_by_default";
-
-    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
-    private static final String COMMA_SEPARATOR = ",";
-    private static final double MAX_FPP = 0.05;
-    private static final double MIN_FPP = 0.0001;
-
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -153,6 +147,10 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    private static final String COMMA_SEPARATOR = ",";
+    private static final double MAX_FPP = 0.05;
+    private static final double MIN_FPP = 0.0001;
 
     /**
      * check and replace members of DataProperty by properties.
@@ -165,13 +163,18 @@ public class PropertyAnalyzer {
     public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return oldDataProperty;
+            // set storage_medium null to ensure the success of creating tablets
+            return new DataProperty(null,
+                oldDataProperty.getCooldownTimeMs(),
+                oldDataProperty.getStoragePolicy(),
+                oldDataProperty.isMutable());
         }
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
         String newStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
+        boolean isStorageMediumUpdated = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -179,8 +182,10 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
+                    isStorageMediumUpdated = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
+                    isStorageMediumUpdated = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
@@ -218,6 +223,10 @@ public class PropertyAnalyzer {
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+
+        if (!isStorageMediumUpdated) {
+            storageMedium = null;
         }
 
         if (hasStoragePolicy) {
