@@ -330,10 +330,11 @@ public:
     int64_t file_size() const override {
         std::filesystem::path dir(_directory);
         dir /= _segment_file_name;
-        auto file_name = InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
+        auto file_name =
+                InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
         int64_t size = -1;
         auto st = _fs->file_size(file_name.c_str(), &size);
-        if (!st.ok()){
+        if (!st.ok()) {
             LOG(ERROR) << "try to get file:" << file_name << " size error:" << st;
         }
         return size;

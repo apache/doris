@@ -723,7 +723,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
 
 size_t SegmentWriter::get_inverted_index_file_size() {
     size_t total_size = 0;
-    for (auto& column_writer: _column_writers) {
+    for (auto& column_writer : _column_writers) {
         total_size += column_writer->get_inverted_index_size();
     }
     return total_size;
