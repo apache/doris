@@ -28,6 +28,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.ThreadSafe;
@@ -76,7 +77,10 @@ public class FunctionRegistry {
             }
         }
         if (functionBuilders == null || functionBuilders.isEmpty()) {
-            throw new AnalysisException("Can not found function '" + name + "'");
+            functionBuilders = findUdfBuilder(null, name);
+            if (functionBuilders == null || functionBuilders.isEmpty()) {
+                throw new AnalysisException("Can not found function '" + name + "'");
+            }
         }
 
         // check the arity and type

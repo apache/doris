@@ -29,15 +29,24 @@ public class UdfTest extends TestWithFeService {
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
     }
-    
+
     @Test
     public void testSaveFunctionToRegistry() throws Exception {
         createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(null, "f").size());
-        
+
         createFunction("create alias function f(int) with parameter(n) as hours_add(now(3), n)");
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder("default_cluster:test", "f").size());
+    }
+
+    @Test
+    public void testSaveNestedFunctionToRegistry() throws Exception {
+        createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
+        createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(date)), f2(f1(4)))");
+        Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
+                .findUdfBuilder(null, "f3").size());
     }
 }

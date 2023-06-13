@@ -102,6 +102,17 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasFunction.getName(), builder);
     }
 
+    @Override
+    public int arity() {
+        return argTypes.size();
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        return new AliasFunction(getName(), argTypes, originalFunction, parameters,
+                children.toArray(new Expression[0]));
+    }
+
     private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, DataType>> {
         public static final VirtualSlotReplacer INSTANCE = new VirtualSlotReplacer();
 

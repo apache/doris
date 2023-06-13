@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
-import org.apache.doris.nereids.rules.analysis.UdfBinder;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Between;
