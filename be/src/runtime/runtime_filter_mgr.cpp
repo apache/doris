@@ -73,14 +73,16 @@ Status RuntimeFilterMgr::get_filter_by_role(const int filter_id, const RuntimeFi
     } else {
         filter_map = &_producer_map;
     }
-
+    auto state = Status::OK();
     auto iter = filter_map->find(key);
     if (iter == filter_map->end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role:" << (int)role;
-        return Status::InvalidArgument("unknown filter");
+        state = Status::InvalidArgument("unknown filter");
+        LOG_WARNING("get filter failed, key={}, role={}, reason={}", key, (int)role,
+                    state.to_string());
+    } else {
+        *target = iter->second.filter;
     }
-    *target = iter->second.filter;
-    return Status::OK();
+    return state;
 }
 
 Status RuntimeFilterMgr::get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter) {
