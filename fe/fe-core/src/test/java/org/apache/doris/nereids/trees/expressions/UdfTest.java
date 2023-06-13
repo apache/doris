@@ -31,7 +31,7 @@ public class UdfTest extends TestWithFeService {
     }
 
     @Test
-    public void testSaveFunctionToRegistry() throws Exception {
+    public void testSimpleFunction() throws Exception {
         createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(null, "f").size());
@@ -42,10 +42,10 @@ public class UdfTest extends TestWithFeService {
     }
 
     @Test
-    public void testSaveNestedFunctionToRegistry() throws Exception {
+    public void testNestedFunction() throws Exception {
         createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
         createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
-        createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(date)), f2(f1(4)))");
+        createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(null, "f3").size());
     }

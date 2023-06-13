@@ -47,19 +47,21 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
     private final BoundFunction originalFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
+    private final DataType retType;
 
-    public AliasFunction(String name, List<DataType> argTypes, BoundFunction originalFunction,
+    public AliasFunction(String name, List<DataType> argTypes, DataType retType, BoundFunction originalFunction,
             List<String> parameters, Expression... arguments) {
         super(name, arguments);
         this.originalFunction = originalFunction;
         this.parameters = parameters;
         this.argTypes = argTypes;
+        this.retType = retType;
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(Suppliers.memoize(() -> FunctionSignature
-                .of(originalFunction.getSignature().returnType, argTypes)).get());
+                .of(retType, argTypes)).get());
     }
 
     public List<String> getParameters() {
@@ -88,14 +90,16 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
         }
 
         Expression slotBoundFunction = VirtualSlotReplacer.INSTANCE.replace(parsedFunction, replaceMap);
-        Expression boundFunction = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
+        Expression boundExpression = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
 
-        Preconditions.checkArgument(boundFunction instanceof BoundFunction);
+        Preconditions.checkArgument(boundExpression instanceof BoundFunction);
+        BoundFunction boundFunction = ((BoundFunction) boundExpression);
 
         AliasFunction aliasFunction = new AliasFunction(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
-                ((BoundFunction) boundFunction),
+                ((DataType) boundFunction.getSignature().returnType),
+                boundFunction,
                 function.getParameters());
 
         AliasFunctionBuilder builder = new AliasFunctionBuilder(aliasFunction);
@@ -109,7 +113,7 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasFunction(getName(), argTypes, originalFunction, parameters,
+        return new AliasFunction(getName(), argTypes, retType, originalFunction, parameters,
                 children.toArray(new Expression[0]));
     }
 
