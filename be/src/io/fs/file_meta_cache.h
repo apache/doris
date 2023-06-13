@@ -17,30 +17,33 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include "operator.h"
-#include "vec/exec/join/vhash_join_node.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/obj_lru_cache.h"
 
 namespace doris {
-class ExecNode;
 
-namespace pipeline {
-
-class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
+// A file meta cache depends on a LRU cache.
+// Such as parsed parquet footer.
+// The capacity will limit the number of cache entries in cache.
+class FileMetaCache {
 public:
-    HashJoinBuildSinkBuilder(int32_t, ExecNode*);
+    FileMetaCache(int64_t capacity) : _cache(capacity) {}
 
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
+    FileMetaCache(const FileMetaCache&) = delete;
+    const FileMetaCache& operator=(const FileMetaCache&) = delete;
+
+    ObjLRUCache& cache() { return _cache; }
+
+    Status get_parquet_footer(io::FileReaderSPtr file_reader, io::IOContext* io_ctx, int64_t mtime,
+                              size_t* meta_size, ObjLRUCache::CacheHandle* handle);
+
+    Status get_orc_footer() {
+        // TODO: implement
+        return Status::OK();
+    }
+
+private:
+    ObjLRUCache _cache;
 };
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
-public:
-    HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); }
-    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
-};
-
-} // namespace pipeline
 } // namespace doris

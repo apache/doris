@@ -36,7 +36,7 @@ suite("group_concat") {
 
     test {
         sql "select group_concat(cast(number as string)) from numbers('number'='10')"
-        result([["0, 1, 2, 3, 4, 5, 6, 7, 8, 9"]])
+        result([["0,1,2,3,4,5,6,7,8,9"]])
     }
 
     test {

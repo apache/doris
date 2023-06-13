@@ -15,32 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <stdint.h>
-
-#include "operator.h"
-#include "vec/exec/join/vhash_join_node.h"
+#include "util/obj_lru_cache.h"
 
 namespace doris {
-class ExecNode;
 
-namespace pipeline {
+ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards) {
+    _enabled = (capacity > 0);
+    if (_enabled) {
+        _cache = std::unique_ptr<Cache>(
+                new_lru_cache("ObjLRUCache", capacity, LRUCacheType::NUMBER, num_shards));
+    }
+}
 
-class HashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::HashJoinNode> {
-public:
-    HashJoinBuildSinkBuilder(int32_t, ExecNode*);
+bool ObjLRUCache::lookup(const ObjKey& key, CacheHandle* handle) {
+    if (!_enabled) {
+        return false;
+    }
+    auto lru_handle = _cache->lookup(key.key);
+    if (!lru_handle) {
+        // cache miss
+        return false;
+    }
+    *handle = CacheHandle(_cache.get(), lru_handle);
+    return true;
+}
 
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
+void ObjLRUCache::erase(const ObjKey& key) {
+    if (_enabled) {
+        _cache->erase(key.key);
+    }
+}
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
-public:
-    HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); }
-    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
-};
-
-} // namespace pipeline
 } // namespace doris

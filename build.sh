@@ -566,7 +566,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
-    rm -f "${DORIS_OUTPUT}/fe/lib/palo-fe.jar"
+    rm -f "${DORIS_OUTPUT}/fe/lib/palo-fejar"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -588,9 +588,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
-        "${DORIS_OUTPUT}/be/www" \
-        "${DORIS_OUTPUT}/udf/lib" \
-        "${DORIS_OUTPUT}/udf/include"
+        "${DORIS_OUTPUT}/be/www"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
@@ -625,8 +623,6 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    cp -r -p "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
-    cp -r -p "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
@@ -639,10 +635,13 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
 
+    BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
+    rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
+    mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
         module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
         if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${DORIS_OUTPUT}/be/lib"/
+            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/
         fi
     done
 
@@ -670,19 +669,6 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
-    cd "${DORIS_HOME}"
-fi
-
-if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
-    install -d "${DORIS_OUTPUT}/be/lib"
-
-    rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
-
-    java_udf_path="${DORIS_HOME}/fe/be-java-extensions/java-udf/target/java-udf-jar-with-dependencies.jar"
-    if [[ -f "${java_udf_path}" ]]; then
-        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
-    fi
-
     cd "${DORIS_HOME}"
 fi
 
