@@ -111,8 +111,7 @@ public:
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
 
