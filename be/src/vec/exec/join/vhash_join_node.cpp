@@ -458,8 +458,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
-    _push_down_timer = ADD_TIMER(record_profile, "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(record_profile, "PushDownComputeTime");
 
     // Probe phase
     auto probe_phase_profile = _probe_phase_profile;
