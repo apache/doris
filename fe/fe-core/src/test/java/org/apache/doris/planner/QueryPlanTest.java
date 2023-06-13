@@ -953,7 +953,7 @@ public class QueryPlanTest extends TestWithFeService {
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql31),
-                "constant exprs: \n         CASE 100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
+                "constant exprs: \n         CASE 100 WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
