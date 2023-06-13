@@ -27,7 +27,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -44,7 +46,7 @@ import java.util.stream.Collectors;
 /**
  * alias function
  */
-public class AliasUdf extends BoundFunction implements ExplicitlyCastableSignature {
+public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignature {
     private final BoundFunction originalFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
@@ -116,6 +118,11 @@ public class AliasUdf extends BoundFunction implements ExplicitlyCastableSignatu
     public Expression withChildren(List<Expression> children) {
         return new AliasUdf(getName(), argTypes, retType, originalFunction, parameters,
                 children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAliasUdf(this, context);
     }
 
     private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, DataType>> {

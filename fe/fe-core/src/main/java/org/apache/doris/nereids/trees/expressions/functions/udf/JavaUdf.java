@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -93,6 +92,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol());
+        System.out.print(udf);
     }
 
     @Override

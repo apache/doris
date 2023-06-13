@@ -369,7 +369,7 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
-functionIdentifier
+functionIdentifier 
     : (dbName=identifier DOT)? functionNameIdentifier
     ;
 

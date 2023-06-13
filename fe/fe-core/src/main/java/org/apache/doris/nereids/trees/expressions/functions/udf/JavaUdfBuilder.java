@@ -17,12 +17,29 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
+import java.util.List;
+
+/**
+ * function builder for java udf
+ */
 public class JavaUdfBuilder extends FunctionBuilder {
     private final JavaUdf udf;
 
     public JavaUdfBuilder(JavaUdf udf) {
         super();
+        this.udf = udf;
+    }
+
+    @Override
+    public boolean canApply(List<?> arguments) {
+        return false;
+    }
+
+    @Override
+    public BoundFunction build(String name, List<?> arguments) {
+        return null;
     }
 }

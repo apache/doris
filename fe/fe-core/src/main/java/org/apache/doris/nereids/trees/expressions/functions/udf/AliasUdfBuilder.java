@@ -42,7 +42,6 @@ public class AliasUdfBuilder extends FunctionBuilder {
     private final AliasUdf aliasUdf;
 
     public AliasUdfBuilder(AliasUdf aliasUdf) {
-        super(aliasUdf.arity(), false);
         this.aliasUdf = aliasUdf;
     }
 
