@@ -189,7 +189,8 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     return str;
 }
 
-Status DataTypeArray::from_nested_complex_json(simdjson::ondemand::value& json_value, IColumn* column) const {
+Status DataTypeArray::from_nested_complex_json(simdjson::ondemand::value& json_value,
+                                               IColumn* column) const {
     if (json_value.type() != simdjson::ondemand::json_type::array) {
         return Status::InvalidArgument("Parse json data failed, not array type '{}'",
                                        json_value.type().take_value());

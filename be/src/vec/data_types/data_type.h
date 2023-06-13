@@ -85,7 +85,8 @@ public:
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
     // use for complex type nested complex type using simdjson parse
     // now we just support array nested array , later we support map/struct...
-    virtual Status from_nested_complex_json(simdjson::ondemand::value& json_value, IColumn* column) const;
+    virtual Status from_nested_complex_json(simdjson::ondemand::value& json_value,
+                                            IColumn* column) const;
 
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde() const = 0;
