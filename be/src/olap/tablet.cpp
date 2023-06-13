@@ -3126,6 +3126,48 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     return Status::OK();
 }
 
+Status Tablet::commit_phase_update_delete_bitmap(
+        const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+        DeleteBitmapPtr delete_bitmap, const int64_t& cur_version,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, RowsetWriter* rowset_writer) {
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RowsetIdUnorderedSet rowset_ids_to_add;
+    RowsetIdUnorderedSet rowset_ids_to_del;
+
+    std::lock_guard<std::mutex> rwlock(_rowset_update_lock);
+    std::shared_lock meta_rlock(_meta_lock);
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
+                  << tablet_id();
+        return Status::OK();
+    }
+    cur_rowset_ids = all_rs_id(cur_version - 1);
+    _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
+    if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
+        LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
+                  << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
+    }
+    for (const auto& to_del : rowset_ids_to_del) {
+        delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
+    }
+
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
+                                       cur_version - 1, rowset_writer));
+
+    // update version without write lock, compaction and publish_txn
+    // will update delete bitmap, handle compaction with _rowset_update_lock
+    // and publish_txn runs sequential so no need to lock here
+    for (auto iter = delete_bitmap->delete_bitmap.begin();
+         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
+        _tablet_meta->delete_bitmap().merge(
+                {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
+    }
+
+    return Status::OK();
+}
+
 Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
                                     const RowsetIdUnorderedSet& pre_rowset_ids,
                                     DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer) {

@@ -447,6 +447,12 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
 
+    Status commit_phase_update_delete_bitmap(
+            const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+            DeleteBitmapPtr delete_bitmap, const int64_t& cur_version,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            RowsetWriter* rowset_writer = nullptr);
+
     Status update_delete_bitmap(const RowsetSharedPtr& rowset,
                                 const RowsetIdUnorderedSet& pre_rowset_ids,
                                 DeleteBitmapPtr delete_bitmap,
