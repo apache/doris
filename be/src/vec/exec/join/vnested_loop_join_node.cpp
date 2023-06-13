@@ -134,8 +134,6 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    _build_output_block_timer = ADD_TIMER(runtime_profile(), "BuildOutPutBlockTimer");
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
 
