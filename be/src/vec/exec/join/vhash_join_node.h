@@ -303,14 +303,13 @@ private:
 
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-
-    RuntimeProfile* _build_phase_profile;
 
     std::shared_ptr<Arena> _arena;
 
