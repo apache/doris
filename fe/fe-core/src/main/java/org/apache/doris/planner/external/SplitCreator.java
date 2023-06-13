@@ -17,20 +17,13 @@
 
 package org.apache.doris.planner.external;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    TRANSACTIONAL_HIVE("transactional_hive");
+import org.apache.doris.spi.Split;
 
-    private final String tableFormatType;
+import org.apache.hadoop.fs.Path;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+import java.util.List;
 
-    public String value() {
-        return tableFormatType;
-    }
+public interface SplitCreator {
+    Split create(Path path, long start, long length, long fileLength,
+            long modificationTime, String[] hosts, List<String> partitionValues);
 }
