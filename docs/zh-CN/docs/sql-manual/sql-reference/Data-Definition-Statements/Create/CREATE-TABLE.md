@@ -362,7 +362,7 @@ distribution_desc
     
         `"light_schema_change" = 'true'`
 
-        该功能在 1.2.1 及之后版本默认开启。
+        该功能在 2.0.0 及之后版本默认开启。
     
     * `disable_auto_compaction`
 

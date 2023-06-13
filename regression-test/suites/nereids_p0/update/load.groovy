@@ -16,6 +16,7 @@
 // under the License.
 
 suite("load") {
+    sql 'drop table if exists t1'
     sql '''
         create table t1 (
             id int,
@@ -32,6 +33,7 @@ suite("load") {
         );
     '''
 
+    sql 'drop table if exists t2'
     sql '''
         create table t2 (
             id int,
@@ -46,6 +48,7 @@ suite("load") {
         );
     '''
 
+    sql 'drop table if exists t3'
     sql '''
         create table t3 (
             id int

@@ -135,13 +135,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
 
-    _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
-    _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
     _probe_rows_counter = ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
 
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
@@ -174,21 +169,27 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
     return VJoinNodeBase::close(state);
 }
 
+// TODO: This method should be implemented by the parent class
 Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
-    RETURN_IF_ERROR(child(1)->open(state));
+    {
+        SCOPED_TIMER(_build_get_next_timer);
+        RETURN_IF_ERROR(child(1)->open(state));
+    }
 
     bool eos = false;
+    Block block;
     while (true) {
         RETURN_IF_CANCELLED(state);
-
-        Block block;
-        RETURN_IF_ERROR(child(1)->get_next_after_projects(
-                state, &block, &eos,
-                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                  ExecNode::get_next,
-                          _children[1], std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3)));
+        {
+            SCOPED_TIMER(_build_get_next_timer);
+            RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                    state, &block, &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[1], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
+        }
 
         sink(state, &block, eos);
 
