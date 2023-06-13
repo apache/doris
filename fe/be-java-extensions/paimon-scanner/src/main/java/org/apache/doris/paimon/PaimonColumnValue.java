@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import org.apache.paimon.data.columnar.ColumnarRow;
