@@ -285,9 +285,9 @@ struct ProcessRuntimeFilterBuild {
         if (_join_node->_runtime_filter_descs.empty()) {
             return Status::OK();
         }
-        _join_node->_runtime_filter_slots = _join_node->_pool->add(
-                new VRuntimeFilterSlots(_join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
-                                        _join_node->_runtime_filter_descs));
+        _join_node->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                _join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
+                _join_node->_runtime_filter_descs);
 
         RETURN_IF_ERROR(_join_node->_runtime_filter_slots->init(
                 state, hash_table_ctx.hash_table.get_size(), _join_node->_build_bf_cardinality));
@@ -300,7 +300,7 @@ struct ProcessRuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            _join_node->_runtime_filter_slots->publish();
+            RETURN_IF_ERROR(_join_node->_runtime_filter_slots->publish());
         }
 
         return Status::OK();
@@ -917,15 +917,15 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                   if (_runtime_filter_descs.empty()) {
                                       return Status::OK();
                                   }
-                                  _runtime_filter_slots = _pool->add(new VRuntimeFilterSlots(
+                                  _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
                                           _probe_expr_ctxs, _build_expr_ctxs,
-                                          _runtime_filter_descs));
+                                          _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table.get_size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
-                                  _runtime_filter_slots->publish();
+                                  RETURN_IF_ERROR(_runtime_filter_slots->publish());
                                   return Status::OK();
                               }},
                     *_hash_table_variants);
@@ -1260,6 +1260,9 @@ HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
+    }
+    if (_runtime_filter_slots != nullptr) {
+        _runtime_filter_slots->finish_publish();
     }
 }
 
