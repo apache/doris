@@ -106,7 +106,7 @@ public:
         return Status::OK();
     }
 
-    int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
+    int32_t allocate_segment_id() override { return _num_segment.fetch_add(1); };
 
     // Maybe modified by local schema change
     vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
@@ -163,11 +163,10 @@ protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    std::atomic<int32_t> _next_segment_id; // the next available segment_id (offset),
-                                           // also the numer of allocated segments
-    std::atomic<int32_t> _num_segment;     // number of consecutive flushed segments
-    roaring::Roaring _segment_set;         // bitmap set to record flushed segment id
-    std::mutex _segment_set_mutex;         // mutex for _segment_set
+    std::atomic<int32_t> _num_segment;         // number of allocated segments
+    std::atomic<int32_t> _num_flushed_segment; // number of consecutive flushed segments
+    roaring::Roaring _flushed_segment_set;     // bitmap set to record flushed segment id
+    std::mutex _flushed_segment_set_mutex;     // mutex for _flushed_segment_set
     int32_t _segment_start_id; //basic write start from 0, partial update may be different
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted

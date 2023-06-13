@@ -60,8 +60,8 @@ using namespace ErrorCode;
 
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
-          _next_segment_id(0),
           _num_segment(0),
+          _num_flushed_segment(0),
           _segment_start_id(0),
           _segcompacted_point(0),
           _num_segcompacted(0),
@@ -89,8 +89,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        auto max_segment_id = std::max(_num_segment.load(), _next_segment_id.load());
-        for (int i = 0; i < max_segment_id; ++i) {
+        for (int i = 0; i < _num_segment; ++i) {
             std::string seg_path = BetaRowset::segment_file_path(
                     _context.rowset_dir, _context.rowset_id, _segment_start_id + i);
             // Even if an error is encountered, these files that have not been cleaned up
@@ -358,7 +357,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
-               config::segcompaction_threshold_segment_num) {
+                       config::segcompaction_threshold_segment_num &&
+               _num_segment == _num_flushed_segment) /* no segment in the middle is flushing */ {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
         status = _get_segcompaction_candidates(segments, false);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
@@ -459,9 +459,6 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
     _num_segment += rowset->num_segments();
-    // _next_segment_id is not used in this code path,
-    // just to make sure it matches with _num_segment
-    _next_segment_id = _num_segment.load();
     // append key_bounds to current rowset
     rowset->get_segments_key_bounds(&_segments_encoded_key_bounds);
     // TODO update zonemap
@@ -536,8 +533,6 @@ RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_r
 }
 
 RowsetSharedPtr BetaRowsetWriter::build() {
-    // make sure all segments are flushed
-    DCHECK_EQ(_num_segment, _next_segment_id);
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
         Status status = file_writer->close();
@@ -809,7 +804,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
         _segid_statistics_map.emplace(segid, segstat);
-        _segment_num_rows.resize(_next_segment_id);
+        _segment_num_rows.resize(_num_segment);
         _segment_num_rows[segid_offset] = row_num;
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
@@ -820,10 +815,10 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         *flush_size = segment_size + index_size;
     }
     {
-        std::lock_guard<std::mutex> lock(_segment_set_mutex);
-        _segment_set.add(segid_offset);
-        while (_segment_set.contains(_num_segment)) {
-            _num_segment++;
+        std::lock_guard<std::mutex> lock(_flushed_segment_set_mutex);
+        _flushed_segment_set.add(segid_offset);
+        while (_flushed_segment_set.contains(_num_flushed_segment)) {
+            _num_flushed_segment++;
         }
     }
     return Status::OK();
