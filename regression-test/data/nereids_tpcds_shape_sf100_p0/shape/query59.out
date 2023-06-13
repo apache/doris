@@ -18,9 +18,10 @@ CteAnchor[cteId= ( CTEId#4=] )
 ------PhysicalTopN
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq2)
-------------PhysicalProject
---------------filter((d.d_month_seq <= 1219)(d.d_month_seq >= 1208))
-----------------PhysicalOlapScan[date_dim]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------filter((d.d_month_seq <= 1219)(d.d_month_seq >= 1208))
+------------------PhysicalOlapScan[date_dim]
 ------------PhysicalDistribute
 --------------hashJoin[INNER_JOIN](y.s_store_id1 = x.s_store_id2)(wss.ss_store_sk = store.s_store_sk)
 ----------------PhysicalProject

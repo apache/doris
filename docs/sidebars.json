@@ -294,6 +294,7 @@
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_popfront",
                                 "sql-manual/sql-functions/array-functions/array_pushfront",
+                                "sql-manual/sql-functions/array-functions/array_pushback",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",

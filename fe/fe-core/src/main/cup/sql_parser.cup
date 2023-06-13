@@ -1736,7 +1736,7 @@ opt_refresh_trigger ::=
 
 opt_mv_refersh_info ::=
     {:
-        RESULT = null;
+        RESULT = new MVRefreshInfo(true);
     :}
     | KW_REFRESH opt_refresh_method:refreshMethod opt_refresh_trigger:refreshTrigger
     {:
@@ -3928,6 +3928,10 @@ show_param ::=
     | KW_RESTORE opt_db:db opt_wild_where
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
+    :}
+    | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowRestoreStmt(db, parser.where, true);
     :}
     | KW_BROKER
     {:

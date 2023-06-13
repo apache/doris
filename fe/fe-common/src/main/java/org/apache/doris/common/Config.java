@@ -1767,6 +1767,15 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
+     * enable use odbc table
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否开启 ODBC 外表功能，默认关闭，ODBC 外表是淘汰的功能，请使用 JDBC Catalog",
+        "Whether to enable the ODBC appearance function, it is disabled by default,"
+            + " and the ODBC appearance is an obsolete feature. Please use the JDBC Catalog"})
+    public static boolean enable_odbc_table = false;
+
+    /**
      * This is used whether to push down function to MYSQL in external Table with query sql
      * like odbc, jdbc for mysql table
      */

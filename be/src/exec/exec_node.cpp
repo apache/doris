@@ -145,7 +145,6 @@ Status ExecNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
-
     return Status::OK();
 }
 

@@ -2485,23 +2485,23 @@ void Tablet::remove_unused_remote_files() {
             if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
                 auto& fs = it->second.first;
                 auto& files = it->second.second;
+                std::vector<io::Path> paths;
+                paths.reserve(files.size());
                 // delete unused files
                 LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
                           << " tablet_id=" << id;
-                io::Path dir("data/" + std::to_string(id));
+                io::Path dir = remote_tablet_path(id);
                 for (auto& file : files) {
-                    auto delete_path = dir / io::Path(file.file_name);
-                    LOG(INFO) << "delete unused file: " << delete_path.native();
+                    auto file_path = dir / file.file_name;
+                    LOG(INFO) << "delete unused file: " << file_path.native();
+                    paths.push_back(std::move(file_path));
                 }
-                std::vector<io::Path> file_names;
-                for (auto& info : files) {
-                    file_names.emplace_back(info.file_name);
-                }
-                st = fs->batch_delete(file_names);
+                st = fs->batch_delete(paths);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;
                 }
+                buffer.erase(it);
             }
         }
     };
