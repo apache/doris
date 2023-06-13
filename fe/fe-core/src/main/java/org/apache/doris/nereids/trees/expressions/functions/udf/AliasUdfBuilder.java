@@ -38,17 +38,17 @@ import java.util.stream.Collectors;
 /**
  * alias function builder
  */
-public class AliasFunctionBuilder extends FunctionBuilder {
-    private final AliasFunction aliasFunction;
+public class AliasUdfBuilder extends FunctionBuilder {
+    private final AliasUdf aliasUdf;
 
-    public AliasFunctionBuilder(AliasFunction aliasFunction) {
-        super(aliasFunction.arity(), false);
-        this.aliasFunction = aliasFunction;
+    public AliasUdfBuilder(AliasUdf aliasUdf) {
+        super(aliasUdf.arity(), false);
+        this.aliasUdf = aliasUdf;
     }
 
     @Override
     public boolean canApply(List<?> arguments) {
-        if (arguments.size() != aliasFunction.arity()) {
+        if (arguments.size() != aliasUdf.arity()) {
             return false;
         }
         for (Object argument : arguments) {
@@ -65,7 +65,7 @@ public class AliasFunctionBuilder extends FunctionBuilder {
     @Override
     public BoundFunction build(String name, List<?> arguments) {
         // use AliasFunction to process TypeCoercion
-        BoundFunction boundAliasFunction = ((BoundFunction) aliasFunction.withChildren(arguments.stream()
+        BoundFunction boundAliasFunction = ((BoundFunction) aliasUdf.withChildren(arguments.stream()
                 .map(Expression.class::cast).collect(Collectors.toList())));
 
         Expression processedExpression = TypeCoercionUtils.processBoundFunction(boundAliasFunction);
@@ -73,18 +73,18 @@ public class AliasFunctionBuilder extends FunctionBuilder {
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) aliasFunction
+        Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) aliasUdf
                 .getOriginalFunction().collect(VirtualSlotReference.class::isInstance))
                 .stream().collect(Collectors.toMap(SlotReference::getName, k -> k));
 
         Map<VirtualSlotReference, Expression> replaceMap = Maps.newHashMap();
         for (int i = 0; i < inputs.size(); ++i) {
-            String parameter = aliasFunction.getParameters().get(i);
+            String parameter = aliasUdf.getParameters().get(i);
             Preconditions.checkArgument(virtualSlots.containsKey(parameter));
             replaceMap.put(virtualSlots.get(parameter), inputs.get(i));
         }
 
-        return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(aliasFunction.getOriginalFunction(), replaceMap));
+        return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(aliasUdf.getOriginalFunction(), replaceMap));
     }
 
     private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<VirtualSlotReference, Expression>> {

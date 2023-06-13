@@ -24,11 +24,15 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Java UDF for Nereids
@@ -67,6 +71,28 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdf(getName(), signature, objectFile, symbol, prepareFn, closeFn,
                 children.toArray(new Expression[0]));
+    }
+
+    /**
+     * translate catalog java udf to nereids java udf
+     */
+    public static void translateToNereids(String dbName, org.apache.doris.catalog.ScalarFunction scalar) {
+        String fnName = scalar.functionName();
+        DataType retType = DataType.fromCatalogType(scalar.getReturnType());
+        List<DataType> argTypes = Arrays.stream(scalar.getArgs())
+                .map(DataType::fromCatalogType)
+                .collect(Collectors.toList());
+
+        FunctionSignature.FuncSigBuilder builder = FunctionSignature.ret(retType);
+        FunctionSignature sig = scalar.hasVarArgs()
+                ? builder.varArgs(argTypes.toArray(new DataType[0]))
+                : builder.args(argTypes.toArray(new DataType[0]));
+
+        JavaUdf udf = new JavaUdf(fnName, sig,
+                scalar.getLocation().getLocation(),
+                scalar.getSymbolName(),
+                scalar.getPrepareFnSymbol(),
+                scalar.getCloseFnSymbol());
     }
 
     @Override

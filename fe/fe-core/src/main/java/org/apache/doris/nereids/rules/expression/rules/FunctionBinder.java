@@ -45,7 +45,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.udf.AliasFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -108,7 +108,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
                 functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
-        if (builder instanceof AliasFunctionBuilder) {
+        if (builder instanceof AliasUdfBuilder) {
             return boundFunction;
         } else {
             return TypeCoercionUtils.processBoundFunction(boundFunction);

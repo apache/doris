@@ -718,10 +718,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
         }
-        if (function instanceof AliasFunction) {
-            org.apache.doris.nereids.trees.expressions.functions.udf.AliasFunction
-                    .translateToNereidsFunction(this.getFullName(), ((AliasFunction) function));
-        }
+        FunctionUtil.translateToNereids(this.getFullName(), function);
     }
 
     public synchronized void replayAddFunction(Function function) {

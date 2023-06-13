@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -43,13 +44,13 @@ import java.util.stream.Collectors;
 /**
  * alias function
  */
-public class AliasFunction extends BoundFunction implements ExplicitlyCastableSignature {
+public class AliasUdf extends BoundFunction implements ExplicitlyCastableSignature {
     private final BoundFunction originalFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
     private final DataType retType;
 
-    public AliasFunction(String name, List<DataType> argTypes, DataType retType, BoundFunction originalFunction,
+    public AliasUdf(String name, List<DataType> argTypes, DataType retType, BoundFunction originalFunction,
             List<String> parameters, Expression... arguments) {
         super(name, arguments);
         this.originalFunction = originalFunction;
@@ -80,7 +81,7 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
     /**
      * translate catalog alias function to nereids alias function
      */
-    public static void translateToNereidsFunction(String dbName, org.apache.doris.catalog.AliasFunction function) {
+    public static void translateToNereidsFunction(String dbName, AliasFunction function) {
         String functionSql = function.getOriginFunction().toSql();
         Expression parsedFunction = new NereidsParser().parseExpression(functionSql);
 
@@ -95,15 +96,15 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
         Preconditions.checkArgument(boundExpression instanceof BoundFunction);
         BoundFunction boundFunction = ((BoundFunction) boundExpression);
 
-        AliasFunction aliasFunction = new AliasFunction(
+        AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
                 ((DataType) boundFunction.getSignature().returnType),
                 boundFunction,
                 function.getParameters());
 
-        AliasFunctionBuilder builder = new AliasFunctionBuilder(aliasFunction);
-        Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasFunction.getName(), builder);
+        AliasUdfBuilder builder = new AliasUdfBuilder(aliasUdf);
+        Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasUdf.getName(), builder);
     }
 
     @Override
@@ -113,7 +114,7 @@ public class AliasFunction extends BoundFunction implements ExplicitlyCastableSi
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasFunction(getName(), argTypes, retType, originalFunction, parameters,
+        return new AliasUdf(getName(), argTypes, retType, originalFunction, parameters,
                 children.toArray(new Expression[0]));
     }
 

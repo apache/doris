@@ -25,6 +25,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -216,5 +218,13 @@ public class FunctionUtil {
             dbName = ClusterNamespace.getFullName(clusterName, dbName);
         }
         return dbName;
+    }
+
+    public static void translateToNereids(String dbName, Function function) {
+        if (function instanceof AliasFunction) {
+            AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
+        } else if (function instanceof ScalarFunction) {
+            JavaUdf.translateToNereids(dbName, ((ScalarFunction) function));
+        }
     }
 }
