@@ -2743,8 +2743,8 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             return s;
         }
         loc.rowset_id = rs.first->rowset_id();
-        if (_tablet_meta->delete_bitmap().contains_agg({loc.rowset_id, loc.segment_id, version},
-                                                       loc.row_id)) {
+        if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
+                    {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all rowsets, util we find an existing key.
             if (_schema->has_sequence_col()) {
