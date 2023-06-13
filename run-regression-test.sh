@@ -143,9 +143,6 @@ RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
 
 rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift ${FRAMEWORK_APACHE_DIR}/parquet"
 
-cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
-cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
-
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${REGRESSION_TEST_BUILD_DIR}"
     rm -rf "${OUTPUT_DIR}"
@@ -158,6 +155,11 @@ fi
 
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
+
+    "${DORIS_HOME}"/generated-source.sh noclean
+    cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
+    cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
+
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
     cd "${DORIS_HOME}"

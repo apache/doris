@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TStatusCode
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TUniqueId
 import org.apache.thrift.transport.TTransportException
-import org.checkerframework.checker.units.qual.A
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j

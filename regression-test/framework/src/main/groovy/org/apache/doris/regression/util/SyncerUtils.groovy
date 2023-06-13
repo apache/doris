@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TIngestBinlogResult
 import org.apache.doris.thrift.TRestoreSnapshotRequest
 import org.apache.doris.thrift.TRestoreSnapshotResult
 import org.apache.doris.thrift.TSnapshotType
-import org.apache.hadoop.util.hash.Hash
 import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
 import org.apache.doris.thrift.TGetBinlogResult
