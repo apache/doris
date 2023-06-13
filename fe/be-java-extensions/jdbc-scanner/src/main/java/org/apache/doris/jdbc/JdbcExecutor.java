@@ -47,6 +47,7 @@ import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -391,32 +392,6 @@ public class JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("resultSet to get next error: ", e);
         }
-    }
-
-    private static final Map<Class<?>, Function<Object, String>> CK_ARRAY_CONVERTERS = new HashMap<>();
-
-    static {
-        CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
-        CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
-        CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
-        CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
-        CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
-        CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
-        CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
-        CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
-        CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
-        CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
-        CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
-        CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
-        CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
-        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString((Inet4Address[]) res));
-        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString((Inet6Address[]) res));
-        CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
-    }
-
-    public static Object convertClickHouseArray(Object obj) {
-        Function<Object, String> converter = CK_ARRAY_CONVERTERS.get(obj.getClass());
-        return converter != null ? converter.apply(obj) : obj;
     }
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
@@ -1641,6 +1616,53 @@ public class JdbcExecutor {
         return hexString.toString();
     }
 
+    private void byteaPutToMySQLString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                       long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = mysqlByteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = mysqlByteArrayToHexString((byte[]) column[i]).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private static String mysqlByteArrayToHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder("0x");
+        for (byte b : bytes) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+        return hexString.toString();
+    }
+
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1661,6 +1683,9 @@ public class JdbcExecutor {
                 && tableType == TOdbcTableType.CLICKHOUSE) {
             // for clickhouse ipv4 and ipv6 type
             ipPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof byte[] && tableType == TOdbcTableType.MYSQL) {
+            // for mysql bytea type
+            byteaPutToMySQLString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....
@@ -1760,6 +1785,34 @@ public class JdbcExecutor {
                         typeLen);
             }
         }
+    }
+
+    private static final Map<Class<?>, Function<Object, String>> CK_ARRAY_CONVERTERS = new HashMap<>();
+
+    static {
+        CK_ARRAY_CONVERTERS.put(String[].class, res -> Arrays.toString((String[]) res));
+        CK_ARRAY_CONVERTERS.put(boolean[].class, res -> Arrays.toString((boolean[]) res));
+        CK_ARRAY_CONVERTERS.put(byte[].class, res -> Arrays.toString((byte[]) res));
+        CK_ARRAY_CONVERTERS.put(Byte[].class, res -> Arrays.toString((Byte[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDate[].class, res -> Arrays.toString((LocalDate[]) res));
+        CK_ARRAY_CONVERTERS.put(LocalDateTime[].class, res -> Arrays.toString((LocalDateTime[]) res));
+        CK_ARRAY_CONVERTERS.put(float[].class, res -> Arrays.toString((float[]) res));
+        CK_ARRAY_CONVERTERS.put(double[].class, res -> Arrays.toString((double[]) res));
+        CK_ARRAY_CONVERTERS.put(short[].class, res -> Arrays.toString((short[]) res));
+        CK_ARRAY_CONVERTERS.put(int[].class, res -> Arrays.toString((int[]) res));
+        CK_ARRAY_CONVERTERS.put(long[].class, res -> Arrays.toString((long[]) res));
+        CK_ARRAY_CONVERTERS.put(BigInteger[].class, res -> Arrays.toString((BigInteger[]) res));
+        CK_ARRAY_CONVERTERS.put(BigDecimal[].class, res -> Arrays.toString((BigDecimal[]) res));
+        CK_ARRAY_CONVERTERS.put(Inet4Address[].class, res -> Arrays.toString(Arrays.stream((Inet4Address[]) res)
+                .map(InetAddress::getHostAddress).toArray(String[]::new)));
+        CK_ARRAY_CONVERTERS.put(Inet6Address[].class, res -> Arrays.toString(Arrays.stream((Inet6Address[]) res)
+                .map(addr -> simplifyIPv6Address(addr.getHostAddress())).toArray(String[]::new)));
+        CK_ARRAY_CONVERTERS.put(UUID[].class, res -> Arrays.toString((UUID[]) res));
+    }
+
+    public static Object convertClickHouseArray(Object obj) {
+        Function<Object, String> converter = CK_ARRAY_CONVERTERS.get(obj.getClass());
+        return converter != null ? converter.apply(obj) : obj;
     }
 
     private void ckArrayPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
