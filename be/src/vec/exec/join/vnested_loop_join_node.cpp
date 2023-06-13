@@ -84,7 +84,7 @@ struct RuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            runtime_filter_slots.publish();
+            RETURN_IF_ERROR(runtime_filter_slots.publish());
         }
 
         return Status::OK();

@@ -252,6 +252,13 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
+    bool ready_for_finish() {
+        if (_runtime_filter_slots == nullptr) {
+            return true;
+        }
+        return _runtime_filter_slots->ready_finish_publish();
+    }
+
 private:
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
@@ -341,7 +348,7 @@ private:
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
     std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
-    VRuntimeFilterSlots* _runtime_filter_slots = nullptr;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
