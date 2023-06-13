@@ -117,8 +117,6 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
     _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
     _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
 
-    _build_output_block_timer = ADD_TIMER(runtime_profile(), "BuildOutPutBlockTimer");
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
 

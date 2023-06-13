@@ -450,8 +450,10 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Build phase
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(record_profile, "BuildSideMergeBlockTime");
+    // _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
+    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
+    _build_side_merge_block_timer =
+            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
@@ -463,10 +465,15 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     auto probe_phase_profile = _probe_phase_profile;
     _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _search_hashtable_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime");
-    _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
-    _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
-
+    _search_hashtable_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime", "ProbeTime");
+    _build_side_output_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
+    _probe_side_output_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
+    _join_filter_timer = ADD_CHILD_TIMER(probe_phase_profile, "JoinFilterTimer", "ProbeTime");
+    _build_output_block_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "BuildOutputBlock", "ProbeTime");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
@@ -891,7 +898,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
+        auto wait_timer =
+                ADD_CHILD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime", "BuildTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
