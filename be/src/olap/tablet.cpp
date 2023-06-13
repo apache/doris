@@ -3126,10 +3126,9 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
-                                    RowsetWriter* rowset_writer) {
-    DeleteBitmapPtr delete_bitmap = load_info->delete_bitmap;
-    const RowsetIdUnorderedSet& pre_rowset_ids = load_info->rowset_ids;
+Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                    const RowsetIdUnorderedSet& pre_rowset_ids,
+                                    DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer) {
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
