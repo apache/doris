@@ -343,7 +343,7 @@ if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
-if [[ ! -z "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
+if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
     if [[ "${DISABLE_BE_JAVA_EXTENSIONS}" == "ON" ]]; then
         BUILD_BE_JAVA_EXTENSIONS=0
     else
