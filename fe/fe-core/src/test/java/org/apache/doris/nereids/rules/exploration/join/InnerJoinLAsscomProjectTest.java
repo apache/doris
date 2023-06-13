@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;

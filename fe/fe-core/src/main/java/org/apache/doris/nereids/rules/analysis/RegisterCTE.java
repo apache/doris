@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -77,8 +77,8 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                     cascadesContext.getStatementContext(), parsedPlan, localCteContext);
             localCascadesContext.newAnalyzer().analyze();
             LogicalPlan analyzedCteBody = (LogicalPlan) localCascadesContext.getRewritePlan();
-            cascadesContext.putCTEIdToConsumer(localCascadesContext.getCteIdToConsumers());
-            cascadesContext.putCTEIdToCTEClosure(localCascadesContext.getCteIdToCTEClosure());
+            cascadesContext.putAllCTEIdToConsumer(localCascadesContext.getCteIdToConsumers());
+            cascadesContext.putAllCTEIdToCTEClosure(localCascadesContext.getCteIdToCTEClosure());
             if (aliasQuery.getColumnAliases().isPresent()) {
                 checkColumnAlias(aliasQuery, analyzedCteBody.getOutput());
             }
@@ -89,13 +89,11 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
                     aliasQuery.withChildren(ImmutableList.of(analyzedCteBody));
             cteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             Callable<LogicalPlan> cteClosure = () -> {
-                LogicalPlan parsedPlanInClosure = aliasQuery;
                 CascadesContext localCascadesContextInClosure = CascadesContext.newRewriteContext(
-                        cascadesContext.getStatementContext(), parsedPlanInClosure, localCteContext);
+                        cascadesContext.getStatementContext(), aliasQuery, localCteContext);
                 localCascadesContextInClosure.newAnalyzer().analyze();
                 return (LogicalPlan) localCascadesContextInClosure.getRewritePlan();
             };
-            cteCtx.setAnalyzePlanBuilder(cteClosure);
             cascadesContext.putCTEIdToCTEClosure(cteId, cteClosure);
             analyzedCTE.add(logicalSubQueryAlias);
         }
