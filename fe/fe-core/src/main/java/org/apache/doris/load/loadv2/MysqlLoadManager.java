@@ -41,6 +41,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.EvictingQueue;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -61,6 +62,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -181,7 +183,9 @@ public class MysqlLoadManager {
                     String body = EntityUtils.toString(response.getEntity());
                     JsonObject result = JsonParser.parseString(body).getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        failedRecords.offer(new MySqlLoadFailRecord(loadId, result.get("ErrorURL").getAsString()));
+                        String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
+                                .map(JsonElement::getAsString).orElse("");
+                        failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
                         LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
                         throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
                     }
