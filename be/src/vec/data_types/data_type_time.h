@@ -96,10 +96,7 @@ public:
     bool can_be_used_in_boolean_context() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
-    void to_pb_column_meta(PColumnMeta* col_meta) const override {
-        IDataType::to_pb_column_meta(col_meta);
-        col_meta->mutable_decimal_param()->set_scale(_scale);
-    }
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
     DataTypeSerDeSPtr get_serde() const override {
         return std::make_shared<DataTypeTimeV2SerDe>(_scale);
     };

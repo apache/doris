@@ -56,6 +56,11 @@ void DataTypeTime::to_string(const IColumn& column, size_t row_num, BufferWritab
     ostr.write(value.data(), value.size());
 }
 
+void DataTypeTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->mutable_decimal_param()->set_scale(_scale);
+}
+
 MutableColumnPtr DataTypeTime::create_column() const {
     return DataTypeNumberBase<Float64>::create_column();
 }
