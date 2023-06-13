@@ -21,7 +21,7 @@
 
 namespace doris {
 
-const static std::string CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
+inline std::string CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
 
 /// TimeSeries cumulative compaction policy implementation.
 /// The following three conditions will be considered when calculating compaction scores and selecting input rowsets in this policy:
@@ -32,13 +32,7 @@ const static std::string CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
 /// If any condition is met, the compaction score calculation or selection of input rowsets will be successful.
 class TimeSeriesCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
 public:
-    TimeSeriesCumulativeCompactionPolicy(
-            int64_t compaction_goal_size = config::time_series_compaction_goal_size_mbytes * 1024 *
-                                           1024,
-            int64_t compaction_file_count_threshold =
-                    config::time_series_compaction_file_count_threshold,
-            int64_t compaction_time_threshold_seconds =
-                    config::time_series_compaction_time_threshold_seconds);
+    TimeSeriesCumulativeCompactionPolicy() = default;
     ~TimeSeriesCumulativeCompactionPolicy() {}
 
     // Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
@@ -65,11 +59,6 @@ public:
                                  RowsetSharedPtr _output_rowset,
                                  Version& last_delete_version) override;
     std::string name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
-
-private:
-    int64_t _compaction_goal_size;
-    int64_t _compaction_file_count_threshold;
-    int64_t _compaction_time_threshold_seconds;
 };
 
 } // namespace doris
