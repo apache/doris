@@ -89,7 +89,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (cumu_interval > _compaction_time_threshold_seconds * 1000) {
             return score;
         }
-    } 
+    }
 
     return 0;
 }
@@ -231,7 +231,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         if (cumu_interval > _compaction_time_threshold_seconds * 1000) {
             return transient_size;
         }
-    } 
+    }
 
     input_rowsets->clear();
     *compaction_score = 0;

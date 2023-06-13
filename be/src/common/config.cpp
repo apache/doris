@@ -989,7 +989,7 @@ DEFINE_Int32(num_broadcast_buffer, "32");
 DEFINE_Bool(enable_parse_multi_dimession_array, "true");
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted 
+// In the case of time series compaction, the execution of compaction is adjusted
 // using parameters that have the prefix time_series_compaction.
 DEFINE_mString(compaction_policy, "size_based");
 // the size of input files for each compaction
