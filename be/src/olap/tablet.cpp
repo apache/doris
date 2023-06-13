@@ -1068,8 +1068,11 @@ uint32_t Tablet::_calc_base_compaction_score() const {
         }
         score += rs_meta->get_compaction_score();
     }
-    if (config::enable_time_series_compaction_mode) {
-        return base_rowset_exist && has_delete ? score : 0;
+
+    // In the time series compaction policy, we want the base compaction to be triggered
+    // when there are delete versions present.
+    if (config::compaction_policy == std::string("time_series")) {
+        return (base_rowset_exist && has_delete) ? score : 0;
     }
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0

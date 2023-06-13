@@ -649,24 +649,25 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Minimal interval (s) to update peer replica infos
 * Default value: 10 (s)
 
-#### `enable_time_series_compaction_mode`
+#### `compaction_policy`
 
-* Type: bool
-* Description: In a time series scenario, enabling time series compaction helps reduce write amplification and prevents prolonged compaction from consuming a significant amount of CPU resources.
-  - In the case of enabling time series compaction, the execution of compaction is adjusted using parameters that have the prefix time_series_compaction.
-* Default value: 10
+* Type: string
+* Description: Configure the compaction strategy in the compression phase. Currently, two compaction strategies are implemented, size_based and time_series.
+  - size_based: Version merging can only be performed when the disk volume of the rowset is the same order of magnitude. After merging, qualified rowsets are promoted to the base compaction stage. In the case of a large number of small batch imports, it can reduce the write magnification of base compact, balance the read magnification and space magnification, and reduce the data of file versions.
+  - time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
+* Default value: size_based
 
 #### `time_series_compaction_goal_size_mbytes`
 
 * Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size may be slightly smaller than the configured value.
+* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
 * Default value: 1024
 
 #### `time_series_compaction_file_count_threshold`
 
 * Type: int64
 * Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
-  - Enabling single tablet load can result in a large number of empty rowsets. To mitigate this, you can increase the value of the time_series_compaction_file_count_threshold parameter.
+  - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
 * Default value: 10000
 
 #### `time_series_compaction_time_threshold_seconds`

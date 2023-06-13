@@ -89,9 +89,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (cumu_interval > _compaction_time_threshold_seconds * 1000) {
             return score;
         }
-    } else {
-        tablet->set_last_cumu_compaction_success_time(now);
-    }
+    } 
 
     return 0;
 }
@@ -233,9 +231,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         if (cumu_interval > _compaction_time_threshold_seconds * 1000) {
             return transient_size;
         }
-    } else {
-        tablet->set_last_cumu_compaction_success_time(now);
-    }
+    } 
 
     input_rowsets->clear();
     *compaction_score = 0;

@@ -346,7 +346,7 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 
 std::shared_ptr<CumulativeCompactionPolicy>
 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    if (config::enable_time_series_compaction_mode) {
+    if (config::compaction_policy == std::string("time_series")) {
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();

@@ -1004,10 +1004,15 @@ DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
 
-// time series compaction mode
-DECLARE_Bool(enable_time_series_compaction_mode);
+// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
+// In the case of time series compaction, the execution of compaction is adjusted 
+// using parameters that have the prefix time_series_compaction.
+DECLARE_mString(compaction_policy);
+// the size of input files for each compaction
 DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
+// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
 DECLARE_mInt64(time_series_compaction_file_count_threshold);
+// if compaction has not been performed within 3600 seconds, a compaction will be triggered
 DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
 
 // max depth of expression tree allowed.

@@ -37,7 +37,7 @@ class TestTimeSeriesCumulativeCompactionPolicy : public testing::Test {
 public:
     TestTimeSeriesCumulativeCompactionPolicy() {}
     void SetUp() {
-        config::enable_time_series_compaction_mode = true;
+        config::compaction_policy = "time_series";
         config::time_series_compaction_goal_size_mbytes = 1024;
         config::time_series_compaction_file_count_threshold = 10;
         config::time_series_compaction_time_threshold_seconds = 3600;
