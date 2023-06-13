@@ -22,25 +22,30 @@ import groovy.util.logging.Slf4j
 
 import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
-import org.apache.commons.cli.Option
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
-import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
-import static java.lang.Math.random
 import static org.apache.doris.regression.ConfigOptions.*
+
+import org.apache.doris.thrift.TNetworkAddress;
 
 @Slf4j
 @CompileStatic
 class Config {
     public String jdbcUrl
+    public String targetJdbcUrl
     public String jdbcUser
     public String jdbcPassword
     public String defaultDb
+
+    public String feSourceThriftAddress
+    public String feTargetThriftAddress
+    public String feSyncerUser
+    public String feSyncerPassword
 
     public String feHttpAddress
     public String feHttpUser
@@ -77,6 +82,8 @@ class Config {
     public Set<String> excludeGroupSet = new HashSet<>()
     public Set<String> excludeDirectorySet = new HashSet<>()
 
+    public TNetworkAddress feSourceThriftNetworkAddress
+    public TNetworkAddress feTargetThriftNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -87,15 +94,21 @@ class Config {
 
     Config() {}
 
-    Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+    Config(String defaultDb, String jdbcUrl, String targetJdbcUrl, String jdbcUser, String jdbcPassword,
+           String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
+        this.targetJdbcUrl = targetJdbcUrl
         this.jdbcUser = jdbcUser
         this.jdbcPassword = jdbcPassword
+        this.feSourceThriftAddress = feSourceThriftAddress
+        this.feTargetThriftAddress = feTargetThriftAddress
+        this.feSyncerUser = feSyncerUser
+        this.feSyncerPassword = feSyncerPassword
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
@@ -177,6 +190,24 @@ class Config {
             config.groups = ["p0"].toSet()
         }
 
+        config.feSourceThriftAddress = cmd.getOptionValue(feSourceThriftAddressOpt, config.feSourceThriftAddress)
+        try {
+            String host = config.feSourceThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feSourceThriftAddress.split(":")[1])
+            config.feSourceThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feSourceThriftAddress}", t)
+        }
+
+        config.feTargetThriftAddress = cmd.getOptionValue(feTargetThriftAddressOpt, config.feTargetThriftAddress)
+        try {
+            String host = config.feTargetThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feTargetThriftAddress.split(":")[1])
+            config.feTargetThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feTargetThriftAddress}", t)
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -200,6 +231,8 @@ class Config {
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
         config.jdbcPassword = cmd.getOptionValue(passwordOpt, config.jdbcPassword)
+        config.feSyncerUser = cmd.getOptionValue(feSyncerUserOpt, config.feSyncerUser)
+        config.feSyncerPassword = cmd.getOptionValue(feSyncerPasswordOpt, config.feSyncerPassword)
         config.feHttpUser = cmd.getOptionValue(feHttpUserOpt, config.feHttpUser)
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
@@ -221,7 +254,8 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
+        config.tryCreateDbIfNotExist(config.jdbcUrl, config.defaultDb)
+        config.tryCreateDbIfNotExist(config.targetJdbcUrl, config.defaultDb)
         config.buildUrlWithDefaultDb()
 
         return config
@@ -231,8 +265,13 @@ class Config {
         def config = new Config(
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
+            configToString(obj.targetJdbcUrl),
             configToString(obj.jdbcUser),
             configToString(obj.jdbcPassword),
+            configToString(obj.feSourceThriftAddress),
+            configToString(obj.feTargetThriftAddress),
+            configToString(obj.feSyncerUser),
+            configToString(obj.feSyncerPassword),
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
@@ -286,6 +325,16 @@ class Config {
             log.info("Set jdbcPassword to empty because not specify.".toString())
         }
 
+        if (config.feSourceThriftAddress == null) {
+            config.feSourceThriftAddress = "127.0.0.1:9020"
+            log.info("Set feThriftAddress to '${config.feSourceThriftAddress}' because not specify.".toString())
+        }
+
+        if (config.feTargetThriftAddress == null) {
+            config.feTargetThriftAddress = "127.0.0.1:9120"
+            log.info("Set feThriftAddress to '${config.feTargetThriftAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpAddress == null) {
             config.feHttpAddress = "127.0.0.1:8030"
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
@@ -294,6 +343,16 @@ class Config {
         if (config.metaServiceHttpAddress == null) {
             config.metaServiceHttpAddress = "127.0.0.1:5000"
             log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.feSyncerUser == null) {
+            config.feSyncerUser = "root"
+            log.info("Set feSyncerUser to '${config.feSyncerUser}' because not specify.".toString())
+        }
+
+        if (config.feSyncerPassword == null) {
+            config.feSyncerPassword = ""
+            log.info("Set feSyncerPassword to empty because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {
@@ -386,34 +445,37 @@ class Config {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
     }
 
-    void tryCreateDbIfNotExist() {
-        tryCreateDbIfNotExist(defaultDb)
-    }
-
-    void tryCreateDbIfNotExist(String dbName) {
+    void tryCreateDbIfNotExist(String url, String dbName) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
-            log.info("Try to create db, sql: ${sql}".toString())
+            log.info("Try to create db to ${url}, sql: ${sql}".toString())
             if (!dryRun) {
-                getConnection().withCloseable { conn ->
+                getConnection(url).withCloseable { conn ->
                     JdbcUtils.executeToList(conn, sql)
                 }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+            throw new IllegalStateException("Create database failed, url: ${url}", t)
         }
     }
 
-    Connection getConnection() {
-        return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    Connection getConnection(String url) {
+        return DriverManager.getConnection(url, jdbcUser, jdbcPassword)
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrl(dbName)
-        tryCreateDbIfNotExist(dbName)
+        String dbUrl = buildUrl(jdbcUrl, dbName)
+        tryCreateDbIfNotExist(jdbcUrl, dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getTargetConnectionByDbName(String dbName) {
+        String dbUrl = buildUrl(targetJdbcUrl, dbName)
+        tryCreateDbIfNotExist(targetJdbcUrl, dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, feSyncerUser, feSyncerPassword)
     }
 
     String getDbNameByFile(File suiteFile) {
@@ -465,19 +527,21 @@ class Config {
     }
 
     private void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrl(defaultDb)
+        this.jdbcUrl = buildUrl(jdbcUrl, defaultDb)
         log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+        this.targetJdbcUrl = buildUrl(targetJdbcUrl, defaultDb)
+        log.info("Reset targetJdbcUrl to ${targetJdbcUrl}".toString())
     }
 
-    private String buildUrl(String dbName) {
-        String urlWithDb = jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+    private String buildUrl(String url, String dbName) {
+        String urlWithDb = url
+        String urlWithoutSchema = url.substring(url.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
-            if (jdbcUrl.contains("?")) {
+            if (url.contains("?")) {
                 // e.g: jdbc:mysql://locahost:8080/?a=b
-                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("?"))
+                urlWithDb = url.substring(0, url.lastIndexOf("?"))
                 urlWithDb = urlWithDb.substring(0, urlWithDb.lastIndexOf("/"))
-                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
+                urlWithDb += ("/" + dbName) + url.substring(url.lastIndexOf("?"))
             } else {
                 // e.g: jdbc:mysql://locahost:8080/
                 urlWithDb += dbName
