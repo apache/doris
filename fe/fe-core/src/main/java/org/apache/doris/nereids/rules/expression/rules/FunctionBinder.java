@@ -107,7 +107,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
+                functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
         if (builder instanceof AliasFunctionBuilder) {
             return boundFunction;

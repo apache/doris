@@ -370,6 +370,10 @@ primaryExpression
     ;
 
 functionIdentifier
+    : (dbName=identifier DOT)? functionNameIdentifier
+    ;
+
+functionNameIdentifier
     : identifier
     | LEFT | RIGHT
     ;

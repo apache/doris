@@ -1054,7 +1054,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String functionName = ctx.functionIdentifier().getText();
+            String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
 
@@ -1082,7 +1082,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
             } else {
-                UnboundFunction function = new UnboundFunction(functionName, isDistinct, params);
+                String dbName = null;
+                if (ctx.functionIdentifier().dbName != null) {
+                    dbName = ctx.functionIdentifier().dbName.getText();
+                }
+                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);

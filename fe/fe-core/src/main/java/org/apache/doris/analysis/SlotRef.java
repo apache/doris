@@ -251,9 +251,6 @@ public class SlotRef extends Expr {
             } else {
                 return label;
             }
-        } else if (desc == null) {
-            // for the virtual slots from alias functions
-            return col;
         } else if (desc.getSourceExprs() != null) {
             if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
