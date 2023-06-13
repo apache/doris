@@ -712,7 +712,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
             fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
-    private boolean enableNereidsPlanner = false;
+    private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
