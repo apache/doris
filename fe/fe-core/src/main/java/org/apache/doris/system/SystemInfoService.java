@@ -359,7 +359,7 @@ public class SystemInfoService {
 
     public int getBackendsNumber(boolean needAlive) {
         int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
-        if (beNumber == -1) {
+        if (beNumber < 0) {
             beNumber = getAllBackendIds(needAlive).size();
         }
         return beNumber;

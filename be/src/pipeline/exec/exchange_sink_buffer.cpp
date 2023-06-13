@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -305,25 +306,28 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
 
 void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
     int64_t local_max_time = 0;
-    int64_t local_min_time = 0;
-    auto iter = _instance_to_rpc_time.begin();
-    if (iter != _instance_to_rpc_time.end()) {
-        local_max_time = iter->second;
-        local_min_time = iter->second;
-        iter++;
-    }
-    while (iter != _instance_to_rpc_time.end()) {
-        int64_t cur_val = iter->second;
-        local_max_time = cur_val > local_max_time ? cur_val : local_max_time;
-        local_min_time = cur_val < local_min_time ? cur_val : local_min_time;
-        iter++;
+    int64_t local_min_time = INT64_MAX;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        if (time != 0) {
+            local_max_time = std::max(local_max_time, time);
+            local_min_time = std::min(local_min_time, time);
+        }
     }
     *max_time = local_max_time;
     *min_time = local_min_time;
 }
 
+int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
+    int64_t sum_time = 0;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        sum_time += time;
+    }
+    return sum_time;
+}
+
 void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
                                       int64_t receive_rpc_time) {
+    _rpc_count++;
     int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
     if (rpc_spend_time > 0) {
@@ -331,4 +335,21 @@ void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
     }
 }
 
+void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
+    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
+    auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
+    auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
+    auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
+
+    int64_t max_rpc_time = 0, min_rpc_time = 0;
+    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    _max_rpc_timer->set(max_rpc_time);
+    _min_rpc_timer->set(min_rpc_time);
+
+    _count_rpc->set(_rpc_count);
+    int64_t sum_time = get_sum_rpc_time();
+    _sum_rpc_timer->set(sum_time);
+    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+}
 } // namespace doris::pipeline

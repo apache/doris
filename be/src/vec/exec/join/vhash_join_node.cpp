@@ -449,11 +449,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     // Build phase
-    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
-    runtime_profile()->add_child(_build_phase_profile, false, nullptr);
-    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
     _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
     _build_side_merge_block_timer = ADD_TIMER(record_profile, "BuildSideMergeBlockTime");
@@ -461,25 +456,22 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
     _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(record_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
     _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
     _push_down_timer = ADD_TIMER(record_profile, "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(record_profile, "PushDownComputeTime");
 
     // Probe phase
-    auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(probe_phase_profile, "ProbeTime");
+    auto probe_phase_profile = _probe_phase_profile;
     _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _probe_rows_counter = ADD_COUNTER(probe_phase_profile, "ProbeRows", TUnit::UNIT);
     _search_hashtable_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime");
     _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
     _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
 
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
+    _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
 
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
@@ -521,7 +513,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_null_in_probe_side;
+           !_short_circuit_for_probe;
 }
 
 void HashJoinNode::prepare_for_next() {
@@ -531,9 +523,8 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -664,9 +655,8 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -952,6 +942,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
+    _init_short_circuit_for_probe();
+
     return Status::OK();
 }
 
@@ -960,7 +952,7 @@ void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
          << " _probe_eos=" << _probe_eos
-         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+         << " _short_circuit_for_probe_side=" << _short_circuit_for_probe;
     *out << ")\n children=(";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";

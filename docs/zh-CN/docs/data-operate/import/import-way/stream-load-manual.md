@@ -397,6 +397,22 @@ timeout = 1000s 等于 10G / 10M/s
   curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
   ```
 
+### 使用代码调用 StreamLoad
+
+你可以使用任意代码发起 http 请求进行 Stream Load，在发起 http 请求前，需要设置几个必要的 Header：
+
+```http
+Content-Type: text/plain; charset=UTF-8
+Expect: 100-continue
+Authorization: Basic <base64编码后的用户名密码>
+```
+
+其中，`<base64编码后的用户名密码>`是指 Doris 的`username`+`:`+`password`拼接成的字符串进行 base64 编码后得到的值。
+
+另外，需要注意的是，如果你直接对 FE 发起 http 请求，由于 Doris 会重定向到 BE，在这个过程中，某些框架会把`Authorization`这个 http Header 移除掉，这个时候需要你进行手动处理。
+
+Doris 提供了 [Java](https://github.com/apache/doris/tree/master/samples/stream_load/java)、[Go](https://github.com/apache/doris/tree/master/samples/stream_load/go)、[Python](https://github.com/apache/doris/tree/master/samples/stream_load/python) 三种语言的 StreamLoad Example 供参考。
+
 ## 常见问题
 
 - Label Already Exists

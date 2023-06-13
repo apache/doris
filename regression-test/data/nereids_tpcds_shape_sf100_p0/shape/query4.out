@@ -76,22 +76,24 @@ CteAnchor[cteId= ( CTEId#6=] )
 --------------------CteConsumer[cteId= ( CTEId#6=] )
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_firstyear.customer_id)(CASE WHEN (year_total > 0.000000) THEN (cast(year_total as DECIMALV3(38, 16)) / year_total) ELSE NULL END > CASE WHEN (year_total > 0.000000) THEN (cast(year_total as DECIMALV3(38, 16)) / year_total) ELSE NULL END)
+--------------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)(CASE WHEN (year_total > 0.000000) THEN (cast(year_total as DECIMALV3(38, 16)) / year_total) ELSE NULL END > CASE WHEN (year_total > 0.000000) THEN (cast(year_total as DECIMALV3(38, 16)) / year_total) ELSE NULL END)
 ----------------------PhysicalProject
-------------------------filter((t_c_firstyear.year_total > 0.000000)(t_c_firstyear.dyear = 1999)(t_c_firstyear.sale_type = 'c'))
+------------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2000))
 --------------------------CteConsumer[cteId= ( CTEId#6=] )
 ----------------------PhysicalDistribute
-------------------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
---------------------------PhysicalProject
-----------------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2000))
-------------------------------CteConsumer[cteId= ( CTEId#6=] )
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)
-------------------------------PhysicalProject
---------------------------------filter((t_c_secyear.sale_type = 'c')(t_c_secyear.dyear = 2000))
-----------------------------------CteConsumer[cteId= ( CTEId#6=] )
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((t_s_firstyear.year_total > 0.000000)(t_s_firstyear.dyear = 1999)(t_s_firstyear.sale_type = 's'))
-------------------------------------CteConsumer[cteId= ( CTEId#6=] )
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)
+----------------------------PhysicalProject
+------------------------------filter((t_c_secyear.sale_type = 'c')(t_c_secyear.dyear = 2000))
+--------------------------------CteConsumer[cteId= ( CTEId#6=] )
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_firstyear.customer_id)
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((t_s_firstyear.year_total > 0.000000)(t_s_firstyear.dyear = 1999)(t_s_firstyear.sale_type = 's'))
+--------------------------------------CteConsumer[cteId= ( CTEId#6=] )
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((t_c_firstyear.year_total > 0.000000)(t_c_firstyear.dyear = 1999)(t_c_firstyear.sale_type = 'c'))
+--------------------------------------CteConsumer[cteId= ( CTEId#6=] )
 

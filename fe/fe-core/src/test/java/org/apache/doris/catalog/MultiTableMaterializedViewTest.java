@@ -554,4 +554,22 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "AS SELECT t1.* FROM t_user t1").execute();
         Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
     }
+
+    @Test
+    void testCreateWithoutRefreshInfo() throws Exception {
+        createTable("CREATE TABLE t_user ("
+                + "  event_day DATE,"
+                + "  id bigint,"
+                + "  username varchar(20)"
+                + ")"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1')"
+        );
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD DEFERRED "
+                + "DISTRIBUTED BY HASH(username) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.* FROM t_user t1").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
 }

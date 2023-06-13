@@ -186,7 +186,7 @@ under the License.
         <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
-        <module>java-udf</module>
+        <module>be-java-extensions</module>
     </modules>
     <properties>
         <!--suppress UnresolvedMavenProperty -->
@@ -263,6 +263,8 @@ under the License.
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
         <spark.version>2.4.6</spark.version>
         <hive.version>3.1.3</hive.version>
+        <hive.common.version>2.3.9</hive.common.version>
+        <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
@@ -270,9 +272,13 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
         <maxcompute.version>0.43.3-public</maxcompute.version>
+        <arrow.version>9.0.0</arrow.version>
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.13.0</hudi.version>
+        <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
+        <presto.hive.version>3.0.0-8</presto.hive.version>
+
         <parquet.version>1.13.0</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <commons-compress.version>1.22</commons-compress.version>
@@ -299,6 +305,9 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <vesoft.client.version>3.0.0</vesoft.client.version>
+        <!-- paimon -->
+        <paimon.version>0.4.0-incubating</paimon.version>
     </properties>
     <profiles>
         <profile>
@@ -460,6 +469,12 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -1090,6 +1105,12 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <!-- jettison -->
             <dependency>
@@ -1270,6 +1291,27 @@ under the License.
                 <version>${dlf-metastore-client-hive.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-common</artifactId>
+                <version>${hive.common.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${mapreduce.client.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-common</artifactId>
+                <version>${mapreduce.client.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.alibaba</groupId>
                 <artifactId>druid</artifactId>
                 <version>${druid.version}</version>
@@ -1296,6 +1338,11 @@ under the License.
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
                 <version>${tomcat-embed-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.vesoft</groupId>
+                <artifactId>client</artifactId>
+                <version>${vesoft.client.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
