@@ -112,8 +112,8 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
                                    {static_cast<size_t>(column_id), const_param_id},
                                    num_columns_without_result, block->rows(), false);
         *result_column_id = num_columns_without_result;
-    } catch (const std::exception& e) {
-        state = Status::InternalError("{} execute failed, reason={}", _expr_name, e.what());
+    } catch (const Exception& e) {
+        state = e.to_status();
     }
     return state;
 }

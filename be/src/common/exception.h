@@ -53,6 +53,8 @@ public:
 
     const char* what() const noexcept override { return to_string().c_str(); }
 
+    Status to_status() const { return Status::Error(code(), to_string()); }
+
 private:
     int _code;
     struct ErrMsg {
