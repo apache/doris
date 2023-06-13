@@ -48,7 +48,7 @@ There are two ways to view the configuration items of FE:
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
+    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md):
 
     `ADMIN SHOW FRONTEND CONFIG;`
 
