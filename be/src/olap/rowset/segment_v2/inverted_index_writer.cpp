@@ -328,15 +328,17 @@ public:
     }
 
     int64_t file_size() const override {
-        auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, _index_meta->index_id());
+        std::filesystem::path dir(_directory);
+        dir /= _segment_file_name;
+        auto file_name = InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
         int64_t size = -1;
         auto st = _fs->file_size(file_name.c_str(), &size);
-        if (st.ok()){
-            return size;
+        if (!st.ok()){
+            LOG(ERROR) << "try to get file:" << file_name << " size error:" << st;
         }
-        LOG(ERROR) << "try to get file:" << file_name << " size error:" << st;
-        return -1;
+        return size;
     }
+
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out,
                            lucene::store::Directory* dir) {
         // write null_bitmap file
