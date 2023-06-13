@@ -528,6 +528,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql) throws Exception {
         try {
+            Config.enable_odbc_table = true;
             createTables(sql);
         } catch (ConcurrentModificationException e) {
             e.printStackTrace();
