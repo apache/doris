@@ -47,9 +47,6 @@
 namespace doris {
 
 Reusable::~Reusable() {
-    for (auto& ctx : _output_exprs_ctxs) {
-        ctx->close(_runtime_state.get());
-    }
 }
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
