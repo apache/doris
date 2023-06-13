@@ -248,6 +248,7 @@ struct ConvertImpl {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
+                ToDataType::check_type_precision(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
                 col_to = ColVecTo::create();
@@ -1296,6 +1297,7 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
+            ToDataType::check_type_precision(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
             col_to = ColVecTo::create(size);
@@ -1588,9 +1590,12 @@ private:
                         using LeftDataType = typename Types::LeftType;
                         using RightDataType = typename Types::RightType;
 
-                        ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
+                        auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 context, block, arguments, result, input_rows_count,
                                 context->check_overflow_for_decimal(), scale);
+                        if (!state) {
+                            throw Exception(state.code(), state.to_string());
+                        }
                         return true;
                     });
 
@@ -2059,7 +2064,7 @@ public:
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
-    FunctionBuilderCast() {}
+    FunctionBuilderCast() = default;
 
     String get_name() const override { return name; }
 
