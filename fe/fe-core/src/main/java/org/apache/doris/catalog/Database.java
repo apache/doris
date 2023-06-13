@@ -727,6 +727,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
+        FunctionUtil.translateToNereids(this.getFullName(), function);
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {

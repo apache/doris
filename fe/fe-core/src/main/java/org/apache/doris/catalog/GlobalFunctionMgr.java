@@ -71,6 +71,7 @@ public class GlobalFunctionMgr extends MetaObject {
         try {
             function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.translateToNereids(null, function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
