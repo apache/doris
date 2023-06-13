@@ -324,6 +324,41 @@ public class FEFunctions {
         return null;
     }
 
+    @FEFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateLiteral toMonday(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDate() || arg.getType().isDatetime())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATE);
+        }
+        return null;
+    }
+
+    @FEFunction(name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateLiteral toMondayV2(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDateV2() || arg.getType().isDatetimeV2())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATEV2);
+        }
+        return null;
+    }
+
+    private static LocalDateTime toMonday(LocalDateTime dateTime) {
+        LocalDateTime specialUpperBound = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
+        LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
+        if (dateTime.isAfter(specialUpperBound) || dateTime.isBefore(specialLowerBound)) {
+            return dateTime.plusDays(-dateTime.getDayOfWeek().getValue() + 1);
+        }
+        return specialLowerBound;
+    }
+
     /**
      ------------------------------------------------------------------------------
      */

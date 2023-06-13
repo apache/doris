@@ -768,10 +768,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DECLARE_mBool(runtime_filter_use_async_rpc);
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
