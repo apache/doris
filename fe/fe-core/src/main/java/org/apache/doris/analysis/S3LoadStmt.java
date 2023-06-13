@@ -215,6 +215,9 @@ public class S3LoadStmt extends NativeInsertStmt {
         dataDescription.analyze(fullDbName);
         // copy a list for analyzing
         List<ImportColumnDesc> columnExprList = Lists.newArrayList(dataDescription.getParsedColumnExprList());
+        if (CollectionUtils.isEmpty(columnExprList)) {
+            padExprListIfNeeded(columnExprList);
+        }
         rewriteExpr(columnExprList);
         boolean isFileFieldSpecified = columnExprList.stream().anyMatch(ImportColumnDesc::isColumn);
         if (!isFileFieldSpecified) {
@@ -226,6 +229,21 @@ public class S3LoadStmt extends NativeInsertStmt {
         }
         resetTargetColumnNames(columnExprList);
         resetSelectList(columnExprList);
+    }
+
+    /**
+     * deal with the case that not all columns in table are in file
+     */
+    private void padExprListIfNeeded(List<ImportColumnDesc> columnExprList) {
+        if (isCsvFormat) {
+            return;
+        }
+        columnExprList.addAll(
+                functionGenTableColNames
+                        .stream()
+                        .map(ImportColumnDesc::new)
+                        .collect(Collectors.toList())
+        );
     }
 
     /**
