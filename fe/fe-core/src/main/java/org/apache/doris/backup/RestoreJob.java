@@ -1748,7 +1748,15 @@ public class RestoreJob extends AbstractJob {
         allTabletCommitted(true /* is replay */);
     }
 
-    public List<String> getInfo() {
+    public List<String> getBriefInfo() {
+        return getInfo(true);
+    }
+
+    public List<String> getFullInfo() {
+        return getInfo(false);
+    }
+
+    public List<String> getInfo(boolean isBrief) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -1760,18 +1768,22 @@ public class RestoreJob extends AbstractJob {
         info.add(replicaAlloc.toCreateStmt());
         info.add(String.valueOf(reserveReplica));
         info.add(String.valueOf(reserveDynamicPartitionEnable));
-        info.add(getRestoreObjs());
+        if (!isBrief) {
+            info.add(getRestoreObjs());
+        }
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(metaPreparedTime));
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedSignatureToId.entrySet()));
-        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                        Collectors.toList())));
-        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList())));
+        if (!isBrief) {
+            info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
+                    e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+                    Collectors.toList())));
+            info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": "
+                    + n.getValue() + "]").collect(Collectors.toList())));
+        }
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

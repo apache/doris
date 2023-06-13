@@ -3929,6 +3929,10 @@ show_param ::=
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
     :}
+    | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowRestoreStmt(db, parser.where, true);
+    :}
     | KW_BROKER
     {:
         RESULT = new ShowBrokerStmt();
