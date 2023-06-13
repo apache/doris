@@ -115,7 +115,7 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    Status from_json(simdjson::ondemand::value& json_value, IColumn* column) const override;
+    Status from_nested_complex_json(simdjson::ondemand::value& json_value, IColumn* column) const override;
 
     DataTypeSerDeSPtr get_serde() const override {
         return std::make_shared<DataTypeArraySerDe>(nested->get_serde());

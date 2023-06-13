@@ -189,7 +189,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     return str;
 }
 
-Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* column) const {
+Status DataTypeArray::from_nested_complex_json(simdjson::ondemand::value& json_value, IColumn* column) const {
     if (json_value.type() != simdjson::ondemand::json_type::array) {
         return Status::InvalidArgument("Parse json data failed, not array type '{}'",
                                        json_value.type().take_value());
@@ -202,9 +202,9 @@ Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* 
     auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
     bool is_string_nested = is_string(remove_nullable(nested));
     size_t element_num = 0;
-    for (auto it = outer_array.begin(); it != outer_array.end(); ++it) {
-        Status st;
-        try {
+    try {
+        for (auto it = outer_array.begin(); it != outer_array.end(); ++it) {
+            Status st;
             if (is_complex_type(remove_nullable(nested))) {
                 simdjson::ondemand::value val;
                 auto error_code = (*it).get(val);
@@ -214,10 +214,11 @@ Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* 
                             "info: {}",
                             error_code, simdjson::error_message(error_code));
                 } else {
-                    st = nested->from_json(val, &nested_null_col);
+                    st = nested->from_nested_complex_json(val, &nested_null_col);
                 }
             } else {
                 std::string_view sv = simdjson::trim((*it).raw_json_token().value());
+                // when nested type is string simdjson will add "" to string
                 if (is_string_nested) {
                     StringRef sr(sv.data(), sv.size());
                     StringRef del("\"");
@@ -231,14 +232,14 @@ Status DataTypeArray::from_json(simdjson::ondemand::value& json_value, IColumn* 
                 nested_column.pop_back(element_num);
                 return st;
             }
-        } catch (simdjson::simdjson_error& e) {
-            nested_column.pop_back(element_num);
-            fmt::memory_buffer error_msg;
-            fmt::format_to(error_msg, "Parse json data failed. code: {}, error info: {}", e.error(),
-                           e.what());
-            return Status::InternalError(error_msg.data());
+            ++element_num;
         }
-        ++element_num;
+    } catch (simdjson::simdjson_error& e) {
+        nested_column.pop_back(element_num);
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg, "Parse json data failed. code: {}, error info: {}", e.error(),
+                       e.what());
+        return Status::InternalError(error_msg.data());
     }
     offsets.push_back(offsets.back() + element_num);
     return Status::OK();
@@ -273,6 +274,6 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
                                      simdjson::error_message(error_code));
     }
     auto value = array_doc.get_value();
-    return from_json(value.value(), column);
+    return from_nested_complex_json(value.value(), column);
 }
 } // namespace doris::vectorized
