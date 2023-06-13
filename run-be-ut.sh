@@ -263,7 +263,9 @@ touch "${UT_TMP_DIR}/tmp_file"
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
-cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+fi
 if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
 fi
