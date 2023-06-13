@@ -450,7 +450,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Build phase
     auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
-    // _build_table_timer = ADD_TIMER(record_profile, "BuildTableTime");
     _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
     _build_side_merge_block_timer =
             ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
@@ -471,9 +470,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
     _probe_side_output_timer =
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
-    _join_filter_timer = ADD_CHILD_TIMER(probe_phase_profile, "JoinFilterTimer", "ProbeTime");
-    _build_output_block_timer =
-            ADD_CHILD_TIMER(probe_phase_profile, "BuildOutputBlock", "ProbeTime");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
