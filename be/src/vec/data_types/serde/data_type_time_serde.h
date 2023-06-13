@@ -71,12 +71,12 @@ private:
                 return Status::InternalError("pack mysql buffer failed.");
             }
             const auto col_index = index_check_const(i, col_const);
-            buf_ret = result[row_idx].push_timev2(data[col_index],scale);
+            buf_ret = result[row_idx].push_timev2(data[col_index], scale);
             ++row_idx;
         }
         return Status::OK();
     }
-    int scale[[maybe_unused]];
+    int scale;
 };
 } // namespace vectorized
 } // namespace doris

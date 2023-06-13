@@ -430,7 +430,7 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
 }
 
 template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_timev2(double data,int scale) {
+int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
         char buff[8];
         _field_pos++;

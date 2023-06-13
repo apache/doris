@@ -144,6 +144,9 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     *buffer++ = (char)('0' + (second / 10));
     *buffer++ = (char)('0' + (second % 10));
     m_time %= 1000 * 1000;
+    if (scale == 0) {
+        return buffer - begin;
+    }
     *buffer++ = '.';
     memset(buffer, '0', 6);
     buffer += 6;
@@ -153,7 +156,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         m_time /= 10;
         it--;
     }
-    buffer-=(6 - scale);
+    buffer -= (6 - scale);
     return buffer - begin;
 }
 
@@ -178,7 +181,7 @@ std::string time_to_buffer_from_double(double time) {
     return fmt::to_string(buffer);
 }
 
-std::string timev2_to_buffer_from_double(double time) {
+std::string timev2_to_buffer_from_double(double time, int scale) {
     fmt::memory_buffer buffer;
     if (time < 0) {
         time = -time;
@@ -196,8 +199,31 @@ std::string timev2_to_buffer_from_double(double time) {
     int64_t minute = m_time / (60 * 1000 * 1000);
     m_time %= 60 * 1000 * 1000;
     int32_t second = m_time / (1000 * 1000);
-    int32_t micosecond = m_time % 1000 * 1000;
-    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:06d}", minute, second, micosecond));
+    int32_t micosecond = m_time % (1000 * 1000);
+    switch (scale) {
+    case 0:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second, micosecond));
+        break;
+    case 1:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:01d}", minute, second, micosecond));
+        break;
+    case 2:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:02d}", minute, second, micosecond));
+        break;
+    case 3:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:03d}", minute, second, micosecond));
+        break;
+    case 4:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:04d}", minute, second, micosecond));
+        break;
+    case 5:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:05d}", minute, second, micosecond));
+        break;
+    case 6:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:06d}", minute, second, micosecond));
+        break;
+    }
+
     return fmt::to_string(buffer);
 }
 } // namespace doris

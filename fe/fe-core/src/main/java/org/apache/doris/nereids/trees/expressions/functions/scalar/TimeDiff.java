@@ -72,4 +72,18 @@ public class TimeDiff extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTimeDiff(this, context);
     }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        if (arity() == 2 && signature.returnType instanceof TimeV2Type) {
+            DateTimeV2Type left = (DateTimeV2Type) getArgument(0).getDataType();
+            DateTimeV2Type right = (DateTimeV2Type) getArgument(1).getDataType();
+            int scale = Math.max(left.getScale(), right.getScale());
+
+            signature = signature.withReturnType(TimeV2Type.of(scale));
+            return signature;
+        } else {
+            return super.computeSignature(signature);
+        }
+    }
 }

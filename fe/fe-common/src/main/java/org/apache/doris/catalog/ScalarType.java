@@ -875,8 +875,11 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
+        if ((this.isDatetimeV2() && other.isDatetimeV2())) {
             return this.decimalScale() == other.decimalScale();
+        }
+        if (this.isTimeV2() && other.isTimeV2()) {
+            return true;
         }
         if (type.isDecimalV3Type() && other.isDecimalV3()) {
             return precision == other.precision && scale == other.scale;
