@@ -21,6 +21,8 @@ import org.apache.doris.regression.Config
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
+import org.apache.doris.thrift.TGetSnapshotResult
+import com.google.gson.annotations.SerializedName
 
 import java.sql.Connection
 
@@ -53,6 +55,42 @@ class TableMeta {
     }
 }
 
+class ExtraInfo {
+    class NetworkAddr {
+        @SerializedName("ip")
+        String ip
+        @SerializedName("port")
+        int port
+
+        NetworkAddr(String ip, int port) {
+            this.ip = ip
+            this.port = port
+        }
+
+        String toString() {
+            return String.format("Addr: { Ip: %s, port %d }", ip, port)
+        }
+    }
+
+    @SerializedName("be_network_map")
+    HashMap<Long, NetworkAddr> beNetworkMap
+    @SerializedName("token")
+    String token
+
+    ExtraInfo(String token) {
+        this.token = token
+        this.beNetworkMap = new HashMap<>()
+    }
+
+    String toString() {
+        return String.format("ExtraInfo: { token: %s, beNetwork:%s }", token, beNetworkMap.toString())
+    }
+
+    void addBackendNetaddr(Long beId, String ip, int port) {
+        beNetworkMap.put(beId, new NetworkAddr(ip, port))
+    }
+}
+
 class SyncerContext {
     protected Connection targetConnection
     protected FrontendClientImpl sourceFrontendClient
@@ -69,6 +107,10 @@ class SyncerContext {
 
     public ArrayList<TTabletCommitInfo> commitInfos = new ArrayList<TTabletCommitInfo>()
 
+    public String labelName
+    public String tableName
+    public TGetSnapshotResult getSnapshotResult
+
     public Config config
     public String user
     public String passwd
@@ -82,6 +124,14 @@ class SyncerContext {
         this.user = config.feSyncerUser
         this.passwd = config.feSyncerPassword
         this.seq = -1
+    }
+
+    ExtraInfo genExtraInfo() {
+        ExtraInfo info = new ExtraInfo("5ff161c3-2c08-4079-b108-26c8850b6598")
+        sourceBackendClients.forEach((id, client) -> {
+            info.addBackendNetaddr(id, client.address.hostname, client.httpPort)
+        })
+        return info
     }
 
     FrontendClientImpl getSourceFrontClient() {

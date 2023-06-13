@@ -28,9 +28,11 @@ import org.apache.doris.regression.json.BinlogData
 import org.apache.doris.thrift.TBinlogType
 import org.apache.doris.thrift.TCommitTxnResult
 import org.apache.doris.thrift.TGetBinlogResult
+import org.apache.doris.thrift.TGetSnapshotResult
 import org.apache.doris.thrift.TIngestBinlogRequest
 import org.apache.doris.thrift.TIngestBinlogResult
 import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TRestoreSnapshotResult
 import org.apache.doris.thrift.TStatus
 import org.apache.doris.thrift.TStatusCode
 import org.apache.doris.thrift.TTabletCommitInfo
@@ -279,6 +281,81 @@ class Syncer {
         return isCheckedOK
     }
 
+    Boolean checkRestoreSnapshot(TRestoreSnapshotResult result) {
+        Boolean isCheckedOK = false
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        isCheckedOK = true
+                        break
+                    default:
+                        logger.error("Restore SnapShot result code is: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TRestoreSnapshotResult! result: ${result}")
+        }
+
+        return isCheckedOK
+    }
+
+    Boolean checkSnapshotFinish() {
+        String checkSQL = "SHOW BACKUP FROM " + context.db
+        List<Object> row = suite.sql(checkSQL)[0]
+        logger.info("Now row is ${row}")
+
+        return (row[3] as String) == "FINISHED"
+    }
+
+    Boolean checkRestoreFinish() {
+        String checkSQL = "SHOW RESTORE FROM " + context.db
+        List<Object> row = suite.sql(checkSQL)[0]
+        logger.info("Now row is ${row}")
+
+        return (row[4] as String) == "FINISHED"
+    }
+
+    Boolean checkGetSnapshot() {
+        TGetSnapshotResult result = context.getSnapshotResult
+        Boolean isCheckedOK = false
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        if (!result.isSetMeta()) {
+                            logger.error("TGetSnapshotResult meta is unset.")
+                        } else if (!result.isSetJobInfo()) {
+                            logger.error("TGetSnapshotResult job info is unset.")
+                        } else {
+                            isCheckedOK = true
+                        }
+                        break
+                    default:
+                        logger.error("Get SnapShot result code is: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TGetSnapshotResult! result: ${result}")
+        }
+
+        return isCheckedOK
+    }
+
     HashMap<Long, BackendClientImpl> getBackendClientsImpl(ccrCluster cluster) throws TTransportException {
         HashMap<Long, BackendClientImpl> clientsMap = new HashMap<Long, BackendClientImpl>()
         String backendSQL = "SHOW PROC '/backends'"
@@ -368,6 +445,32 @@ class Syncer {
 
     void closeBackendClients() {
         context.closeBackendClients()
+    }
+
+    Boolean restoreSnapshot() {
+        logger.info("Restore snapshot ${context.labelName}")
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+
+        // step 1: recode job info
+        Gson gson = new Gson()
+        Map jsonMap = gson.fromJson(new String(context.getSnapshotResult.getJobInfo()), Map.class)
+        getBackendClients()
+        jsonMap.put("extra_info", context.genExtraInfo())
+        logger.info("json map ${jsonMap}.")
+        context.getSnapshotResult.setJobInfo(gson.toJson(jsonMap).getBytes())
+
+        // step 2: restore
+        TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context)
+        return checkRestoreSnapshot(result)
+    }
+
+    Boolean getSnapshot(String labelName, String table) {
+        logger.info("Get snapshot ${labelName}")
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+        context.getSnapshotResult = SyncerUtils.getSnapshot(clientImpl, labelName, table, context)
+        context.labelName = labelName
+        context.tableName = table
+        return checkGetSnapshot()
     }
 
     Boolean getTargetMeta(String table = "") {

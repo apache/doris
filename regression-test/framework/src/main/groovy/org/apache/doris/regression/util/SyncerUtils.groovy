@@ -25,8 +25,14 @@ import org.apache.doris.thrift.TBeginTxnRequest
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TCommitTxnRequest
 import org.apache.doris.thrift.TCommitTxnResult
+import org.apache.doris.thrift.TGetSnapshotRequest
+import org.apache.doris.thrift.TGetSnapshotResult
 import org.apache.doris.thrift.TIngestBinlogRequest
 import org.apache.doris.thrift.TIngestBinlogResult
+import org.apache.doris.thrift.TRestoreSnapshotRequest
+import org.apache.doris.thrift.TRestoreSnapshotResult
+import org.apache.doris.thrift.TSnapshotType
+import org.apache.hadoop.util.hash.Hash
 import org.apache.thrift.TException
 import org.apache.doris.thrift.TGetBinlogRequest
 import org.apache.doris.thrift.TGetBinlogResult
@@ -56,7 +62,7 @@ class SyncerUtils {
         TBeginTxnRequest request = new TBeginTxnRequest()
         setAuthorInformation(request, context)
         request.setDb("TEST_" + context.db)
-        if (!table.isEmpty()) {
+        if (table != null) {
             request.addToTables(table)
         }
         request.setLabel(newLabel(context, table))
@@ -75,5 +81,35 @@ class SyncerUtils {
         request.setCommitInfos(context.commitInfos)
         request.setTxnId(context.txnId)
         return clientImpl.client.commitTxn(request)
+    }
+
+    static TGetSnapshotResult getSnapshot(FrontendClientImpl clientImpl, String labelName, String table, SyncerContext context) throws TException {
+        TGetSnapshotRequest request = new TGetSnapshotRequest()
+        setAuthorInformation(request, context)
+        request.setDb(context.db)
+        request.setLabelName(labelName)
+        if (table != null) {
+            request.setTable(table)
+        }
+        request.setSnapshotType(TSnapshotType.LOCAL)
+        request.setSnapshotName("")
+        return clientImpl.client.getSnapshot(request)
+    }
+
+    static TRestoreSnapshotResult restoreSnapshot(FrontendClientImpl clientImpl, SyncerContext context) throws TException {
+        TRestoreSnapshotRequest request = new TRestoreSnapshotRequest()
+        setAuthorInformation(request, context)
+        request.setDb(context.db)
+        if (context.tableName != null) {
+            request.setTable(context.tableName)
+        }
+        request.setRepoName("__keep_on_local__")
+        request.setLabelName(context.labelName)
+        HashMap<String, String> properties = new HashMap<>()
+        properties.put("reserve_replica", "true")
+        request.setProperties(properties)
+        request.setMeta(context.getSnapshotResult.getMeta())
+        request.setJobInfo(context.getSnapshotResult.getJobInfo())
+        return clientImpl.client.restoreSnapshot(request)
     }
 }
