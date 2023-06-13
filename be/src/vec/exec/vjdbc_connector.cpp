@@ -61,7 +61,7 @@
 
 namespace doris {
 namespace vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
+const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
