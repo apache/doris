@@ -221,8 +221,10 @@ public:
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
                 auto state = filter->publish();
-                // TODO: solve publish failed when scan not schedured
-                LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
+                if (!state) {
+                    // TODO: solve publish failed when scan not schedured
+                    LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
+                }
             }
         }
         return Status::OK();
