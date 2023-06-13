@@ -621,4 +621,43 @@ insert into `schema_evo_test_orc` select 1, "kaka";
 alter table `schema_evo_test_orc` ADD COLUMNS (`ts` timestamp);
 insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
 
+-- Currently docker is hive 2.x version. Hive 2.x versioned full-acid tables need to run major compaction.
+SET hive.support.concurrency=true;
+SET hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
+
+create table orc_full_acid (id INT, value STRING)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+insert into orc_full_acid values
+(1, 'A'),
+(2, 'B'),
+(3, 'C');
+
+update orc_full_acid set value = 'CC' where id = 3;
+
+alter table orc_full_acid compact 'major';
+
+create table orc_full_acid_par (id INT, value STRING)
+PARTITIONED BY (part_col INT)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+insert into orc_full_acid_par PARTITION(part_col=20230101) values
+(1, 'A'),
+(2, 'B'),
+(3, 'C');
+
+insert into orc_full_acid_par PARTITION(part_col=20230102) values
+(4, 'D'),
+(5, 'E'),
+(6, 'F');
+
+update orc_full_acid_par set value = 'BB' where id = 2;
+
+alter table orc_full_acid_par PARTITION(part_col=20230101) compact 'major';
+alter table orc_full_acid_par PARTITION(part_col=20230102) compact 'major';
+
 show tables;

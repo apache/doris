@@ -71,7 +71,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("Failed to get/create JVM");
     }
     RETURN_IF_ERROR(_init_jni_scanner(env, state->batch_size()));
-    // Call org.apache.doris.jni.JniScanner#open
+    // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
@@ -82,7 +82,7 @@ Status JniConnector::init(
     _generate_predicates(colname_to_value_range);
     if (_predicates_length != 0 && _predicates != nullptr) {
         int64_t predicates_address = (int64_t)_predicates.get();
-        // We can call org.apache.doris.jni.vec.ScanPredicate#parseScanPredicates to parse the
+        // We can call org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates to parse the
         // serialized predicates in java side.
         _scanner_params.emplace("push_down_predicates", std::to_string(predicates_address));
     }
@@ -90,7 +90,7 @@ Status JniConnector::init(
 }
 
 Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
-    // Call org.apache.doris.jni.JniScanner#getNextBatchMeta
+    // Call org.apache.doris.common.jni.JniScanner#getNextBatchMeta
     // return the address of meta information
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -123,7 +123,7 @@ Status JniConnector::close() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         // _fill_block may be failed and returned, we should release table in close.
-        // org.apache.doris.jni.JniScanner#releaseTable is idempotent
+        // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
         env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
         env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
         env->DeleteGlobalRef(_jni_scanner_obj);
@@ -199,7 +199,7 @@ Status JniConnector::_fill_column(ColumnPtr& doris_column, DataTypePtr& data_typ
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     void* null_map_ptr = _next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
-        // org.apache.doris.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
+        // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", getTypeName(logical_type));
     }
     MutableColumnPtr data_column;
