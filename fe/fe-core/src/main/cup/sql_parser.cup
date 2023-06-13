@@ -1736,7 +1736,7 @@ opt_refresh_trigger ::=
 
 opt_mv_refersh_info ::=
     {:
-        RESULT = null;
+        RESULT = new MVRefreshInfo(true);
     :}
     | KW_REFRESH opt_refresh_method:refreshMethod opt_refresh_trigger:refreshTrigger
     {:
