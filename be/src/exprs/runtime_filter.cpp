@@ -1127,8 +1127,6 @@ Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
     if (_has_local_target) {
         IRuntimeFilter* consumer_filter = nullptr;
-        // TODO: log if err
-        DCHECK(_state != nullptr);
         RETURN_IF_ERROR(
                 _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
         // push down
@@ -1846,11 +1844,6 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
-    return Status::OK();
-}
-
-Status IRuntimeFilter::consumer_close() {
-    DCHECK(is_consumer());
     return Status::OK();
 }
 
