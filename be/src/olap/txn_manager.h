@@ -170,9 +170,6 @@ public:
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
 
-    void get_tablet_txn_info(const TPartitionId& partition_id, const TTransactionId& transaction_id,
-                             const TabletInfo& tablet_info, TabletTxnInfo& table_txn_info);
-
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
