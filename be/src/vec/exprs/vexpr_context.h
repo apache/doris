@@ -140,7 +140,7 @@ public:
 
 private:
     // Close method is called in vexpr context dector, not need call expicility
-    void close(RuntimeState* state);
+    void close();
 
 private:
     friend class VExpr;
