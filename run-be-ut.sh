@@ -214,15 +214,24 @@ echo "******************************"
 echo "   Running Backend Unit Test  "
 echo "******************************"
 
+# build running dir env
 cd "${DORIS_HOME}"
-export DORIS_TEST_BINARY_DIR="${CMAKE_BUILD_DIR}"
+export DORIS_TEST_BINARY_DIR="${CMAKE_BUILD_DIR}/test/"
+
+# prepare conf dir
+CONF_DIR="${DORIS_TEST_BINARY_DIR}/conf"
+rm -rf "${CONF_DIR}"
+mkdir "${CONF_DIR}"
+cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
+
 export TERM='xterm'
-export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
-export LOG_DIR="${DORIS_HOME}/log"
+export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
+export LOG_DIR="${DORIS_TEST_BINARY_DIR}/log"
 while read -r variable; do
     eval "export ${variable}"
-done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_HOME}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+done < <(sed 's/[[:space:]]*\(=\)[[:space:]]*/\1/' "${DORIS_TEST_BINARY_DIR}/conf/be.conf" | grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
 
+# prepare log dir
 mkdir -p "${LOG_DIR}"
 mkdir -p "${UDF_RUNTIME_DIR}"
 rm -f "${UDF_RUNTIME_DIR}"/*
@@ -232,7 +241,65 @@ while read -r gcda_file; do
     rm "${gcda_file}"
 done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
 
-export DORIS_TEST_BINARY_DIR="${DORIS_TEST_BINARY_DIR}/test"
+# prepare gtest output dir
+GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
+rm -rf "${GTEST_OUTPUT_DIR}"
+mkdir "${GTEST_OUTPUT_DIR}"
+
+# prepare util test_data
+mkdir -p "${DORIS_TEST_BINARY_DIR}/util"
+if [[ -d "${DORIS_TEST_BINARY_DIR}/util/test_data" ]]; then
+    rm -rf "${DORIS_TEST_BINARY_DIR}/util/test_data"
+fi
+cp -r "${DORIS_HOME}/be/test/util/test_data" "${DORIS_TEST_BINARY_DIR}/util"/
+
+# prepare ut temp dir
+UT_TMP_DIR="${DORIS_HOME}/ut_dir"
+rm -rf "${UT_TMP_DIR}"
+mkdir "${UT_TMP_DIR}"
+touch "${UT_TMP_DIR}/tmp_file"
+
+# prepare java jars
+LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
+rm -rf "${LIB_DIR}"
+mkdir "${LIB_DIR}"
+if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
+    cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
+fi
+if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
+    cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
+fi
+
+# add java libs
+for f in "${LIB_DIR}"/*.jar; do
+    if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        export DORIS_CLASSPATH="${f}"
+    else
+        export DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    fi
+done
+
+if [[ -d "${LIB_DIR}/hadoop_hdfs/" ]]; then
+    # add hadoop libs
+    for f in "${LIB_DIR}/hadoop_hdfs/common"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${LIB_DIR}/hadoop_hdfs/common/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${LIB_DIR}/hadoop_hdfs/hdfs"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+    for f in "${LIB_DIR}/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    done
+fi
+
+# the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
+# and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
+export CLASSPATH="${DORIS_CLASSPATH}"
+# DORIS_CLASSPATH is for self-managed jni
+export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
 jdk_version() {
     local java_cmd="${1}"
@@ -257,27 +324,50 @@ jdk_version() {
     return 0
 }
 
-# prepare gtest output dir
-GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
-rm -rf "${GTEST_OUTPUT_DIR}"
-mkdir "${GTEST_OUTPUT_DIR}"
+# check java version and choose correct JAVA_OPTS
+java_version="$(
+    set -e
+    jdk_version "${JAVA_HOME}/bin/java"
+)"
 
-# prepare util test_data
-mkdir -p "${DORIS_TEST_BINARY_DIR}/util"
-if [[ -d "${DORIS_TEST_BINARY_DIR}/util/test_data" ]]; then
-    rm -rf "${DORIS_TEST_BINARY_DIR}/util/test_data"
+CUR_DATE=$(date +%Y%m%d-%H%M%S)
+LOG_PATH="-DlogPath=${DORIS_TEST_BINARY_DIR}/log/jni.log"
+COMMON_OPTS="-Dsun.java.command=DorisBETEST -XX:-CriticalJNINatives"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
+
+if [[ "${java_version}" -gt 8 ]]; then
+    if [[ -z ${JAVA_OPTS} ]]; then
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_TEST_BINARY_DIR}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS}"
+else
+    if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_TEST_BINARY_DIR}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 fi
-cp -r "${DORIS_HOME}/be/test/util/test_data" "${DORIS_TEST_BINARY_DIR}/util"/
 
-# prepare ut temp dir
-UT_TMP_DIR="${DORIS_HOME}/ut_dir"
-rm -rf "${UT_TMP_DIR}"
-mkdir "${UT_TMP_DIR}"
-touch "${UT_TMP_DIR}/tmp_file"
+MACHINE_OS=$(uname -s)
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    max_fd_limit='-XX:-MaxFDLimit'
+
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+        final_java_opt="${final_java_opt} ${max_fd_limit}"
+    fi
+
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+        JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    fi
+fi
+
+# set LIBHDFS_OPTS for hadoop libhdfs
+export LIBHDFS_OPTS="${final_java_opt}"
 
 # set asan and ubsan env to generate core file
+export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
 export UBSAN_OPTIONS=print_stacktrace=1
+export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
 
 # find all executable test files
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"

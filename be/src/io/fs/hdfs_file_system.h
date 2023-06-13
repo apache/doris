@@ -91,6 +91,7 @@ private:
     }
 };
 
+class HdfsFileHandleCache;
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const THdfsParams& hdfs_params, const std::string& path,
@@ -99,6 +100,8 @@ public:
     ~HdfsFileSystem() override;
 
     HdfsFileSystemHandle* get_handle();
+
+    friend class HdfsFileHandleCache;
 
 protected:
     Status connect_impl() override;
