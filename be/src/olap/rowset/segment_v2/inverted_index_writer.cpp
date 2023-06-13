@@ -322,9 +322,14 @@ public:
         _rid++;
     }
 
-    uint64_t size() const override {
-        //TODO: get size of inverted index
+    int64_t size() const override {
+        //TODO: get memory size of inverted index
         return 0;
+    }
+
+    int64_t file_size() const override {
+        auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, _index_meta->index_id());
+        return _dir->fileLength(file_name.c_str());
     }
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out,
                            lucene::store::Directory* dir) {
