@@ -139,8 +139,6 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
-    static void close(const VExprContextSPtrs& ctxs, RuntimeState* state);
-
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _type.type; }
