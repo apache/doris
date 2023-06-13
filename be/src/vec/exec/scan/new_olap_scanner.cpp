@@ -135,7 +135,8 @@ Status NewOlapScanner::init() {
         RETURN_IF_ERROR(status);
         _tablet = std::move(tablet);
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
-        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+            !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
                                                      olap_scan_node.schema_version,
@@ -156,7 +157,9 @@ Status NewOlapScanner::init() {
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
                     _tablet_schema->append_column(TabletColumn(column_desc));
                 }
-                _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                if (olap_scan_node.__isset.schema_version) {
+                    _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                }
             }
             if (olap_scan_node.__isset.indexes_desc) {
                 _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
