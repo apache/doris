@@ -1019,26 +1019,6 @@ public:
 
     PrimitiveType column_type() { return _column_return_type; }
 
-    void ready_for_publish() {
-        if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
-            switch (_column_return_type) {
-            case TYPE_VARCHAR:
-            case TYPE_CHAR:
-            case TYPE_STRING: {
-                StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
-                StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->data));
-                auto max_val_ptr = _pool->add(new std::string(max_value->data));
-                StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
-                StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
-                _context.minmax_func->assign(&min_val, &max_val);
-            }
-            default:
-                break;
-            }
-        }
-    }
-
     bool is_bloomfilter() const { return _is_bloomfilter; }
 
     bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
@@ -1068,6 +1048,9 @@ public:
         }
         if (_context.bitmap_filter_func) {
             _context.bitmap_filter_func->set_filter_id(id);
+        }
+        if (_context.hybrid_set) {
+            _context.hybrid_set->set_filter_id(id);
         }
     }
 
@@ -1159,11 +1142,6 @@ Status IRuntimeFilter::publish() {
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
         return push_to_remote(_state, &addr, _opt_remote_rf);
     }
-}
-
-void IRuntimeFilter::publish_finally() {
-    DCHECK(is_producer());
-    join_rpc();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs) {
@@ -1526,10 +1504,6 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
                                   ::doris::to_string(_wrapper->get_real_type()));
         _wrapper->set_filter_id(_filter_id);
     }
-}
-
-void IRuntimeFilter::ready_for_publish() {
-    _wrapper->ready_for_publish();
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {

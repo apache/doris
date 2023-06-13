@@ -150,22 +150,26 @@ Status VScanNode::prepare(RuntimeState* state) {
     // could add here, not in the _init_profile() function
     _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
     _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
+
+    _open_timer = ADD_TIMER(_runtime_profile, "OpenTime");
+    _alloc_resource_timer = ADD_TIMER(_runtime_profile, "AllocateResourceTime");
     return Status::OK();
 }
 
 Status VScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     return ExecNode::open(state);
 }
 
 Status VScanNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_alloc_resource_timer);
     if (_opened) {
         return Status::OK();
     }
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
@@ -267,11 +271,11 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_scanner_profile, "MemoryUsage");
     _queued_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+            _scanner_profile->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES, "MemoryUsage");
+    _free_blocks_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage");
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread

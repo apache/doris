@@ -516,7 +516,8 @@ Status VNodeChannel::open_wait() {
 }
 
 void VNodeChannel::open_partition(int64_t partition_id) {
-    _timeout_watch.reset();
+    MonotonicStopWatch lazy_open_timeout_watch;
+    lazy_open_timeout_watch.start();
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     OpenPartitionRequest request;
     auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
@@ -533,7 +534,7 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     auto open_partition_closure =
             std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time();
+    int remain_ms = _rpc_timeout_ms - lazy_open_timeout_watch.elapsed_time();
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
@@ -544,6 +545,12 @@ void VNodeChannel::open_partition(int64_t partition_id) {
     _open_partition_closures.insert(std::move(open_partition_closure));
 
     request.release_id();
+}
+
+void VNodeChannel::open_partition_wait() {
+    for (auto& open_partition_closure : _open_partition_closures) {
+        open_partition_closure->join();
+    }
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -884,9 +891,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    for (auto& open_partition_closure : _open_partition_closures) {
-        open_partition_closure->join();
-    }
     // set _is_closed to true finally
     Defer set_closed {[&]() {
         std::lock_guard<std::mutex> l(_closed_lock);
@@ -1122,7 +1126,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->open(); });
     }
-    LOG(INFO) << "list of open index id = " << fmt::to_string(buf);
+    VLOG_DEBUG << "list of open index id = " << fmt::to_string(buf);
 
     for (auto index_channel : _channels) {
         index_channel->for_each_node_channel([&index_channel](
@@ -1167,7 +1171,7 @@ void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
                 }
             }
         }
-        LOG(INFO) << "list of lazy open index id = " << fmt::to_string(buf);
+        VLOG_DEBUG << "list of lazy open index id = " << fmt::to_string(buf);
     }
 }
 
@@ -1232,6 +1236,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         _number_immutable_partition_filtered_rows++;
         is_continue = true;
         return status;
+    }
+    if ((*partition)->num_buckets <= 0) {
+        std::stringstream ss;
+        ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
+        return Status::InternalError(ss.str());
     }
     _partition_ids.emplace((*partition)->id);
     if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
@@ -1407,6 +1416,15 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                 num_node_channels = 0;
         VNodeChannelStat channel_stat;
         {
+            if (config::enable_lazy_open_partition) {
+                for (auto index_channel : _channels) {
+                    index_channel->for_each_node_channel(
+                            [](const std::shared_ptr<VNodeChannel>& ch) {
+                                ch->open_partition_wait();
+                            });
+                }
+            }
+
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
                         [](const std::shared_ptr<VNodeChannel>& ch) { ch->mark_close(); });
@@ -1671,7 +1689,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                 assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                         real_column_ptr.get()));
-
+        const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+        const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
@@ -1692,8 +1711,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
-                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
                 if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
@@ -1717,6 +1734,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
     auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
             assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
                     real_column_ptr.get()));                                                       \
+    const auto& max_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);     \
+    const auto& min_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);      \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \
@@ -1725,10 +1744,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         if (need_to_validate(j, row)) {                                                            \
             auto dec_val = column_decimal->get_data()[j];                                          \
             bool invalid = false;                                                                  \
-            const auto& max_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);               \
-            const auto& min_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);                \
             if (dec_val > max_decimal || dec_val < min_decimal) {                                  \
                 fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");      \
                 fmt::format_to(error_msg, ", value={}", dec_val);                                  \

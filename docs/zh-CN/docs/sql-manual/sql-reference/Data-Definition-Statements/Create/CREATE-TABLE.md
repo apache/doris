@@ -362,7 +362,7 @@ distribution_desc
     
         `"light_schema_change" = 'true'`
 
-        该功能在 1.2.1 及之后版本默认开启。
+        该功能在 2.0.0 及之后版本默认开启。
     
     * `disable_auto_compaction`
 
@@ -385,6 +385,15 @@ distribution_desc
         当配置为`true`时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
 
         `"enable_duplicate_without_keys_by_default" = "false"`
+
+    * `skip_write_index_on_load`
+
+        是否对这个表开启数据导入时不写索引.
+
+        如果这个属性设置成 `true`, 数据导入的时候不写索引（目前仅对倒排索引生效），而是在compaction的时候延迟写索引。这样可以避免首次写入和compaction
+        重复写索引的CPU和IO资源消耗，提升高吞吐导入的性能。
+
+        `"skip_write_index_on_load" = "false"`
 
     * 动态分区相关
     
@@ -623,7 +632,7 @@ distribution_desc
      );
     ```
 
-11. 通过`storage_policy`属性设置表的冷热分离数据迁移策略
+11. 通过`storage_policy`属性设置表的冷热分层数据迁移策略
 ```
         CREATE TABLE IF NOT EXISTS create_table_use_created_policy 
         (
@@ -640,7 +649,7 @@ distribution_desc
 ```
 注：需要先创建s3 resource 和 storage policy，表才能关联迁移策略成功
 
-12. 为表的分区添加冷热分离数据迁移策略
+12. 为表的分区添加冷热分层数据迁移策略
 ```
         CREATE TABLE create_table_partion_use_created_policy
         (

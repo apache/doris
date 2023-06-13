@@ -31,6 +31,7 @@ import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -84,7 +85,6 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
@@ -2006,6 +2006,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
+        this.analysisManager = AnalysisManager.readFields(in);
+        LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2261,6 +2267,11 @@ public class Env {
 
         this.binlogManager.write(out, checksum);
         LOG.info("Save binlogs to image");
+        return checksum;
+    }
+
+    public long saveAnalysisMgr(CountingDataOutputStream dos, long checksum) throws IOException {
+        analysisManager.write(dos);
         return checksum;
     }
 
@@ -2717,6 +2728,15 @@ public class Env {
         getInternalCatalog().replayAlterDatabaseQuota(dbName, quota, quotaType);
     }
 
+    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
+        getInternalCatalog().alterDatabaseProperty(stmt);
+    }
+
+    public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
+            throws MetaNotFoundException {
+        getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);
+    }
+
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
         getInternalCatalog().renameDatabase(stmt);
     }
@@ -3068,6 +3088,12 @@ public class Env {
             if (olapTable.storeRowColumn()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
                 sb.append(olapTable.storeRowColumn()).append("\"");
+            }
+
+            // skip inverted index on load
+            if (olapTable.skipWriteIndexOnLoad()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
+                sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
             }
 
             // dynamic schema
@@ -3892,9 +3918,7 @@ public class Env {
             try {
                 if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
-                    if (olapTable.getState() != OlapTableState.NORMAL) {
-                        throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
-                    }
+                    olapTable.checkNormalStateForAlter();
                 }
 
                 String oldTableName = table.getName();
@@ -4077,10 +4101,7 @@ public class Env {
     public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            if (table.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-            }
-
+            table.checkNormalStateForAlter();
             String rollupName = renameClause.getRollupName();
             // check if it is base table name
             if (rollupName.equals(table.getName())) {
@@ -4138,10 +4159,7 @@ public class Env {
     public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
         table.writeLockOrDdlException();
         try {
-            if (table.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-            }
-
+            table.checkNormalStateForAlter();
             if (table.getPartitionInfo().getType() != PartitionType.RANGE
                     && table.getPartitionInfo().getType() != PartitionType.LIST) {
                 throw new DdlException(
@@ -4196,10 +4214,7 @@ public class Env {
 
     private void renameColumn(Database db, OlapTable table, String colName,
                               String newColName, boolean isReplay) throws DdlException {
-        if (table.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
-        }
-
+        table.checkNormalStateForAlter();
         if (colName.equalsIgnoreCase(newColName)) {
             throw new DdlException("Same column name");
         }
@@ -4273,10 +4288,24 @@ public class Env {
         // 4. modify distribution info
         DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            // modify default distribution info
             List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
+                }
+            }
+            // modify distribution info inside partitions
+            for (Partition p : table.getPartitions()) {
+                DistributionInfo partDistInfo = p.getDistributionInfo();
+                if (partDistInfo.getType() != DistributionInfoType.HASH) {
+                    continue;
+                }
+                List<Column> partDistColumns = ((HashDistributionInfo) partDistInfo).getDistributionColumns();
+                for (Column column : partDistColumns) {
+                    if (column.getName().equalsIgnoreCase(colName)) {
+                        column.setName(newColName);
+                    }
                 }
             }
         }
@@ -4459,7 +4488,7 @@ public class Env {
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
                 newBinlogConfig.toProperties());
-        editLog.logModifyInMemory(info);
+        editLog.logUpdateBinlogConfig(info);
     }
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
@@ -4529,13 +4558,10 @@ public class Env {
                 }
                 if (distributionInfo.getType() == DistributionInfoType.HASH) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
-                    List<Column> defaultDistriCols
-                            = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
-                    if (!newDistriCols.equals(defaultDistriCols)) {
-                        throw new DdlException(
-                                "Cannot assign hash distribution with different distribution cols. " + "default is: "
-                                        + defaultDistriCols);
+                    if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
+                        throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                                + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
+                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
                     }
                 }
 

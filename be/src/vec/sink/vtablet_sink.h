@@ -230,6 +230,8 @@ public:
 
     Status open_wait();
 
+    void open_partition_wait();
+
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,

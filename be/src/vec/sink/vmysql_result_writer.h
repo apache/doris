@@ -69,6 +69,7 @@ private:
     BufferControlBlock* _sinker;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
+    std::vector<MysqlRowBuffer<is_binary_format>> _rows_buffer;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
     // total time cost on append batch operation
@@ -77,6 +78,8 @@ private:
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _result_send_timer = nullptr;
+    // timer of copying buffer to thrift
+    RuntimeProfile::Counter* _copy_buffer_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
     // size of sent data

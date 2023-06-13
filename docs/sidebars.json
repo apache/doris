@@ -206,21 +206,12 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
                         "lakehouse/multi-catalog/faq"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "External Table",
-                    "items": [
-                        "lakehouse/external-table/es",
-                        "lakehouse/external-table/jdbc",
-                        "lakehouse/external-table/odbc",
-                        "lakehouse/external-table/hive"
                     ]
                 },
                 "lakehouse/file",
@@ -303,6 +294,7 @@
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_popfront",
                                 "sql-manual/sql-functions/array-functions/array_pushfront",
+                                "sql-manual/sql-functions/array-functions/array_pushback",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
@@ -311,6 +303,7 @@
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last_index",
+                                "sql-manual/sql-functions/array-functions/array_first",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_count",
@@ -499,7 +492,8 @@
                             "label": "Struct Functions",
                             "items": [
                                 "sql-manual/sql-functions/struct-functions/struct",
-                                "sql-manual/sql-functions/struct-functions/named_struct"
+                                "sql-manual/sql-functions/struct-functions/named_struct",
+                                "sql-manual/sql-functions/struct-functions/struct_element"
                             ]
                         },
                         {

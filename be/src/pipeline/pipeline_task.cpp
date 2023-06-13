@@ -219,11 +219,13 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
+            if (!status.is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(status);
+            }
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 break;
             }
-            RETURN_IF_ERROR(status);
         }
     }
 
@@ -307,6 +309,10 @@ std::string PipelineTask::debug_string() {
     std::stringstream profile_ss;
     _fresh_profile_counter();
     _task_profile->pretty_print(&profile_ss, "");
+
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+                   print_id(fragment_context()->get_fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,

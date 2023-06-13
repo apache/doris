@@ -768,10 +768,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DECLARE_mBool(runtime_filter_use_async_rpc);
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -820,6 +816,10 @@ DECLARE_String(kafka_broker_version_fallback);
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DECLARE_Int32(routine_load_consumer_pool_size);
+
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DECLARE_Int32(multi_table_batch_plan_threshold);
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -1010,6 +1010,10 @@ DECLARE_Int32(max_depth_of_expr_tree);
 // Report a tablet as bad when io errors occurs more than this value.
 DECLARE_mInt64(max_tablet_io_errors);
 
+// Report a tablet as bad when its path not found
+DECLARE_Int32(tablet_path_check_interval_seconds);
+DECLARE_mInt32(tablet_path_check_batch_size);
+
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
@@ -1029,6 +1033,11 @@ DECLARE_Bool(enable_feature_binlog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
+
+// max number of hdfs file handle in cache
+DECLARE_Int64(max_hdfs_file_handle_cache_num);
+// max number of meta info of external files, such as parquet footer
+DECLARE_Int64(max_external_file_meta_cache_num);
 
 #ifdef BE_TEST
 // test s3

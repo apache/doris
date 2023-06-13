@@ -130,7 +130,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     std::string schema_key = SchemaCache::get_schema_key(
             _read_options.tablet_id, _context->tablet_schema, read_columns,
             _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
-    if ((_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
+    // It is necessary to ensure that there is a schema version when using a cache
+    // because the absence of a schema version can result in reading a stale version
+    // of the schema after a schema change.
+    if (_context->tablet_schema->schema_version() < 0 ||
+        (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
         SchemaCache::instance()->insert_schema(schema_key, _input_schema);
     }
@@ -196,6 +200,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.io_ctx.file_cache_stats = &read_context->stats->file_cache_stats;
     _read_options.runtime_state = read_context->runtime_state;
     _read_options.output_columns = read_context->output_columns;
 
@@ -304,10 +309,12 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
-    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y] must be compaction and not overlapping
+    // value column predicates can be pushdown on rowset [0-x] or [2-y], [2-y]
+    // must be compaction, not overlapping and don't have sequence column
     return _rowset->keys_type() == UNIQUE_KEYS &&
            (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
-             !_rowset->_rowset_meta->is_segments_overlapping()) ||
+             !_rowset->_rowset_meta->is_segments_overlapping() &&
+             _context->sequence_id_idx == -1) ||
             _context->enable_unique_key_merge_on_write);
 }
 

@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
@@ -60,14 +59,6 @@ public class TVFScanNode extends FileQueryScanNode {
         super(id, desc, "TVF_SCAN_NODE", StatisticalType.TVF_SCAN_NODE, needCheckColumnPriv);
         table = (FunctionGenTable) this.desc.getTable();
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
-    }
-
-    @Override
-    protected void doInitialize() throws UserException {
-        Preconditions.checkNotNull(desc);
-        computeColumnFilter();
-        initBackendPolicy();
-        initSchemaParams();
     }
 
     @Override

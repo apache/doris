@@ -343,6 +343,8 @@ protected:
     RuntimeProfile::Counter* _num_scanners;
 
     RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _alloc_resource_timer = nullptr;
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
@@ -363,6 +365,7 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
 

@@ -407,6 +407,55 @@ suite("test_scalar_types_load", "p0") {
     sql """INSERT INTO ${testTable} SELECT * FROM tbl_scalar_types_dup"""
 
 
+// define dup key table with index
+    testTable = "tbl_scalar_types_dup_inverted_index_skip"
+    sql "DROP TABLE IF EXISTS ${testTable}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${testTable} (
+            `k1` bigint(11) NULL,
+            `c_bool` boolean NULL,
+            `c_tinyint` tinyint(4) NULL,
+            `c_smallint` smallint(6) NULL,
+            `c_int` int(11) NULL,
+            `c_bigint` bigint(20) NULL,
+            `c_largeint` largeint(40) NULL,
+            `c_float` float NULL,
+            `c_double` double NULL,
+            `c_decimal` decimal(20, 3) NULL,
+            `c_decimalv3` decimalv3(20, 3) NULL,
+            `c_date` date NULL,
+            `c_datetime` datetime NULL,
+            `c_datev2` datev2 NULL,
+            `c_datetimev2` datetimev2(0) NULL,
+            `c_char` char(15) NULL,
+            `c_varchar` varchar(100) NULL,
+            `c_string` text NULL,
+            INDEX idx_c_bool (c_bool) USING INVERTED,
+            INDEX idx_c_tinyint (c_tinyint) USING INVERTED,
+            INDEX idx_c_smallint (c_smallint) USING INVERTED,
+            INDEX idx_c_int (c_int) USING INVERTED,
+            INDEX idx_c_bigint (c_bigint) USING INVERTED,
+            INDEX idx_c_largeint (c_largeint) USING INVERTED,
+            INDEX idx_c_decimal (c_decimal) USING INVERTED,
+            INDEX idx_c_decimalv3 (c_decimalv3) USING INVERTED,
+            INDEX idx_c_date (c_date) USING INVERTED,
+            INDEX idx_c_datetime (c_datetime) USING INVERTED,
+            INDEX idx_c_datev2 (c_datev2) USING INVERTED,
+            INDEX idx_c_datetimev2 (c_datetimev2) USING INVERTED,
+            INDEX idx_c_char (c_char) USING INVERTED,
+            INDEX idx_c_varchar (c_varchar) USING INVERTED,
+            INDEX idx_c_string (c_string) USING INVERTED PROPERTIES("parser"="english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES("replication_num" = "1", "skip_write_index_on_load" = "true");
+        """
+
+    // insert data into dup table with index
+    sql """INSERT INTO ${testTable} SELECT * FROM tbl_scalar_types_dup"""
+
+
     // define unique key table1 enable mow
     testTable = "tbl_scalar_types_unique1_inverted_index"
     sql "DROP TABLE IF EXISTS ${testTable}"

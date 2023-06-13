@@ -36,7 +36,9 @@ public:
 
     // This class will take the ownership of input data's memory. It will
     // free it when deconstructs.
-    PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {}
+    PageHandle(DataPage* data) : _is_data_owner(true), _data(data) {
+        ExecEnv::GetInstance()->page_no_cache_mem_tracker()->consume(_data->capacity());
+    }
 
     // This class will take the content of cache data, and will make input
     // cache_data to a invalid cache handle.
@@ -59,6 +61,7 @@ public:
 
     ~PageHandle() {
         if (_is_data_owner) {
+            ExecEnv::GetInstance()->page_no_cache_mem_tracker()->release(_data->capacity());
             delete _data;
         } else {
             DCHECK(_data == nullptr);

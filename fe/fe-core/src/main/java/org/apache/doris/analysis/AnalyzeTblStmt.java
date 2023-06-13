@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -47,12 +48,14 @@ import java.util.stream.Collectors;
 /**
  * Column Statistics Collection Syntax:
  * ANALYZE [ SYNC ] TABLE table_name
+ * [ PARTITIONS (partition_name [, ...])]
  * [ (column_name [, ...]) ]
  * [ [WITH SYNC] | [WITH INCREMENTAL] | [WITH SAMPLE PERCENT | ROWS ] ]
  * [ PROPERTIES ('key' = 'value', ...) ];
  * <p>
  * Column histogram collection syntax:
  * ANALYZE [ SYNC ] TABLE table_name
+ * [ partitions (partition_name [, ...])]
  * [ (column_name [, ...]) ]
  * UPDATE HISTOGRAM
  * [ [ WITH SYNC ][ WITH INCREMENTAL ][ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] ]
@@ -64,6 +67,7 @@ import java.util.stream.Collectors;
  * - sample percent | rows：Collect statistics by sampling. Scale and number of rows can be sampled.
  * - buckets：Specifies the maximum number of buckets generated when collecting histogram statistics.
  * - table_name: The purpose table for collecting statistics. Can be of the form `db_name.table_name`.
+ * - partition_name: The specified destination partition must be a partition that exists in `table_name`,
  * - column_name: The specified destination column must be a column that exists in `table_name`,
  * and multiple column names are separated by commas.
  * - properties：Properties used to set statistics tasks. Currently only the following configurations
@@ -79,16 +83,19 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     private final TableName tableName;
     private List<String> columnNames;
+    private List<String> partitionNames;
 
     // after analyzed
     private long dbId;
     private TableIf table;
 
     public AnalyzeTblStmt(TableName tableName,
+            PartitionNames partitionNames,
             List<String> columnNames,
             AnalyzeProperties properties) {
         super(properties);
         this.tableName = tableName;
+        this.partitionNames = partitionNames == null ? null : partitionNames.getPartitionNames();
         this.columnNames = columnNames;
         this.analyzeProperties = properties;
     }
@@ -144,10 +151,10 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                         columnName, FeNameFormat.getColumnNameRegex());
             }
+            checkColumn();
         } finally {
             table.readUnlock();
         }
-        checkColumn();
         analyzeProperties.check();
 
         // TODO support external table
@@ -160,23 +167,31 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     private void checkColumn() throws AnalysisException {
-        table.readLock();
-        try {
-            for (String colName : columnNames) {
-                Column column = table.getColumn(colName);
-                if (column == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                            colName, FeNameFormat.getColumnNameRegex());
-                }
-                if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
-                    throw new AnalysisException(String.format("Column[%s] with type[%s] is not supported to analyze",
-                            colName, column.getType().toString()));
-                }
+        boolean containsUnsupportedTytpe = false;
+        for (String colName : columnNames) {
+            Column column = table.getColumn(colName);
+            if (column == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                        colName, FeNameFormat.getColumnNameRegex());
             }
-        } finally {
-            table.readUnlock();
+            if (ColumnStatistic.UNSUPPORTED_TYPE.contains(column.getType())) {
+                containsUnsupportedTytpe = true;
+            }
         }
-
+        if (containsUnsupportedTytpe) {
+            if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
+                columnNames = columnNames.stream()
+                        .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
+                                table.getColumn(c).getType()))
+                        .collect(Collectors.toList());
+            } else {
+                throw new AnalysisException(
+                        "Contains unsupported column type"
+                                + "if you want to ignore them and analyze rest"
+                                + "columns, please set session variable "
+                                + "`ignore_column_with_complex_type` to true");
+            }
+        }
     }
 
     public String getCatalogName() {
@@ -202,6 +217,30 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     public Set<String> getColumnNames() {
         return columnNames == null ? table.getBaseSchema(false)
                 .stream().map(Column::getName).collect(Collectors.toSet()) : Sets.newHashSet(columnNames);
+    }
+
+    public Set<String> getPartitionNames() {
+        Set<String> partitions = partitionNames == null ? table.getPartitionNames() : Sets.newHashSet(partitionNames);
+        if (isSamplingPartition()) {
+            int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
+            partitions = partitions.stream().limit(partNum).collect(Collectors.toSet());
+        }
+        return partitions;
+    }
+
+    public boolean isPartitionOnly() {
+        return partitionNames != null;
+    }
+
+    public boolean isSamplingPartition() {
+        if (!(table instanceof HMSExternalTable) || partitionNames != null) {
+            return false;
+        }
+        int partNum = ConnectContext.get().getSessionVariable().getExternalTableAnalyzePartNum();
+        if (partNum == -1 || partitionNames != null) {
+            return false;
+        }
+        return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
     }
 
     @Override

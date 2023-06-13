@@ -115,9 +115,9 @@ Status VSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
 
-    auto* memory_usage = _runtime_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
-    _sort_blocks_memory_usage = ADD_COUNTER(memory_usage, "SortBlocks", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _sort_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "SortBlocks", TUnit::BYTES, "MemoryUsage");
 
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     return Status::OK();
@@ -179,7 +179,7 @@ Status VSortNode::open(RuntimeState* state) {
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(sink(state, upstream_block.get(), eos)));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(sink(state, upstream_block.get(), eos));
     } while (!eos);
 
     child(0)->close(state);
@@ -191,7 +191,7 @@ Status VSortNode::open(RuntimeState* state) {
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos)));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
     if (*eos) {
         _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");

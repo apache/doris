@@ -21,42 +21,9 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/http")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/http")
 
-add_library(Webserver STATIC
-  http_headers.cpp
-  http_method.cpp
-  http_request.cpp
-  http_channel.cpp
-  http_status.cpp
-  http_parser.cpp
-  http_handler_with_auth.cpp
-  web_page_handler.cpp
-  default_path_handlers.cpp
-  utils.cpp
-  ev_http_server.cpp
-  http_client.cpp
-  action/download_action.cpp
-  action/download_binlog_action.cpp
-  action/pad_rowset_action.cpp
-  action/health_action.cpp
-  action/tablet_migration_action.cpp
-  action/tablets_info_action.cpp
-  action/tablets_distribution_action.cpp
-  action/checksum_action.cpp
-  action/snapshot_action.cpp
-  action/reload_tablet_action.cpp
-  action/restore_tablet_action.cpp
-  action/pprof_actions.cpp
-  action/metrics_action.cpp
-  action/stream_load.cpp
-  action/stream_load_2pc.cpp
-  action/meta_action.cpp
-  action/compaction_action.cpp
-  action/config_action.cpp
-  action/check_rpc_channel_action.cpp
-  action/reset_rpc_channel_action.cpp
-  action/check_tablet_segment_action.cpp
-  action/version_action.cpp
-  action/jeprofile_actions.cpp
-  action/file_cache_action.cpp)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
+    *.cpp
+)
+add_library(Webserver STATIC ${SRC_FILES})
 
 pch_reuse(Webserver)

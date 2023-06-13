@@ -195,6 +195,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
             // filter all
             if (!const_column->get_bool(0)) {
                 *can_filter_all = true;
+                memset(result_filter_data, 0, result_filter->size());
                 return Status::OK();
             }
         } else {
@@ -219,6 +220,10 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
             const size_t size = filter->size();
             for (size_t i = 0; i < size; ++i) {
                 result_filter_data[i] &= filter_data[i];
+            }
+            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                *can_filter_all = true;
+                return Status::OK();
             }
         }
     }

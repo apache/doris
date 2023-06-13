@@ -58,7 +58,6 @@
 #include "util/s3_util.h"
 
 namespace doris {
-class DISABLED_RemoteRowsetGcTest;
 class OlapMeta;
 
 static StorageEngine* k_engine = nullptr;
@@ -67,8 +66,6 @@ static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
-// remove DISABLED_ when need run this test
-#define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
 class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {

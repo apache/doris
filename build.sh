@@ -38,23 +38,23 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     [no option]        build all components
-     --fe               build Frontend and Spark DPP application. Default ON.
-     --be               build Backend. Default ON.
-     --meta-tool        build Backend meta tool. Default OFF.
-     --broker           build Broker. Default ON.
-     --audit            build audit loader. Default ON.
-     --spark-dpp        build Spark DPP application. Default ON.
-     --hive-udf         build Hive UDF library for Spark Load. Default ON.
-     --java-udf         build Java UDF. Default ON.
-     --clean            clean and build target
-     --output           specify the output directory
-     -j                 build Backend parallel
+     [no option]            build all components
+     --fe                   build Frontend and Spark DPP application. Default ON.
+     --be                   build Backend. Default ON.
+     --meta-tool            build Backend meta tool. Default OFF.
+     --broker               build Broker. Default ON.
+     --audit                build audit loader. Default ON.
+     --spark-dpp            build Spark DPP application. Default ON.
+     --hive-udf             build Hive UDF library for Spark Load. Default ON.
+     --be-java-extensions   build Backend java extensions. Default ON.
+     --clean                clean and build target
+     --output               specify the output directory
+     -j                     build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-    DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
+    DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
   Eg.
     $0                                      build all
@@ -119,7 +119,7 @@ if ! OPTS="$(getopt \
     -l 'meta-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
-    -l 'java-udf' \
+    -l 'be-java-extensions' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -138,7 +138,7 @@ BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=0
+BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -154,7 +154,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
-    BUILD_JAVA_UDF=1
+    BUILD_BE_JAVA_EXTENSIONS=1
     CLEAN=0
 else
     while true; do
@@ -163,12 +163,12 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
-            BUILD_JAVA_UDF=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --be)
             BUILD_BE=1
-            BUILD_JAVA_UDF=1
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --broker)
@@ -191,8 +191,8 @@ else
             BUILD_HIVE_UDF=1
             shift
             ;;
-        --java-udf)
-            BUILD_JAVA_UDF=1
+        --be-java-extensions)
+            BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
         --clean)
@@ -239,7 +239,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
-        BUILD_JAVA_UDF=1
+        BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
     fi
 fi
@@ -343,8 +343,8 @@ if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
-if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
-    DISABLE_JAVA_UDF='OFF'
+if [[ -z "${BUILD_BE_JAVA_EXTENSIONS}" ]]; then
+    BUILD_BE_JAVA_EXTENSIONS='OFF'
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
@@ -355,7 +355,7 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
-if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
@@ -369,13 +369,13 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
 
     if [[ -n "${CAUSE}" ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with Java UDF due to ${CAUSE}.\033[0m"
-        BUILD_JAVA_UDF=0
-        DISABLE_JAVA_UDF_IN_CONF=1
+        BUILD_BE_JAVA_EXTENSIONS=0
+        BUILD_BE_JAVA_EXTENSIONS_IN_CONF=1
     fi
 fi
 
-if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
-    BUILD_JAVA_UDF=0
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" == "ON" ]]; then
+    BUILD_BE_JAVA_EXTENSIONS=0
 fi
 
 echo "Get params:
@@ -385,7 +385,7 @@ echo "Get params:
     BUILD_AUDIT         -- ${BUILD_AUDIT}
     BUILD_META_TOOL     -- ${BUILD_META_TOOL}
     BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
-    BUILD_JAVA_UDF      -- ${BUILD_JAVA_UDF}
+    BUILD_BE_JAVA_EXTENSIONS      -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
@@ -424,13 +424,18 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("spark-dpp")
 fi
-if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
-    modules+=("fe-common")
-    modules+=("java-udf")
-fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("hive-udf")
+fi
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
+    modules+=("fe-common")
+    modules+=("be-java-extensions/hudi-scanner")
+    modules+=("be-java-extensions/java-common")
+    modules+=("be-java-extensions/java-udf")
+    modules+=("be-java-extensions/jdbc-scanner")
+    modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/max-compute-scanner")
 fi
 FE_MODULES="$(
     IFS=','
@@ -596,11 +601,11 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs/native/"
     fi
 
-    if [[ "${DISABLE_JAVA_UDF_IN_CONF}" -eq 1 ]]; then
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 
-# Java UDF support
+# Java UDF and BE-JAVA-EXTENSION support
 enable_java_support = false
 EOF
     fi
@@ -627,10 +632,19 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
-    if [[ -f "${java_udf_path}" ]]; then
-        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
-    fi
+    extensions_modules=("")
+    extensions_modules+=("java-udf")
+    extensions_modules+=("jdbc-scanner")
+    extensions_modules+=("hudi-scanner")
+    extensions_modules+=("paimon-scanner")
+    extensions_modules+=("max-compute-scanner")
+
+    for extensions_module in "${extensions_modules[@]}"; do
+        module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        if [[ -f "${module_path}" ]]; then
+            cp "${module_path}" "${DORIS_OUTPUT}/be/lib"/
+        fi
+    done
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -659,12 +673,12 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     cd "${DORIS_HOME}"
 fi
 
-if [[ "${BUILD_JAVA_UDF}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
     install -d "${DORIS_OUTPUT}/be/lib"
 
     rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
 
-    java_udf_path="${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar"
+    java_udf_path="${DORIS_HOME}/fe/be-java-extensions/java-udf/target/java-udf-jar-with-dependencies.jar"
     if [[ -f "${java_udf_path}" ]]; then
         cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
     fi

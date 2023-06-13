@@ -341,7 +341,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 15);
+        Assertions.assertEquals(hdProps.size(), 16);
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", "obs.cn-north-4.myhuaweicloud.com");

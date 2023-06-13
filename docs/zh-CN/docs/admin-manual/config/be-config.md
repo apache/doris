@@ -433,12 +433,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：5
 
-#### `serialize_batch`
-
-* 类型：bool
-* 描述：BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
-* 默认值: false
-
 #### `doris_scan_range_max_mb`
 
 * 类型: int32
@@ -642,7 +636,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `segcompaction_small_threshold`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
 
 #### `disable_compaction_trace_log`
@@ -737,6 +731,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32

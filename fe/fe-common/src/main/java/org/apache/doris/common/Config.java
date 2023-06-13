@@ -562,7 +562,7 @@ public class Config extends ConfigBase {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
-    public static int max_running_txn_num_per_db = 100;
+    public static int max_running_txn_num_per_db = 1000;
 
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
             + "并且应小于 `max_running_txn_num_per_db`。",
@@ -783,7 +783,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int storage_flood_stage_usage_percent = 95;
     @ConfField(mutable = true, masterOnly = true)
-    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 100MB
+    public static long storage_flood_stage_left_capacity_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
@@ -1486,7 +1486,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_pipeline_load = false;
+    public static boolean enable_pipeline_load = true;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
@@ -1765,6 +1765,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
+
+    /**
+     * enable use odbc table
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否开启 ODBC 外表功能，默认关闭，ODBC 外表是淘汰的功能，请使用 JDBC Catalog",
+        "Whether to enable the ODBC appearance function, it is disabled by default,"
+            + " and the ODBC appearance is an obsolete feature. Please use the JDBC Catalog"})
+    public static boolean enable_odbc_table = false;
 
     /**
      * This is used whether to push down function to MYSQL in external Table with query sql

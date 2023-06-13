@@ -33,10 +33,13 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -57,6 +60,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -76,7 +82,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class AnalysisManager extends Daemon {
+public class AnalysisManager extends Daemon implements Writable {
 
     public AnalysisTaskScheduler taskScheduler;
 
@@ -153,6 +159,9 @@ public class AnalysisManager extends Daemon {
         try {
             List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
             for (TableIf table : tbls) {
+                if (table instanceof View) {
+                    continue;
+                }
                 TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
                         table.getName());
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
@@ -234,10 +243,10 @@ public class AnalysisManager extends Daemon {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, false);
-
-        persistAnalysisJob(jobInfo);
-        analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-
+        if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+            persistAnalysisJob(jobInfo);
+            analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+        }
         try {
             updateTableStats(jobInfo);
         } catch (Throwable e) {
@@ -288,9 +297,8 @@ public class AnalysisManager extends Daemon {
      * TODO Supports incremental collection of statistics from materialized views
      */
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            AnalysisType analysisType, AnalysisMode analysisMode) throws DdlException {
+            Set<String> partitionNames, AnalysisType analysisType, AnalysisMode analysisMode) throws DdlException {
         long tableId = table.getId();
-        Set<String> partitionNames = table.getPartitionNames();
 
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
                 .collect(Collectors.toMap(
@@ -301,6 +309,13 @@ public class AnalysisManager extends Daemon {
         if (analysisType == AnalysisType.HISTOGRAM) {
             // Collecting histograms does not need to support incremental collection,
             // and will automatically cover historical statistics
+            return columnToPartitions;
+        }
+
+        if (table instanceof HMSExternalTable) {
+            // TODO Currently, we do not support INCREMENTAL collection for external table.
+            // One reason is external table partition id couldn't convert to a Long value.
+            // Will solve this problem later.
             return columnToPartitions;
         }
 
@@ -357,6 +372,9 @@ public class AnalysisManager extends Daemon {
         String tblName = tbl.getTbl();
         TableIf table = stmt.getTable();
         Set<String> columnNames = stmt.getColumnNames();
+        Set<String> partitionNames = stmt.getPartitionNames();
+        boolean partitionOnly = stmt.isPartitionOnly();
+        boolean isSamplingPartition = stmt.isSamplingPartition();
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
@@ -373,6 +391,9 @@ public class AnalysisManager extends Daemon {
             stringJoiner.add(colName);
         }
         taskInfoBuilder.setColName(stringJoiner.toString());
+        taskInfoBuilder.setPartitionNames(partitionNames);
+        taskInfoBuilder.setPartitionOnly(partitionOnly);
+        taskInfoBuilder.setSamplingPartition(isSamplingPartition);
         taskInfoBuilder.setJobType(JobType.MANUAL);
         taskInfoBuilder.setState(AnalysisState.PENDING);
         taskInfoBuilder.setAnalysisType(analysisType);
@@ -398,8 +419,8 @@ public class AnalysisManager extends Daemon {
             taskInfoBuilder.setPeriodTimeInMs(periodTimeInMs);
         }
 
-        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table,
-                columnNames, analysisType, analysisMode);
+        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
+                partitionNames, analysisType, analysisMode);
         taskInfoBuilder.setColToPartitions(colToPartitions);
 
         return taskInfoBuilder.build();
@@ -425,8 +446,8 @@ public class AnalysisManager extends Daemon {
         try {
             TableIf table = StatisticsUtil
                     .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
-            Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table,
-                    jobInfo.colToPartitions.keySet(), jobInfo.analysisType, jobInfo.analysisMode);
+            Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, jobInfo.colToPartitions.keySet(),
+                    jobInfo.partitionNames, jobInfo.analysisType, jobInfo.analysisMode);
             taskInfoBuilder.setColToPartitions(colToPartitions);
         } catch (Throwable e) {
             throw new RuntimeException(e);
@@ -502,7 +523,9 @@ public class AnalysisManager extends Daemon {
                 continue;
             }
             try {
-                logCreateAnalysisTask(analysisInfo);
+                if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+                    logCreateAnalysisTask(analysisInfo);
+                }
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
@@ -510,13 +533,13 @@ public class AnalysisManager extends Daemon {
     }
 
     private void logCreateAnalysisTask(AnalysisInfo analysisInfo) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
         analysisTaskInfoMap.put(analysisInfo.taskId, analysisInfo);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
     }
 
     private void logCreateAnalysisJob(AnalysisInfo analysisJob) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
         analysisJobInfoMap.put(analysisJob.jobId, analysisJob);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
     }
 
     private void createTaskForExternalTable(AnalysisInfo jobInfo,
@@ -537,6 +560,10 @@ public class AnalysisManager extends Daemon {
         AnalysisInfo analysisInfo = colTaskInfoBuilder.setIndexId(-1L)
                 .setTaskId(taskId).setExternalTableLevelTask(true).build();
         analysisTasks.put(taskId, createTask(analysisInfo));
+        if (isSync) {
+            // For sync job, don't need to persist, return here and execute it immediately.
+            return;
+        }
         try {
             logCreateAnalysisJob(analysisInfo);
         } catch (Exception e) {
@@ -594,7 +621,8 @@ public class AnalysisManager extends Daemon {
             updateOlapTableStats(table, params);
         }
 
-        // TODO support external table
+        // External Table doesn't collect table stats here.
+        // We create task for external table to collect table/partition level statistics.
     }
 
     @SuppressWarnings("rawtypes")
@@ -722,12 +750,12 @@ public class AnalysisManager extends Daemon {
         }
     }
 
-    public void replayCreateAnalysisJob(AnalysisInfo taskInfo) {
-        this.analysisJobInfoMap.put(taskInfo.jobId, taskInfo);
+    public void replayCreateAnalysisJob(AnalysisInfo jobInfo) {
+        this.analysisJobInfoMap.put(jobInfo.jobId, jobInfo);
     }
 
-    public void replayCreateAnalysisTask(AnalysisInfo jobInfo) {
-        this.analysisTaskInfoMap.put(jobInfo.taskId, jobInfo);
+    public void replayCreateAnalysisTask(AnalysisInfo taskInfo) {
+        this.analysisTaskInfoMap.put(taskInfo.taskId, taskInfo);
     }
 
     public void replayDeleteAnalysisJob(AnalyzeDeletionLog log) {
@@ -826,4 +854,31 @@ public class AnalysisManager extends Daemon {
         removeAll(findTasks(jobId));
     }
 
+    public static AnalysisManager readFields(DataInput in) throws IOException {
+        AnalysisManager analysisManager = new AnalysisManager();
+        doRead(in, analysisManager.analysisJobInfoMap, true);
+        doRead(in, analysisManager.analysisTaskInfoMap, false);
+        return analysisManager;
+    }
+
+    private static void doRead(DataInput in, Map<Long, AnalysisInfo> map, boolean job) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            AnalysisInfo analysisInfo = AnalysisInfo.read(in);
+            map.put(job ? analysisInfo.jobId : analysisInfo.taskId, analysisInfo);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        doWrite(out, analysisJobInfoMap);
+        doWrite(out, analysisTaskInfoMap);
+    }
+
+    private void doWrite(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
+        out.writeInt(infoMap.size());
+        for (Entry<Long, AnalysisInfo> entry : infoMap.entrySet()) {
+            entry.getValue().write(out);
+        }
+    }
 }
