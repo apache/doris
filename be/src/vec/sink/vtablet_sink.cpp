@@ -128,9 +128,6 @@ public:
 };
 
 IndexChannel::~IndexChannel() {
-    if (_where_clause != nullptr) {
-        _where_clause->close(_parent->_state);
-    }
 }
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
