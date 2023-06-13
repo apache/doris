@@ -126,6 +126,8 @@
     sql """ insert into ${tableName3} values (1, 123.56789, 234.67895, 345.78956); """
     sql """ insert into ${tableName3} values (2, 123.56789, 234.67895, 345.78956); """
 
+    qt_query """ select d1, d2, d3 from ${tableName3} order by d1 """
+
     qt_query """ select cast(round(sum(d1), 6) as double), cast(round(sum(d2), 6) as double), cast(round(sum(d3), 6) as double) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), 2) as double), cast(round(sum(d2), 2) as double), cast(round(sum(d3),2) as double) from ${tableName3} """
     qt_query """ select cast(round(sum(d1), -2) as double), cast(round(sum(d2), -2) as double), cast(round(sum(d3), -2) as double) from ${tableName3} """
