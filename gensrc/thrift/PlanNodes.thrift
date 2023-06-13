@@ -314,11 +314,22 @@ struct THudiFileDesc {
     10: optional list<string> nested_fields;
 }
 
+struct TTransactionalHiveDeleteDeltaDesc {
+    1: optional string directory_location
+    2: optional list<string> file_names
+}
+
+struct TTransactionalHiveDesc {
+    1: optional string partition
+    2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
+    5: optional TTransactionalHiveDesc transactional_hive_params
 }
 
 struct TFileScanRangeParams {
