@@ -158,7 +158,8 @@ public:
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
     DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9) : precision(precision), scale(scale) {
-        check_type_precision_and_scale(*this);
+        check_type_precision(precision);
+        check_type_scale(scale);
     }
 
     DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
@@ -253,8 +254,8 @@ public:
 
     /// Decimal specific
 
-    UInt32 get_precision() const { return precision; }
-    UInt32 get_scale() const { return scale; }
+    [[nodiscard]] UInt32 get_precision() const override { return precision; }
+    [[nodiscard]] UInt32 get_scale() const override { return scale; }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
     T whole_part(T x) const {
@@ -316,12 +317,11 @@ public:
         }
     }
 
-    static void check_type_precision_and_scale(const DataTypeDecimal& type) {
-        check_type_precision(type.precision);
-        if (type.scale > max_decimal_precision<T>()) {
+    static void check_type_scale(const vectorized::UInt32 scale) {
+        if (scale > max_decimal_precision<T>()) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "meet invalid scale: real_scale={}, max_decimal_scale={}, ",
-                            type.precision, max_decimal_precision<T>());
+                            "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
+                            max_decimal_precision<T>());
         }
     }
 

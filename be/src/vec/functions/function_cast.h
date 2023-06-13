@@ -248,7 +248,7 @@ struct ConvertImpl {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
-                ToDataType::check_type_precision(scale);
+                ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
                 col_to = ColVecTo::create();
@@ -1075,19 +1075,15 @@ public:
                         return true;
                     }
 
-                    const ColumnWithTypeAndName& scale_column = block.get_by_position(arguments[1]);
-                    UInt32 scale = extract_to_decimal_scale(scale_column);
-
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale);
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
-                    auto type =
-                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), type->get_scale());
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count);
@@ -1297,7 +1293,7 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
-            ToDataType::check_type_precision(scale);
+            ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
             col_to = ColVecTo::create(size);
