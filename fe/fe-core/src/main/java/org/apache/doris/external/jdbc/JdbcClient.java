@@ -261,17 +261,21 @@ public class JdbcClient {
         }
         List<String> tablesName = Lists.newArrayList();
         String[] types = {"TABLE", "VIEW"};
+        String[] mysqlTypes = {"TABLE", "VIEW", "SYSTEM VIEW"};
+        String[] ckTypes = {"TABLE", "VIEW", "SYSTEM TABLE"};
         String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                    rs = databaseMetaData.getTables(dbName, null, null, types);
+                    rs = databaseMetaData.getTables(dbName, null, null, mysqlTypes);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(dbName, null, null, ckTypes);
                     break;
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
@@ -309,17 +313,21 @@ public class JdbcClient {
             tableName = lowerTableToRealTable.get(tableName);
         }
         String[] types = {"TABLE", "VIEW"};
+        String[] mysqlTypes = {"TABLE", "VIEW", "SYSTEM VIEW"};
+        String[] ckTypes = {"TABLE", "VIEW", "SYSTEM TABLE"};
         String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                    rs = databaseMetaData.getTables(dbName, null, tableName, types);
+                    rs = databaseMetaData.getTables(dbName, null, null, mysqlTypes);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(dbName, null, null, ckTypes);
                     break;
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
