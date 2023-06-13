@@ -140,6 +140,9 @@ FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
 RUN_JAR="${OUTPUT_DIR}/lib/regression-test-*.jar"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
 
 rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift ${FRAMEWORK_APACHE_DIR}/parquet"
 
@@ -156,9 +159,16 @@ fi
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
-    "${DORIS_HOME}"/generated-source.sh noclean
-    cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
-    cp -r "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
+    echo "Build generated code"
+    cd "${DORIS_HOME}/gensrc"
+    if [[ "$#" == 0 ]]; then
+        echo "rm -rf ${DORIS_HOME}/gensrc/build"
+        rm -rf "${DORIS_HOME}/gensrc/build"
+    fi
+    make
+
+    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
+    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
 
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
