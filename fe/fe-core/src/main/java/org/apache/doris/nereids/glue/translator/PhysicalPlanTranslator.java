@@ -1100,6 +1100,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), leftSlotDescriptor.getId());
                     }
                 }
                 leftIntermediateSlotDescriptor.add(sd);
@@ -1117,6 +1118,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), rightSlotDescriptor.getId());
                     }
                 }
                 rightIntermediateSlotDescriptor.add(sd);
@@ -1398,6 +1400,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             JoinNodeBase hashJoinNode = (JoinNodeBase) inputPlanNode;
             hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
             hashJoinNode.setvSrcToOutputSMap(execExprList);
+            // prune the hashOutputSlotIds
+            if (hashJoinNode instanceof HashJoinNode) {
+                ((HashJoinNode) hashJoinNode).getHashOutputSlotIds().clear();
+                Set<SlotId> requiredOtherConjunctsSlotIdSet = Sets.newHashSet();
+                Set<ExprId> requiredExprIds = Sets.newHashSet();
+                slotList.forEach(e -> requiredExprIds.add(e.getExprId()));
+                List<Expr> otherConjuncts = ((HashJoinNode) hashJoinNode).getOtherJoinConjuncts();
+                for (Expr expr : otherConjuncts) {
+                    extractExecSlot(expr, requiredOtherConjunctsSlotIdSet);
+                }
+                requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                for (ExprId exprId : requiredExprIds) {
+                    SlotId slotId = ((HashJoinNode) hashJoinNode).getHashOutputExprSlotIdMap().get(exprId);
+                    ((HashJoinNode) hashJoinNode).addSlotIdToHashOutputSlotIds(slotId);
+                }
+            }
             return inputFragment;
         }
         List<Expr> predicateList = inputPlanNode.getConjuncts();

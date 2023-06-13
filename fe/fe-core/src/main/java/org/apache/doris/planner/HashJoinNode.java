@@ -37,6 +37,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,7 +79,9 @@ public class HashJoinNode extends JoinNodeBase {
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
 
-    private List<SlotId> hashOutputSlotIds = new ArrayList<>(); //init for nereids
+    private Set<SlotId> hashOutputSlotIds = Sets.newHashSet(); //init for nereids
+
+    private Map<ExprId, SlotId> hashOutputExprSlotIdMap = Maps.newHashMap();
 
     /**
      * Constructor of HashJoinNode.
@@ -208,18 +213,18 @@ public class HashJoinNode extends JoinNodeBase {
      * @param slotIdList
      */
     private void initHashOutputSlotIds(List<SlotId> slotIdList, Analyzer analyzer) {
-        Set<SlotId> hashOutputSlotIdSet = Sets.newHashSet();
+        hashOutputSlotIds.clear();
         // step1: change output slot id to src slot id
         if (vSrcToOutputSMap != null) {
             for (SlotId slotId : slotIdList) {
                 SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
                 Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
                 if (srcExpr == null) {
-                    hashOutputSlotIdSet.add(slotId);
+                    hashOutputSlotIds.add(slotId);
                 } else {
                     List<SlotRef> srcSlotRefList = Lists.newArrayList();
                     srcExpr.collect(SlotRef.class, srcSlotRefList);
-                    hashOutputSlotIdSet
+                    hashOutputSlotIds
                             .addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
                 }
             }
@@ -229,8 +234,16 @@ public class HashJoinNode extends JoinNodeBase {
         List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
         Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
-        hashOutputSlotIdSet.addAll(otherAndConjunctSlotIds);
-        hashOutputSlotIds = new ArrayList<>(hashOutputSlotIdSet);
+        hashOutputSlotIds.addAll(otherAndConjunctSlotIds);
+        hashOutputExprSlotIdMap.clear();
+    }
+
+    public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
+        return hashOutputExprSlotIdMap;
+    }
+
+    public Set<SlotId> getHashOutputSlotIds() {
+        return hashOutputSlotIds;
     }
 
     @Override
@@ -806,6 +819,10 @@ public class HashJoinNode extends JoinNodeBase {
      */
     public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
         this.otherJoinConjuncts = otherJoinConjuncts;
+    }
+
+    public List<Expr> getOtherJoinConjuncts() {
+        return otherJoinConjuncts;
     }
 
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
