@@ -27,7 +27,6 @@ if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()
 
-
 if (OS_MACOSX)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/util/system_metrics_test.cpp)
 endif()
