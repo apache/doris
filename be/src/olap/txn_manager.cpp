@@ -749,8 +749,9 @@ void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
     VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
 }
 
-void TxnManager::get_tablet_txn_info(const TPartitionId& partition_id, const TTransactionId& transaction_id,
-                                     const TabletInfo& tablet_info,TabletTxnInfo& table_txn_info){
+void TxnManager::get_tablet_txn_info(const TPartitionId& partition_id,
+                                     const TTransactionId& transaction_id,
+                                     const TabletInfo& tablet_info, TabletTxnInfo& table_txn_info) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletTxnInfo tablet_txn_info;
     // get tablet_txn_info by key
@@ -762,9 +763,7 @@ void TxnManager::get_tablet_txn_info(const TPartitionId& partition_id, const TTr
         if (auto it = txn_tablet_map.find(key); it != txn_tablet_map.end()) {
             auto& tablet_map = it->second;
             if (auto txn_info_iter = tablet_map.find(tablet_info);
-                    txn_info_iter != tablet_map.end()) {
-                // found load for txn,tablet
-                // case 1: user commit rowset, then the load id must be equal
+                txn_info_iter != tablet_map.end()) {
                 tablet_txn_info = txn_info_iter->second;
             }
         }

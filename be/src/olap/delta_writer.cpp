@@ -462,7 +462,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                 _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
 
         TabletTxnInfo tablet_txn_info;
-        _storage_engine->txn_manager()->get_tablet_txn_info(_req.partition_id, _req.txn_id,_tablet->get_tablet_info(),tablet_txn_info);
+        _storage_engine->txn_manager()->get_tablet_txn_info(
+                _req.partition_id, _req.txn_id, _tablet->get_tablet_info(), tablet_txn_info);
         RETURN_IF_ERROR(
                 _tablet->update_delete_bitmap(_cur_rowset, &tablet_txn_info, _rowset_writer.get()));
     }
