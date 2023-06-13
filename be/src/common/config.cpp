@@ -732,10 +732,6 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DEFINE_mBool(runtime_filter_use_async_rpc, "true");
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -783,6 +779,10 @@ DEFINE_String(kafka_broker_version_fallback, "0.10.0");
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DEFINE_Int32(routine_load_consumer_pool_size, "10");
+
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DEFINE_Int32(multi_table_batch_plan_threshold, "200");
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -994,6 +994,10 @@ DEFINE_Int32(max_depth_of_expr_tree, "600");
 // Report a tablet as bad when io errors occurs more than this value.
 DEFINE_mInt64(max_tablet_io_errors, "-1");
 
+// Report a tablet as bad when its path not found
+DEFINE_Int32(tablet_path_check_interval_seconds, "-1");
+DEFINE_mInt32(tablet_path_check_batch_size, "1000");
+
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
@@ -1013,6 +1017,9 @@ DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
+
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 
 #ifdef BE_TEST
 // test s3

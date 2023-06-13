@@ -60,7 +60,11 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/scan/hudi_jni_reader.h"
+#include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/paimon_reader.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -105,6 +109,7 @@ Status VFileScanner::prepare(
     _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
+    _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
     _fill_path_columns_timer =
@@ -115,6 +120,7 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
+    _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -306,16 +312,11 @@ Status VFileScanner::_init_src_block(Block* block) {
         auto it = _name_to_col_type.find(slot->col_name());
         if (it == _name_to_col_type.end() || _is_dynamic_schema) {
             // not exist in file, using type from _input_tuple_desc
-            data_type =
-                    DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
+            RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
+                                              slot->type(), slot->is_nullable()));
         } else {
-            data_type = DataTypeFactory::instance().create_data_type(it->second, true);
-        }
-        if (data_type == nullptr) {
-            return Status::NotSupported("Not support data type {} for column {}",
-                                        it == _name_to_col_type.end() ? slot->type().debug_string()
-                                                                      : it->second.debug_string(),
-                                        slot->col_name());
+            RETURN_IF_CATCH_EXCEPTION(
+                    data_type = DataTypeFactory::instance().create_data_type(it->second, true));
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
@@ -588,12 +589,42 @@ Status VFileScanner::_get_next_reader() {
         Status init_status;
         // TODO: use data lake type
         switch (_params.format_type) {
+        case TFileFormatType::FORMAT_JNI: {
+            if (_real_tuple_desc->table_desc()->table_type() ==
+                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
+                const MaxComputeTableDescriptor* mc_desc =
+                        static_cast<const MaxComputeTableDescriptor*>(
+                                _real_tuple_desc->table_desc());
+                std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
+                        mc_desc, _file_slot_descs, range, _state, _profile);
+                init_status = mc_reader->init_reader(_colname_to_value_range);
+                _cur_reader = std::move(mc_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "paimon") {
+                _cur_reader =
+                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                init_status = ((PaimonJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                _cur_reader =
+                        HudiJniReader::create_unique(_params, range.table_format_params.hudi_params,
+                                                     _file_slot_descs, _state, _profile);
+                init_status =
+                        ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
+            }
+            break;
+        }
         case TFileFormatType::FORMAT_PARQUET: {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _kv_cache, _state->query_options().enable_parquet_lazy_mat);
-            RETURN_IF_ERROR(parquet_reader->open());
+                    ExecEnv::GetInstance()->file_meta_cache(),
+                    _state->query_options().enable_parquet_lazy_mat);
+            {
+                SCOPED_TIMER(_open_reader_timer);
+                RETURN_IF_ERROR(parquet_reader->open());
+            }
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
@@ -626,6 +657,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
+            std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
+                    _profile, _state, _params, range, _state->query_options().batch_size,
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
@@ -633,12 +667,21 @@ Status VFileScanner::_get_next_reader() {
                 }
                 _discard_conjuncts();
             }
-            _cur_reader = OrcReader::create_unique(
-                    _profile, _state, _params, range, _file_col_names,
-                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
-                    _state->query_options().enable_orc_lazy_mat);
-            init_status = ((OrcReader*)(_cur_reader.get()))
-                                  ->init_reader(_colname_to_value_range, _push_down_conjuncts);
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "transactional_hive") {
+                std::unique_ptr<TransactionalHiveReader> tran_orc_reader =
+                        TransactionalHiveReader::create_unique(std::move(orc_reader), _profile,
+                                                               _state, _params, range,
+                                                               _io_ctx.get());
+                init_status = tran_orc_reader->init_reader(_file_col_names, _colname_to_value_range,
+                                                           _push_down_conjuncts);
+                RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
+                _cur_reader = std::move(tran_orc_reader);
+            } else {
+                init_status = orc_reader->init_reader(&_file_col_names, _colname_to_value_range,
+                                                      _push_down_conjuncts, false);
+                _cur_reader = std::move(orc_reader);
+            }
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -657,7 +700,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, _params, range,
                                                        _file_slot_descs, &_scanner_eof,
                                                        _io_ctx.get(), _is_dynamic_schema);
-            init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
+            init_status =
+                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
             break;
         }
         default:
@@ -676,6 +720,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
+        COUNTER_UPDATE(_file_counter, 1);
 
         _name_to_col_type.clear();
         _missing_cols.clear();

@@ -193,7 +193,7 @@ public class JoinEstimation {
         double rowCount;
         if (join.getJoinType().isLeftSemiOrAntiJoin()) {
             double semiRowCount = StatsMathUtil.divide(leftStats.getRowCount() * buildColStats.ndv,
-                    buildColStats.originalNdv);
+                    buildColStats.getOriginalNdv());
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {
@@ -202,7 +202,7 @@ public class JoinEstimation {
         } else {
             //right semi or anti
             double semiRowCount = StatsMathUtil.divide(rightStats.getRowCount() * probColStats.ndv,
-                    probColStats.originalNdv);
+                    probColStats.getOriginalNdv());
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {

@@ -57,7 +57,7 @@ public:
     }
 
     void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
-        pipeline->_parents.push_back(shared_from_this());
+        pipeline->_parents.push_back(weak_from_this());
         _dependencies.push_back(pipeline);
     }
 
@@ -93,7 +93,7 @@ private:
     OperatorBuilders _operator_builders; // left is _source, right is _root
     OperatorBuilderPtr _sink;            // put block to sink
 
-    std::vector<std::shared_ptr<Pipeline>> _parents;
+    std::vector<std::weak_ptr<Pipeline>> _parents;
     std::vector<std::shared_ptr<Pipeline>> _dependencies;
 
     PipelineId _pipeline_id;

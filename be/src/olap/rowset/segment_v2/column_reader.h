@@ -173,25 +173,12 @@ public:
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
 
-    void disable_index_meta_cache() { _index_meta_use_page_cache = false; }
+    void disable_index_meta_cache() { _use_index_page_cache = false; }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
     Status init();
-
-    // Read and load necessary column indexes into memory if it hasn't been loaded.
-    // May be called multiple times, subsequent calls will no op.
-    Status _ensure_index_loaded() {
-        return _load_index_once.call([this] {
-            bool use_page_cache = !config::disable_storage_page_cache && _index_meta_use_page_cache;
-            RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
-            RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.kept_in_memory));
-            RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.kept_in_memory));
-            RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.kept_in_memory));
-            return Status::OK();
-        });
-    }
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
@@ -201,11 +188,11 @@ private:
         return Status::OK();
     }
 
-    Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_inverted_index_index(const TabletIndex* index_meta);
-    Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+    [[nodiscard]] Status _load_inverted_index_index(const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,
@@ -237,20 +224,25 @@ private:
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
+    bool _use_index_page_cache;
+
     // meta for various column indexes (null if the index is absent)
-    bool _index_meta_use_page_cache = true;
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
     const OrdinalIndexPB* _ordinal_index_meta = nullptr;
     const BitmapIndexPB* _bitmap_index_meta = nullptr;
     const BloomFilterIndexPB* _bf_index_meta = nullptr;
 
-    DorisCallOnce<Status> _load_index_once;
     mutable std::mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::unique_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
+    DorisCallOnce<Status> _load_zone_map_index_once;
+    DorisCallOnce<Status> _load_ordinal_index_once;
+    DorisCallOnce<Status> _load_bitmap_index_once;
+    DorisCallOnce<Status> _load_bloom_filter_index_once;
+    DorisCallOnce<Status> _load_inverted_index_once;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 

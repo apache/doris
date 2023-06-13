@@ -8,13 +8,14 @@ CteAnchor[cteId= ( CTEId#2=] )
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN](web_returns.wr_returning_addr_sk = customer_address.ca_address_sk)
 --------------PhysicalDistribute
-----------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
-------------------PhysicalProject
---------------------PhysicalOlapScan[web_returns]
-------------------PhysicalDistribute
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
 --------------------PhysicalProject
-----------------------filter((date_dim.d_year = 2002))
-------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[web_returns]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((date_dim.d_year = 2002))
+--------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[customer_address]
 --PhysicalTopN

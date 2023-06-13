@@ -31,10 +31,7 @@ suite("test_big_pad") {
             properties("replication_num" = "1");
         """
 
-    sql "insert into d_table select 1,2000000000,1,'a';"
-    sql "insert into d_table select 1,2000000000,1,'a';"
-    sql "insert into d_table select 1,2000000000,1,'a';"
-
+    sql "insert into d_table values(1,2000000000,1,'a'),(1,2000000000,1,'a'),(1,2000000000,1,'a');"
     test {
         sql "select rpad('a',k2,'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') from d_table;"
         exception "string column length is too large"

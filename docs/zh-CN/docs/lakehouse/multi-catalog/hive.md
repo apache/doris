@@ -78,6 +78,7 @@ CREATE CATALOG hive PROPERTIES (
     'hive.metastore.sasl.enabled' = 'true',
     'hive.metastore.kerberos.principal' = 'your-hms-principal',
     'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
@@ -125,8 +126,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
-    "s3.access-key" = "ak",
-    "s3.secret-key" = "sk"
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
     "use_path_style" = "true"
 );
 ```
@@ -144,8 +145,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
-    "oss.access-key" = "ak",
-    "oss.secret-key" = "sk"
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
 );
 ```
 
@@ -156,8 +157,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
-    "obs.access-key" = "ak",
-    "obs.secret-key" = "sk"
+    "obs.access_key" = "ak",
+    "obs.secret_key" = "sk"
 );
 ```
 
@@ -168,8 +169,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
-    "cos.access-key" = "ak",
-    "cos.secret-key" = "sk"
+    "cos.access_key" = "ak",
+    "cos.secret_key" = "sk"
 );
 ```
 
@@ -180,8 +181,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
     "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-    "glue.access-key" = "ak",
-    "glue.secret-key" = "sk"
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
 );
 ```
 

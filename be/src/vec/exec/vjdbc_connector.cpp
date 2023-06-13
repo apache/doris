@@ -61,12 +61,13 @@
 
 namespace doris {
 namespace vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
+const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
+const char* JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE = "(ILjava/lang/Object;)Ljava/util/List;";
 const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
@@ -345,6 +346,23 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
                         ->create_column());
         break;
     }
+    case TYPE_HLL: {
+        if (type_str != "java.lang.String") {
+            return Status::InternalError(error_msg);
+        }
+
+        _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
+        if (slot_desc->is_nullable()) {
+            _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        } else {
+            _input_hll_string_types.push_back(std::make_shared<DataTypeString>());
+        }
+
+        str_hll_cols.push_back(
+                _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]]
+                        ->create_column());
+        break;
+    }
     default: {
         return Status::InternalError(error_msg);
     }
@@ -367,8 +385,45 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         return Status::OK();
     }
 
-    jobject block_obj = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
-                                                        _executor_get_blocks_id, batch_size);
+    jobject block_obj;
+    // if contain HLL column, pass the column type to jni env
+    if (_tuple_desc->has_hll_slot()) {
+        auto column_size = _tuple_desc->slots().size();
+        // Find ArrayList and Integer
+        jclass arrayListClass = env->FindClass("java/util/ArrayList");
+        jclass integerClass = env->FindClass("java/lang/Integer");
+
+        // Get method id of the constructor and the add in ArrayList
+        jmethodID arrayListConstructor = env->GetMethodID(arrayListClass, "<init>", "()V");
+        jmethodID arrayListAddMethod =
+                env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+
+        // Create an ArrayList object
+        jobject arrayListObject = env->NewObject(arrayListClass, arrayListConstructor);
+        for (int column_index = 0; column_index < column_size; ++column_index) {
+            auto slot_desc = _tuple_desc->slots()[column_index];
+            if (slot_desc->type().is_hll_type()) {
+                // Create an Integer object
+                jobject integerObject = env->NewObject(
+                        integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"),
+                        (int)slot_desc->type().type);
+                // Add Integer into ArrayList
+                env->CallBooleanMethod(arrayListObject, arrayListAddMethod, integerObject);
+
+            } else {
+                jobject integerObject = env->NewObject(
+                        integerClass, env->GetMethodID(integerClass, "<init>", "(I)V"), 0);
+                env->CallBooleanMethod(arrayListObject, arrayListAddMethod, integerObject);
+            }
+        }
+
+        block_obj = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
+                                                    _executor_get_blocks_new_id, batch_size,
+                                                    arrayListObject);
+    } else {
+        block_obj = env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz,
+                                                    _executor_get_blocks_id, batch_size);
+    }
 
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
@@ -390,6 +445,8 @@ Status JdbcConnector::get_next(bool* eos, std::vector<MutableColumnPtr>& columns
         //here need to cast string to array type
         if (slot_desc->type().is_array_type()) {
             _cast_string_to_array(slot_desc, block, column_index, num_rows);
+        } else if (slot_desc->type().is_hll_type()) {
+            _cast_string_to_hll(slot_desc, block, column_index, num_rows);
         }
         materialized_column_index++;
     }
@@ -570,6 +627,26 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
                                       address[1], chars_addres);
         break;
     }
+    case TYPE_HLL: {
+        str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]]->resize(num_rows);
+        if (column_is_nullable) {
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]].get());
+            auto& null_map = nullable_column->get_null_map_data();
+            memset(null_map.data(), 0, num_rows);
+            address[0] = reinterpret_cast<int64_t>(null_map.data());
+            col_ptr = &nullable_column->get_nested_column();
+        } else {
+            col_ptr = str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]].get();
+        }
+        auto column_string = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        address[1] = reinterpret_cast<int64_t>(column_string->get_offsets().data());
+        auto chars_addres = reinterpret_cast<int64_t>(&column_string->get_chars());
+        env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_hll_result,
+                                      jcolumn_data, column_is_nullable, num_rows, address[0],
+                                      address[1], chars_addres);
+        break;
+    }
     default: {
         const std::string& error_msg =
                 fmt::format("Fail to convert jdbc value to {} on column: {}",
@@ -625,6 +702,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchArrayResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_array_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchHllResult", "(Ljava/lang/Object;ZIJJJ)V",
+                                _executor_get_hll_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
                                 "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
 
@@ -650,6 +729,9 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock", JDBC_EXECUTOR_GET_BLOCK_SIGNATURE,
                                 _executor_get_blocks_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "getBlock",
+                                JDBC_EXECUTOR_GET_BLOCK_WITH_TYPES_SIGNATURE,
+                                _executor_get_blocks_new_id));
     RETURN_IF_ERROR(register_id(_executor_list_clazz, "get", "(I)Ljava/lang/Object;",
                                 _executor_get_list_id));
     RETURN_IF_ERROR(register_id(_executor_string_clazz, "getBytes", "(Ljava/lang/String;)[B",
@@ -665,6 +747,41 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
                                 JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
+    return Status::OK();
+}
+
+Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
+                                          int column_index, int rows) {
+    DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
+    std::string _target_data_type_name = _target_data_type->get_name();
+    DataTypePtr _cast_param_data_type = _target_data_type;
+    ColumnPtr _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
+
+    ColumnsWithTypeAndName argument_template;
+    argument_template.reserve(2);
+    argument_template.emplace_back(
+            std::move(str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]]),
+            _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]],
+            "java.sql.String");
+    argument_template.emplace_back(_cast_param, _cast_param_data_type, _target_data_type_name);
+    FunctionBasePtr func_cast = SimpleFunctionFactory::instance().get_function(
+            "CAST", argument_template, make_nullable(_target_data_type));
+
+    Block cast_block(argument_template);
+    int result_idx = cast_block.columns();
+    cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
+    func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows);
+
+    auto res_col = cast_block.get_by_position(result_idx).column;
+    if (_target_data_type->is_nullable()) {
+        block->replace_by_position(column_index, res_col);
+    } else {
+        auto nested_ptr = reinterpret_cast<const vectorized::ColumnNullable*>(res_col.get())
+                                  ->get_nested_column_ptr();
+        block->replace_by_position(column_index, nested_ptr);
+    }
+    str_hll_cols[_map_column_idx_to_cast_idx_hll[column_index]] =
+            _input_hll_string_types[_map_column_idx_to_cast_idx_hll[column_index]]->create_column();
     return Status::OK();
 }
 

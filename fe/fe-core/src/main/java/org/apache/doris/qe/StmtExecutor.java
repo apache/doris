@@ -562,7 +562,7 @@ public class StmtExecutor {
         // queue query here
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().enablePipelineEngine()) {
-            this.queryQueue = analyzer.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+            this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
             } catch (InterruptedException e) {
@@ -1095,11 +1095,6 @@ public class StmtExecutor {
                     parsedStmt.setIsExplain(explainOptions);
                 }
             }
-            if (parsedStmt instanceof QueryStmt && Config.enable_workload_group
-                    && context.sessionVariable.enablePipelineEngine()) {
-                analyzer.setWorkloadGroups(analyzer.getEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(context));
-            }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
         planner = new OriginalPlanner(analyzer);
@@ -1358,6 +1353,9 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
+        if (Config.enable_workload_group && context.sessionVariable.enablePipelineEngine()) {
+            coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+        }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         profile.addExecutionProfile(coord.getExecutionProfile());
@@ -2423,8 +2421,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
             planner.getFragments();
             RowBatch batch;
@@ -2434,7 +2431,7 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                LOG.warn(e.getMessage(), e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2443,7 +2440,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                LOG.warn("Unexpected exception when SQL running", e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2459,9 +2456,8 @@ public class StmtExecutor {
                     }
                 }
             } catch (Exception e) {
-                LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 fetchResultSpan.end();
             }

@@ -362,7 +362,7 @@ distribution_desc
     
         `"light_schema_change" = 'true'`
 
-        该功能在 1.2.1 及之后版本默认开启。
+        该功能在 2.0.0 及之后版本默认开启。
     
     * `disable_auto_compaction`
 
@@ -632,7 +632,7 @@ distribution_desc
      );
     ```
 
-11. 通过`storage_policy`属性设置表的冷热分离数据迁移策略
+11. 通过`storage_policy`属性设置表的冷热分层数据迁移策略
 ```
         CREATE TABLE IF NOT EXISTS create_table_use_created_policy 
         (
@@ -649,7 +649,7 @@ distribution_desc
 ```
 注：需要先创建s3 resource 和 storage policy，表才能关联迁移策略成功
 
-12. 为表的分区添加冷热分离数据迁移策略
+12. 为表的分区添加冷热分层数据迁移策略
 ```
         CREATE TABLE create_table_partion_use_created_policy
         (

@@ -8,16 +8,17 @@ PhysicalQuickSort
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)
+----------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
 ------------------PhysicalProject
---------------------filter((((cast(cd_marital_status as VARCHAR(*)) = 'M') AND (cast(cd_education_status as VARCHAR(*)) = 'Unknown')) OR ((cast(cd_marital_status as VARCHAR(*)) = 'W') AND (cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree'))))
-----------------------PhysicalOlapScan[customer_demographics]
+--------------------filter((customer_address.ca_gmt_offset = -6.00))
+----------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
-------------------------PhysicalProject
---------------------------filter((customer_address.ca_gmt_offset = -6.00))
-----------------------------PhysicalOlapScan[customer_address]
+----------------------hashJoin[INNER_JOIN](customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((((cast(cd_marital_status as VARCHAR(*)) = 'M') AND (cast(cd_education_status as VARCHAR(*)) = 'Unknown')) OR ((cast(cd_marital_status as VARCHAR(*)) = 'W') AND (cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree'))))
+------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalDistribute
 --------------------------hashJoin[INNER_JOIN](household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)
 ----------------------------PhysicalProject

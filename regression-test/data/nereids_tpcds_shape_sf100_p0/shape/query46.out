@@ -5,33 +5,6 @@ PhysicalTopN
 ----PhysicalTopN
 ------PhysicalProject
 --------hashJoin[INNER_JOIN](dn.ss_customer_sk = customer.c_customer_sk)( not (ca_city = bought_city))
-----------PhysicalProject
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
---------------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store_sales]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter(((date_dim.d_dow = 0) OR (date_dim.d_dow = 6))d_year IN (1999, 2000, 2001))
-------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter(((household_demographics.hd_dep_count = 6) OR (household_demographics.hd_vehicle_count = 0)))
-----------------------------------PhysicalOlapScan[household_demographics]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter(s_city IN ('Five Points', 'Centerville', 'Oak Grove', 'Fairview', 'Liberty'))
---------------------------------PhysicalOlapScan[store]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_address]
 ----------PhysicalDistribute
 ------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = current_addr.ca_address_sk)
 --------------PhysicalProject
@@ -39,4 +12,32 @@ PhysicalTopN
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+----------------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
+------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter(((date_dim.d_dow = 0) OR (date_dim.d_dow = 6))d_year IN (1999, 2000, 2001))
+--------------------------------------PhysicalOlapScan[date_dim]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter(((household_demographics.hd_dep_count = 6) OR (household_demographics.hd_vehicle_count = 0)))
+------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter(s_city IN ('Five Points', 'Centerville', 'Oak Grove', 'Fairview', 'Liberty'))
+----------------------------------PhysicalOlapScan[store]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[customer_address]
 

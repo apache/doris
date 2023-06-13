@@ -541,11 +541,6 @@ public class Function implements Writable {
             fn.setArgTypes(Type.toThrift(Lists.newArrayList(argTypes), Lists.newArrayList(realArgTypes)));
         }
 
-        if (realReturnType.isAggStateType()) {
-            realReturnType = Expr.createAggStateType(((AggStateType) realReturnType), Arrays.asList(realArgTypes),
-                    Arrays.asList(realArgTypeNullables));
-        }
-
         // For types with different precisions and scales, return type only indicates a
         // type with default
         // precision and scale so we need to transform it to the correct type.
@@ -863,13 +858,19 @@ public class Function implements Writable {
     public static FunctionCallExpr convertToMergeCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_MERGE_SUFFIX));
-        aggFunction.setArgs(Arrays.asList(Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
-                fnCall.getChildren().stream().map(expr -> {
-                    return expr.getType();
-                }).collect(Collectors.toList()), fnCall.getChildren().stream().map(expr -> {
-                    return expr.isNullable();
-                }).collect(Collectors.toList()))));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
         aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertToUnionCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_UNION_SUFFIX));
+        aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
+        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
+        aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
+        fnCall.setType(fnCall.getChildren().get(0).getType());
         return fnCall;
     }
 }
