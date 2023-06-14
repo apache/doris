@@ -74,13 +74,13 @@
 16.025	16.02500	16.02500
 
 -- !nereids_round_arg1 --
-10.0
+10
 
 -- !nereids_round_arg2 --
 10.12
 
 -- !nereids_round_bankers_arg1 --
-10.0
+10
 
 -- !nereids_round_bankers_arg2 --
 10.12
