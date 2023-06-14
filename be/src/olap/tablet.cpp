@@ -795,16 +795,18 @@ void Tablet::delete_expired_stale_rowset() {
             auto it = _stale_rs_version_map.find(timestampedVersion->version());
             if (it != _stale_rs_version_map.end()) {
                 uint64_t now = UnixSeconds();
-                if (now > it->second->delayed_expired_timestamp()) {
-                    // delete rowset
-                    StorageEngine::instance()->add_unused_rowset(it->second);
-                    _stale_rs_version_map.erase(it);
-                    VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
-                                << timestampedVersion->version().first << ","
-                                << timestampedVersion->version().second
-                                << "] move to unused_rowset success " << std::fixed
-                                << expired_stale_sweep_endtime;
+                if (now <= it->second->delayed_expired_timestamp()) {
+                    // Some rowsets gc time was delayed, ignore
+                    continue;
                 }
+                // delete rowset
+                StorageEngine::instance()->add_unused_rowset(it->second);
+                _stale_rs_version_map.erase(it);
+                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
+                            << timestampedVersion->version().first << ","
+                            << timestampedVersion->version().second
+                            << "] move to unused_rowset success " << std::fixed
+                            << expired_stale_sweep_endtime;
             } else {
                 LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
                              << timestampedVersion->version().first << ","
