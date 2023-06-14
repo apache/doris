@@ -2844,6 +2844,9 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     bool exact_match = false;
     std::string last_key;
     int batch_size = 1024;
+    // The data for each segment may be lookup multiple times. Creating a SegmentCacheHandle
+    // will update the lru cache, and there will be obvious lock competition in multithreading
+    // scenarios, so using a segment_caches to cache SegmentCacheHandle.
     std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
     while (remaining > 0) {
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
