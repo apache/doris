@@ -61,7 +61,7 @@ public class UnifiedLoadStmt extends DdlStmt {
         if (connectContext != null && connectContext.getSessionVariable().isEnableUnifiedLoad()) {
             if (brokerDesc != null && brokerDesc.getStorageType() == StorageType.S3) {
                 // for tvf solution validation
-                return new UnifiedLoadStmt(new S3LoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
+                return new UnifiedLoadStmt(new S3TvfLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
             }
             return new UnifiedLoadStmt(new BrokerLoadStmt(label, dataDescriptions, brokerDesc, properties, comment));
         }

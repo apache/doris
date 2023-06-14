@@ -55,11 +55,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * For TVF solution validation.
+ * S3 Load based on S3 TVF
  */
-public class S3LoadStmt extends NativeInsertStmt {
+public class S3TvfLoadStmt extends NativeInsertStmt {
 
-    private static final Logger LOG = LogManager.getLogger(S3LoadStmt.class);
+    private static final Logger LOG = LogManager.getLogger(S3TvfLoadStmt.class);
 
     private static final String FORMAT_CSV = "csv";
 
@@ -68,7 +68,7 @@ public class S3LoadStmt extends NativeInsertStmt {
     private final DataDescription dataDescription;
 
     /**
-     * we need some particular process
+     * for csv format, we need some particular process
      */
     private final boolean isCsvFormat;
 
@@ -80,10 +80,10 @@ public class S3LoadStmt extends NativeInsertStmt {
 
     private Set<String> functionGenTableColNames;
 
-    public S3LoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
+    public S3TvfLoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
             Map<String, String> properties, String comments) throws DdlException {
         super(buildInsertTarget(dataDescList.get(0)),
-                label.getLabelName(), /*insert into all columns by default*/null,
+                label.getLabelName(), /*insert all columns by default*/null,
                 buildInsertSource(dataDescList.get(0), brokerDesc), null);
         this.label = label;
         this.dataDescription = dataDescList.get(0);
@@ -111,7 +111,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                 Collections.singletonList(buildTvfRef(dataDescription, brokerDesc))
         );
 
-        // build order by
+        // trans order by in load stmt
         final String sequenceCol = dataDescription.getSequenceCol();
         final ArrayList<OrderByElement> orderByElementList = Lists.newArrayList();
         if (!Strings.isNullOrEmpty(sequenceCol)) {
@@ -253,7 +253,7 @@ public class S3LoadStmt extends NativeInsertStmt {
     private void rewriteExpr(List<ImportColumnDesc> columnDescList) {
         Preconditions.checkNotNull(columnDescList, "columns should be not null");
         Preconditions.checkNotNull(targetTable, "target table is unset");
-        LOG.info("original columnExpr:{}", columnDescList);
+        LOG.debug("original columnExpr:{}", columnDescList);
         Map<String, Expr> derivativeColumns = Maps.newHashMap();
         columnDescList
                 .stream()
@@ -280,7 +280,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                         columnDesc.isColumn() || Objects.nonNull(targetTable.getColumn(columnDesc.getColumnName()))
                 )
         );
-        LOG.info("rewrite result:{}", columnDescList);
+        LOG.debug("rewrite result:{}", columnDescList);
     }
 
     private void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
@@ -316,7 +316,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                         (v1, v2) -> v1,
                         LinkedHashMap::new
                 ));
-        LOG.info("select column name to csv colum name:{}", selectColNameToCsvColName);
+        LOG.debug("select column name to csv colum name:{}", selectColNameToCsvColName);
     }
 
     private List<ImportColumnDesc> filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
@@ -361,7 +361,7 @@ public class S3LoadStmt extends NativeInsertStmt {
                 .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
                         (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
         checkUnspecifiedCols(columnExprMap);
-        LOG.info("filtered result:{}", columnExprList);
+        LOG.debug("filtered result:{}", columnExprList);
         return columnExprList;
     }
 
@@ -387,14 +387,14 @@ public class S3LoadStmt extends NativeInsertStmt {
                 .stream()
                 .map(ImportColumnDesc::getColumnName)
                 .collect(Collectors.toList());
-        LOG.info("target cols:{}", targetColumnNames);
+        LOG.debug("target cols:{}", targetColumnNames);
     }
 
     private void resetSelectList(List<ImportColumnDesc> columnExprList) {
         if (isCsvFormat) {
             rewriteExprColNameToCsvStyle(columnExprList);
         }
-        LOG.info("select list:{}", columnExprList);
+        LOG.debug("select list:{}", columnExprList);
         final SelectList selectList = new SelectList();
         columnExprList.forEach(desc -> {
             if (!desc.isColumn()) {
