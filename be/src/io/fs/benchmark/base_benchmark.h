@@ -20,8 +20,8 @@
 #include <benchmark/benchmark.h>
 #include <fmt/format.h>
 
-#include <ctime>
 #include <chrono>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -37,7 +37,8 @@ void bm_log(const std::string& fmt, Args&&... args) {
     std::tm* local_time = std::localtime(&now_time);
     char time_str[20];
     std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
-    std::cout << "[" << time_str << "] " << fmt::format(fmt, std::forward<Args>(args)...) << std::endl;
+    std::cout << "[" << time_str << "] " << fmt::format(fmt, std::forward<Args>(args)...)
+              << std::endl;
 }
 
 class BaseBenchmark {

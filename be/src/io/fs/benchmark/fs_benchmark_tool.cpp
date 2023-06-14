@@ -17,9 +17,9 @@
 
 #include <gflags/gflags.h>
 
-#include "io/fs/benchmark/benchmark_factory.hpp"
-
 #include <fstream>
+
+#include "io/fs/benchmark/benchmark_factory.hpp"
 
 DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs, local");
 DEFINE_string(operation, "read", "Supported Operations: read, write, open, size, list, connect");
