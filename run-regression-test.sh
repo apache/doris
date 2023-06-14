@@ -135,7 +135,7 @@ LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
 
 FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
 REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
-FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
+# FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
