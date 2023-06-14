@@ -317,7 +317,7 @@ using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 
 inline std::string get_types_string(const ColumnsWithTypeAndName& arguments) {
     std::string types;
-    for (auto argument : arguments) {
+    for (const auto& argument : arguments) {
         if (!types.empty()) {
             types += ", ";
         }
