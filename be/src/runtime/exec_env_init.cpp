@@ -315,8 +315,8 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = fd_number / 3 * 2;
-    LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
+    uint64_t segment_cache_capacity = fd_number * 2 / 5;
+    LOG(INFO) << "segment_cache_capacity = fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
