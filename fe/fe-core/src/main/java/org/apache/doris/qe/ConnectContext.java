@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.hplsql.executor.HplsqlQueryExecutor;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -147,6 +148,8 @@ public class ConnectContext {
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
+
+    private HplsqlQueryExecutor hplsqlQueryExecutor = null;
 
     private String sqlHash;
 
@@ -530,6 +533,14 @@ public class ConnectContext {
         return executor;
     }
 
+    public HplsqlQueryExecutor getHplsqlQueryExecutor() {
+        return hplsqlQueryExecutor;
+    }
+
+    public void setHplsqlQueryExecutor(HplsqlQueryExecutor hplsqlQueryExecutor) {
+        this.hplsqlQueryExecutor = hplsqlQueryExecutor;
+    }
+
     public void cleanup() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
@@ -650,7 +661,7 @@ public class ConnectContext {
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-            //to ms
+            // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",

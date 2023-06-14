@@ -140,6 +140,7 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.hplsql.store.HplsqlManager;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -449,6 +450,8 @@ public class Env {
 
     private StatisticsCleaner statisticsCleaner;
 
+    private HplsqlManager hplsqlManager;
+
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
@@ -670,6 +673,7 @@ public class Env {
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
+        this.hplsqlManager = new HplsqlManager();
         this.binlogManager = new BinlogManager();
         this.binlogGcer = new BinlogGcer();
     }
@@ -741,6 +745,10 @@ public class Env {
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
         return workloadGroupMgr;
+    }
+
+    public HplsqlManager getHplsqlManager() {
+        return hplsqlManager;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1954,6 +1962,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadHplsqlStored(DataInputStream in, long checksum) throws IOException {
+        hplsqlManager = HplsqlManager.read(in);
+        LOG.info("finished replay hplsql stored from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2227,6 +2241,11 @@ public class Env {
 
     public long saveWorkloadGroups(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getWorkloadGroupMgr().write(dos);
+        return checksum;
+    }
+
+    public long saveHplsqlStored(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getHplsqlManager().write(dos);
         return checksum;
     }
 
@@ -2672,6 +2691,10 @@ public class Env {
             }
         }
         return null;
+    }
+
+    public boolean checkFeHost(String host) {
+        return frontends.values().stream().anyMatch(fe -> fe.getHost().equals(host));
     }
 
     public Frontend getFeByName(String name) {

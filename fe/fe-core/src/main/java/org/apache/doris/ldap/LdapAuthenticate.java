@@ -67,7 +67,7 @@ public class LdapAuthenticate {
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
         // Search the user in doris.
         List<UserIdentity> userIdentities = Env.getCurrentEnv().getAuth()
-                .getUserIdentityForLdap(qualifiedUser, remoteIp);
+                .getUserIdentityUncheckPasswd(qualifiedUser, remoteIp);
         UserIdentity userIdentity;
         if (userIdentities.isEmpty()) {
             userIdentity = tempUserIdentity;

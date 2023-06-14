@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+  http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+<configuration>
+<property>
+  <name>hplsql.conn.default</name>
+  <value>dorisconn</value>
+  <description>The default connection profile</description>
+</property>
+<property>
+  <name>hplsql.conn.dorisconn</name>
+  <value>com.mysql.cj.jdbc.Driver;jdbc:mysql://fehost:queryport/information_schema;user;password</value>
+  <description>Doris jdbc connection</description>
+</property>
+<property>
+  <name>hplsql.dual.table</name>
+  <value></value>
+  <description>Single row, single column table for internal operations</description>
+</property>
+<property>
+  <name>hplsql.insert.values</name>
+  <value>native</value>
+  <description>How to execute INSERT VALUES statement: native (default) and select</description>
+</property>
+<property>
+  <name>hplsql.onerror</name>
+  <value>exception</value>
+  <description>Error handling behavior: exception (default), seterror and stop</description>
+</property>
+<property>
+  <name>hplsql.temp.tables</name>
+  <value>native</value>
+  <description>Temporary tables: native (default) and managed</description>
+</property>
+<property>
+  <name>hplsql.temp.tables.schema</name>
+  <value></value>
+  <description>Schema for managed temporary tables</description>
+</property>
+<property>
+  <name>hplsql.temp.tables.location</name>
+  <value>/tmp/plhql</value>
+  <description>LOcation for managed temporary tables in HDFS</description>
+</property>
+</configuration>
+

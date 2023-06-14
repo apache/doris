@@ -63,6 +63,9 @@ import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.hplsql.store.HplsqlPackage;
+import org.apache.doris.hplsql.store.StoredKey;
+import org.apache.doris.hplsql.store.StoredProcedure;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -89,6 +92,8 @@ import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeResult;
+import org.apache.doris.thrift.TAddHplsqlPackageRequest;
+import org.apache.doris.thrift.TAddStoredProcedureRequest;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -128,6 +133,8 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
+import org.apache.doris.thrift.THplsqlPackageRequest;
+import org.apache.doris.thrift.THplsqlPackageResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -165,6 +172,8 @@ import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
 import org.apache.doris.thrift.TSnapshotType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStoredProcedureRequest;
+import org.apache.doris.thrift.TStoredProcedureResult;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -2634,6 +2643,101 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
         }
 
+        return result;
+    }
+
+    @Override
+    public TStoredProcedureResult addStoredProcedure(TAddStoredProcedureRequest request) throws TException {
+        TStoredProcedureResult result = new TStoredProcedureResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs("addStoredProcedure only accepts requests from fe.");
+            return result;
+        }
+
+        if (!request.isSetStoredProcedure()) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("missing stored procedure.");
+            return result;
+        }
+        try {
+            Env.getCurrentEnv().getHplsqlManager()
+                    .addStoredProcedure(StoredProcedure.fromThrift(request.getStoredProcedure()),
+                            request.isSetIsForce() && request.isIsForce());
+        } catch (RuntimeException e) {
+            status.setStatusCode(TStatusCode.ALREADY_EXIST);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        }
+        return result;
+    }
+
+    @Override
+    public TStoredProcedureResult dropStoredProcedure(TStoredProcedureRequest request) throws TException {
+        TStoredProcedureResult result = new TStoredProcedureResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs("dropStoredProcedure only accepts requests from fe.");
+            return result;
+        }
+        if (!request.isSetStoredKey()) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("missing stored key.");
+            return result;
+        }
+
+        Env.getCurrentEnv().getHplsqlManager().dropStoredProcedure(StoredKey.fromThrift(request.getStoredKey()));
+        return result;
+    }
+
+    @Override
+    public THplsqlPackageResult addHplsqlPackage(TAddHplsqlPackageRequest request) throws TException {
+        THplsqlPackageResult result = new THplsqlPackageResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs("addHplsqlPackage only accepts requests from fe.");
+            return result;
+        }
+        if (!request.isSetHplsqlPackage()) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("missing hplsql package.");
+            return result;
+        }
+
+        try {
+            Env.getCurrentEnv().getHplsqlManager().addPackage(HplsqlPackage.fromThrift(request.getHplsqlPackage()),
+                    request.isSetIsForce() && request.isIsForce());
+        } catch (RuntimeException e) {
+            status.setStatusCode(TStatusCode.ALREADY_EXIST);
+            status.addToErrorMsgs(e.getMessage());
+            return result;
+        }
+        return result;
+    }
+
+    @Override
+    public THplsqlPackageResult dropHplsqlPackage(THplsqlPackageRequest request) throws TException {
+        THplsqlPackageResult result = new THplsqlPackageResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().checkFeHost(getClientAddrAsString())) {
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
+            status.addToErrorMsgs("dropHplsqlPackage only accepts requests from fe.");
+            return result;
+        }
+        if (!request.isSetStoredKey()) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("missing stored key.");
+            return result;
+        }
+
+        Env.getCurrentEnv().getHplsqlManager().dropPackage(StoredKey.fromThrift(request.getStoredKey()));
         return result;
     }
 

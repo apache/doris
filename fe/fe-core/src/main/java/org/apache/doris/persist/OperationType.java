@@ -313,6 +313,15 @@ public class OperationType {
     // change an auto increment id for a column
     public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
 
+    // hplsql 440 ~ 450
+    public static final short OP_ADD_STORED_PROCEDURE = 440;
+
+    public static final short OP_DROP_STORED_PROCEDURE = 441;
+
+    public static final short OP_ADD_HPLSQL_PACKAGE = 442;
+
+    public static final short OP_DROP_HPLSQL_PACKAGE = 443;
+
     /**
      * Get opcode name by op code.
      **/

@@ -230,6 +230,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveAnalysisMgr", CountingDataOutputStream.class, long.class);
                 break;
+            case "hplsql":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadHplsqlStored", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveHplsqlStored",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

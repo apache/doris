@@ -1042,6 +1042,55 @@ struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
 }
 
+struct TStoredProcedure {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string source
+}
+
+struct THplsqlPackage {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+    4: optional string ownerName
+    5: optional string header
+    6: optional string body
+}
+
+struct TStoredKey {
+    1: optional string name
+    2: optional string catalogName
+    3: optional string dbName
+}
+
+struct TAddStoredProcedureRequest {
+    1: optional TStoredProcedure storedProcedure
+    2: optional bool isForce
+}
+
+struct TStoredProcedureRequest {
+    1: optional TStoredKey storedKey
+}
+
+struct TStoredProcedureResult {
+    1: optional Status.TStatus status
+}
+
+struct TAddHplsqlPackageRequest {
+    1: optional THplsqlPackage hplsqlPackage
+    2: optional bool isForce
+}
+
+struct THplsqlPackageRequest {
+    1: optional TStoredKey storedKey
+}
+
+struct THplsqlPackageResult {
+    1: optional Status.TStatus status
+}
+
 struct TGetMasterTokenRequest {
     1: optional string cluster
     2: optional string user
@@ -1139,6 +1188,11 @@ service FrontendService {
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
+
+    TStoredProcedureResult addStoredProcedure(1: TAddStoredProcedureRequest request)
+    TStoredProcedureResult dropStoredProcedure(1: TStoredProcedureRequest request)
+    THplsqlPackageResult addHplsqlPackage(1: TAddHplsqlPackageRequest request)
+    THplsqlPackageResult dropHplsqlPackage(1: THplsqlPackageRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 

@@ -142,7 +142,7 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = sessionVariable;
 
-                auth.getUserIdentityForLdap(USER, IP);
+                auth.getUserIdentityUncheckPasswd(USER, IP);
                 minTimes = 0;
                 result = Lists.newArrayList(userIdentity);
             }

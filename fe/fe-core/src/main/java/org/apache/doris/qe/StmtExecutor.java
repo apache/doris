@@ -1399,7 +1399,11 @@ public class StmtExecutor {
             }
         }
 
-
+        if (context.sessionVariable.isEnableHplsql()) {
+            // hplsql will get the returned results without sending them to mysql client.
+            // see org/apache/doris/hplsql/executor/DorisRowResult.java
+            return;
+        }
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
@@ -2545,6 +2549,18 @@ public class StmtExecutor {
             resultRows.add(resultRow);
         }
         return resultRows;
+    }
+
+    public Coordinator getCoord() {
+        return coord;
+    }
+
+    public List<String> getColumns() {
+        return parsedStmt.getColLabels();
+    }
+
+    public List<Type> getReturnTypes() {
+        return exprToType(parsedStmt.getResultExprs());
     }
 
     public SummaryProfile getSummaryProfile() {

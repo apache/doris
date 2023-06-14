@@ -229,7 +229,7 @@ public class Auth implements Writable {
         }
     }
 
-    public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
+    public List<UserIdentity> getUserIdentityUncheckPasswd(String remoteUser, String remoteHost) {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 

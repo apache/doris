@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -1211,6 +1212,52 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_MAP;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
+        }
+    }
+
+    public int toJavaSqlType() {
+        switch (this) {
+            case BOOLEAN:
+                return Types.BOOLEAN;
+            case TINYINT:
+                return Types.TINYINT;
+            case SMALLINT:
+                return Types.SMALLINT;
+            case INT:
+                return Types.INTEGER;
+            case BIGINT:
+                return Types.BIGINT;
+            case FLOAT:
+                return Types.FLOAT;
+            case DOUBLE:
+                return Types.DOUBLE;
+            case TIME:
+            case TIMEV2:
+                return Types.TIME;
+            case DATE:
+            case DATEV2:
+                return Types.DATE;
+            case DATETIME:
+            case DATETIMEV2: {
+                if (isTimeType) {
+                    return Types.TIME;
+                } else {
+                    return Types.DATE;
+                }
+            }
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return Types.DECIMAL;
+            case VARCHAR:
+                return Types.VARCHAR;
+            case ARRAY:
+                return Types.ARRAY;
+            case STRUCT:
+                return Types.STRUCT;
+            default:
+                return Types.CHAR;
         }
     }
 

@@ -52,6 +52,9 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.hplsql.store.HplsqlPackage;
+import org.apache.doris.hplsql.store.StoredKey;
+import org.apache.doris.hplsql.store.StoredProcedure;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -1034,6 +1037,22 @@ public class EditLog {
                     env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_ADD_STORED_PROCEDURE: {
+                    env.getHplsqlManager().replayAddStoredProcedure((StoredProcedure) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DROP_STORED_PROCEDURE: {
+                    env.getHplsqlManager().replayDropStoredProcedure((StoredKey) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ADD_HPLSQL_PACKAGE: {
+                    env.getHplsqlManager().replayAddPackage((HplsqlPackage) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DROP_HPLSQL_PACKAGE: {
+                    env.getHplsqlManager().replayDropPackage((StoredKey) journal.getData());
+                    break;
+                }
                 case OperationType.OP_ALTER_DATABASE_PROPERTY: {
                     AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
                     LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);
@@ -1588,6 +1607,22 @@ public class EditLog {
 
     public void logDropWorkloadGroup(DropWorkloadGroupOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
+    }
+
+    public void logAddStoredProcedure(StoredProcedure storedProcedure) {
+        logEdit(OperationType.OP_ADD_STORED_PROCEDURE, storedProcedure);
+    }
+
+    public void logDropStoredProcedure(StoredKey storedKey) {
+        logEdit(OperationType.OP_DROP_STORED_PROCEDURE, storedKey);
+    }
+
+    public void logAddHplsqlPackage(HplsqlPackage pkg) {
+        logEdit(OperationType.OP_ADD_HPLSQL_PACKAGE, pkg);
+    }
+
+    public void logDropHplsqlPackage(StoredKey storedKey) {
+        logEdit(OperationType.OP_DROP_HPLSQL_PACKAGE, storedKey);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {

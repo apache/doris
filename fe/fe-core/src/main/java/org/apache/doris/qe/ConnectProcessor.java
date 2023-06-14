@@ -46,6 +46,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.hplsql.executor.HplsqlQueryExecutor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -115,6 +116,10 @@ public class ConnectProcessor {
 
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
+    }
+
+    private static boolean isNull(byte[] bitmap, int position) {
+        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
     }
 
     // COM_INIT_DB: change current database of this session.
@@ -196,10 +201,6 @@ public class ConnectProcessor {
         LOG.debug("debug packet {}", printB.toString().substring(0, 200));
     }
 
-    private static boolean isNull(byte[] bitmap, int position) {
-        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
-    }
-
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
@@ -259,7 +260,7 @@ public class ConnectProcessor {
             ctx.setExecutor(executor);
             executor.execute();
             stmtStr = executeStmt.toSql();
-        } catch (Throwable e)  {
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
@@ -270,7 +271,7 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+            Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
@@ -358,7 +359,23 @@ public class ConnectProcessor {
             ending--;
         }
         String originStmt = new String(bytes, 1, ending, StandardCharsets.UTF_8);
+        try {
+            if (ctx.sessionVariable.isEnableHplsql()) {
+                HplsqlQueryExecutor hplsqlQueryExecutor = ctx.getHplsqlQueryExecutor();
+                if (hplsqlQueryExecutor == null) {
+                    hplsqlQueryExecutor = new HplsqlQueryExecutor(this);
+                    ctx.setHplsqlQueryExecutor(hplsqlQueryExecutor);
+                }
+                hplsqlQueryExecutor.execute(originStmt);
+            } else {
+                executeQuery(originStmt);
+            }
+        } catch (Exception ignored) {
+            //
+        }
+    }
 
+    public void executeQuery(String originStmt) throws Exception {
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
@@ -453,6 +470,7 @@ public class ConnectProcessor {
             } catch (Throwable throwable) {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
+                throw throwable;
                 // execute failed, skip remaining stmts
                 break;
             } finally {
@@ -465,7 +483,7 @@ public class ConnectProcessor {
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     private void handleQueryException(Throwable throwable, String origStmt,
-                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+            StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
@@ -634,7 +652,7 @@ public class ConnectProcessor {
 
     // When any request is completed, it will generally need to send a response packet to the client
     // This method is used to send a response packet to the client
-    private void finalizeCommand() throws IOException {
+    public void finalizeCommand() throws IOException {
         ByteBuffer packet;
         if (executor != null && executor.isForwardToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {

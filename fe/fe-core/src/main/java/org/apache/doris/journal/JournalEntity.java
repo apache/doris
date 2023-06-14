@@ -44,6 +44,9 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.hplsql.store.HplsqlPackage;
+import org.apache.doris.hplsql.store.StoredKey;
+import org.apache.doris.hplsql.store.StoredProcedure;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -822,6 +825,26 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
                 data = AutoIncrementIdUpdateLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_STORED_PROCEDURE: {
+                data = StoredProcedure.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_STORED_PROCEDURE: {
+                data = StoredKey.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_HPLSQL_PACKAGE: {
+                data = HplsqlPackage.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_HPLSQL_PACKAGE: {
+                data = StoredKey.read(in);
                 isRead = true;
                 break;
             }
