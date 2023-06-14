@@ -225,7 +225,7 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
 }
 
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-               const std::string& cumulative_compaction_type)
+               const std::string_view& cumulative_compaction_type)
         : BaseTablet(tablet_meta, data_dir),
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
@@ -1059,6 +1059,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
     uint32_t score = 0;
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
+    bool has_delete = false;
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
@@ -1067,8 +1068,16 @@ uint32_t Tablet::_calc_base_compaction_score() const {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         }
-
+        if (rs_meta->has_delete_predicate()) {
+            has_delete = true;
+        }
         score += rs_meta->get_compaction_score();
+    }
+
+    // In the time series compaction policy, we want the base compaction to be triggered
+    // when there are delete versions present.
+    if (config::compaction_policy == "time_series") {
+        return (base_rowset_exist && has_delete) ? score : 0;
     }
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
