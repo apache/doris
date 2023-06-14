@@ -71,8 +71,7 @@ public:
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
-    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() { return _local_scan_queue.get(); }
-    taskgroup::ScanTaskTaskGroupQueue* remote_scan_task_queue() { return _remote_scan_queue.get(); }
+    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() { return _task_group_local_scan_queue.get(); }
 
 private:
     // scheduling thread function
@@ -82,7 +81,6 @@ private:
     // execution thread function
     void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
-    template <TabletStorageType storage_type>
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
 
@@ -108,10 +106,8 @@ private:
     std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _local_scan_queue;
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
     std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _remote_scan_queue;
-    std::unique_ptr<ThreadPool> _group_remote_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

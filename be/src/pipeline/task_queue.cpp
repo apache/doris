@@ -246,7 +246,7 @@ Status TaskGroupTaskQueue::push_back(PipelineTask* task, size_t core_id) {
 template <bool from_executor>
 Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
     task->put_in_runnable_queue();
-    auto* entity = task->get_task_group()->task_entity();
+    auto* entity = task->get_task_group_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
     entity->task_queue()->emplace(task);
     if (_group_entities.find(entity) == _group_entities.end()) {
@@ -348,8 +348,7 @@ taskgroup::TGPTEntityPtr TaskGroupTaskQueue::_next_tg_entity() {
 
 void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    auto* group = task->get_task_group();
-    auto* entity = group->task_entity();
+    auto* entity = task->get_task_group_entity();
     auto find_entity = _group_entities.find(entity);
     bool is_in_queue = find_entity != _group_entities.end();
     VLOG_DEBUG << "update_statistics " << entity->debug_string() << ", in queue:" << is_in_queue;

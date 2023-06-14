@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "runtime/task_group/task_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -36,9 +37,6 @@ class RuntimeState;
 namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
@@ -113,21 +111,7 @@ class PipelineTask {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
                  OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile)
-            : _index(index),
-              _pipeline(pipeline),
-              _operators(operators),
-              _source(_operators.front()),
-              _root(_operators.back()),
-              _sink(sink),
-              _prepared(false),
-              _opened(false),
-              _can_steal(pipeline->_can_steal),
-              _state(state),
-              _cur_state(PipelineTaskState::NOT_READY),
-              _data_state(SourceState::DEPEND_ON_SOURCE),
-              _fragment_context(fragment_context),
-              _parent_profile(parent_profile) {}
+                 RuntimeProfile* parent_profile);
 
     Status prepare(RuntimeState* state);
 
@@ -189,7 +173,7 @@ public:
 
     std::string debug_string();
 
-    taskgroup::TaskGroup* get_task_group() const;
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
 

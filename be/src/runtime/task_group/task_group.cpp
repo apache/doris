@@ -34,6 +34,7 @@
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "vec/exec/scan/scan_task_queue.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 namespace taskgroup {
@@ -42,55 +43,51 @@ const static std::string CPU_SHARE = "cpu_share";
 const static std::string MEMORY_LIMIT = "memory_limit";
 const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
-template <typename QueueType, typename ParentQueueType>
-TaskGroupEntity<QueueType, ParentQueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg,
-                                                             ParentQueueType* in_queue)
-        : _tg(tg),
-          _version(tg->version()),
-          _cpu_share(tg->cpu_share()),
-          _queue_contains_me(in_queue) {
+template <typename QueueType>
+TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
+        : _tg(tg), _type(type), _version(tg->version()), _cpu_share(tg->cpu_share()) {
     _task_queue = new QueueType();
 }
 
-template <typename QueueType, typename ParentQueueType>
-TaskGroupEntity<QueueType, ParentQueueType>::~TaskGroupEntity() {
+template <typename QueueType>
+TaskGroupEntity<QueueType>::~TaskGroupEntity() {
     delete _task_queue;
 }
 
-template <typename QueueType, typename ParentQueueType>
-QueueType* TaskGroupEntity<QueueType, ParentQueueType>::task_queue() {
+template <typename QueueType>
+QueueType* TaskGroupEntity<QueueType>::task_queue() {
     return _task_queue;
 }
 
-template <typename QueueType, typename ParentQueueType>
-void TaskGroupEntity<QueueType, ParentQueueType>::incr_runtime_ns(uint64_t runtime_ns) {
+template <typename QueueType>
+void TaskGroupEntity<QueueType>::incr_runtime_ns(uint64_t runtime_ns) {
     auto v_time = runtime_ns / _cpu_share;
     _vruntime_ns += v_time;
 }
 
-template <typename QueueType, typename ParentQueueType>
-void TaskGroupEntity<QueueType, ParentQueueType>::adjust_vruntime_ns(uint64_t vruntime_ns) {
+template <typename QueueType>
+void TaskGroupEntity<QueueType>::adjust_vruntime_ns(uint64_t vruntime_ns) {
     VLOG_DEBUG << "adjust " << debug_string() << "vtime to " << vruntime_ns;
     _vruntime_ns = vruntime_ns;
 }
 
-template <typename QueueType, typename ParentQueueType>
-size_t TaskGroupEntity<QueueType, ParentQueueType>::task_size() const {
+template <typename QueueType>
+size_t TaskGroupEntity<QueueType>::task_size() const {
     return _task_queue->size();
 }
 
-template <typename QueueType, typename ParentQueueType>
-uint64_t TaskGroupEntity<QueueType, ParentQueueType>::cpu_share() const {
+template <typename QueueType>
+uint64_t TaskGroupEntity<QueueType>::cpu_share() const {
     return _cpu_share;
 }
 
-template <typename QueueType, typename ParentQueueType>
-uint64_t TaskGroupEntity<QueueType, ParentQueueType>::task_group_id() const {
+template <typename QueueType>
+uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
     return _tg->id();
 }
 
-template <typename QueueType, typename ParentQueueType>
-void TaskGroupEntity<QueueType, ParentQueueType>::check_and_update_cpu_share(
+template <typename QueueType>
+void TaskGroupEntity<QueueType>::check_and_update_cpu_share(
         const TaskGroupInfo& tg_info) {
     if (tg_info.version > _version) {
         _cpu_share = tg_info.cpu_share;
@@ -98,33 +95,24 @@ void TaskGroupEntity<QueueType, ParentQueueType>::check_and_update_cpu_share(
     }
 }
 
-template <typename QueueType, typename ParentQueueType>
-std::string TaskGroupEntity<QueueType, ParentQueueType>::debug_string() const {
-    return fmt::format("TGE[id = {}, queue_type = {}, cpu_share = {}, task size: {}, v_time:{} ns]",
-                       _tg->id(), typeid(ParentQueueType).name(), cpu_share(), task_size(),
-                       _vruntime_ns);
+template <typename QueueType>
+std::string TaskGroupEntity<QueueType>::debug_string() const {
+    return fmt::format("TGE[id = {}, name = {}-{}, cpu_share = {}, task size: {}, v_time:{} ns]",
+                       _tg->id(), _tg->name(), _type, cpu_share(), task_size(), _vruntime_ns);
 }
 
-template <typename QueueType, typename ParentQueueType>
-void TaskGroupEntity<QueueType, ParentQueueType>::update_cpu_share(const TaskGroupInfo& tg_info) {
-    _queue_contains_me->update_tg_cpu_share(tg_info, this);
-}
+template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
+template class TaskGroupEntity<ScanTaskQueue>;
 
-template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>, pipeline::TaskQueue>;
-template class TaskGroupEntity<ScanTaskQueue, ScanTaskTaskGroupQueue>;
-
-TaskGroup::TaskGroup(const TaskGroupInfo& tg_info, pipeline::TaskQueue* task_queue,
-                     taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue,
-                     taskgroup::ScanTaskTaskGroupQueue* remote_scan_task_queue)
+TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
         : _id(tg_info.id),
           _name(tg_info.name),
           _version(tg_info.version),
           _memory_limit(tg_info.memory_limit),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
-          _task_entity(this, task_queue),
-          _local_scan_entity(this, local_scan_task_queue),
-          _remote_scan_entity(this, remote_scan_task_queue),
+          _task_entity(this, "pipeline task entity"),
+          _local_scan_entity(this, "local scan entity"),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM) {}
 
 std::string TaskGroup::debug_string() const {
@@ -158,9 +146,10 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
             return;
         }
     }
-    _task_entity.update_cpu_share(tg_info);
-    _local_scan_entity.update_cpu_share(tg_info);
-    _remote_scan_entity.update_cpu_share(tg_info);
+    ExecEnv::GetInstance()->pipeline_task_group_scheduler()->task_queue()->update_tg_cpu_share(
+            tg_info, &_task_entity);
+    ExecEnv::GetInstance()->scanner_scheduler()->local_scan_task_queue()->update_tg_cpu_share(
+            tg_info, &_local_scan_entity);
 }
 
 int64_t TaskGroup::memory_used() {

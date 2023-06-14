@@ -70,6 +70,7 @@ ScannerScheduler::~ScannerScheduler() {
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
     _limited_scan_thread_pool->shutdown();
+    _group_local_scan_thread_pool->shutdown();
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
@@ -79,8 +80,8 @@ ScannerScheduler::~ScannerScheduler() {
     }
     delete[] _pending_queues;
 
-    _local_scan_queue->close();
-    _remote_scan_queue->close();
+    _task_group_local_scan_queue->close();
+    _group_local_scan_thread_pool->wait();
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
@@ -116,7 +117,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
             .build(&_limited_scan_thread_pool);
 
     // 5. task group local scan
-    _local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
+    _task_group_local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
             config::doris_scanner_thread_pool_thread_num);
     ThreadPoolBuilder("local_scan_group")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
@@ -124,22 +125,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
             .build(&_group_local_scan_thread_pool);
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
         _group_local_scan_thread_pool->submit_func([this] {
-            this->_task_group_scanner_scan<TabletStorageType::STORAGE_TYPE_LOCAL>(
-                    this, _local_scan_queue.get());
-        });
-    }
-
-    // 6. task group remote scan
-    _remote_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
-            config::doris_max_remote_scanner_thread_pool_thread_num);
-    ThreadPoolBuilder("GroupRemoteScanThreadPool")
-            .set_min_threads(config::doris_max_remote_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num)
-            .build(&_group_remote_scan_thread_pool);
-    for (int i = 0; i < config::doris_max_remote_scanner_thread_pool_thread_num; i++) {
-        _group_remote_scan_thread_pool->submit_func([this] {
-            this->_task_group_scanner_scan<TabletStorageType::STORAGE_TYPE_REMOTE>(
-                    this, _remote_scan_queue.get());
+            this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
         });
     }
 
@@ -234,26 +220,22 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 (*iter)->start_wait_worker_timer();
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
-                if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
-                    auto work_func = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
-                    };
-                    taskgroup::ScanTask scan_task = {work_func, ctx, nice};
-                    if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                        ret = _local_scan_queue->push_back<TabletStorageType::STORAGE_TYPE_LOCAL>(
-                                scan_task);
+                if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                    if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
+                        auto work_func = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        taskgroup::ScanTask scan_task = {work_func, ctx, nice};
+                        ret = _task_group_local_scan_queue->push_back(scan_task);
                     } else {
-                        ret = _remote_scan_queue->push_back<TabletStorageType::STORAGE_TYPE_REMOTE>(
-                                scan_task);
+                        PriorityThreadPool::Task task;
+                        task.work_function = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        task.priority = nice;
+                        task.queue_id = (*iter)->queue_id();
+                        ret = _local_scan_thread_pool->offer(task);
                     }
-                } else if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                    PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
-                    };
-                    task.priority = nice;
-                    task.queue_id = (*iter)->queue_id();
-                    ret = _local_scan_thread_pool->offer(task);
                 } else {
                     ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
@@ -436,7 +418,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     ctx->push_back_scanner_and_reschedule(scanner);
 }
 
-template <TabletStorageType storage_type>
 void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
                                                 taskgroup::ScanTaskTaskGroupQueue* scan_queue) {
     while (!_is_closed) {
@@ -448,7 +429,7 @@ void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
                 SCOPED_RAW_TIMER(&time_spent);
                 scan_task.scan_func();
             }
-            scan_queue->update_statistics<storage_type>(scan_task, time_spent);
+            scan_queue->update_statistics(scan_task, time_spent);
         }
     }
 }

@@ -28,7 +28,7 @@
 
 namespace doris::taskgroup {
 
-TaskGroupManager::TaskGroupManager(ExecEnv* exec_env) : _exec_env(exec_env) {}
+TaskGroupManager::TaskGroupManager() = default;
 TaskGroupManager::~TaskGroupManager() = default;
 
 TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& task_group_info) {
@@ -41,10 +41,7 @@ TaskGroupPtr TaskGroupManager::get_or_create_task_group(const TaskGroupInfo& tas
         }
     }
 
-    auto new_task_group = std::make_shared<TaskGroup>(
-            task_group_info, _exec_env->pipeline_task_group_scheduler()->task_queue(),
-            _exec_env->scanner_scheduler()->local_scan_task_queue(),
-            _exec_env->scanner_scheduler()->remote_scan_task_queue());
+    auto new_task_group = std::make_shared<TaskGroup>(task_group_info);
     std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
     if (_task_groups.count(task_group_info.id)) {
         auto task_group = _task_groups[task_group_info.id];

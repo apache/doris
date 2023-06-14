@@ -67,7 +67,7 @@ bool ScanTaskTaskGroupQueue::take(ScanTask* scan_task) {
             return false;
         }
         if (_group_entities.empty()) {
-            _wait_task.wait(lock);
+            _wait_task.wait_for(lock, std::chrono::milliseconds(WAIT_CORE_TASK_TIMEOUT_MS * 5));
         } else {
             entity = _next_tg_entity();
             if (!entity) {
@@ -82,11 +82,8 @@ bool ScanTaskTaskGroupQueue::take(ScanTask* scan_task) {
     return entity->task_queue()->try_get(scan_task, WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
 }
 
-template bool ScanTaskTaskGroupQueue::push_back<TabletStorageType::STORAGE_TYPE_LOCAL>(ScanTask);
-template bool ScanTaskTaskGroupQueue::push_back<TabletStorageType::STORAGE_TYPE_REMOTE>(ScanTask);
-template <TabletStorageType storage_type>
 bool ScanTaskTaskGroupQueue::push_back(ScanTask scan_task) {
-    auto* entity = _task_entity<storage_type>(scan_task);
+    auto* entity = scan_task.scanner_context->get_task_group()->local_scan_task_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
     auto status = entity->task_queue()->try_push_back(scan_task);
     if (!status.ok()) {
@@ -100,17 +97,12 @@ bool ScanTaskTaskGroupQueue::push_back(ScanTask scan_task) {
     return true;
 }
 
-template void ScanTaskTaskGroupQueue::update_statistics<TabletStorageType::STORAGE_TYPE_REMOTE>(
-        ScanTask scan_task, int64_t time_spent);
-template void ScanTaskTaskGroupQueue::update_statistics<TabletStorageType::STORAGE_TYPE_LOCAL>(
-        ScanTask scan_task, int64_t time_spent);
-template <TabletStorageType storage_type>
 void ScanTaskTaskGroupQueue::update_statistics(ScanTask scan_task, int64_t time_spent) {
-    auto* entity = _task_entity<storage_type>(scan_task);
+    auto* entity = scan_task.scanner_context->get_task_group()->local_scan_task_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
     auto find_entity = _group_entities.find(entity);
     bool is_in_queue = find_entity != _group_entities.end();
-    VLOG_DEBUG << storage_type << " update_statistics " << entity->debug_string()
+    VLOG_DEBUG << "scan task task group queue update_statistics " << entity->debug_string()
                << ", in queue:" << is_in_queue << ", time_spent: " << time_spent;
     if (is_in_queue) {
         _group_entities.erase(entity);
@@ -119,20 +111,6 @@ void ScanTaskTaskGroupQueue::update_statistics(ScanTask scan_task, int64_t time_
     if (is_in_queue) {
         _group_entities.emplace(entity);
         _update_min_tg();
-    }
-}
-
-template TGSTEntityPtr ScanTaskTaskGroupQueue::_task_entity<TabletStorageType::STORAGE_TYPE_LOCAL>(
-        ScanTask& scan_task);
-template TGSTEntityPtr ScanTaskTaskGroupQueue::_task_entity<TabletStorageType::STORAGE_TYPE_REMOTE>(
-        ScanTask& scan_task);
-template <TabletStorageType storage_type>
-TGSTEntityPtr ScanTaskTaskGroupQueue::_task_entity(ScanTask& scan_task) {
-    auto* group = scan_task.scanner_context->get_task_group();
-    if constexpr (storage_type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-        return group->local_scan_task_entity();
-    } else {
-        return group->remote_scan_task_entity();
     }
 }
 

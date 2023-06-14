@@ -29,7 +29,7 @@ namespace taskgroup {
 
 class TaskGroupManager {
 public:
-    explicit TaskGroupManager(ExecEnv* exec_env);
+    TaskGroupManager();
     ~TaskGroupManager();
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
@@ -38,7 +38,6 @@ public:
                              std::vector<TaskGroupPtr>* task_groups);
 
 private:
-    ExecEnv* _exec_env;
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };

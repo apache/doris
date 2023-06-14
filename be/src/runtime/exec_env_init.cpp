@@ -148,7 +148,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .build(&_join_node_thread_pool);
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
-    _task_group_manager = new taskgroup::TaskGroupManager(this);
+    _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,

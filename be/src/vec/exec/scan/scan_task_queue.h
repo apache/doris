@@ -65,17 +65,13 @@ public:
 
     void close();
     bool take(ScanTask* scan_task);
-    template <TabletStorageType storage_type>
     bool push_back(ScanTask);
 
-    // ScanTask可以用ScannerContext代替
-    template <TabletStorageType storage_type>
     void update_statistics(ScanTask task, int64_t time_spent);
 
     void update_tg_cpu_share(const taskgroup::TaskGroupInfo&, taskgroup::TGSTEntityPtr);
 
 private:
-    template <TabletStorageType storage_type>
     TGSTEntityPtr _task_entity(ScanTask& scan_task);
     void _enqueue_task_group(TGSTEntityPtr);
     void _dequeue_task_group(TGSTEntityPtr);

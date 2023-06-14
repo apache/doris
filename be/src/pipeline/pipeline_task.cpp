@@ -36,12 +36,28 @@
 
 namespace doris {
 class RuntimeState;
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
+
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           Operators& operators, OperatorPtr& sink,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _operators(operators),
+          _source(_operators.front()),
+          _root(_operators.back()),
+          _sink(sink),
+          _prepared(false),
+          _opened(false),
+          _can_steal(pipeline->_can_steal),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile) {}
 
 void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
@@ -351,8 +367,8 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroup* PipelineTask::get_task_group() const {
-    return _fragment_context->get_task_group();
+taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
+    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline
