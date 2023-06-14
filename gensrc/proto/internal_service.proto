@@ -696,6 +696,16 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+message PStreamHeader {
+    required int64 load_id = 1;
+    required int64 index_id = 2;
+    required int64 tablet_id = 3;
+    required int64 rowset_id = 4;
+    required int64 segment_id = 5;  
+    required string path = 6;
+    required int64 opcode = 7;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
