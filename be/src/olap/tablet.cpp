@@ -73,6 +73,7 @@
 #include "io/fs/remote_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/base_tablet.h"
+#include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/delete_bitmap_calculator.h"
@@ -3409,6 +3410,88 @@ bool Tablet::is_enable_binlog() {
 
 void Tablet::set_binlog_config(BinlogConfig binlog_config) {
     tablet_meta()->set_binlog_config(std::move(binlog_config));
+}
+
+void Tablet::gc_binlogs(int64_t version) {
+    auto meta = _data_dir->get_meta();
+    DCHECK(meta != nullptr);
+
+    const auto& tablet_uid = this->tablet_uid();
+    const auto tablet_id = this->tablet_id();
+    const auto& tablet_path = this->tablet_path();
+    std::string begin_key = make_binlog_meta_key_prefix(tablet_uid);
+    std::string end_key = make_binlog_meta_key_prefix(tablet_uid, version + 1);
+    LOG(INFO) << fmt::format("gc binlog meta, tablet_id:{}, begin_key:{}, end_key:{}", tablet_id,
+                             begin_key, end_key);
+
+    std::vector<std::string> wait_for_deleted_binlog_keys;
+    std::vector<std::string> wait_for_deleted_binlog_files;
+    auto add_to_wait_for_deleted = [&](std::string_view key, std::string_view rowset_id,
+                                       int64_t num_segments) {
+        // add binlog meta key and binlog data key
+        wait_for_deleted_binlog_keys.emplace_back(key);
+        wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
+
+        for (int64_t i = 0; i < num_segments; ++i) {
+            auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+            wait_for_deleted_binlog_files.emplace_back(
+                    fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+        }
+    };
+
+    auto check_binlog_ttl = [&](const std::string& key, const std::string& value) mutable -> bool {
+        if (key >= end_key) {
+            return false;
+        }
+
+        BinlogMetaEntryPB binlog_meta_entry_pb;
+        if (!binlog_meta_entry_pb.ParseFromString(value)) {
+            LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
+            return true;
+        }
+
+        auto num_segments = binlog_meta_entry_pb.num_segments();
+        std::string rowset_id;
+        if (binlog_meta_entry_pb.has_rowset_id_v2()) {
+            rowset_id = binlog_meta_entry_pb.rowset_id_v2();
+        } else {
+            // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+            auto pos = key.rfind("_");
+            if (pos == std::string::npos) {
+                LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
+                return false;
+            }
+            rowset_id = key.substr(pos + 1);
+        }
+        add_to_wait_for_deleted(key, rowset_id, num_segments);
+
+        return true;
+    };
+
+    auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
+        return;
+    }
+
+    // first remove binlog files, if failed, just break, then retry next time
+    // this keep binlog meta in meta store, so that binlog can be removed next time
+    bool remove_binlog_files_failed = false;
+    for (auto& file : wait_for_deleted_binlog_files) {
+        if (unlink(file.c_str()) != 0) {
+            // file not exist, continue
+            if (errno == ENOENT) {
+                continue;
+            }
+
+            remove_binlog_files_failed = true;
+            LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
+            break;
+        }
+    }
+    if (!remove_binlog_files_failed) {
+        meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
+    }
 }
 
 Status Tablet::calc_delete_bitmap_between_segments(

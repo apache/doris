@@ -496,6 +496,7 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
+    void gc_binlogs(int64_t version);
 
     inline void increase_io_error_times() { ++_io_error_times; }
 
