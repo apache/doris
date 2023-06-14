@@ -307,6 +307,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
+    // Record current memory status.
     int64_t process_soft_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
     // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
