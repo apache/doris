@@ -32,6 +32,7 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
+
     private List<Statistics> childrenStats = new ArrayList<>();
     private Statistics planStats;
     private int arity = 0;

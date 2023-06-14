@@ -18,23 +18,32 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 
 import com.google.common.collect.Maps;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Context for one job in Nereids' cascades framework.
  */
 public class JobContext {
+
+    // use for optimizer
     protected final ScheduleContext scheduleContext;
     protected final PhysicalProperties requiredProperties;
     protected double costUpperBound;
-    protected boolean rewritten = false;
 
+    // use for rewriter
+    protected boolean rewritten = false;
+    protected List<RewriteJob> remainJobs = Collections.emptyList();
+
+    // user for trace
     protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
 
     public JobContext(ScheduleContext scheduleContext, PhysicalProperties requiredProperties, double costUpperBound) {
@@ -69,6 +78,14 @@ public class JobContext {
 
     public void setRewritten(boolean rewritten) {
         this.rewritten = rewritten;
+    }
+
+    public List<RewriteJob> getRemainJobs() {
+        return remainJobs;
+    }
+
+    public void setRemainJobs(List<RewriteJob> remainJobs) {
+        this.remainJobs = remainJobs;
     }
 
     public void onInvokeRule(RuleType ruleType) {
