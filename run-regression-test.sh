@@ -144,7 +144,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 
-rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift ${FRAMEWORK_APACHE_DIR}/parquet"
+# rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift"
 
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${REGRESSION_TEST_BUILD_DIR}"
@@ -159,12 +159,11 @@ fi
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
-    echo "Build generated code"
-    cd "${DORIS_HOME}/gensrc/thrift"
-    make
+    # echo "Build generated code"
+    # cd "${DORIS_HOME}/gensrc/thrift"
+    # make
 
-    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
-    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/parquet" "${FRAMEWORK_APACHE_DIR}/"
+    # cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
