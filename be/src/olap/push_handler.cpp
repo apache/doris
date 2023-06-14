@@ -413,29 +413,6 @@ Status PushBrokerReader::next(vectorized::Block* block) {
 
 Status PushBrokerReader::close() {
     _ready = false;
-    for (auto ctx : _dest_expr_ctxs) {
-        if (ctx != nullptr) {
-            ctx->close(_runtime_state.get());
-        }
-    }
-
-    for (auto& expr : _push_down_exprs) {
-        expr->close(_runtime_state.get());
-    }
-
-    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
-        for (auto& ctx : v) {
-            if (ctx != nullptr) {
-                ctx->close(_runtime_state.get());
-            }
-        }
-    }
-
-    for (auto& ctx : _not_single_slot_filter_conjuncts) {
-        if (ctx != nullptr) {
-            ctx->close(_runtime_state.get());
-        }
-    }
     return Status::OK();
 }
 

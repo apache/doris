@@ -86,10 +86,9 @@ doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VCastExpr::close(doris::RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
