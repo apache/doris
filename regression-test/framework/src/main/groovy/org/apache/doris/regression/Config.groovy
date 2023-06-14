@@ -315,6 +315,11 @@ class Config {
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
 
+        if (config.targetJdbcUrl == null) {
+            config.targetJdbcUrl = config.jdbcUrl
+            log.info("Set targetJdbcUrl to jdbcUrl '${config.jdbcUrl}' because not specify.".toString())
+        }
+
         if (config.jdbcUser == null) {
             config.jdbcUser = "root"
             log.info("Set jdbcUser to '${config.jdbcUser}' because not specify.".toString())
@@ -331,7 +336,7 @@ class Config {
         }
 
         if (config.feTargetThriftAddress == null) {
-            config.feTargetThriftAddress = "127.0.0.1:9120"
+            config.feTargetThriftAddress = "127.0.0.1:9020"
             log.info("Set feThriftAddress to '${config.feTargetThriftAddress}' because not specify.".toString())
         }
 
