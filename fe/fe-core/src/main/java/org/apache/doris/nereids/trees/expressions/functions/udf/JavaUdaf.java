@@ -17,46 +17,72 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.URI;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Java UDAF for Nereids
  */
 public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSignature, Udf {
+    private final String dbName;
+    private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
+    private final DataType interType;
+    private final NullableMode nullableMode;
     private final String objectFile;
     private final String initFn;
     private final String updateFn;
     private final String mergeFn;
+    private final String serializeFn;
     private final String finalizeFn;
-    private final String prepareFn;
-    private final String closeFn;
+    private final String getValueFn;
+    private final String removeFn;
 
     /**
      * Constructor of UDAF
      */
-    public JavaUdaf(String name, FunctionSignature signature,
-            String objectFile, String initFn, String updateFn, String mergeFn, String finalizeFn,
-            String prepareFn, String closeFn, boolean isDistinct, Expression... args) {
+    public JavaUdaf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
+            DataType interType, NullableMode nullableMode,
+            String objectFile, String initFn, String updateFn, String mergeFn,
+            String serializeFn, String finalizeFn, String getValueFn, String removeFn,
+            boolean isDistinct, Expression... args) {
         super(name, isDistinct, args);
+        this.dbName = dbName;
+        this.binaryType = binaryType;
         this.signature = signature;
+        this.interType = interType;
+        this.nullableMode = nullableMode;
         this.objectFile = objectFile;
         this.initFn = initFn;
         this.updateFn = updateFn;
         this.mergeFn = mergeFn;
+        this.serializeFn = serializeFn;
         this.finalizeFn = finalizeFn;
-        this.prepareFn = prepareFn;
-        this.closeFn = closeFn;
+        this.getValueFn = getValueFn;
+        this.removeFn = removeFn;
     }
 
     @Override
@@ -64,8 +90,19 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         return ImmutableList.of(signature);
     }
 
-    public org.apache.doris.catalog.AggregateFunction getCatalogFunction() {
-        return null;
+    @Override
+    public boolean hasVarArguments() {
+        return signature.hasVarArgs;
+    }
+
+    @Override
+    public int arity() {
+        return signature.argumentsTypes.size();
+    }
+
+    @Override
+    public NullableMode getNullableMode() {
+        return nullableMode;
     }
 
     /**
@@ -74,12 +111,74 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     @Override
     public JavaUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdaf(getName(), signature, objectFile, initFn, updateFn, mergeFn,
-                finalizeFn, prepareFn, closeFn, isDistinct, children.toArray(new Expression[0]));
+        return new JavaUdaf(getName(), dbName, binaryType, signature, interType, nullableMode,
+                objectFile, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
+                isDistinct, children.toArray(new Expression[0]));
+    }
+
+    /**
+     * translate catalog java udf to nereids java udf
+     */
+    public static void translateToNereids(String dbName, org.apache.doris.catalog.AggregateFunction aggregate) {
+        String fnName = aggregate.functionName();
+        DataType retType = DataType.fromCatalogType(aggregate.getReturnType());
+        List<DataType> argTypes = Arrays.stream(aggregate.getArgs())
+                .map(DataType::fromCatalogType)
+                .collect(Collectors.toList());
+
+        FunctionSignature.FuncSigBuilder sigBuilder = FunctionSignature.ret(retType);
+        FunctionSignature sig = aggregate.hasVarArgs()
+                ? sigBuilder.varArgs(argTypes.toArray(new DataType[0]))
+                : sigBuilder.args(argTypes.toArray(new DataType[0]));
+
+        VirtualSlotReference[] virtualSlots = argTypes.stream()
+                .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
+                        (shape) -> ImmutableList.of()))
+                .toArray(VirtualSlotReference[]::new);
+
+        JavaUdaf udaf = new JavaUdaf(fnName, dbName, aggregate.getBinaryType(), sig,
+                DataType.fromCatalogType(aggregate.getIntermediateType()),
+                aggregate.getNullableMode(),
+                aggregate.getLocation().getLocation(),
+                aggregate.getInitFnSymbol(),
+                aggregate.getUpdateFnSymbol(),
+                aggregate.getMergeFnSymbol(),
+                aggregate.getSerializeFnSymbol(),
+                aggregate.getFinalizeFnSymbol(),
+                aggregate.getGetValueFnSymbol(),
+                aggregate.getRemoveFnSymbol(),
+                !aggregate.ignoresDistinct(),
+                virtualSlots);
+
+        JavaUdafBuilder builder = new JavaUdafBuilder(udaf);
+        Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, fnName, builder);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitJavaUdaf(this, context);
+    }
+
+    @Override
+    public Function getCatalogFunction() {
+        try {
+            return new org.apache.doris.catalog.AggregateFunction(
+                    new FunctionName(dbName, getName()),
+                    signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                    signature.returnType.toCatalogDataType(),
+                    signature.hasVarArgs,
+                    interType.toCatalogDataType(),
+                    URI.create(objectFile),
+                    initFn,
+                    updateFn,
+                    mergeFn,
+                    serializeFn,
+                    finalizeFn,
+                    getValueFn,
+                    removeFn
+            );
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 }
