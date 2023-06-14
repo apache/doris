@@ -86,8 +86,9 @@ void BuildHelper::open(const std::string& meta_file, const std::string& build_di
         LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
-    doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths);
-
+    auto exec_env = doris::ExecEnv::GetInstance();
+    doris::ExecEnv::init(exec_env, paths);
+    // doris::TabletSchemaCache::create_global_schema_cache();
     doris::EngineOptions options;
     options.store_paths = paths;
     options.backend_uid = doris::UniqueId::gen_uid();
@@ -97,19 +98,7 @@ void BuildHelper::open(const std::string& meta_file, const std::string& build_di
         LOG(FATAL) << "fail to open StorageEngine, res=" << st;
         exit(-1);
     }
-}
-
-std::string BuildHelper::read_local_file(const std::string& file) {
-    std::filesystem::path path(std::filesystem::absolute(std::filesystem::path(file)));
-    if (!std::filesystem::exists(path)) { LOG(FATAL) << "file not exist:" << file;
-    }
-
-    std::ifstream f(path, std::ios::in | std::ios::binary);
-    const auto sz = std::filesystem::file_size(path);
-    std::string result(sz, '\0');
-    f.read(result.data(), sz);
-
-    return result;
+    exec_env->set_storage_engine(engine);
 }
 
 Status BuildHelper::build() {
@@ -190,6 +179,7 @@ Status BuildHelper::build() {
 
 
 BuildHelper::~BuildHelper() {
+    // doris::TabletSchemaCache::stop_and_join();
     doris::ExecEnv::destroy(ExecEnv::GetInstance());
 }
 

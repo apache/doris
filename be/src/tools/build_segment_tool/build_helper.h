@@ -17,7 +17,6 @@ public:
     
 private:
     static BuildHelper* _s_instance;
-    std::string read_local_file(const std::string & file);
     std::string _meta_file;
     std::string _build_dir;
     std::string _data_path;

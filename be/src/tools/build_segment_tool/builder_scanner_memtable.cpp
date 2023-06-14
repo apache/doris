@@ -294,31 +294,22 @@ void BuilderScannerMemtable::create_expr_info() {
             _params.default_value_of_src_slot.emplace(i + _tablet->num_columns(), expr);
         }
         
-        // _params.dest_sid_to_src_sid_without_trans.emplace(i, _tablet->num_columns() + i);
+        _params.dest_sid_to_src_sid_without_trans.emplace(i, _tablet->num_columns() + i);
+        
 
         TFileScanSlotInfo slotInfo;
         slotInfo.slot_id = _tablet->num_columns() + i;
         slotInfo.is_file_slot = true;
+        slotInfo.__isset.slot_id = true;
+        slotInfo.__isset.is_file_slot = true;
         _params.required_slots.push_back(slotInfo);
     }
 
-    
-    {
-        TExpr tExpr;
-        for (int i = 0; i < _tablet->num_columns(); i++) {
-            auto col = _tablet->tablet_schema()->column(i);
-            TExpr expr;
-            
-            
-
-            
-
-            _params.default_value_of_src_slot.emplace(
-                _tablet->num_columns() + i, expr);
-        }
-    }
 
     _params.__isset.expr_of_dest_slot = true;
+    _params.__isset.default_value_of_src_slot = true;
+    _params.__isset.dest_sid_to_src_sid_without_trans = true;
+    
     _params.__set_dest_tuple_id(TUPLE_ID_DST);
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
     _params.format_type = TFileFormatType::FORMAT_PARQUET;
@@ -422,7 +413,6 @@ void BuilderScannerMemtable::doSegmentBuild(const std::vector<std::filesystem::d
 
     while (!eof) {
         status = scan_node.get_next(&_runtime_state, &block, &eof);
-        LOG(INFO) << block << std::endl;
         if (!status.ok()) {
             LOG(FATAL) << "scan error: " << status.to_string();
             break;

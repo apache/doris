@@ -70,7 +70,7 @@ int main(int argc, char** argv, char** envp) {
     auto t1 = std::chrono::steady_clock::now();
     std::chrono::duration<double, std::milli> d {t1 - t0};
     LOG(INFO) << "total cost:" << d.count() << " ms";
-    std::exit(EXIT_SUCCESS);
+    // std::exit(EXIT_SUCCESS);
     gflags::ShutDownCommandLineFlags();
     return 0;
 }
