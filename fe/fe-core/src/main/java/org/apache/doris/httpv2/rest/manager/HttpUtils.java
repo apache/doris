@@ -74,7 +74,7 @@ public class HttpUtils {
         return url.toString();
     }
 
-    public static String doGet(String url, Map<String, String> headers) throws IOException {
+    static String doGet(String url, Map<String, String> headers) throws IOException {
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers);
         return executeRequest(httpGet);
@@ -113,7 +113,8 @@ public class HttpUtils {
     }
 
     static String parseResponse(String response) {
-        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {}.getType());
+        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {
+        }.getType());
         if (responseEntity.getCode() != REQUEST_SUCCESS_CODE) {
             throw new RuntimeException(responseEntity.getMsg());
         }

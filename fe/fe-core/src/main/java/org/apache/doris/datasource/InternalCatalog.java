@@ -1826,21 +1826,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }).distinct().filter(new Predicate<Backend>() {
                     @Override
                     public boolean test(Backend backend) {
-                        String ip = "http://" + backend.getHost() + ":" + backend.getBePort() + "/api/health";
-                        try {
-                            HttpUtils.doGet(ip, null);
-                        } catch (Exception e) {
-                            return true;
-                        }
-                        return false;
+                        return !backend.isAlive();
                     }
                 }).map(Backend::getHost).collect(Collectors.toList());
-                if (null != downBEList || downBEList.size() != 0) {
-                    String downBE = StringUtils.join(downBEList, ",");
-                    errMsg = "The BE " + downBE + " is down,please check BE status!";
-                    allBEHost.removeAll(downBEList);
-                }
+
                 if (null != allBEHost || allBEHost.size() != 0) {
+                    if (null != downBEList || downBEList.size() != 0) {
+                        allBEHost.removeAll(downBEList);
+                    }
                     String timeoutBE = StringUtils.join(allBEHost, ",");
                     errMsg += "Failed to create partition[" + partitionName + "] in " + timeoutBE + ". Timeout:" + (
                             timeout / 1000) + " seconds.";
@@ -1849,6 +1842,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
                 if (!countDownLatch.getStatus().ok()) {
+                    if (null != downBEList || downBEList.size() != 0) {
+                        String downBE = StringUtils.join(downBEList, ",");
+                        errMsg = "The BE " + downBE + " is down,please check BE status!";
+                    }
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
                 } else {
                     List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
