@@ -23,9 +23,6 @@ on:
   push:
     branches:
       - master
-  issue_comment:
-    types: [created]
-    contains: "latest code check"
 
 jobs:
   check:
@@ -44,7 +41,7 @@ jobs:
 
       - name: Check if code includes latest code of master branch
         run: |
-          if [[ $(git log FETCH_HEAD..HEAD) ]]; then
+          if [[ $(git merge-base --is-ancestor FETCH_HEAD HEAD) ]]; then
             echo "Code does not include latest code of master branch"
             exit 1
           else
