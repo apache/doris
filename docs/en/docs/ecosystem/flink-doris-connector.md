@@ -531,7 +531,7 @@ When Exactly-Once is not required, it can also be solved by turning off 2PC comm
 Occurred in the Commit phase, the transaction ID recorded in the checkpoint has expired on the FE side, and the above error will occur when committing again at this time.
 At this time, it cannot be started from the checkpoint, and the expiration time can be extended by modifying the streaming_label_keep_max_second configuration in fe.conf, which defaults to 12 hours.
 
-6. **errCode = 2, detailMessage = current running txns on db 10006 is 1000, larger than limit 1000**
+6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
 This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
 
