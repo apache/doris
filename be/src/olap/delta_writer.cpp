@@ -165,7 +165,9 @@ Status DeltaWriter::init() {
     // check tablet version number
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
-        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        // tablet that under alter process might not start compaction for some reason，so version number may be too many
+        // and load task failed. so skip version number check.
+        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE) && _tablet->tablet_state() != TABLET_NOTREADY) {
         //trigger compaction
         StorageEngine::instance()->submit_compaction_task(
                 _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
