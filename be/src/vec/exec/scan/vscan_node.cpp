@@ -418,11 +418,6 @@ void VScanNode::release_resource(RuntimeState* state) {
         }
     }
 
-    for (auto& ctx : _runtime_filter_ctxs) {
-        IRuntimeFilter* runtime_filter = ctx.runtime_filter;
-        runtime_filter->consumer_close();
-    }
-
     for (auto& ctx : _stale_expr_ctxs) {
         ctx->close(state);
     }

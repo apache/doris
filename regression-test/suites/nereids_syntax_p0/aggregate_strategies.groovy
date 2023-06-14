@@ -213,4 +213,7 @@ suite("aggregate_strategies") {
     }
 
     qt_sql_distinct_same_col """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
+
+    sql "set experimental_enable_pipeline_engine=true"
+    qt_sql_distinct_same_col2 """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
 }
