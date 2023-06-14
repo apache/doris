@@ -200,6 +200,7 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
     m_time %= 60 * 1000 * 1000;
     int32_t second = m_time / (1000 * 1000);
     int32_t micosecond = m_time % (1000 * 1000);
+    micosecond = std::stoi(std::to_string(micosecond).substr(0, scale));
     switch (scale) {
     case 0:
         fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second, micosecond));

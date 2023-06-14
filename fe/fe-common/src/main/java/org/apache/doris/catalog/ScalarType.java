@@ -879,7 +879,7 @@ public class ScalarType extends Type {
             return this.decimalScale() == other.decimalScale();
         }
         if (this.isTimeV2() && other.isTimeV2()) {
-            return true;
+            return this.decimalScale() == other.decimalScale();
         }
         if (type.isDecimalV3Type() && other.isDecimalV3()) {
             return precision == other.precision && scale == other.scale;

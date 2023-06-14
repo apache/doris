@@ -2459,7 +2459,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    protected  Type getActualScalarType(Type originType) {
+    protected Type getActualScalarType(Type originType) {
         if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return Type.DECIMAL32;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
@@ -2474,6 +2474,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return Type.CHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMEV2) {
+            return Type.TIMEV2;
         }
         return originType;
     }

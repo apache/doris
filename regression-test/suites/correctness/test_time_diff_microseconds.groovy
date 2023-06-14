@@ -56,7 +56,16 @@ suite("test_time_diff_microseconds") {
         select timediff( cast('0001-01-02 00:00:23.114514' as Datetimev2(5) ) ,  cast('0001-01-01 00:00:20.114' as Datetimev2(3) ));
     """
 
+    qt_select4 """
+        select cast(  timediff( cast('0001-01-02 00:00:00.114514' as Datetimev2(3) ) ,  cast('0001-01-01 00:00:00.000500' as Datetimev2(4) )) as string);
+    """
+
     sql """ 
         SET enable_nereids_planner=false
     """
+    
+    qt_select5 """
+        select cast(  timediff( cast('0001-01-02 00:00:00.114514' as Datetimev2(3) ) ,  cast('0001-01-01 00:00:00.000500' as Datetimev2(4) )) as string);
+    """
+
 }

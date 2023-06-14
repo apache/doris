@@ -20,6 +20,8 @@
 
 #include "vec/data_types/data_type_time.h"
 
+#include <gen_cpp/data.pb.h>
+
 #include <typeinfo>
 #include <utility>
 

@@ -177,6 +177,12 @@ public class ColumnTypeTest {
         Assert.assertEquals(type.getType(), type2.getType());
 
         // different type
+        TypeDef type3 = TypeDef.createTimeV2(6);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+        type3 = TypeDef.createTimeV2(0);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+
+        // different type
         TypeDef type4 = TypeDef.create(PrimitiveType.BIGINT);
         Assert.assertNotEquals(type.getType(), type4.getType());
 
