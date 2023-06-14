@@ -74,6 +74,7 @@
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
 #include "util/scoped_cleanup.h"
@@ -1493,7 +1494,8 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            if (!config::disable_auto_compaction) {
+            if (!config::disable_auto_compaction &&
+                !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
                 for (int i = 0; i < succ_tablet_ids.size(); i++) {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(

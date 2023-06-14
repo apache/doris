@@ -418,6 +418,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
+                // use tree map to maintain display order, making it easier to view properties
                 Map<String, String> sortedMap = new TreeMap<>(catalog.getProperties()).descendingMap();
                 for (Map.Entry<String, String> elem : sortedMap.entrySet()) {
                     if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {

@@ -2039,7 +2039,10 @@ Status Tablet::_cooldown_data() {
         save_meta();
     }
     // upload cooldowned rowset meta to remote fs
-    async_write_cooldown_meta(StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id()));
+    if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+        t != nullptr) { // `t` can be nullptr if it has been dropped
+        async_write_cooldown_meta(std::move(t));
+    }
     return Status::OK();
 }
 
@@ -3117,6 +3120,8 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+    RETURN_IF_ERROR(
+            calc_delete_bitmap(rowset, segments, &cur_rowset_ids, delete_bitmap, cur_version - 1));
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         _tablet_meta->delete_bitmap().merge(
