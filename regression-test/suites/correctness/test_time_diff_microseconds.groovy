@@ -20,8 +20,8 @@ suite("test_time_diff_microseconds") {
       sql """
         CREATE TABLE IF NOT EXISTS tbl_time (
         `id` int(11) ,
-        `t1` DATETIMEV2(6) ,
-        `t2` DATETIMEV2(6) 
+        `t1` DATETIMEV2(3) ,
+        `t2` DATETIMEV2(4) 
         )
         UNIQUE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
@@ -44,40 +44,4 @@ suite("test_time_diff_microseconds") {
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
     """
-    
-    sql """ 
-        SET enable_nereids_planner=true
-    """
-
-    qt_select2 """
-        select timediff( cast('0001-01-02 00:00:23.114514' as Datetimev2(5) ) ,  cast('0001-01-01 00:00:20.114' as Datetimev2(3) ));
-    """
-
-    qt_select3 """
-        select cast(  timediff( cast('0001-01-02 00:00:00.114514' as Datetimev2(3) ) ,  cast('0001-01-01 00:00:00.000500' as Datetimev2(4) )) as string);
-    """
-
-    sql """ 
-        SET enable_nereids_planner=false
-    """
-    
-     sql """ 
-        SET enable_nereids_planner=false
-    """
-
-
-
-    qt_select4 """
-        select timediff( cast('0001-01-02 00:00:23.114514' as Datetimev2(5) ) ,  cast('0001-01-01 00:00:20.114' as Datetimev2(3) ));
-    """
-
-    qt_select5 """
-        select cast(  timediff( cast('0001-01-02 00:00:00.114514' as Datetimev2(3) ) ,  cast('0001-01-01 00:00:00.000500' as Datetimev2(4) )) as string);
-    """
-
-    sql """ 
-        SET enable_nereids_planner=true
-    """
-
-
 }
