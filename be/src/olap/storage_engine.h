@@ -215,8 +215,6 @@ public:
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
-    std::optional<RowsetSharedPtr> get_rowset_in_unused_rowsets(const RowsetId& rowset_id);
-
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
