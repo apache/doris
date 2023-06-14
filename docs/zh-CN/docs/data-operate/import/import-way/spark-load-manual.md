@@ -173,7 +173,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
   - `spark.hadoop.dfs.ha.namenodes.nameservices01` , nameservice 中每个 NameNode 的唯一标识符
   - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1`, 每个 NameNode 的完全限定的 RPC 地址
   - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2`, 每个 NameNode 的完全限定的 RPC 地址
-  - `spark.hadoop.dfs.client.failover.proxy.provider` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, 设置实现类
+  - `spark.hadoop.dfs.client.failover.proxy.provider.nameservices01` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, 设置实现类
 - `working_dir`: ETL 使用的目录。Spark 作为 ETL 资源使用时必填。例如：hdfs://host:port/tmp/doris。
   - 其他参数为可选，参考 http://spark.apache.org/docs/latest/configuration.html
 - `working_dir`: ETL 使用的目录。Spark 作为 ETL 资源使用时必填。例如：hdfs://host:port/tmp/doris。
@@ -238,7 +238,7 @@ PROPERTIES
   "spark.hadoop.dfs.ha.namenodes.nameservices01" = "mynamenode1,mynamenode2",
   "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
-  "spark.hadoop.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+  "spark.hadoop.dfs.client.failover.proxy.provider.nameservices01" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
   "working_dir" = "hdfs://nameservices01/doris_prd_data/sinan/spark_load/",
   "broker" = "broker_name",
   "broker.username" = "username",
@@ -247,7 +247,7 @@ PROPERTIES
   "broker.dfs.ha.namenodes.nameservices01" = "mynamenode1, mynamenode2",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
-  "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+  "broker.dfs.client.failover.proxy.provider.nameservices01" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 );
 
 ```
@@ -694,6 +694,8 @@ LoadFinishTime: 2019-07-27 11:50:16
 - `enable_spark_load`
 
   开启 Spark Load 和创建 Resource 功能。默认为 False，关闭此功能。
+
+  **注意：** 这个参数在1.2版本中已经删除，默认开启spark_load。
 
 - `spark_load_default_timeout_second`
 

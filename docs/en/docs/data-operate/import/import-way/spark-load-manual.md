@@ -201,7 +201,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
     - `spark.hadoop.dfs.ha.namenodes.nameservices01` , unique identifier for each NameNode in the nameservice.
     - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1`, fully qualified RPC address for each NameNode.
     - `spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2`, fully qualified RPC address for each NameNode.
-    - `spark.hadoop.dfs.client.failover.proxy.provider` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, set the implementation class.
+    - `spark.hadoop.dfs.client.failover.proxy.provider.nameservices01` = `org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`, set the implementation class.
 -`working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
 - `broker.hadoop.security.authentication`: Specify the authentication method as kerberos.
 - `broker.kerberos_principal`: Specify the principal of kerberos.
@@ -264,7 +264,7 @@ PROPERTIES
   "spark.hadoop.dfs.ha.namenodes.nameservices01" = "mynamenode1,mynamenode2",
   "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "spark.hadoop.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
-  "spark.hadoop.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+  "spark.hadoop.dfs.client.failover.proxy.provider.nameservices01" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
   "working_dir" = "hdfs://nameservices01/doris_prd_data/sinan/spark_load/",
   "broker" = "broker_name",
   "broker.username" = "username",
@@ -273,7 +273,7 @@ PROPERTIES
   "broker.dfs.ha.namenodes.nameservices01" = "mynamenode1, mynamenode2",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode1" = "xxxx:8020",
   "broker.dfs.namenode.rpc-address.nameservices01.mynamenode2" = "xxxx:8020",
-  "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+  "broker.dfs.client.failover.proxy.provider.nameservices01" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 );
 ```
 
@@ -731,6 +731,8 @@ The following configuration belongs to the system level configuration of spark l
 + `enable_spark_load`
 
 Open spark load and create resource. The default value is false. This feature is turned off.
+
+**Note:** This parameter has been deleted in version 1.2, spark_load is enabled by default.
 
 + `spark_load_default_timeout_second`
 
