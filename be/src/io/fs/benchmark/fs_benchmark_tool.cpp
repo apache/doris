@@ -19,6 +19,8 @@
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
 
+#include <fstream>
+
 DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs, local");
 DEFINE_string(operation, "read", "Supported Operations: read, write, open, size, list, connect");
 DEFINE_string(iterations, "10", "Number of runs");

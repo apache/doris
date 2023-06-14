@@ -18,7 +18,10 @@
 #pragma once
 
 #include <benchmark/benchmark.h>
+#include <fmt/format.h>
 
+#include <ctime>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -27,6 +30,16 @@
 
 namespace doris::io {
 
+template <typename... Args>
+void bm_log(const std::string& fmt, Args&&... args) {
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+    std::tm* local_time = std::localtime(&now_time);
+    char time_str[20];
+    std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
+    std::cout << "[" << time_str << "] " << fmt::format(fmt, std::forward<Args>(args)...) << std::endl;
+}
+
 class BaseBenchmark {
 public:
     BaseBenchmark(const std::string& name, int iterations,
@@ -34,14 +47,23 @@ public:
             : _name(name), _iterations(iterations), _conf_map(conf_map) {}
     virtual ~BaseBenchmark() = default;
 
-    virtual void init() {}
-    virtual void run() {}
+    virtual Status init() { return Status::OK(); }
+    virtual Status run() { return Status::OK(); }
 
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
             // first turn will use more time
-            this->init();
-            this->run();
+            Status st;
+            st = this->init();
+            if (!st) {
+                std::cerr << "failed to init. bm: " << _name << ", err: " << st;
+                return;
+            }
+            st = this->run();
+            if (!st) {
+                std::cerr << "failed to run at first time. bm: " << _name << ", err: " << st;
+                return;
+            }
             for (auto _ : state) {
                 state.PauseTiming();
                 this->init();

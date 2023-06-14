@@ -19,24 +19,40 @@
 
 #include "io/fs/benchmark/base_benchmark.h"
 
+#include "io/file_factory.h"
+#include "io/fs/s3_file_system.h"
+#include "io/fs/s3_file_reader.h"
+#include "util/slice.h"
+
 namespace doris::io {
 
 class S3ReadBenchmark : public BaseBenchmark {
 public:
     S3ReadBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("S3ReadBenchmark", iterations, conf_map) {}
+            : BaseBenchmark("S3ReadBenchmark", iterations, conf_map),
+              _result(buffer, 128) {}
     virtual ~S3ReadBenchmark() = default;
 
-    void init() override {}
+    Status init() override {
+        bm_log("begin to init {}", _name);
+        std::string file_path = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        RETURN_IF_ERROR(FileFactory::create_s3_reader(_conf_map, file_path, &_fs, &_reader, reader_opts));
+        bm_log("finish to init {}", _name);
+        return Status::OK();
+    }
 
-    void run() override {
-        // do something
-        ++a;
-        sleep(1);
+    Status run() override {
+        return _reader->read_at(0, _result, &_bytes_read); 
     }
 
 private:
-    int a = 0;
+    doris::S3Conf _s3_conf;
+    std::shared_ptr<io::FileSystem> _fs;
+    io::FileReaderSPtr _reader;
+    char buffer[128];
+    doris::Slice _result;
+    size_t _bytes_read = 0;
 };
 
 } // namespace doris::io
