@@ -102,7 +102,7 @@ public:
     };
     TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     const char* get_family_name() const override { return "timev2"; }
-    UInt32 get_scale() const { return _scale; }
+    UInt32 get_scale() const override { return _scale; }
 
 private:
     UInt32 _scale;
