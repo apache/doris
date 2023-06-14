@@ -78,6 +78,7 @@ Status VDataGenFunctionScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
+    // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : _runtime_filter_descs) {
         if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
             RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_filter(
