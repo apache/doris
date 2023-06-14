@@ -16,9 +16,8 @@
 # under the License.
 ---
 name: Latest-Master-Code-Check
-description: A GitHub Action to check if a pull request includes the latest code of the master branch.
-
 on:
+  pull_request:
   pull_request_review:
     types: [submitted]
   push:
