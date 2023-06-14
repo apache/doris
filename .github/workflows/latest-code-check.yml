@@ -39,7 +39,7 @@ jobs:
 
       - name: Check if code includes latest code of master branch
         run: |
-          if git merge-base --is-ancestor upstream/master HEAD; then
+          if git merge-base --is-ancestor main/master HEAD; then
           echo "Code includes latest code of master branch"
           else
           echo "Code does not include latest code of master branch"
