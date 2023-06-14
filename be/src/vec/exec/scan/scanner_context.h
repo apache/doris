@@ -86,14 +86,12 @@ public:
     bool set_status_on_error(const Status& status);
 
     Status status() {
-        std::lock_guard l(_transfer_lock);
         return _process_status;
     }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
     void set_should_stop() {
-        std::lock_guard l(_transfer_lock);
         _should_stop = true;
         _blocks_queue_added_cv.notify_one();
     }
@@ -106,7 +104,6 @@ public:
 
     // Update the running num of scanners and contexts
     void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
-        std::lock_guard l(_transfer_lock);
         _num_running_scanners += scanner_inc;
         _num_scheduling_ctx += sched_inc;
         _blocks_queue_added_cv.notify_one();
@@ -235,7 +232,7 @@ protected:
     // Here we record the number of ctx in the scheduling  queue to clean up at the end.
     std::atomic_int32_t _num_scheduling_ctx = 0;
     // Num of unfinished scanners. Should be set in init()
-    int32_t _num_unfinished_scanners = 0;
+    std::atomic_int32_t _num_unfinished_scanners = 0;
     // Max number of scan thread for this scanner context.
     int32_t _max_thread_num = 0;
     // How many blocks a scanner can use in one task.
@@ -244,7 +241,7 @@ protected:
     // The current bytes of blocks in blocks queue
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
-    int64_t _max_bytes_in_queue;
+    const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.

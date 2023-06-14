@@ -41,7 +41,6 @@ public:
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
         {
-            std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
                 _process_status = Status::Cancelled("cancelled");
             }
