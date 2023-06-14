@@ -185,6 +185,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                     getValueFn,
                     removeFn
             );
+            expr.setBinaryType(binaryType);
             expr.setNullableMode(nullableMode);
             expr.setChecksum(checkSum);
             return expr;
