@@ -50,7 +50,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String dbName;
     private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
-    private final DataType interType;
+    private final AbstractDataType intermediateType;
     private final NullableMode nullableMode;
     private final String objectFile;
     private final String initFn;
@@ -65,7 +65,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
      * Constructor of UDAF
      */
     public JavaUdaf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
-            DataType interType, NullableMode nullableMode,
+            AbstractDataType intermediateType, NullableMode nullableMode,
             String objectFile, String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
             boolean isDistinct, Expression... args) {
@@ -73,7 +73,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         this.dbName = dbName;
         this.binaryType = binaryType;
         this.signature = signature;
-        this.interType = interType;
+        this.intermediateType = intermediateType == null ? signature.returnType : intermediateType;
         this.nullableMode = nullableMode;
         this.objectFile = objectFile;
         this.initFn = initFn;
@@ -111,7 +111,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     @Override
     public JavaUdaf withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdaf(getName(), dbName, binaryType, signature, interType, nullableMode,
+        return new JavaUdaf(getName(), dbName, binaryType, signature, intermediateType, nullableMode,
                 objectFile, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
                 isDistinct, children.toArray(new Expression[0]));
     }
@@ -136,8 +136,13 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                         (shape) -> ImmutableList.of()))
                 .toArray(VirtualSlotReference[]::new);
 
+        DataType intermediateType = null;
+        if (aggregate.getIntermediateType() != null) {
+            intermediateType = DataType.fromCatalogType(aggregate.getIntermediateType());
+        }
+
         JavaUdaf udaf = new JavaUdaf(fnName, dbName, aggregate.getBinaryType(), sig,
-                DataType.fromCatalogType(aggregate.getIntermediateType()),
+                intermediateType,
                 aggregate.getNullableMode(),
                 aggregate.getLocation().getLocation(),
                 aggregate.getInitFnSymbol(),
@@ -167,7 +172,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                     signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
-                    interType.toCatalogDataType(),
+                    intermediateType.toCatalogDataType(),
                     URI.create(objectFile),
                     initFn,
                     updateFn,
