@@ -795,16 +795,18 @@ void Tablet::delete_expired_stale_rowset() {
             auto it = _stale_rs_version_map.find(timestampedVersion->version());
             if (it != _stale_rs_version_map.end()) {
                 uint64_t now = UnixSeconds();
-                if (now > it->second->delayed_expired_timestamp()) {
-                    // delete rowset
-                    StorageEngine::instance()->add_unused_rowset(it->second);
-                    _stale_rs_version_map.erase(it);
-                    VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
-                                << timestampedVersion->version().first << ","
-                                << timestampedVersion->version().second
-                                << "] move to unused_rowset success " << std::fixed
-                                << expired_stale_sweep_endtime;
+                if (now <= it->second->delayed_expired_timestamp()) {
+                    // Some rowsets gc time was delayed, ignore
+                    continue;
                 }
+                // delete rowset
+                StorageEngine::instance()->add_unused_rowset(it->second);
+                _stale_rs_version_map.erase(it);
+                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
+                            << timestampedVersion->version().first << ","
+                            << timestampedVersion->version().second
+                            << "] move to unused_rowset success " << std::fixed
+                            << expired_stale_sweep_endtime;
             } else {
                 LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
                              << timestampedVersion->version().first << ","
@@ -3134,10 +3136,33 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
-                                    RowsetWriter* rowset_writer) {
-    DeleteBitmapPtr delete_bitmap = load_info->delete_bitmap;
-    const RowsetIdUnorderedSet& pre_rowset_ids = load_info->rowset_ids;
+Status Tablet::commit_phase_update_delete_bitmap(
+        const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+        DeleteBitmapPtr delete_bitmap, const int64_t& cur_version,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, RowsetWriter* rowset_writer) {
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RowsetIdUnorderedSet rowset_ids_to_add;
+    RowsetIdUnorderedSet rowset_ids_to_del;
+
+    std::shared_lock meta_rlock(_meta_lock);
+    cur_rowset_ids = all_rs_id(cur_version);
+    _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
+    if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
+        LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
+                  << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
+    }
+    for (const auto& to_del : rowset_ids_to_del) {
+        delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
+    }
+
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
+                                       cur_version, rowset_writer));
+    return Status::OK();
+}
+
+Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                    const RowsetIdUnorderedSet& pre_rowset_ids,
+                                    DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer) {
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
