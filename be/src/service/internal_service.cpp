@@ -1514,9 +1514,16 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         }
         BetaRowsetSharedPtr rowset =
                 std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+        // Get Rowset from either tablet or unused rowsets, since this rowset maybe expired and swept.
+        // But we ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
         if (!rowset) {
-            LOG(INFO) << "no such rowset " << rowset_id;
-            continue;
+            std::optional<RowsetSharedPtr> from_unused_rowset =
+                    StorageEngine::instance()->get_rowset_in_unused_rowsets(rowset_id);
+            if (!from_unused_rowset.has_value()) {
+                LOG(INFO) << "no such rowset " << rowset_id;
+                continue;
+            }
+            rowset = std::static_pointer_cast<BetaRowset>(from_unused_rowset.value());
         }
         size_t row_size = 0;
         Defer _defer([&]() {
