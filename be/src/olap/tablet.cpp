@@ -794,6 +794,11 @@ void Tablet::delete_expired_stale_rowset() {
         for (auto& timestampedVersion : to_delete_version) {
             auto it = _stale_rs_version_map.find(timestampedVersion->version());
             if (it != _stale_rs_version_map.end()) {
+                uint64_t now = UnixSeconds();
+                if (now <= it->second->delayed_expired_timestamp()) {
+                    // Some rowsets gc time was delayed, ignore
+                    continue;
+                }
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
@@ -2039,7 +2044,10 @@ Status Tablet::_cooldown_data() {
         save_meta();
     }
     // upload cooldowned rowset meta to remote fs
-    async_write_cooldown_meta(StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id()));
+    if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+        t != nullptr) { // `t` can be nullptr if it has been dropped
+        async_write_cooldown_meta(std::move(t));
+    }
     return Status::OK();
 }
 
@@ -2485,23 +2493,23 @@ void Tablet::remove_unused_remote_files() {
             if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
                 auto& fs = it->second.first;
                 auto& files = it->second.second;
+                std::vector<io::Path> paths;
+                paths.reserve(files.size());
                 // delete unused files
                 LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
                           << " tablet_id=" << id;
-                io::Path dir("data/" + std::to_string(id));
+                io::Path dir = remote_tablet_path(id);
                 for (auto& file : files) {
-                    auto delete_path = dir / io::Path(file.file_name);
-                    LOG(INFO) << "delete unused file: " << delete_path.native();
+                    auto file_path = dir / file.file_name;
+                    LOG(INFO) << "delete unused file: " << file_path.native();
+                    paths.push_back(std::move(file_path));
                 }
-                std::vector<io::Path> file_names;
-                for (auto& info : files) {
-                    file_names.emplace_back(info.file_name);
-                }
-                st = fs->batch_delete(file_names);
+                st = fs->batch_delete(paths);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;
                 }
+                buffer.erase(it);
             }
         }
     };
@@ -2743,8 +2751,8 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             return s;
         }
         loc.rowset_id = rs.first->rowset_id();
-        if (_tablet_meta->delete_bitmap().contains_agg({loc.rowset_id, loc.segment_id, version},
-                                                       loc.row_id)) {
+        if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
+                    {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all rowsets, util we find an existing key.
             if (_schema->has_sequence_col()) {
@@ -3117,6 +3125,8 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+    RETURN_IF_ERROR(
+            calc_delete_bitmap(rowset, segments, &cur_rowset_ids, delete_bitmap, cur_version - 1));
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         _tablet_meta->delete_bitmap().merge(
@@ -3126,10 +3136,33 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
-                                    RowsetWriter* rowset_writer) {
-    DeleteBitmapPtr delete_bitmap = load_info->delete_bitmap;
-    const RowsetIdUnorderedSet& pre_rowset_ids = load_info->rowset_ids;
+Status Tablet::commit_phase_update_delete_bitmap(
+        const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+        DeleteBitmapPtr delete_bitmap, const int64_t& cur_version,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, RowsetWriter* rowset_writer) {
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RowsetIdUnorderedSet rowset_ids_to_add;
+    RowsetIdUnorderedSet rowset_ids_to_del;
+
+    std::shared_lock meta_rlock(_meta_lock);
+    cur_rowset_ids = all_rs_id(cur_version);
+    _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
+    if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
+        LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
+                  << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
+    }
+    for (const auto& to_del : rowset_ids_to_del) {
+        delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
+    }
+
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, &rowset_ids_to_add, delete_bitmap,
+                                       cur_version, rowset_writer));
+    return Status::OK();
+}
+
+Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                    const RowsetIdUnorderedSet& pre_rowset_ids,
+                                    DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer) {
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;

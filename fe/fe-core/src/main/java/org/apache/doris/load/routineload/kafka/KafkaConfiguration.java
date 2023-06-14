@@ -37,8 +37,15 @@ public enum KafkaConfiguration {
     KAFKA_OFFSETS("kafka_offsets", null, offsetsString -> Splitter.on(",").trimResults().splitToList(offsetsString)),
 
     KAFKA_DEFAULT_OFFSETS("kafka_default_offsets", "OFFSET_END", offset -> offset),
-    KAFKA_ORIGIN_DEFAULT_OFFSETS("kafka_origin_default_offsets", null, offset -> offset);
+    KAFKA_ORIGIN_DEFAULT_OFFSETS("kafka_origin_default_offsets", null, offset -> offset),
+    KAFKA_TABLE_NAME_LOCATION("kafka_table_name_location", "key",
+            value -> value.replace(" ", "")),
+    KAFKA_TABLE_NAME_FORMAT("kafka_table_name_format", "TEXT",
+            value -> value.replace(" ", "")),
+    KAFKA_TEXT_TABLE_NAME_FIELD_INDEX("kafka_text_table_name_field_index", 0, Integer::parseInt),
 
+    KAFKA_TEXT_TABLE_NAME_FIELD_DELIMITER("kafka_text_table_name_field_delimiter", ",",
+            value -> value.replace(" ", ""));
     private final String name;
 
     public String getName() {

@@ -78,6 +78,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -105,6 +106,14 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
+
+    /**
+     * the multi table ids that are in transaction, used to check whether a table is in transaction
+     * multi table transaction state
+     * txnId -> tableId list
+     */
+    private final ConcurrentHashMap<Long, List<Long>> multiTableRunningTransactionTableIdMaps =
+            new ConcurrentHashMap<>();
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
@@ -859,6 +868,7 @@ public class DatabaseTransactionMgr {
         // a blocking function, the returned result would be the existed table list which hold write lock
         Database db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
+        LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
@@ -1889,8 +1899,34 @@ public class DatabaseTransactionMgr {
         final StackTraceElement[] stackTrace = t.getStackTrace();
         StringBuilder msgBuilder = new StringBuilder();
         for (StackTraceElement e : stackTrace) {
-            msgBuilder.append(e.toString() + "\n");
+            msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
+    }
+
+    public void putTransactionTableNames(long transactionId, List<Long> tableIds) {
+        if (CollectionUtils.isEmpty(tableIds)) {
+            return;
+        }
+        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
+            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
+            return;
+        }
+        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
+    }
+
+    /**
+     * Update transaction table ids by transaction id.
+     * it's used for multi table transaction.
+     */
+    public void updateMultiTableRunningTransactionTableIds(long transactionId, List<Long> tableIds) {
+        if (CollectionUtils.isEmpty(tableIds)) {
+            return;
+        }
+        //idToRunningTransactionState.get(transactionId).
+        if (null == idToRunningTransactionState.get(transactionId)) {
+            return;
+        }
+        idToRunningTransactionState.get(transactionId).setTableIdList(tableIds);
     }
 }

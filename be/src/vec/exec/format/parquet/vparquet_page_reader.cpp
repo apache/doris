@@ -72,7 +72,10 @@ Status PageReader::next_page_header() {
             break;
         }
         if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
-            return Status::IOError("Failed to deserialize parquet page header");
+            return Status::IOError(
+                    "Failed to deserialize parquet page header. offset: {}, "
+                    "header size: {}, end offset: {}, real header size: {}",
+                    _offset, header_size, _end_offset, real_header_size);
         }
         header_size <<= 2;
     }

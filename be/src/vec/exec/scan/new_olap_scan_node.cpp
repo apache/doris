@@ -440,9 +440,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {
         for (auto uid : _olap_scan_node.output_column_unique_ids) {
-            if (uid < 0) {
-                continue;
-            }
             _maybe_read_column_ids.emplace(uid);
         }
     }

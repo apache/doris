@@ -146,6 +146,8 @@ public class LikePredicate extends Predicate {
             } catch (PatternSyntaxException e) {
                 throw new AnalysisException("Invalid regular expression in '" + this.toSql() + "'");
             }
+        } else if (getChild(1) instanceof NullLiteral) {
+            getChild(1).setType(Type.STRING);
         }
     }
 

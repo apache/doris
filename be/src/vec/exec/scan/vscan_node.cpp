@@ -271,11 +271,11 @@ Status VScanNode::_init_profile() {
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
     runtime_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
-    auto* memory_usage = _scanner_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_scanner_profile, "MemoryUsage");
     _queued_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+            _scanner_profile->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES, "MemoryUsage");
+    _free_blocks_memory_usage =
+            _scanner_profile->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES, "MemoryUsage");
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
@@ -416,19 +416,6 @@ void VScanNode::release_resource(RuntimeState* state) {
             _scanner_ctx->set_should_stop();
             _scanner_ctx->clear_and_join(this, state);
         }
-    }
-
-    for (auto& ctx : _runtime_filter_ctxs) {
-        IRuntimeFilter* runtime_filter = ctx.runtime_filter;
-        runtime_filter->consumer_close();
-    }
-
-    for (auto& ctx : _stale_expr_ctxs) {
-        ctx->close(state);
-    }
-
-    for (auto& ctx : _common_expr_ctxs_push_down) {
-        ctx->close(state);
     }
 
     ExecNode::release_resource(state);
@@ -643,16 +630,16 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             } else {
                 if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(_state, context,
+                    conjunct_expr_root->children()[0]->close(context,
                                                              context->get_function_state_scope());
                 }
                 if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(_state, context,
+                    conjunct_expr_root->children()[1]->close(context,
                                                              context->get_function_state_scope());
                 }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(_state, context, context->get_function_state_scope());
+                conjunct_expr_root->close(context, context->get_function_state_scope());
             }
 
             // here do not close VExpr* now

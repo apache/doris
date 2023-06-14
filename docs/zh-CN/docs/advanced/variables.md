@@ -616,6 +616,8 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `use_fix_replica`
 
+    <version since="1.2.0"></version>
+
     使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
 
 * `dry_run_query`

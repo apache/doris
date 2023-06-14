@@ -55,13 +55,13 @@ struct Decimal;
 namespace doris::vectorized {
 
 /**
- * Connector to java jni scanner, which should extend org.apache.doris.jni.JniScanner
+ * Connector to java jni scanner, which should extend org.apache.doris.common.jni.JniScanner
  */
 class JniConnector {
 public:
     /**
      * The predicates that can be pushed down to java side.
-     * Reference to java class org.apache.doris.jni.vec.ScanPredicate
+     * Reference to java class org.apache.doris.common.jni.vec.ScanPredicate
      */
     template <typename CppType>
     struct ScanPredicate {
@@ -102,7 +102,7 @@ public:
         /**
          * The value ranges can be stored as byte array as following format:
          * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
-         * The read method is implemented in org.apache.doris.jni.vec.ScanPredicate#parseScanPredicates
+         * The read method is implemented in org.apache.doris.common.jni.vec.ScanPredicate#parseScanPredicates
          */
         int write(std::unique_ptr<char[]>& predicates, int origin_length) {
             int num_filters = 0;
@@ -232,7 +232,7 @@ private:
     std::unique_ptr<char[]> _predicates = nullptr;
 
     /**
-     * Set the address of meta information, which is returned by org.apache.doris.jni.JniScanner#getNextBatchMeta
+     * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
      */
     void _set_meta(long meta_addr) {
         _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));

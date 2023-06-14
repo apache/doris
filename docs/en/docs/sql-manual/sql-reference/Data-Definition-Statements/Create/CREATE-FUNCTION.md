@@ -64,7 +64,7 @@ Parameter Description:
 
 - `arg_type`: The parameter type of the function, which is the same as the type defined when creating the table. Variable-length parameters can be represented by `, ...`. If it is a variable-length type, the type of the variable-length parameter is the same as that of the last non-variable-length parameter.
 
-   **NOTE**: `ALIAS FUNCTION` does not support variable-length arguments and must have at least one argument.
+  **NOTE**: `ALIAS FUNCTION` does not support variable-length arguments and must have at least one argument.
 
 - `ret_type`: Required for creating new functions. If you are aliasing an existing function, you do not need to fill in this parameter.
 
@@ -77,92 +77,54 @@ Parameter Description:
 
 - `origin_function`: used to represent the original function corresponding to the alias function.
 
-- `properties`: Used to set properties related to aggregate functions and scalar functions. The properties that can be set include:
 
-  - `object_file`: The URL path of the custom function dynamic library. Currently, only HTTP/HTTPS protocol is supported. This path needs to remain valid for the entire life cycle of the function. This option is required
+- `properties`: Used to set function-related properties, the properties that can be set include:
 
-  - `symbol`: The function signature of the scalar function, which is used to find the function entry from the dynamic library. This option is required for scalar functions
+    - `file`: Indicates the jar package containing the user UDF. In a multi-machine environment, you can also use http to download the jar package. This parameter is mandatory.
 
-  - `init_fn`: The initialization function signature of the aggregate function. Required for aggregate functions
+    - `symbol`: Indicates the name of the class containing the UDF class. This parameter must be set
 
-  - `update_fn`: update function signature of aggregate function. Required for aggregate functions
+    - `type`: Indicates the UDF call type, the default is Native, and JAVA_UDF is passed when using Java UDF.
 
-  - `merge_fn`: Merge function signature of aggregate function. Required for aggregate functions
+    - `always_nullable`: Indicates whether NULL values may appear in the UDF return result, is an optional parameter, and the default value is true.
 
-  - `serialize_fn`: Serialize function signature of aggregate function. Optional for aggregate functions, if not specified, the default serialization function will be used
-
-  - `finalize_fn`: The function signature of the aggregate function to get the final result. Optional for aggregate functions, if not specified, the default get-result function will be used
-
-  - `md5`: The MD5 value of the function dynamic link library, which is used to verify whether the downloaded content is correct. This option is optional
-
-  - `prepare_fn`: The function signature of the prepare function of the custom function, which is used to find the prepare function entry from the dynamic library. This option is optional for custom functions
-
-  - `close_fn`: The function signature of the close function of the custom function, which is used to find the close function entry from the dynamic library. This option is optional for custom functions
 
 ### Example
 
-1. Create a custom scalar function
-
-   ```sql
-   CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   "object_file" = "http://host:port/libmyadd.so"
-   );
-   ````
-
-2. Create a custom scalar function with prepare/close functions
-
-   ```sql
-   CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   "prepare_fn" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   "close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   "object_file" = "http://host:port/libmyadd.so"
-   );
-   ````
-
-3. Create a custom aggregate function
+1. Create a custom UDF function
 
     ```sql
-   CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
-            "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
-            "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
-            "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
-            "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
-            "object_file"="http://host:port/libudasample.so"
-   );
-   ````
+    CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
+        "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
+        "symbol"="org.apache.doris.udf.AddOne",
+        "always_nullable"="true",
+        "type"="JAVA_UDF"
+    );
+    ```
 
 
-4. Create a scalar function with variable length arguments
+2. Create a custom UDAF function
 
-   ```sql
-   CREATE FUNCTION strconcat(varchar, ...) RETURNS varchar properties (
-   "symbol" = "_ZN9doris_udf6StrConcatUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   "object_file" = "http://host:port/libmyStrConcat.so"
-   );
-   ````
+    ```sql
+    CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
+        "file"="file:///pathTo/java-udaf.jar",
+        "symbol"="org.apache.doris.udf.demo.SimpleDemo",
+        "always_nullable"="true",
+        "type"="JAVA_UDF"
+    );
+    ```
 
-5. Create a custom alias function
+3. Create a custom alias function
 
-   ```sql
-   CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
-   ````
+    ```sql
+    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+    ```
 
-6. Create a global custom scalar function
+4. Create a global custom alias function
 
-   ```sql
-   CREATE GLOBAL FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   "symbol" = "_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   "object_file" = "http://host:port/libmyadd.so"
-   );
-   ````
-
-7. Create a global custom alias function
-
-   ```sql
-   CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
-   ```` 
+    ```sql
+    CREATE GLOBAL ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+    ```
 
 ### Keywords
 

@@ -41,7 +41,19 @@ suite("test_case_function_null", "query,p0") {
         );
     """
 
-    def tables = ["case_null0", "case_null1"]
+    sql """ drop table if exists `case_null2` """
+    sql """
+        CREATE TABLE `case_null2` (
+          `c0` tinyint(4) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`c0`)
+        DISTRIBUTED BY HASH(`c0`) BUCKETS 20
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    def tables = ["case_null0", "case_null1", "case_null2"]
 
     for (String tableName in tables) {
         streamLoad {
@@ -172,5 +184,48 @@ suite("test_case_function_null", "query,p0") {
         order BY
             c2,
             c1;
+    """
+
+    qt_sql_case1 """
+        SELECT SUM(
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
+            THEN (- (+ case_null2.c0))
+            WHEN CASE (NULL IN (NULL))
+            WHEN false THEN (case_null2.c0 NOT BETWEEN case_null2.c0 AND 1916517711)
+            END THEN ((((case_null2.c0)*(1309461808)))/((- -267268292)))
+            END)
+        FROM case_null2;
+    """
+
+    qt_sql_case2 """
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
+            THEN (- (+ case_null2.c0))
+            END)
+        FROM case_null2;
+    """
+
+    sql "SET experimental_enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+
+    qt_sql_case1 """
+        SELECT SUM(
+            CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
+            THEN (- (+ case_null2.c0))
+            WHEN CASE (NULL IN (NULL))
+            WHEN false THEN (case_null2.c0 NOT BETWEEN case_null2.c0 AND 1916517711)
+            END THEN ((((case_null2.c0)*(1309461808)))/((- -267268292)))
+            END)
+        FROM case_null2;
+    """
+
+    qt_sql_case2 """
+        SELECT SUM(CASE (((NULL BETWEEN NULL AND NULL)) and (CAST(0.4716 AS BOOLEAN)))
+            WHEN ((CAST('-1530390546' AS VARCHAR)) LIKE ('-1678299490'))
+            THEN (- (+ case_null2.c0))
+            END)
+        FROM case_null2;
     """
 }

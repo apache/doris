@@ -55,8 +55,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     params["length_byte"] = range.table_format_params.paimon_params.length_byte;
     params["split_byte"] =
             std::to_string((int64_t)range.table_format_params.paimon_params.paimon_split.data());
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/PaimonJniScanner", params,
-                                                    column_names);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
+                                                    params, column_names);
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

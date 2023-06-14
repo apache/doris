@@ -192,12 +192,6 @@ public class MysqlProto {
                 channel.setSslMode(true);
                 LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
-                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
-                if (!capability.isClientUseSsl()) {
-                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
-                    sendResponsePacket(context);
-                    return false;
-                }
             } else {
                 handshakeResponse = clientRequestPacket;
             }
