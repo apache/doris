@@ -44,7 +44,6 @@ public:
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
-    void close(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
@@ -117,7 +116,6 @@ public:
         _is_clone = other._is_clone;
         _prepared = other._prepared;
         _opened = other._opened;
-        _closed = other._closed;
 
         for (auto& fn : other._fn_contexts) {
             _fn_contexts.emplace_back(fn->clone());
@@ -134,12 +132,15 @@ public:
         _is_clone = other._is_clone;
         _prepared = other._prepared;
         _opened = other._opened;
-        _closed = other._closed;
         _fn_contexts = std::move(other._fn_contexts);
         _last_result_column_id = other._last_result_column_id;
         _depth_num = other._depth_num;
         return *this;
     }
+
+private:
+    // Close method is called in vexpr context dector, not need call expicility
+    void close();
 
 private:
     friend class VExpr;
@@ -153,7 +154,6 @@ private:
     /// Variables keeping track of current state.
     bool _prepared;
     bool _opened;
-    bool _closed;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.
