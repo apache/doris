@@ -48,6 +48,12 @@ VExprContext::VExprContext(const VExprSPtr& expr)
           _last_result_column_id(-1) {}
 
 VExprContext::~VExprContext() {
+    // In runtime filter, only create expr context to get expr root, will not call
+    // prepare or open, so that it is not need to call close. And call close may core
+    // because the function context in expr is not set.
+    if (!_prepared || !_opened) {
+        return;
+    }
     close();
 }
 
@@ -79,7 +85,11 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     return _root->open(state, this, scope);
 }
 
-void VExprContext::close() {
+void VExprContext::close(doris::RuntimeState* state) {
+    // Sometimes expr context may not have a root, then it need not call close
+    if (_root == nullptr) {
+        return;
+    }
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     _root->close(this, scope);
