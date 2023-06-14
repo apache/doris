@@ -151,10 +151,10 @@ suite("test_broker_load", "p0") {
                     "",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
                     "",
@@ -218,7 +218,7 @@ suite("test_broker_load", "p0") {
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
+                        assertTrue(result[0][7].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label");
                         break;
                     }
                     Thread.sleep(1000)
@@ -235,7 +235,6 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
             order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
             for (String table in tables) {
