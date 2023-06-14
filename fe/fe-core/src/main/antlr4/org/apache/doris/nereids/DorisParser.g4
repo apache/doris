@@ -602,7 +602,6 @@ nonReserved
     | MAP
     | MATCHED
     | MERGE
-    | MICROSECOND
     | MINUTE
     | MONTH
     | MSCK
