@@ -220,7 +220,11 @@ public:
     Status publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish());
+                auto state = filter->publish();
+                if (!state) {
+                    // TODO: solve publish failed when scan not schedured
+                    LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
+                }
             }
         }
         return Status::OK();

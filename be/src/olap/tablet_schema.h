@@ -264,7 +264,7 @@ public:
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
-
+    // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
     vectorized::Block create_block(

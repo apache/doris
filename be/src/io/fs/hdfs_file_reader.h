@@ -24,6 +24,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "io/fs/file_handle_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs.h"
@@ -37,8 +38,7 @@ class IOContext;
 
 class HdfsFileReader : public FileReader {
 public:
-    HdfsFileReader(Path path, size_t file_size, const std::string& name_node, hdfsFile hdfs_file,
-                   std::shared_ptr<HdfsFileSystem> fs);
+    HdfsFileReader(Path path, const std::string& name_node, FileHandleCache::Accessor accessor);
 
     ~HdfsFileReader() override;
 
@@ -46,11 +46,11 @@ public:
 
     const Path& path() const override { return _path; }
 
-    size_t size() const override { return _file_size; }
+    size_t size() const override { return _handle->file_size(); }
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
-    FileSystemSPtr fs() const override { return _fs; }
+    FileSystemSPtr fs() const override { return _accessor.fs(); }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -58,10 +58,9 @@ protected:
 
 private:
     Path _path;
-    size_t _file_size;
     const std::string& _name_node;
-    hdfsFile _hdfs_file;
-    std::shared_ptr<HdfsFileSystem> _fs;
+    FileHandleCache::Accessor _accessor;
+    CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
 };
 } // namespace io

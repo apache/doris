@@ -288,9 +288,6 @@ public:
     // for ut
     bool is_bloomfilter();
 
-    // consumer should call before released
-    Status consumer_close();
-
     bool is_finish_rpc();
 
     Status join_rpc();
