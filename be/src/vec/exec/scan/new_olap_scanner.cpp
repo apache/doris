@@ -71,13 +71,13 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
           _scan_range(scan_range),
-          _key_ranges(key_ranges) {
+          _key_ranges(key_ranges),
+          _scanner_id(scanner_id) {
     DCHECK(rs_readers.size() == rs_reader_seg_offsets.size());
     _tablet_reader_params.rs_readers = rs_readers;
     _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
-    _scanner_id = scanner_id;
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,

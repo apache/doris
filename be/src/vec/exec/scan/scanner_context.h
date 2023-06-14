@@ -64,7 +64,7 @@ public:
                    int64_t max_bytes_in_blocks_queue_);
 
     virtual ~ScannerContext() = default;
-    Status init();
+    virtual Status init();
 
     virtual vectorized::BlockUPtr get_free_block(bool* has_free_block,
                                                  bool get_not_empty_block = false,
@@ -131,8 +131,6 @@ public:
 
     virtual bool empty_in_queue(int id);
 
-    virtual void set_max_queue_size(int max_queue_size, int free_block_queue_size) {};
-
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     virtual inline bool has_enough_space_in_blocks_queue() const {
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
@@ -164,8 +162,6 @@ protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
     virtual void _init_free_block(int pre_alloc_block_count, int real_block_size);
-
-    virtual void _init_colocate_block() {};
 
     RuntimeState* _state;
     VScanNode* _parent;

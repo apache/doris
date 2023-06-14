@@ -32,11 +32,14 @@ public:
                       const TupleDescriptor* input_tuple_desc,
                       const TupleDescriptor* output_tuple_desc,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
-                      int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids)
+                      int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
+                      const int max_queue_size, const int free_block_queue_size)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
                                          scanners, limit, max_bytes_in_blocks_queue),
               _col_distribute_ids(col_distribute_ids),
-              _need_colocate_distribute(!_col_distribute_ids.empty()) {}
+              _need_colocate_distribute(!_col_distribute_ids.empty()),
+              _max_queue_size(max_queue_size),
+              _free_block_queue_len(free_block_queue_size) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -128,11 +131,8 @@ public:
         return _blocks_queues[id].empty();
     }
 
-    void set_max_queue_size(const int max_queue_size, const int free_block_queue_size) override {
-        _max_queue_size = max_queue_size;
-        _free_block_queue_len = free_block_queue_size;
-
-        for (int i = 0; i < max_queue_size; ++i) {
+    Status init() override {
+        for (int i = 0; i < _max_queue_size; ++i) {
             _queue_mutexs.emplace_back(new std::mutex);
             _blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
@@ -140,25 +140,27 @@ public:
             _free_block_queue_mutexs.emplace_back(new std::mutex);
             _free_blocks_queues.emplace_back(std::list<vectorized::BlockUPtr>());
         }
+        RETURN_IF_ERROR(ScannerContext::init());
+        if (_need_colocate_distribute) {
+            _init_colocate_block();
+        }
+        return Status::OK();
     }
 
-    void _init_colocate_block() override {
-        if (_need_colocate_distribute) {
-            int real_block_size =
-                    limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
-            int64_t free_blocks_memory_usage = 0;
-            for (int i = 0; i < _max_queue_size; ++i) {
-                auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(),
-                                                              real_block_size,
-                                                              true /*ignore invalid slots*/);
-                free_blocks_memory_usage += block->allocated_bytes();
-                _colocate_mutable_blocks.emplace_back(
-                        vectorized::MutableBlock::create_unique(block.get()));
-                _colocate_blocks.emplace_back(std::move(block));
-                _colocate_block_mutexs.emplace_back(new std::mutex);
-            }
-            _free_blocks_memory_usage->add(free_blocks_memory_usage);
+    void _init_colocate_block() {
+        int real_block_size =
+                limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
+        int64_t free_blocks_memory_usage = 0;
+        for (int i = 0; i < _max_queue_size; ++i) {
+            auto block = vectorized::Block::create_unique(
+                    _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
+            free_blocks_memory_usage += block->allocated_bytes();
+            _colocate_mutable_blocks.emplace_back(
+                    vectorized::MutableBlock::create_unique(block.get()));
+            _colocate_blocks.emplace_back(std::move(block));
+            _colocate_block_mutexs.emplace_back(new std::mutex);
         }
+        _free_blocks_memory_usage->add(free_blocks_memory_usage);
     }
 
     bool has_enough_space_in_blocks_queue() const override {
@@ -213,25 +215,22 @@ public:
         // The free blocks is used for final output block of scanners.
         // So use _output_tuple_desc;
         int64_t free_blocks_memory_usage = 0;
-        for (int i = 0, j = 0; i < pre_alloc_block_count; ++i, j++) {
+        for (int i = 0; i < pre_alloc_block_count; i++) {
             auto block = vectorized::Block::create_unique(
                     _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
             free_blocks_memory_usage += block->allocated_bytes();
-            _free_blocks_queues[j].emplace_back(std::move(block));
-            if (j == _free_block_queue_len - 1) {
-                j = -1;
-            }
+            _free_blocks_queues[i % _free_block_queue_len].emplace_back(std::move(block));
         }
         _total_free_block_num = pre_alloc_block_count;
         _free_blocks_memory_usage->add(free_blocks_memory_usage);
     }
 
     int cal_thread_slot_num_by_free_block_num() override {
-        // using _free_blocks_lock to make ```cal_thread_slot_num_by_free_block_num``` execute sequentially
-        int thread_slot_num = 0;
-        std::lock_guard f(_free_blocks_lock);
+        // For pipeline engine, we don't promise `thread_slot_num` is exact (e.g. scanners to
+        // schedule may need more free blocks than available free blocks).
+        // This is because we don't want a heavy lock for free block queues.
         int local_val = _total_free_block_num;
-        thread_slot_num = local_val / _block_per_scanner;
+        int thread_slot_num = local_val / _block_per_scanner;
         thread_slot_num += (local_val % _block_per_scanner != 0);
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
         if (thread_slot_num <= 0) {
@@ -241,15 +240,15 @@ public:
     }
 
 private:
-    int _max_queue_size = 1;
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
-    int _free_block_queue_len = 0;
 
     const std::vector<int>& _col_distribute_ids;
     const bool _need_colocate_distribute;
+    const int _max_queue_size;
+    const int _free_block_queue_len;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;

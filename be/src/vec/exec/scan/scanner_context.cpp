@@ -101,7 +101,6 @@ Status ScannerContext::init() {
     auto pre_alloc_block_count = _max_thread_num * _block_per_scanner;
 
     _init_free_block(pre_alloc_block_count, real_block_size);
-    _init_colocate_block();
 
 #ifndef BE_TEST
     // 3. get thread token

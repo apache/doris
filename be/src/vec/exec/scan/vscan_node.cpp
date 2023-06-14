@@ -176,14 +176,10 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 
     if (_is_pipeline_scan) {
         if (_should_create_scanner) {
-            auto status = !_eos ? _prepare_scanners() : Status::OK();
+            auto status =
+                    !_eos ? _prepare_scanners(state->query_parallel_instance_num()) : Status::OK();
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
-                int max_queue_size =
-                        _shared_scan_opt ? std::max(state->query_parallel_instance_num(), 1) : 1;
-                int free_block_queue_size = _shared_scan_opt ? _scan_producer_group_num : 1;
-
-                _scanner_ctx->set_max_queue_size(max_queue_size, free_block_queue_size);
                 RETURN_IF_ERROR(_scanner_ctx->init());
                 RETURN_IF_ERROR(
                         _state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
@@ -202,7 +198,8 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             return Status::WaitForScannerContext("Need wait for scanner context create");
         }
     } else {
-        RETURN_IF_ERROR(!_eos ? _prepare_scanners() : Status::OK());
+        RETURN_IF_ERROR(!_eos ? _prepare_scanners(state->query_parallel_instance_num())
+                              : Status::OK());
         if (_scanner_ctx) {
             RETURN_IF_ERROR(_scanner_ctx->init());
             RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
@@ -305,11 +302,15 @@ Status VScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners) {
+Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
+                                  const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
+        int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
+        int free_block_queue_size = _shared_scan_opt ? _scan_producer_group_num : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids);
+                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size,
+                free_block_queue_size);
     } else {
         _scanner_ctx =
                 ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,
@@ -1397,14 +1398,14 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
     return PushDownType::ACCEPTABLE;
 }
 
-Status VScanNode::_prepare_scanners() {
+Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos = true;
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners));
+        RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
     }
     return Status::OK();
 }

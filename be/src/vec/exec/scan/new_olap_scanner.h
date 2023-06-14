@@ -73,7 +73,7 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
-    int scanner_id() override { return _scanner_id; }
+    int scanner_id() const override { return _scanner_id; }
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -105,7 +105,7 @@ private:
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
     std::vector<TCondition> _compound_filters;
 
-    int _scanner_id = 0;
+    const int _scanner_id;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;

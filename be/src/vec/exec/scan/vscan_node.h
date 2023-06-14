@@ -250,7 +250,7 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
-    Status _prepare_scanners();
+    Status _prepare_scanners(const int query_parallel_instance_num);
 
 protected:
     RuntimeState* _state;
@@ -467,7 +467,8 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScannerSPtr>& scanners);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners,
+                           const int query_parallel_instance_num);
 };
 
 } // namespace doris::vectorized

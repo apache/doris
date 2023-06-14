@@ -62,6 +62,7 @@ public:
 
 private:
     std::mutex _mutex;
+    std::atomic_bool _flag;
     std::map<int /*node id*/, int /*parallel*/> _scanner_parallel;
     std::map<int /*node id*/, std::shared_ptr<ScannerContext>> _scanner_context;
 };

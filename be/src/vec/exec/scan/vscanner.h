@@ -69,7 +69,7 @@ public:
     // return the readable name of current scan range.
     // eg, for file scanner, return the current file path.
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
-    virtual int scanner_id() { return 0; }
+    virtual int scanner_id() const { return 0; }
 
 protected:
     // Subclass should implement this to return data.
