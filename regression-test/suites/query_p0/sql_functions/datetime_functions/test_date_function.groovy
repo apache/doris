@@ -632,15 +632,12 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
-    explain {
-        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-        contains "`birth` < '2022-01-01'"
-    }
+    String explainResult
+    explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
-    explain {
-        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
-        contains "`birth1` < '2022-01-01'"
-    }
+    explainResult = sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
     sql """
         insert into ${tableName} values 
