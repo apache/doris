@@ -45,15 +45,16 @@ VExprContext::VExprContext(const VExprSPtr& expr)
           _is_clone(false),
           _prepared(false),
           _opened(false),
-          _closed(false),
           _last_result_column_id(-1) {}
 
 VExprContext::~VExprContext() {
-    // Do not delete this code, this code here is used to check if forget to close the opened context
-    // Or there will be memory leak
-    DCHECK(!_prepared || _closed || k_doris_exit)
-            << " prepare:" << _prepared << " closed:" << _closed
-            << " expr:" << _root->debug_string();
+    // In runtime filter, only create expr context to get expr root, will not call
+    // prepare or open, so that it is not need to call close. And call close may core
+    // because the function context in expr is not set.
+    if (!_prepared || !_opened) {
+        return;
+    }
+    close();
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
@@ -84,12 +85,14 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     return _root->open(state, this, scope);
 }
 
-void VExprContext::close(doris::RuntimeState* state) {
-    DCHECK(!_closed);
+void VExprContext::close() {
+    // Sometimes expr context may not have a root, then it need not call close
+    if (_root == nullptr) {
+        return;
+    }
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    _root->close(state, this, scope);
-    _closed = true;
+    _root->close(this, scope);
 }
 
 doris::Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {

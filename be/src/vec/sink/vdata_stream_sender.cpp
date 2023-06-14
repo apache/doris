@@ -696,7 +696,6 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             final_st = st;
         }
     }
-    VExpr::close(_partition_expr_ctxs, state);
     DataSink::close(state, exec_status);
     return final_st;
 }
