@@ -2039,7 +2039,10 @@ Status Tablet::_cooldown_data() {
         save_meta();
     }
     // upload cooldowned rowset meta to remote fs
-    async_write_cooldown_meta(StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id()));
+    if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+        t != nullptr) { // `t` can be nullptr if it has been dropped
+        async_write_cooldown_meta(std::move(t));
+    }
     return Status::OK();
 }
 
