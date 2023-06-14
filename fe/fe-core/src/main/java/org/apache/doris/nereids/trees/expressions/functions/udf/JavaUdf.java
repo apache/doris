@@ -143,7 +143,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     @Override
     public Function getCatalogFunction() {
         try {
-            return org.apache.doris.catalog.ScalarFunction.createUdf(
+            org.apache.doris.catalog.ScalarFunction expr = org.apache.doris.catalog.ScalarFunction.createUdf(
                     binaryType,
                     new FunctionName(dbName, getName()),
                     signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
@@ -154,6 +154,8 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                     prepareFn,
                     closeFn
             );
+            expr.setNullableMode(nullableMode);
+            return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
