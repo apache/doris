@@ -120,7 +120,11 @@ message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
+
 option(WITH_MYSQL "Support access MySQL" ON)
+
+option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
+message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
