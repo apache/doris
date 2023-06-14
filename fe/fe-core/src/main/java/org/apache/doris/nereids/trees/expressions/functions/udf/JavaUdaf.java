@@ -60,7 +60,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String finalizeFn;
     private final String getValueFn;
     private final String removeFn;
-    private final String checkSum
+    private final String checkSum;
 
     /**
      * Constructor of UDAF
