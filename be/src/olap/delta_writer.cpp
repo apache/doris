@@ -451,8 +451,8 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
                                                                          _delete_bitmap));
             RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                    _cur_rowset, _rowset_ids, _delete_bitmap, _cur_max_version, segments,
-                    _rowset_writer.get()));
+                    _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second,
+                    segments, _rowset_writer.get()));
         }
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
