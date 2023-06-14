@@ -49,6 +49,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
         String auto_default_t = "auto_default_t";
+        String dt = "dt";
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -101,6 +102,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
         order_qt_information_schema """ show tables from information_schema; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
+        order_qt_dt """select * from ${dt}; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
