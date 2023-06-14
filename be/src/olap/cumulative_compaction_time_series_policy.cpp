@@ -64,12 +64,15 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
 
     // Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
-    if (total_size >= (config::time_series_compaction_goal_size_mbytes * 1024 * 1024)) {
+    if (total_size >=
+        (tablet->tablet_meta()->tablet_schema()->time_series_compaction_goal_size_mbytes() * 1024 *
+         1024)) {
         return score;
     }
 
     // Condition 2: the number of input files reaches the threshold specified by parameter _compaction_file_count_threshold
-    if (score >= config::time_series_compaction_file_count_threshold) {
+    if (score >=
+        tablet->tablet_meta()->tablet_schema()->time_series_compaction_file_count_threshold()) {
         return score;
     }
 
@@ -79,7 +82,10 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         int64_t cumu_interval = now - last_cumu;
 
         // Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
-        if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
+        if (cumu_interval > (tablet->tablet_meta()
+                                     ->tablet_schema()
+                                     ->time_series_compaction_time_threshold_seconds() *
+                             1000)) {
             return score;
         }
     }
@@ -87,18 +93,17 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     return 0;
 }
 
-void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
-    *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
-    if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
+int64_t TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(Tablet* tablet) {
+    int ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
+    if (tablet->cumulative_layer_point() != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
         // after that, cumulative point will be updated along with compaction process.
-        return;
+        return ret_cumulative_point;
     }
+    auto all_metas = tablet->tablet_meta()->all_rs_metas();
     // empty return
     if (all_metas.empty()) {
-        return;
+        return ret_cumulative_point;
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
@@ -115,7 +120,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
 
-    if (tablet->tablet_state() != TABLET_RUNNING) return;
+    if (tablet->tablet_state() != TABLET_RUNNING) return ret_cumulative_point;
     // check base rowset first version must be zero
     // for tablet which state is not TABLET_RUNNING, there may not have base version.
     CHECK((*base_rowset_meta)->start_version() == 0);
@@ -131,38 +136,38 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
 
         // break the loop if segments in this rowset is overlapping.
         if (!is_delete && rs->is_segments_overlapping()) {
-            *ret_cumulative_point = rs->version().first;
+            ret_cumulative_point = rs->version().first;
             break;
         }
 
         // check the rowset is whether less than _compaction_goal_size
         // The result of compaction may be slightly smaller than the _compaction_goal_size.
         if (!is_delete && rs->version().first != 0 &&
-            rs->total_disk_size() <
-                    (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 0.8)) {
-            *ret_cumulative_point = rs->version().first;
+            rs->total_disk_size() < (tablet->tablet_meta()
+                                             ->tablet_schema()
+                                             ->time_series_compaction_goal_size_mbytes() *
+                                     1024 * 1024 * 0.8)) {
+            ret_cumulative_point = rs->version().first;
             break;
         }
 
         // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
         prev_version = rs->version().second;
-        *ret_cumulative_point = prev_version + 1;
+        ret_cumulative_point = prev_version + 1;
     }
     VLOG_NOTICE << "cumulative compaction time serires policy, calculate cumulative point value = "
-                << *ret_cumulative_point << " tablet = " << tablet->full_name();
+                << ret_cumulative_point << " tablet = " << tablet->full_name();
+    return ret_cumulative_point;
 }
 
-int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
+void TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-        const int64_t max_compaction_score, const int64_t min_compaction_score,
-        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
-        size_t* compaction_score) {
+        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version) {
     if (tablet->tablet_state() == TABLET_NOTREADY) {
-        return 0;
+        return;
     }
 
-    int transient_size = 0;
-    *compaction_score = 0;
+    size_t compaction_score = 0;
     input_rowsets->clear();
     int64_t total_size = 0;
 
@@ -177,30 +182,29 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             } else {
                 // we meet a delete version, and no other versions before, skip it and continue
                 input_rowsets->clear();
-                *compaction_score = 0;
-                transient_size = 0;
+                compaction_score = 0;
                 total_size = 0;
                 continue;
             }
         }
 
-        *compaction_score += rowset->rowset_meta()->get_compaction_score();
+        compaction_score += rowset->rowset_meta()->get_compaction_score();
         total_size += rowset->rowset_meta()->total_disk_size();
-
-        transient_size += 1;
         input_rowsets->push_back(rowset);
 
         // Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
-        if (total_size >= (config::time_series_compaction_goal_size_mbytes * 1024 * 1024)) {
+        if (total_size >=
+            (tablet->tablet_meta()->tablet_schema()->time_series_compaction_goal_size_mbytes() *
+             1024 * 1024)) {
             if (input_rowsets->size() == 1 &&
                 !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
                 // Only 1 non-overlapping rowset, skip it
                 input_rowsets->clear();
-                *compaction_score = 0;
+                compaction_score = 0;
                 total_size = 0;
                 continue;
             }
-            return transient_size;
+            return;
         }
     }
 
@@ -211,14 +215,15 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         if (input_rowsets->size() == 1 &&
             !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
             input_rowsets->clear();
-            *compaction_score = 0;
+            compaction_score = 0;
         }
-        return transient_size;
+        return;
     }
 
     // Condition 2: the number of input files reaches the threshold specified by parameter _compaction_file_count_threshold
-    if (*compaction_score >= config::time_series_compaction_file_count_threshold) {
-        return transient_size;
+    if (compaction_score >=
+        tablet->tablet_meta()->tablet_schema()->time_series_compaction_file_count_threshold()) {
+        return;
     }
 
     int64_t now = UnixMillis();
@@ -227,19 +232,19 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         int64_t cumu_interval = now - last_cumu;
 
         // Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
-        if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
-            return transient_size;
+        if (cumu_interval > (tablet->tablet_meta()
+                                     ->tablet_schema()
+                                     ->time_series_compaction_time_threshold_seconds() *
+                             1000)) {
+            return;
         }
     }
 
     input_rowsets->clear();
-    *compaction_score = 0;
-    return 0;
 }
 
 void TimeSeriesCumulativeCompactionPolicy::update_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-        RowsetSharedPtr output_rowset, Version& last_delete_version) {
+        Tablet* tablet, const RowsetSharedPtr& output_rowset, const Version& last_delete_version) {
     if (tablet->tablet_state() != TABLET_RUNNING) {
         // if tablet under alter process, do not update cumulative point
         return;

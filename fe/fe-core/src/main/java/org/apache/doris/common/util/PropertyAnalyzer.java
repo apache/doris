@@ -127,6 +127,17 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
+    public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES =
+                                                        "time_series_compaction_goal_size_mbytes";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD =
+                                                        "time_series_compaction_file_count_threshold";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
+                                                        "time_series_compaction_time_threshold_seconds";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
@@ -587,6 +598,81 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
+    }
+
+    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return "";
+        }
+        String compactionPolicy = "";
+        if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
+            compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
+            properties.remove(PROPERTIES_COMPACTION_POLICY);
+            if (!compactionPolicy.equals("time_series")) {
+                throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
+                        + " must be `time_series`");
+            }
+        }
+
+        return compactionPolicy;
+    }
+
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties,
+                                            long defaultGoalSizeMbytes) throws AnalysisException {
+        long goalSizeMbytes = defaultGoalSizeMbytes;
+        if (properties == null || properties.isEmpty()) {
+            return goalSizeMbytes;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+        }
+        return goalSizeMbytes;
+    }
+
+    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties,
+                                            long defaultFileCountThreshold) throws AnalysisException {
+        long fileCountThreshold = defaultFileCountThreshold;
+        if (properties == null || properties.isEmpty()) {
+            return fileCountThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            String fileCountThresholdStr = properties
+                                            .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                + fileCountThresholdStr);
+            }
+        }
+        return fileCountThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties,
+                                                long defaultTimeThresholdSeconds) throws AnalysisException {
+        long timeThresholdSeconds = defaultTimeThresholdSeconds;
+        if (properties == null || properties.isEmpty()) {
+            return timeThresholdSeconds;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            String timeThresholdSecondsStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            try {
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                                                                                + timeThresholdSecondsStr);
+            }
+        }
+        return timeThresholdSeconds;
     }
 
     // analyzeCompressionType will parse the compression type from properties

@@ -1032,6 +1032,10 @@ public class RestoreJob extends AbstractJob {
                             localTbl.disableAutoCompaction(),
                             localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
+                            localTbl.compactionPolicy(),
+                            localTbl.timeSeriesCompactionGoalSizeMbytes(),
+                            localTbl.timeSeriesCompactionFileCountThreshold(),
+                            localTbl.timeSeriesCompactionTimeThresholdSeconds(),
                             localTbl.storeRowColumn(),
                             localTbl.isDynamicSchema(),
                             binlogConfig);

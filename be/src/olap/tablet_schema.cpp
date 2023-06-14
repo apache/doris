@@ -710,6 +710,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
+    _compaction_policy = schema.compaction_policy();
+    _time_series_compaction_goal_size_mbytes = schema.time_series_compaction_goal_size_mbytes();
+    _time_series_compaction_file_count_threshold =
+            schema.time_series_compaction_file_count_threshold();
+    _time_series_compaction_time_threshold_seconds =
+            schema.time_series_compaction_time_threshold_seconds();
     _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
@@ -765,6 +771,13 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
     _store_row_column = ori_tablet_schema.store_row_column();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
+    _compaction_policy = ori_tablet_schema.compaction_policy();
+    _time_series_compaction_goal_size_mbytes =
+            ori_tablet_schema.time_series_compaction_goal_size_mbytes();
+    _time_series_compaction_file_count_threshold =
+            ori_tablet_schema.time_series_compaction_file_count_threshold();
+    _time_series_compaction_time_threshold_seconds =
+            ori_tablet_schema.time_series_compaction_time_threshold_seconds();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
 
@@ -865,6 +878,13 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_skip_write_index_on_load(_skip_write_index_on_load);
+    tablet_schema_pb->set_compaction_policy(_compaction_policy);
+    tablet_schema_pb->set_time_series_compaction_goal_size_mbytes(
+            _time_series_compaction_goal_size_mbytes);
+    tablet_schema_pb->set_time_series_compaction_file_count_threshold(
+            _time_series_compaction_file_count_threshold);
+    tablet_schema_pb->set_time_series_compaction_time_threshold_seconds(
+            _time_series_compaction_time_threshold_seconds);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
@@ -1151,6 +1171,15 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
+    if (a._compaction_policy != b._compaction_policy) return false;
+    if (a._time_series_compaction_goal_size_mbytes != b._time_series_compaction_goal_size_mbytes)
+        return false;
+    if (a._time_series_compaction_file_count_threshold !=
+        b._time_series_compaction_file_count_threshold)
+        return false;
+    if (a._time_series_compaction_time_threshold_seconds !=
+        b._time_series_compaction_time_threshold_seconds)
+        return false;
     return true;
 }
 

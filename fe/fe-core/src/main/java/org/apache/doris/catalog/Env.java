@@ -3108,6 +3108,25 @@ public class Env {
                 sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
             }
 
+            // compaction policy
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
+            sb.append(olapTable.compactionPolicy()).append("\"");
+
+            // time series compaction goal size
+            sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+            sb.append(olapTable.timeSeriesCompactionGoalSizeMbytes()).append("\"");
+
+            // time series compaction file count threshold
+            sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+            sb.append(olapTable.timeSeriesCompactionFileCountThreshold()).append("\"");
+
+            // time series compaction time threshold
+            sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+            sb.append(olapTable.timeSeriesCompactionTimeThresholdSeconds()).append("\"");
+
             // dynamic schema
             if (olapTable.isDynamicSchema()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");

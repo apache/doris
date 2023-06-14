@@ -37,6 +37,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/full_compaction.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
@@ -198,7 +199,12 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
     timer.start();
 
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            tablet->tablet_meta()->tablet_schema()->compaction_policy() ==
+                            CUMULATIVE_TIME_SERIES_POLICY
+                    ? CumulativeCompactionPolicyFactory::
+                              create_time_series_cumulative_compaction_policy()
+                    : CumulativeCompactionPolicyFactory::
+                              create_size_based_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }

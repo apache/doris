@@ -86,6 +86,14 @@ public class TableProperty implements Writable {
 
     private boolean skipWriteIndexOnLoad = false;
 
+    private String compactionPolicy = "";
+
+    private long timeSeriesCompactionGoalSizeMbytes = 1024;
+
+    private long timeSeriesCompactionFileCountThreshold = 10000;
+
+    private long timeSeriesCompactionTimeThresholdSeconds = 3600;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -212,6 +220,45 @@ public class TableProperty implements Writable {
 
     public boolean skipWriteIndexOnLoad() {
         return skipWriteIndexOnLoad;
+    }
+
+    public TableProperty buildCompactionPolicy() {
+        compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
+        return this;
+    }
+
+    public String compactionPolicy() {
+        return compactionPolicy;
+    }
+
+    public TableProperty buildTimeSeriesCompactionGoalSizeMbytes() {
+        timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES, "1024"));
+        return this;
+    }
+
+    public long timeSeriesCompactionGoalSizeMbytes() {
+        return timeSeriesCompactionGoalSizeMbytes;
+    }
+
+    public TableProperty buildTimeSeriesCompactionFileCountThreshold() {
+        timeSeriesCompactionFileCountThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD, "10000"));
+        return this;
+    }
+
+    public long timeSeriesCompactionFileCountThreshold() {
+        return timeSeriesCompactionFileCountThreshold;
+    }
+
+    public TableProperty buildTimeSeriesCompactionTimeThresholdSeconds() {
+        timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS, "3600"));
+        return this;
+    }
+
+    public long timeSeriesCompactionTimeThresholdSeconds() {
+        return timeSeriesCompactionTimeThresholdSeconds;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -434,6 +481,10 @@ public class TableProperty implements Writable {
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
                 .buildSkipWriteIndexOnLoad()
+                .buildCompactionPolicy()
+                .buildTimeSeriesCompactionGoalSizeMbytes()
+                .buildTimeSeriesCompactionFileCountThreshold()
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {

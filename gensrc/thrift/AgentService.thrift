@@ -44,6 +44,10 @@ struct TTabletSchema {
     16: optional bool store_row_column = false
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
+    19: optional string compaction_policy
+    20: optional i64 time_series_compaction_goal_size_mbytes = 1024
+    21: optional i64 time_series_compaction_file_count_threshold = 10000
+    22: optional i64 time_series_compaction_time_threshold_seconds = 3600
 }
 
 // this enum stands for different storage format in src_backends

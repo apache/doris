@@ -30,26 +30,17 @@
 
 namespace doris {
 
-SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
-        int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
-        int64_t compaction_min_size)
-        : _promotion_size(promotion_size),
-          _promotion_ratio(promotion_ratio),
-          _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size) {}
-
-void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
-    *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
-    if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
+int64_t SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(Tablet* tablet) {
+    int64_t ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
+    if (tablet->cumulative_layer_point() != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
         // after that, cumulative point will be updated along with compaction process.
-        return;
+        return ret_cumulative_point;
     }
+    auto all_metas = tablet->tablet_meta()->all_rs_metas();
     // empty return
     if (all_metas.empty()) {
-        return;
+        return ret_cumulative_point;
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
@@ -85,59 +76,56 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 
             // break the loop if segments in this rowset is overlapping.
             if (!is_delete && rs->is_segments_overlapping()) {
-                *ret_cumulative_point = rs->version().first;
+                ret_cumulative_point = rs->version().first;
                 break;
             }
 
             // check the rowset is whether less than promotion size
             if (!is_delete && rs->version().first != 0 && rs->total_disk_size() < promotion_size) {
-                *ret_cumulative_point = rs->version().first;
+                ret_cumulative_point = rs->version().first;
                 break;
             }
 
             // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
             prev_version = rs->version().second;
-            *ret_cumulative_point = prev_version + 1;
+            ret_cumulative_point = prev_version + 1;
         }
         VLOG_NOTICE
                 << "cumulative compaction size_based policy, calculate cumulative point value = "
-                << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
+                << ret_cumulative_point << ", calc promotion size value = " << promotion_size
                 << " tablet = " << tablet->full_name();
     } else if (tablet->tablet_state() == TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
         for (const RowsetMetaSharedPtr& rs : existing_rss) {
             if (rs->version().first > 0) {
-                *ret_cumulative_point = rs->version().first;
+                ret_cumulative_point = rs->version().first;
                 break;
             }
         }
     }
+    return ret_cumulative_point;
 }
 
-void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(Tablet* tablet,
-                                                               RowsetMetaSharedPtr base_rowset_meta,
-                                                               int64_t* promotion_size) {
+void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(
+        Tablet* tablet, const RowsetMetaSharedPtr& base_rowset_meta, int64_t* promotion_size) {
     int64_t base_size = base_rowset_meta->total_disk_size();
-    *promotion_size = base_size * _promotion_ratio;
+    *promotion_size = base_size * config::compaction_promotion_ratio;
 
+    int64_t compaction_promotion_size = config::compaction_promotion_size_mbytes * 1024 * 1024;
+    int64_t compaction_promotion_min_size =
+            config::compaction_promotion_min_size_mbytes * 1024 * 1024;
     // promotion_size is between _promotion_size and _promotion_min_size
-    if (*promotion_size >= _promotion_size) {
-        *promotion_size = _promotion_size;
-    } else if (*promotion_size <= _promotion_min_size) {
-        *promotion_size = _promotion_min_size;
+    if (*promotion_size >= compaction_promotion_size) {
+        *promotion_size = compaction_promotion_size;
+    } else if (*promotion_size <= compaction_promotion_min_size) {
+        *promotion_size = compaction_promotion_min_size;
     }
-    _refresh_tablet_promotion_size(tablet, *promotion_size);
-}
-
-void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_promotion_size(Tablet* tablet,
-                                                                         int64_t promotion_size) {
-    tablet->set_cumulative_promotion_size(promotion_size);
+    tablet->set_cumulative_promotion_size(*promotion_size);
 }
 
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-        RowsetSharedPtr output_rowset, Version& last_delete_version) {
+        Tablet* tablet, const RowsetSharedPtr& output_rowset, const Version& last_delete_version) {
     if (tablet->tablet_state() != TABLET_RUNNING) {
         // if tablet under alter process, do not update cumulative point
         return;
@@ -230,15 +218,12 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
     return score;
 }
 
-int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
+void SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-        const int64_t max_compaction_score, const int64_t min_compaction_score,
-        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
-        size_t* compaction_score) {
+        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version) {
     size_t promotion_size = tablet->cumulative_promotion_size();
     auto max_version = tablet->max_version().first;
-    int transient_size = 0;
-    *compaction_score = 0;
+    size_t compaction_score = 0;
     int64_t total_size = 0;
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
@@ -251,8 +236,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             } else {
                 // we meet a delete version, and no other versions before, skip it and continue
                 input_rowsets->clear();
-                *compaction_score = 0;
-                transient_size = 0;
+                compaction_score = 0;
                 continue;
             }
         }
@@ -263,33 +247,30 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 continue;
             }
         }
-        if (*compaction_score >= max_compaction_score) {
+        if (compaction_score >= config::cumulative_compaction_max_deltas) {
             // got enough segments
             break;
         }
-        *compaction_score += rowset->rowset_meta()->get_compaction_score();
+        compaction_score += rowset->rowset_meta()->get_compaction_score();
         total_size += rowset->rowset_meta()->total_disk_size();
 
-        transient_size += 1;
         input_rowsets->push_back(rowset);
     }
 
     if (total_size >= promotion_size) {
-        return transient_size;
+        return;
     }
 
     // if there is delete version, do compaction directly
     if (last_delete_version->first != -1) {
-        if (input_rowsets->size() == 1) {
-            auto rs_meta = input_rowsets->front()->rowset_meta();
+        if (input_rowsets->size() == 1 &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
             // if there is only one rowset and not overlapping,
             // we do not need to do cumulative compaction
-            if (!rs_meta->is_segments_overlapping()) {
-                input_rowsets->clear();
-                *compaction_score = 0;
-            }
+            input_rowsets->clear();
+            compaction_score = 0;
         }
-        return transient_size;
+        return;
     }
 
     auto rs_iter = input_rowsets->begin();
@@ -303,53 +284,54 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             break;
         }
         total_size -= rs_meta->total_disk_size();
-        *compaction_score -= rs_meta->get_compaction_score();
-
+        compaction_score -= rs_meta->get_compaction_score();
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
-                  << *compaction_score << ", total_size = " << total_size
+                  << compaction_score << ", total_size = " << total_size
                   << ", calc promotion size value = " << promotion_size
                   << ", tablet = " << tablet->full_name() << ", input_rowset size "
                   << input_rowsets->size();
 
     // empty return
     if (input_rowsets->empty()) {
-        return transient_size;
+        return;
     }
 
     // if we have a sufficient number of segments, we should process the compaction.
     // otherwise, we check number of segments and total_size whether can do compaction.
-    if (total_size < _compaction_min_size && *compaction_score < min_compaction_score) {
+    int64_t compaction_min_size = config::compaction_min_size_mbytes * 1024 * 1024;
+    if (total_size < compaction_min_size &&
+        compaction_score < config::cumulative_compaction_min_deltas) {
         input_rowsets->clear();
-        *compaction_score = 0;
-    } else if (total_size >= _compaction_min_size && input_rowsets->size() == 1) {
-        auto rs_meta = input_rowsets->front()->rowset_meta();
+        compaction_score = 0;
+    } else if (total_size >= compaction_min_size && input_rowsets->size() == 1) {
         // if there is only one rowset and not overlapping,
         // we do not need to do compaction
-        if (!rs_meta->is_segments_overlapping()) {
+        if (!input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
             input_rowsets->clear();
-            *compaction_score = 0;
+            compaction_score = 0;
         }
     }
-    return transient_size;
 }
 
 int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
     if (size < 1024) return 0;
-    int64_t max_level = (int64_t)1
-                        << (sizeof(_promotion_size) * 8 - 1 - __builtin_clzl(_promotion_size / 2));
+    int64_t max_size = config::compaction_promotion_size_mbytes * 1024 * 1024 / 2;
+    int64_t max_level = (int64_t)1 << (sizeof(max_size) * 8 - 1 - __builtin_clzl(max_size));
     if (size >= max_level) return max_level;
     return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
-        return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
-    }
+CumulativeCompactionPolicyFactory::create_size_based_cumulative_compaction_policy() {
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+}
+
+std::shared_ptr<CumulativeCompactionPolicy>
+CumulativeCompactionPolicyFactory::create_time_series_cumulative_compaction_policy() {
+    return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
 }
 
 } // namespace doris

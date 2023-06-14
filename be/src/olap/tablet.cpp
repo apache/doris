@@ -284,7 +284,11 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            _tablet_meta->tablet_schema()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                    ? CumulativeCompactionPolicyFactory::
+                              create_time_series_cumulative_compaction_policy()
+                    : CumulativeCompactionPolicyFactory::
+                              create_size_based_cumulative_compaction_policy();
 #endif
 
     RowsetVector rowset_vec;
@@ -1060,7 +1064,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
 
     // In the time series compaction policy, we want the base compaction to be triggered
     // when there are delete versions present.
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+    if (_tablet_meta->tablet_schema()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         return (base_rowset_exist && has_delete) ? score : 0;
     }
 
@@ -1148,9 +1152,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
 void Tablet::calculate_cumulative_point() {
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-    int64_t ret_cumulative_point;
-    _cumulative_compaction_policy->calculate_cumulative_point(
-            this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
+    int64_t ret_cumulative_point = _cumulative_compaction_policy->calculate_cumulative_point(this);
 
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;

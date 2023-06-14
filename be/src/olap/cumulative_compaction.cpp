@@ -90,8 +90,8 @@ Status CumulativeCompaction::execute_compact_impl() {
     _state = CompactionState::SUCCESS;
 
     // 5. set cumulative point
-    _tablet->cumulative_compaction_policy()->update_cumulative_point(
-            _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
+    _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _output_rowset,
+                                                                     _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
@@ -120,11 +120,8 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", tablet=" << _tablet->full_name();
     }
 
-    size_t compaction_score = 0;
     _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
-            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score);
+            _tablet.get(), candidate_rowsets, &_input_rowsets, &_last_delete_version);
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():

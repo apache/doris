@@ -248,6 +248,28 @@ public:
     bool store_row_column() const { return _store_row_column; }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
+    void set_compaction_policy(std::string compaction_policy) {
+        _compaction_policy = compaction_policy;
+    }
+    std::string compaction_policy() const { return _compaction_policy; }
+    void set_time_series_compaction_goal_size_mbytes(int64_t goal_size_mbytes) {
+        _time_series_compaction_goal_size_mbytes = goal_size_mbytes;
+    }
+    int64_t time_series_compaction_goal_size_mbytes() const {
+        return _time_series_compaction_goal_size_mbytes;
+    }
+    void set_time_series_compaction_file_count_threshold(int64_t file_count_threshold) {
+        _time_series_compaction_file_count_threshold = file_count_threshold;
+    }
+    int64_t time_series_compaction_file_count_threshold() const {
+        return _time_series_compaction_file_count_threshold;
+    }
+    void set_time_series_compaction_time_threshold_seconds(int64_t time_threshold) {
+        _time_series_compaction_time_threshold_seconds = time_threshold;
+    }
+    int64_t time_series_compaction_time_threshold_seconds() const {
+        return _time_series_compaction_time_threshold_seconds;
+    }
     bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
@@ -355,6 +377,10 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    std::string _compaction_policy;
+    int64_t _time_series_compaction_goal_size_mbytes = 1024;
+    int64_t _time_series_compaction_file_count_threshold = 10000;
+    int64_t _time_series_compaction_time_threshold_seconds = 3600;
 
     bool _is_partial_update;
     std::set<std::string> _partial_update_input_columns;
