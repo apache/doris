@@ -53,6 +53,9 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.MatchAll;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -436,6 +439,18 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitMatch(Match match, C context) {
         return visit(match, context);
+    }
+
+    public R visitMatchAny(MatchAny matchAny, C context) {
+        return visitMatch(matchAny, context);
+    }
+
+    public R visitMatchAll(MatchAll matchAll, C context) {
+        return visitMatch(matchAll, context);
+    }
+
+    public R visitMatchPhrase(MatchPhrase matchPhrase, C context) {
+        return visitMatch(matchPhrase, context);
     }
 
     /* ********************************************************************************************

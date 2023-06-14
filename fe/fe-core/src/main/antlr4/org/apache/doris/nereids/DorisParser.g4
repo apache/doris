@@ -614,10 +614,6 @@ nonReserved
     | LOGICAL
     | MACRO
     | MAP
-    | MATCH
-    | MATCH_ANY
-    | MATCH_ALL
-    | MATCH_PHRASE
     | MATCHED
     | MERGE
     | MINUTE

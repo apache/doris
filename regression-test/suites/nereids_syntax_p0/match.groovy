@@ -59,6 +59,7 @@ suite("test_nereids_match_select") {
         ("li sisi", 11, "grade 6", "li ba", "li liuliu", "")
     """
     
+    sql """sync"""
 
     order_qt_match_1 """
         SELECT * FROM test_nereids_match_select WHERE name match 'zhang san';
@@ -88,7 +89,6 @@ suite("test_nereids_match_select") {
         SELECT * FROM test_nereids_match_select WHERE name match 'zhang' and selfComment match 'happy';
     """
 
-
     order_qt_match_any_1 """
         SELECT * FROM test_nereids_match_select WHERE name match_any 'zhang san';
     """
@@ -117,7 +117,6 @@ suite("test_nereids_match_select") {
         SELECT * FROM test_nereids_match_select WHERE name match_any 'zhang' and selfComment match_any 'happy';
     """
 
-
     order_qt_match_all_1 """
         SELECT * FROM test_nereids_match_select WHERE name match_all 'zhang san';
     """
@@ -145,7 +144,6 @@ suite("test_nereids_match_select") {
     order_qt_match_all_7 """
         SELECT * FROM test_nereids_match_select WHERE name match_all 'zhang' and selfComment match_all 'Class activists';
     """
-
 
     order_qt_match_phrase_1 """
         SELECT * FROM test_nereids_match_select WHERE name match_phrase 'zhang san';

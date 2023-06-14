@@ -39,6 +39,6 @@ public class MatchAny extends Match {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitMatch(this, context);
+        return visitor.visitMatchAny(this, context);
     }
 }
