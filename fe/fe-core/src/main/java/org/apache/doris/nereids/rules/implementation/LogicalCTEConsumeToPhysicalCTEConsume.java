@@ -29,6 +29,7 @@ public class LogicalCTEConsumeToPhysicalCTEConsume extends OneImplementationRule
     public Rule build() {
         return logicalCTEConsumer().then(cte -> new PhysicalCTEConsumer(
             cte.getCteId(),
+            cte.getConsumerId(),
             cte.getConsumerToProducerOutputMap(),
             cte.getProducerToConsumerOutputMap(),
             cte.getLogicalProperties()

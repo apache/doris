@@ -87,13 +87,17 @@ public class PlanTranslatorContext {
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
 
+    private final CascadesContext cascadesContext;
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
+        this.cascadesContext = ctx;
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         translator = null;
+        cascadesContext = null;
     }
 
     public List<PlanFragment> getPlanFragments() {
@@ -217,5 +221,9 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
+    }
+
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
     }
 }

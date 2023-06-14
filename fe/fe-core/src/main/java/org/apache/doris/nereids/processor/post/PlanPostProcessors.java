@@ -58,6 +58,7 @@ public class PlanPostProcessors {
     public List<PlanPostProcessor> getProcessors() {
         // add processor if we need
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
+        builder.add(new CTEPostProcessor());
         builder.add(new PushdownFilterThroughProject());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new FragmentProcessor());

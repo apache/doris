@@ -36,6 +36,7 @@ import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -43,6 +44,8 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -67,6 +70,7 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -101,6 +105,20 @@ public class CascadesContext implements ScheduleContext {
     private Map<CTEId, Set<Expression>> cteIdToProjects = new HashMap<>();
     private Map<Integer, Set<Expression>> consumerIdToFilters = new HashMap<>();
     private Map<CTEId, Set<Integer>> cteIdToConsumerUnderProjects = new HashMap<>();
+
+    /**
+     * This map is used to record how many times a slot from CTE producer is
+     * referenced.
+     */
+    private final Map<CTEId, Map<Slot, AtomicInteger>> producerSlotRefCount = new HashMap<>();
+
+    private final Map<Integer, DistributionSpec> cteConsumerIdToDistribution = new HashMap<>();
+
+    // Map alias of slot to slot from consumer
+    private final Map<NamedExpression, Slot> aliasSlotToCTESlot = new HashMap<>();
+    private final Map<Slot, CTEId> cteSlotToCTEId = new HashMap<>();
+
+    private final Map<CTEId, Map<Slot, Slot>> cteIdToConsumerToProducerOutputMap = new HashMap<>();
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
@@ -355,7 +373,9 @@ public class CascadesContext implements ScheduleContext {
         }
     }
 
-    /** get table by table name, try to get from information from dumpfile first */
+    /**
+     * get table by table name, try to get from information from dumpfile first
+     */
     public Table getTableByName(String tableName) {
         Preconditions.checkState(tables != null);
         for (Table table : tables) {
@@ -555,5 +575,35 @@ public class CascadesContext implements ScheduleContext {
     public boolean couldPruneColumnOnProducer(CTEId cteId) {
         Set<Integer> consumerIds = this.cteIdToConsumerUnderProjects.get(cteId);
         return consumerIds.size() == this.cteIdToConsumers.get(cteId).size();
+    }
+
+    public void addCTESlotRefCount(CTEId cteId, Slot slot) {
+        producerSlotRefCount.computeIfAbsent(cteId, k -> new HashMap<>())
+                .computeIfAbsent(slot, k -> new AtomicInteger(0))
+                .incrementAndGet();
+    }
+
+    public Map<Slot, AtomicInteger> getSlotRefCountMap(CTEId cteId) {
+        return producerSlotRefCount.get(cteId);
+    }
+
+    public void addDistributionForCTE(int cteConsumerId, DistributionSpec distributionSpec) {
+        cteConsumerIdToDistribution.put(cteConsumerId, distributionSpec);
+    }
+
+    public DistributionSpec findDistributionSpecForCTEConsumer(int cteConsumerId) {
+        return cteConsumerIdToDistribution.get(cteConsumerId);
+    }
+
+    public Map<NamedExpression, Slot> getAliasSlotToCTESlot() {
+        return aliasSlotToCTESlot;
+    }
+
+    public Map<Slot, CTEId> getCteSlotToCTEId() {
+        return cteSlotToCTEId;
+    }
+
+    public Map<CTEId, Map<Slot, Slot>> getCteIdToConsumerToProducerOutputMap() {
+        return cteIdToConsumerToProducerOutputMap;
     }
 }

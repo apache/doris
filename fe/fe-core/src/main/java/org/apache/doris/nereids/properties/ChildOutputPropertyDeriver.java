@@ -161,7 +161,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
-                                                         PlanContext context) {
+            PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
         return new PhysicalProperties(childOutputProperty.getDistributionSpec());
@@ -270,7 +270,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
         if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1
                 && (!ConnectContext.get().getSessionVariable().enablePipelineEngine()
-                        || ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() == 1)) {
+                || ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() == 1)) {
             return PhysicalProperties.GATHER;
         } else if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
             return PhysicalProperties.createHash((DistributionSpecHash) olapScan.getDistributionSpec());

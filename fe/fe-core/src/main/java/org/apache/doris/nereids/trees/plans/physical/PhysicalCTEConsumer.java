@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -44,43 +45,52 @@ import java.util.Optional;
 public class PhysicalCTEConsumer extends PhysicalLeaf {
 
     private final CTEId cteId;
+
+    private final Integer consumerId;
+
     private final Map<Slot, Slot> producerToConsumerSlotMap;
     private final Map<Slot, Slot> consumerToProducerSlotMap;
+
+    private final DistributionSpecHash distributionSpecHash;
 
     /**
      * Constructor
      */
-    public PhysicalCTEConsumer(CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-                               Map<Slot, Slot> producerToConsumerSlotMap,
-                               LogicalProperties logicalProperties) {
-        this(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+    public PhysicalCTEConsumer(CTEId cteId, Integer consumerId, Map<Slot, Slot> consumerToProducerSlotMap,
+            Map<Slot, Slot> producerToConsumerSlotMap,
+            LogicalProperties logicalProperties) {
+        this(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
                 Optional.empty(), logicalProperties);
     }
 
     /**
      * Constructor
      */
-    public PhysicalCTEConsumer(CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-                               Map<Slot, Slot> producerToConsumerSlotMap,
-                               Optional<GroupExpression> groupExpression,
-                               LogicalProperties logicalProperties) {
-        this(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap, groupExpression, logicalProperties,
-                null, null);
+    public PhysicalCTEConsumer(CTEId cteId, Integer consumerId, Map<Slot, Slot> consumerToProducerSlotMap,
+            Map<Slot, Slot> producerToConsumerSlotMap,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties) {
+        this(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap, groupExpression,
+                logicalProperties,
+                null, null, null);
     }
 
     /**
      * Constructor
      */
-    public PhysicalCTEConsumer(CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
-                               Map<Slot, Slot> producerToConsumerSlotMap,
-                               Optional<GroupExpression> groupExpression,
-                               LogicalProperties logicalProperties,
-                               PhysicalProperties physicalProperties,
-                               Statistics statistics) {
+    public PhysicalCTEConsumer(CTEId cteId, Integer consumerId, Map<Slot, Slot> consumerToProducerSlotMap,
+            Map<Slot, Slot> producerToConsumerSlotMap,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties,
+            Statistics statistics,
+            DistributionSpecHash distributionSpecHash) {
         super(PlanType.PHYSICAL_CTE_CONSUME, groupExpression, logicalProperties, physicalProperties, statistics);
         this.cteId = cteId;
+        this.consumerId = consumerId;
         this.consumerToProducerSlotMap = ImmutableMap.copyOf(consumerToProducerSlotMap);
         this.producerToConsumerSlotMap = ImmutableMap.copyOf(producerToConsumerSlotMap);
+        this.distributionSpecHash = distributionSpecHash;
     }
 
     public CTEId getCteId() {
@@ -130,27 +140,34 @@ public class PhysicalCTEConsumer extends PhysicalLeaf {
     @Override
     public PhysicalCTEConsumer withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty());
-        return new PhysicalCTEConsumer(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-                getLogicalProperties());
+        return new PhysicalCTEConsumer(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+                groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, distributionSpecHash);
     }
 
     @Override
     public PhysicalCTEConsumer withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalCTEConsumer(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+        return new PhysicalCTEConsumer(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
                 groupExpression, getLogicalProperties());
     }
 
     @Override
     public PhysicalCTEConsumer withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalCTEConsumer(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-            Optional.empty(), logicalProperties.get());
+        return new PhysicalCTEConsumer(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+                Optional.empty(), logicalProperties.get());
     }
 
     @Override
     public PhysicalCTEConsumer withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalCTEConsumer(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics);
+        return new PhysicalCTEConsumer(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, distributionSpecHash);
+    }
+
+    public PhysicalCTEConsumer withDistributionSpecHash(DistributionSpecHash distributionSpecHash) {
+        return new PhysicalCTEConsumer(cteId, consumerId, consumerToProducerSlotMap, producerToConsumerSlotMap,
+                groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, distributionSpecHash);
     }
 
     @Override
@@ -163,5 +180,13 @@ public class PhysicalCTEConsumer extends PhysicalLeaf {
         Preconditions.checkArgument(slot != null, String.format("Required producer"
                 + "slot for :%s doesn't exist", consumerSlot));
         return slot;
+    }
+
+    public Integer getConsumerId() {
+        return consumerId;
+    }
+
+    public Map<Slot, Slot> getConsumerToProducerOutputMap() {
+        return consumerToProducerSlotMap;
     }
 }
