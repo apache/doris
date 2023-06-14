@@ -794,14 +794,17 @@ void Tablet::delete_expired_stale_rowset() {
         for (auto& timestampedVersion : to_delete_version) {
             auto it = _stale_rs_version_map.find(timestampedVersion->version());
             if (it != _stale_rs_version_map.end()) {
-                // delete rowset
-                StorageEngine::instance()->add_unused_rowset(it->second);
-                _stale_rs_version_map.erase(it);
-                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
-                            << timestampedVersion->version().first << ","
-                            << timestampedVersion->version().second
-                            << "] move to unused_rowset success " << std::fixed
-                            << expired_stale_sweep_endtime;
+                uint64_t now = UnixSeconds();
+                if (now > it->second->delayed_expired_timestamp()) {
+                    // delete rowset
+                    StorageEngine::instance()->add_unused_rowset(it->second);
+                    _stale_rs_version_map.erase(it);
+                    VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
+                                << timestampedVersion->version().first << ","
+                                << timestampedVersion->version().second
+                                << "] move to unused_rowset success " << std::fixed
+                                << expired_stale_sweep_endtime;
+                }
             } else {
                 LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
                              << timestampedVersion->version().first << ","
@@ -2746,8 +2749,8 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             return s;
         }
         loc.rowset_id = rs.first->rowset_id();
-        if (_tablet_meta->delete_bitmap().contains_agg({loc.rowset_id, loc.segment_id, version},
-                                                       loc.row_id)) {
+        if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
+                    {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all rowsets, util we find an existing key.
             if (_schema->has_sequence_col()) {
