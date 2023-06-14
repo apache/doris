@@ -135,7 +135,7 @@ LOG_CONFIG_FILE="${CONF_DIR}/logback.xml"
 
 FRAMEWORK_SOURCE_DIR="${DORIS_HOME}/regression-test/framework"
 REGRESSION_TEST_BUILD_DIR="${FRAMEWORK_SOURCE_DIR}/target"
-# FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
+FRAMEWORK_APACHE_DIR="${FRAMEWORK_SOURCE_DIR}/src/main/groovy/org/apache"
 
 OUTPUT_DIR="${DORIS_HOME}/output/regression-test"
 LOG_OUTPUT_FILE="${OUTPUT_DIR}/log"
@@ -144,7 +144,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 
-# rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift"
+rm -rf "${FRAMEWORK_APACHE_DIR}/doris/thrift"
 
 if [[ "${CLEAN}" -eq 1 ]]; then
     rm -rf "${REGRESSION_TEST_BUILD_DIR}"
@@ -160,10 +160,10 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
     # echo "Build generated code"
-    # cd "${DORIS_HOME}/gensrc/thrift"
-    # make
+    cd "${DORIS_HOME}/gensrc/thrift"
+    make
 
-    # cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
+    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
     cd "${DORIS_HOME}/regression-test/framework"
     "${MVN_CMD}" package
