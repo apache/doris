@@ -53,7 +53,8 @@ public class LogicalJdbcScan extends LogicalRelation {
 
     @Override
     public TableIf getTable() {
-        Preconditions.checkArgument(table instanceof ExternalTable || table instanceof JdbcTable);
+        Preconditions.checkArgument(table instanceof ExternalTable || table instanceof JdbcTable,
+                String.format("Table %s is neither ExternalTable nor JdbcTable", table.getName()));
         return table;
     }
 
