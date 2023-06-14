@@ -178,8 +178,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
-                  << " as failed, err: " << err;
+    LOG(INFO) << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+              << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
