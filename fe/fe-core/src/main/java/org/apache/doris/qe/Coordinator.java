@@ -1670,8 +1670,7 @@ public class Coordinator {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || (ConnectContext.get() != null
-                                && ConnectContext.get().getSessionVariable().getDisableSharedScan())) {
+                                || Config.disable_shared_scan) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
