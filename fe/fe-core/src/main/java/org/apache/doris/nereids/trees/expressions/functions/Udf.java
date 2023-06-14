@@ -30,8 +30,7 @@ import java.util.List;
 public interface Udf extends ComputeNullable {
     @Override
     default boolean nullable() {
-        Function function = getCatalogFunction();
-        NullableMode mode = function.getNullableMode();
+        NullableMode mode = getNullableMode();
         if (mode == NullableMode.ALWAYS_NOT_NULLABLE) {
             return false;
         } else if (mode == NullableMode.ALWAYS_NULLABLE || mode == NullableMode.CUSTOM) {
@@ -43,6 +42,8 @@ public interface Udf extends ComputeNullable {
     }
 
     Function getCatalogFunction() throws org.apache.doris.common.AnalysisException;
+
+    NullableMode getNullableMode();
 
     List<Expression> children();
 }

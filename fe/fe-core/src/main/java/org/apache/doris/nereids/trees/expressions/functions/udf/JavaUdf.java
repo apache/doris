@@ -20,10 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.udf;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -49,6 +50,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     private final String dbName;
     private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
+    private final NullableMode nullableMode;
     private final String objectFile;
     private final String symbol;
     private final String prepareFn;
@@ -58,12 +60,13 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
      * Constructor of UDF
      */
     public JavaUdf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
-            String objectFile, String symbol, String prepareFn, String closeFn,
+            NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
             Expression... args) {
         super(name, args);
         this.dbName = dbName;
         this.binaryType = binaryType;
         this.signature = signature;
+        this.nullableMode = nullableMode;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.prepareFn = prepareFn;
@@ -85,14 +88,19 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         return signature.argumentsTypes.size();
     }
 
+    @Override
+    public NullableMode getNullableMode() {
+        return nullableMode;
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdf(getName(), dbName, binaryType, signature, objectFile, symbol, prepareFn, closeFn,
-                children.toArray(new Expression[0]));
+        return new JavaUdf(getName(), dbName, binaryType, signature, nullableMode,
+                objectFile, symbol, prepareFn, closeFn, children.toArray(new Expression[0]));
     }
 
     /**
@@ -116,6 +124,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 .toArray(VirtualSlotReference[]::new);
 
         JavaUdf udf = new JavaUdf(fnName, dbName, scalar.getBinaryType(), sig,
+                scalar.getNullableMode(),
                 scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
@@ -132,17 +141,21 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     }
 
     @Override
-    public Function getCatalogFunction() throws AnalysisException {
-        return org.apache.doris.catalog.ScalarFunction.createUdf(
-                binaryType,
-                new FunctionName(dbName, getName()),
-                signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
-                signature.returnType.toCatalogDataType(),
-                signature.hasVarArgs,
-                URI.create(objectFile),
-                symbol,
-                prepareFn,
-                closeFn
-        );
+    public Function getCatalogFunction() {
+        try {
+            return org.apache.doris.catalog.ScalarFunction.createUdf(
+                    binaryType,
+                    new FunctionName(dbName, getName()),
+                    signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                    signature.returnType.toCatalogDataType(),
+                    signature.hasVarArgs,
+                    URI.create(objectFile),
+                    symbol,
+                    prepareFn,
+                    closeFn
+            );
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 }
