@@ -42,7 +42,7 @@ public interface Udf extends ComputeNullable {
         throw new AnalysisException("unsupported nullable mode for udf in Nereids");
     }
 
-    Function getCatalogFunction();
+    Function getCatalogFunction() throws org.apache.doris.common.AnalysisException;
 
     List<Expression> children();
 }

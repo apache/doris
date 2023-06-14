@@ -17,26 +17,37 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Java UDF for Nereids
  */
 public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
+    private final String dbName;
+    private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
     private final String objectFile;
     private final String symbol;
@@ -46,10 +57,12 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     /**
      * Constructor of UDF
      */
-    public JavaUdf(String name, FunctionSignature signature,
+    public JavaUdf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
             String objectFile, String symbol, String prepareFn, String closeFn,
             Expression... args) {
         super(name, args);
+        this.dbName = dbName;
+        this.binaryType = binaryType;
         this.signature = signature;
         this.objectFile = objectFile;
         this.symbol = symbol;
@@ -62,13 +75,23 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         return ImmutableList.of(signature);
     }
 
+    @Override
+    public boolean hasVarArguments() {
+        return signature.hasVarArgs;
+    }
+
+    @Override
+    public int arity() {
+        return signature.argumentsTypes.size();
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdf(getName(), signature, objectFile, symbol, prepareFn, closeFn,
+        return new JavaUdf(getName(), dbName, binaryType, signature, objectFile, symbol, prepareFn, closeFn,
                 children.toArray(new Expression[0]));
     }
 
@@ -82,17 +105,25 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 .map(DataType::fromCatalogType)
                 .collect(Collectors.toList());
 
-        FunctionSignature.FuncSigBuilder builder = FunctionSignature.ret(retType);
+        FunctionSignature.FuncSigBuilder sigBuilder = FunctionSignature.ret(retType);
         FunctionSignature sig = scalar.hasVarArgs()
-                ? builder.varArgs(argTypes.toArray(new DataType[0]))
-                : builder.args(argTypes.toArray(new DataType[0]));
+                ? sigBuilder.varArgs(argTypes.toArray(new DataType[0]))
+                : sigBuilder.args(argTypes.toArray(new DataType[0]));
 
-        JavaUdf udf = new JavaUdf(fnName, sig,
+        VirtualSlotReference[] virtualSlots = argTypes.stream()
+                .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
+                        (shape) -> ImmutableList.of()))
+                .toArray(VirtualSlotReference[]::new);
+
+        JavaUdf udf = new JavaUdf(fnName, dbName, scalar.getBinaryType(), sig,
                 scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
-                scalar.getCloseFnSymbol());
-        System.out.print(udf);
+                scalar.getCloseFnSymbol(),
+                virtualSlots);
+
+        JavaUdfBuilder builder = new JavaUdfBuilder(udf);
+        Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, fnName, builder);
     }
 
     @Override
@@ -101,7 +132,17 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     }
 
     @Override
-    public Function getCatalogFunction() {
-        return null;
+    public Function getCatalogFunction() throws AnalysisException {
+        return org.apache.doris.catalog.ScalarFunction.createUdf(
+                binaryType,
+                new FunctionName(dbName, getName()),
+                signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                signature.returnType.toCatalogDataType(),
+                signature.hasVarArgs,
+                URI.create(objectFile),
+                symbol,
+                prepareFn,
+                closeFn
+        );
     }
 }

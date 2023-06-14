@@ -17,29 +17,47 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.common.util.ReflectionUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * function builder for java udf
  */
 public class JavaUdfBuilder extends FunctionBuilder {
     private final JavaUdf udf;
+    private final int arity;
+    private final boolean isVarArgs;
 
     public JavaUdfBuilder(JavaUdf udf) {
-        super();
         this.udf = udf;
+        this.isVarArgs = udf.hasVarArguments();
+        this.arity = udf.arity();
     }
 
     @Override
     public boolean canApply(List<?> arguments) {
-        return false;
+        if ((isVarArgs && arity > arguments.size() + 1) || (!isVarArgs && arguments.size() != arity)) {
+            return false;
+        }
+        for (Object argument : arguments) {
+            if (!(argument instanceof Expression)) {
+                Optional<Class> primitiveType = ReflectionUtils.getPrimitiveType(argument.getClass());
+                if (!primitiveType.isPresent() || !Expression.class.isAssignableFrom(primitiveType.get())) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     @Override
     public BoundFunction build(String name, List<?> arguments) {
-        return null;
+        return udf.withChildren(arguments.stream().map(Expression.class::cast).collect(Collectors.toList()));
     }
 }
