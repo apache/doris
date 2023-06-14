@@ -206,11 +206,12 @@ Status AggFnEvaluator::open(RuntimeState* state) {
     return VExpr::open(_input_exprs_ctxs, state);
 }
 
-void AggFnEvaluator::close(RuntimeState* state) {
-}
+void AggFnEvaluator::close(RuntimeState* state) {}
+
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);
 }
+
 void AggFnEvaluator::destroy(AggregateDataPtr place) {
     _function->destroy(place);
 }

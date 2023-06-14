@@ -46,8 +46,7 @@
 
 namespace doris {
 
-Reusable::~Reusable() {
-}
+Reusable::~Reusable() {}
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {

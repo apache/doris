@@ -127,8 +127,7 @@ public:
     int64_t partition_id;
 };
 
-IndexChannel::~IndexChannel() {
-}
+IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());

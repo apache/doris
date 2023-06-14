@@ -73,8 +73,7 @@ Status VSchemaChangeExpr::open(doris::RuntimeState* state, VExprContext* context
     return Status::OK();
 }
 
-void VSchemaChangeExpr::close(VExprContext* context,
-                              FunctionContext::FunctionStateScope scope) {
+void VSchemaChangeExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close(context, scope);
 }
 
