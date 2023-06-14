@@ -55,13 +55,14 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     private final String symbol;
     private final String prepareFn;
     private final String closeFn;
+    private final String checkSum;
 
     /**
      * Constructor of UDF
      */
     public JavaUdf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
             NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
-            Expression... args) {
+            String checkSum, Expression... args) {
         super(name, args);
         this.dbName = dbName;
         this.binaryType = binaryType;
@@ -71,6 +72,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
         this.symbol = symbol;
         this.prepareFn = prepareFn;
         this.closeFn = closeFn;
+        this.checkSum = checkSum;
     }
 
     @Override
@@ -100,7 +102,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdf(getName(), dbName, binaryType, signature, nullableMode,
-                objectFile, symbol, prepareFn, closeFn, children.toArray(new Expression[0]));
+                objectFile, symbol, prepareFn, closeFn, checkSum, children.toArray(new Expression[0]));
     }
 
     /**
@@ -129,6 +131,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol(),
+                scalar.getChecksum(),
                 virtualSlots);
 
         JavaUdfBuilder builder = new JavaUdfBuilder(udf);
@@ -155,6 +158,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                     closeFn
             );
             expr.setNullableMode(nullableMode);
+            expr.setChecksum(checkSum);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
