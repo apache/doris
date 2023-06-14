@@ -1324,7 +1324,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * The error message only contains this.toSql() if printExpr is true.
      */
     public void checkReturnsBool(String name, boolean printExpr) throws AnalysisException {
-        if (!type.isBoolean() && !type.isNull() && !type.isTinyint()) {
+        if (!type.isBoolean() && !type.isNull()) {
             if (this instanceof BoolLiteral) {
                 return;
             }
