@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -650,6 +651,11 @@ public class SelectStmt extends QueryStmt {
             } else {
                 whereClause = new BoolLiteral(true);
             }
+        } else if (whereClause instanceof CaseExpr
+                && (((CaseExpr) whereClause).getChild(1) instanceof IntLiteral)
+                && (((CaseExpr) whereClause).getChild(2) instanceof IntLiteral)) {
+            whereClause = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), whereClause);
+            whereClause.setType(Type.BOOLEAN);
         }
     }
 
