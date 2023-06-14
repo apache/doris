@@ -37,15 +37,18 @@ public class HiveTransaction {
     private final String user;
     private final HMSExternalTable hiveTable;
 
+    private final boolean isFullAcid;
+
     private long txnId;
     private List<String> partitionNames = Lists.newArrayList();
 
     ValidWriteIdList validWriteIdList = null;
 
-    public HiveTransaction(String queryId, String user, HMSExternalTable hiveTable) {
+    public HiveTransaction(String queryId, String user, HMSExternalTable hiveTable, boolean isFullAcid) {
         this.queryId = queryId;
         this.user = user;
         this.hiveTable = hiveTable;
+        this.isFullAcid = isFullAcid;
     }
 
     public String getQueryId() {
@@ -54,6 +57,10 @@ public class HiveTransaction {
 
     public void addPartition(String partitionName) {
         this.partitionNames.add(partitionName);
+    }
+
+    public boolean isFullAcid() {
+        return isFullAcid;
     }
 
     public ValidWriteIdList getValidWriteIds(PooledHiveMetaStoreClient client) {

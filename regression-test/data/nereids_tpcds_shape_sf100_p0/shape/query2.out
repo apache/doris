@@ -19,21 +19,23 @@ CteAnchor[cteId= ( CTEId#4=] )
 ----PhysicalDistribute
 ------PhysicalQuickSort
 --------PhysicalProject
-----------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq2)
-------------hashJoin[INNER_JOIN](expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))
---------------PhysicalProject
-----------------CteConsumer[cteId= ( CTEId#4=] )
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq1)
---------------------PhysicalProject
-----------------------CteConsumer[cteId= ( CTEId#4=] )
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 1998))
---------------------------PhysicalOlapScan[date_dim]
+----------hashJoin[INNER_JOIN](expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------filter((date_dim.d_year = 1999))
-------------------PhysicalOlapScan[date_dim]
+----------------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq1)
+------------------PhysicalProject
+--------------------CteConsumer[cteId= ( CTEId#4=] )
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((date_dim.d_year = 1998))
+------------------------PhysicalOlapScan[date_dim]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN](date_dim.d_week_seq = d_week_seq2)
+------------------PhysicalProject
+--------------------CteConsumer[cteId= ( CTEId#4=] )
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((date_dim.d_year = 1999))
+------------------------PhysicalOlapScan[date_dim]
 
