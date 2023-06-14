@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -148,32 +149,39 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     }
 
     @Override
+    public Cost visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        Statistics childStatistics = context.getChildStatistics(0);
+        return CostV1.of(
+            childStatistics.getRowCount(),
+            statistics.getRowCount(),
+            childStatistics.getRowCount());
+    }
+
+    @Override
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
+        int kBytes = 1024;
         Statistics childStatistics = context.getChildStatistics(0);
         DistributionSpec spec = distribute.getDistributionSpec();
+        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
+        beNumber = Math.max(1, beNumber);
+        double dataSize = childStatistics.computeSize() / kBytes; // in K bytes
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    dataSize / beNumber);
         }
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getAllBackendIds(true).size();
-            if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
-                beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
-            }
-            int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            beNumber = Math.max(1, beNumber);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
             //if build side is big, avoid use broadcast join
             double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
             double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
-            double buildSize = childStatistics.computeSize();
-            if (buildSize * instanceNumber > memLimit * brMemlimit
+            if (dataSize > memLimit * brMemlimit / kBytes
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
@@ -183,7 +191,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
+                    dataSize, 0.0);
 
         }
 
@@ -192,7 +200,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    dataSize / beNumber);
         }
 
         // any

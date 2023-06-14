@@ -29,8 +29,8 @@ class MockRowset : public Rowset {
 
     Status remove() override { return Status::NotSupported("MockRowset not support this method."); }
 
-    Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                         size_t start_seg_id) override {
+    Status link_files_to(const std::string& dir, RowsetId new_rowset_id, size_t start_seg_id,
+                         std::set<int32_t>* without_index_column_uids) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 

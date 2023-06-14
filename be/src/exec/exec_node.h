@@ -38,16 +38,13 @@
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
 class MemTracker;
 class QueryStatistics;
-
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 
 namespace pipeline {
 class OperatorBase;
@@ -230,6 +227,7 @@ public:
     void reached_limit(vectorized::Block* block, bool* eos);
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
+    RuntimeProfile* faker_runtime_profile() const { return _faker_runtime_profile.get(); }
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
@@ -262,14 +260,14 @@ protected:
     ObjectPool* _pool;
     std::vector<TupleId> _tuple_ids;
 
-    doris::vectorized::VExprContext* _vconjunct_ctx_ptr = nullptr;
+    vectorized::VExprContextSPtrs _conjuncts;
 
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
     vectorized::Block _origin_block;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
-    std::vector<doris::vectorized::VExprContext*> _projections;
+    vectorized::VExprContextSPtrs _projections;
 
     /// Resource information sent from the frontend.
     const TBackendResourceProfile _resource_profile;
@@ -291,6 +289,13 @@ protected:
 
     //
     OpentelemetrySpan _span;
+
+    //NOTICE: now add a faker profile, because sometimes the profile record is useless
+    //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
+    //and shared hash table, some counter/timer about build hash table is useless,
+    //so we could add those counter/timer in faker profile, and those will not display in web profile.
+    std::unique_ptr<RuntimeProfile> _faker_runtime_profile =
+            std::make_unique<RuntimeProfile>("faker profile");
 
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be

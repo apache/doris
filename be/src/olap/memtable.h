@@ -20,8 +20,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <vector>
 
@@ -44,6 +46,7 @@ class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
+struct FlushContext;
 
 // row pos in _input_mutable_block
 struct RowInBlock {
@@ -67,6 +70,64 @@ struct RowInBlock {
     inline void remove_init_agg() { _has_init_agg = false; }
 };
 
+class Tie {
+public:
+    class Iter {
+    public:
+        Iter(Tie& tie) : _tie(tie), _next(tie._begin + 1) {}
+        size_t left() { return _left; }
+        size_t right() { return _right; }
+
+        // return false means no more ranges
+        bool next() {
+            if (_next >= _tie._end) {
+                return false;
+            }
+            _next = _find(1, _next);
+            if (_next >= _tie._end) {
+                return false;
+            }
+            _left = _next - 1;
+            _next = _find(0, _next);
+            _right = _next;
+            return true;
+        }
+
+    private:
+        size_t _find(uint8_t value, size_t start) {
+            if (start >= _tie._end) {
+                return start;
+            }
+            size_t offset = start - _tie._begin;
+            size_t size = _tie._end - start;
+            void* p = std::memchr(_tie._bits.data() + offset, value, size);
+            if (p == nullptr) {
+                return _tie._end;
+            }
+            return static_cast<uint8_t*>(p) - _tie._bits.data() + _tie._begin;
+        }
+
+    private:
+        Tie& _tie;
+        size_t _left;
+        size_t _right;
+        size_t _next;
+    };
+
+public:
+    Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
+        _bits = std::vector<uint8_t>(_end - _begin, 1);
+    }
+    uint8_t operator[](int i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    Iter iter() { return Iter(*this); }
+
+private:
+    const size_t _begin;
+    const size_t _end;
+    std::vector<uint8_t> _bits;
+};
+
 class RowInBlockComparator {
 public:
     RowInBlockComparator(const Schema* schema) : _schema(schema) {}
@@ -79,6 +140,35 @@ public:
 private:
     const Schema* _schema;
     vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
+};
+
+class MemTableStat {
+public:
+    MemTableStat& operator+=(MemTableStat& stat) {
+        raw_rows += stat.raw_rows;
+        merged_rows += stat.merged_rows;
+        sort_ns += stat.sort_ns;
+        agg_ns += stat.agg_ns;
+        put_into_output_ns += stat.put_into_output_ns;
+        delete_bitmap_ns += stat.delete_bitmap_ns;
+        segment_writer_ns += stat.segment_writer_ns;
+        duration_ns += stat.duration_ns;
+        sort_times += stat.sort_times;
+        agg_times += stat.agg_times;
+
+        return *this;
+    }
+
+    int64_t raw_rows = 0;
+    int64_t merged_rows = 0;
+    int64_t sort_ns = 0;
+    int64_t agg_ns = 0;
+    int64_t put_into_output_ns = 0;
+    int64_t delete_bitmap_ns = 0;
+    int64_t segment_writer_ns = 0;
+    int64_t duration_ns = 0;
+    int64_t sort_times = 0;
+    int64_t agg_times = 0;
 };
 
 class MemTable {
@@ -110,20 +200,23 @@ public:
     Status close();
 
     int64_t flush_size() const { return _flush_size; }
-    int64_t merged_rows() const { return _merged_rows; }
 
-    void set_callback(std::function<void(int64_t)> callback) { _delta_writer_callback = callback; }
+    void set_callback(std::function<void(MemTableStat&)> callback) {
+        _delta_writer_callback = callback;
+    }
+
+    bool empty() const { return _input_mutable_block.rows() == 0; }
+    void assign_segment_id();
 
 private:
-    Status _do_flush(int64_t& duration_ns);
+    Status _do_flush();
 
 private:
     // for vectorized
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
-    Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
-                                   int64_t atomic_num_segments_after_flush);
+    Status _generate_delete_bitmap(int32_t segment_id);
 
     // serialize block to row store format and append serialized data into row store column
     // in block
@@ -133,7 +226,8 @@ private:
     // Eg. [A | B | C | (D, E, F)]
     // After unfold block structure changed to -> [A | B | C | D | E | F]
     // The expanded D, E, F is dynamic part of the block
-    void unfold_variant_column(vectorized::Block& block);
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx);
 
 private:
     TabletSharedPtr _tablet;
@@ -176,8 +270,7 @@ private:
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.
-    int64_t _rows = 0;
-    int64_t _merged_rows = 0;
+    MemTableStat _stat;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
@@ -185,15 +278,18 @@ private:
     size_t _last_sorted_pos = 0;
 
     //return number of same keys
-    int _sort();
+    size_t _sort();
+    void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+                          std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
     template <bool is_final>
     void _aggregate();
-    void _prepare_block_for_flush(vectorized::Block& in_block);
+    void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
-    std::function<void(int64_t)> _delta_writer_callback;
+    std::function<void(MemTableStat&)> _delta_writer_callback;
+    std::optional<int32_t> _segment_id = std::nullopt;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;

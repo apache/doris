@@ -21,7 +21,13 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.io.IOException;
+import java.util.UUID;
 
 /**
  * This class is temporary for load refactor, all unified external load should use this adapter in
@@ -31,15 +37,24 @@ import org.apache.doris.qe.StmtExecutor;
  */
 public class LoadManagerAdapter {
 
-    public void startLoadFromInsertStmt(InsertStmt insertStmt) throws DdlException {
+    private String mysqlLoadId;
+
+    public void submitLoadFromInsertStmt(ConnectContext context, InsertStmt insertStmt)
+            throws UserException, IOException {
         final LoadType loadType = insertStmt.getLoadType();
         final LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
         switch (loadType) {
             case BROKER_LOAD:
                 loadManager.createLoadJobFromStmt(insertStmt);
+                context.getState().setOk();
                 break;
             case MYSQL_LOAD:
-                // TODO: implement
+                String loadId = UUID.randomUUID().toString();
+                this.mysqlLoadId = loadId;
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromStmt(context, insertStmt, loadId);
+                context.getState()
+                        .setOk(submitResult.getRecords(), submitResult.getWarnings(), submitResult.toString());
                 break;
             case ROUTINE_LOAD:
                 // TODO: implement
@@ -50,6 +65,10 @@ public class LoadManagerAdapter {
             default:
                 throw new DdlException("unsupported load type:" + loadType);
         }
+    }
+
+    public String getMysqlLoadId() {
+        return mysqlLoadId;
     }
 
 }

@@ -28,6 +28,7 @@
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/download_action.h"
+#include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
 #include "http/action/health_action.h"
 #include "http/action/jeprofile_actions.h"
@@ -107,6 +108,12 @@ Status HttpService::start() {
                                       error_log_download_action);
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
+
+    DownloadBinlogAction* download_binlog_action = _pool.add(new DownloadBinlogAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/_binlog/_download",
+                                      download_binlog_action);
+    _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
+                                      download_binlog_action);
 
     // Register BE version action
     VersionAction* version_action =

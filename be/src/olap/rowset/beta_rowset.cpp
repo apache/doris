@@ -21,6 +21,8 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -218,7 +220,8 @@ void BetaRowset::do_close() {
 }
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                                 size_t new_rowset_start_seg_id) {
+                                 size_t new_rowset_start_seg_id,
+                                 std::set<int32_t>* without_index_column_uids) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
@@ -244,7 +247,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             return Status::Error<OS_ERROR>();
         }
         for (auto& column : _schema->columns()) {
-            // if (column.has_inverted_index()) {
+            if (without_index_column_uids != nullptr &&
+                without_index_column_uids->count(column.unique_id())) {
+                continue;
+            }
             const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
             if (index_meta) {
                 std::string inverted_index_src_file_path =
@@ -254,17 +260,30 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                         InvertedIndexDescriptor::get_index_file_name(dst_path,
                                                                      index_meta->index_id());
 
-                if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
-                             .ok()) {
-                    LOG(WARNING) << "fail to create hard link. from="
-                                 << inverted_index_src_file_path << ", "
-                                 << "to=" << inverted_index_dst_file_path
-                                 << ", errno=" << Errno::no();
-                    return Status::Error<OS_ERROR>();
+                bool need_to_link = true;
+                if (_schema->skip_write_index_on_load()) {
+                    local_fs->exists(inverted_index_src_file_path, &need_to_link);
+                    if (!need_to_link) {
+                        LOG(INFO) << "skip create hard link to not existed file="
+                                  << inverted_index_src_file_path;
+                    }
                 }
-                LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
-                          << ", "
-                          << "to=" << inverted_index_dst_file_path;
+
+                if (need_to_link) {
+                    if (!local_fs->link_file(inverted_index_src_file_path,
+                                             inverted_index_dst_file_path)
+                                 .ok()) {
+                        LOG(WARNING)
+                                << "fail to create hard link. from=" << inverted_index_src_file_path
+                                << ", "
+                                << "to=" << inverted_index_dst_file_path
+                                << ", errno=" << Errno::no();
+                        return Status::Error<OS_ERROR>();
+                    }
+                    LOG(INFO) << "success to create hard link. from="
+                              << inverted_index_src_file_path << ", "
+                              << "to=" << inverted_index_dst_file_path;
+                }
             }
         }
     }
@@ -390,6 +409,51 @@ bool BetaRowset::check_current_rowset_segment() {
         }
     }
     return true;
+}
+
+Status BetaRowset::add_to_binlog() {
+    // FIXME(Drogon): not only local file system
+    DCHECK(is_local());
+    auto fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::Error<INIT_FAILED>();
+    }
+    if (fs->type() != io::FileSystemType::LOCAL) {
+        return Status::InternalError("should be local file system");
+    }
+    io::LocalFileSystem* local_fs = static_cast<io::LocalFileSystem*>(fs.get());
+
+    // all segments are in the same directory, so cache binlog_dir without multi times check
+    std::string binlog_dir;
+
+    auto segments_num = num_segments();
+    VLOG_DEBUG << fmt::format("add rowset to binlog. rowset_id={}, segments_num={}",
+                              rowset_id().to_string(), segments_num);
+    for (int i = 0; i < segments_num; ++i) {
+        auto seg_file = segment_file_path(i);
+
+        if (binlog_dir.empty()) {
+            binlog_dir = std::filesystem::path(seg_file).parent_path().append("_binlog").string();
+
+            bool exists = true;
+            RETURN_IF_ERROR(local_fs->exists(binlog_dir, &exists));
+            if (!exists) {
+                RETURN_IF_ERROR(local_fs->create_directory(binlog_dir));
+            }
+        }
+
+        auto binlog_file =
+                (std::filesystem::path(binlog_dir) / std::filesystem::path(seg_file).filename())
+                        .string();
+        VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
+        if (!local_fs->link_file(seg_file, binlog_file).ok()) {
+            LOG(WARNING) << "fail to create hard link. from=" << seg_file << ", "
+                         << "to=" << binlog_file << ", errno=" << Errno::no();
+            return Status::Error<OS_ERROR>();
+        }
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris

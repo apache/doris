@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -67,7 +68,6 @@ public class PlanReceiver implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     HashMap<Long, Group> planTable = new HashMap<>();
     HashMap<Long, BitSet> usdEdges = new HashMap<>();
-    HashMap<Long, List<NamedExpression>> projectsOnSubgraph = new HashMap<>();
     HashMap<Long, List<NamedExpression>> complexProjectMap = new HashMap<>();
     int limit;
     int emitCount = 0;
@@ -138,27 +138,36 @@ public class PlanReceiver implements AbstractReceiver {
         return true;
     }
 
+    // be aware that the requiredOutputSlots is a superset of the actual output of current node
+    // check proposeProject method to get how to create a project node for the outputs of current node.
     private Set<Slot> calculateRequiredSlots(long left, long right, List<Edge> edges) {
-        Set<Slot> outputSlots = new HashSet<>(this.finalOutputs);
+        // required output slots = final outputs + slot of unused edges + complex project exprs(if there is any)
+        // 1. add finalOutputs to requiredOutputSlots
+        Set<Slot> requiredOutputSlots = new HashSet<>(this.finalOutputs);
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
         usedEdgesBitmap.or(usdEdges.get(right));
         for (Edge edge : edges) {
             usedEdgesBitmap.set(edge.getIndex());
         }
-        // required output slots = final outputs + slot of unused edges
+
+        // 2. add unused edges' input slots to requiredOutputSlots
         usdEdges.put(LongBitmap.newBitmapUnion(left, right), usedEdgesBitmap);
         for (Edge edge : hyperGraph.getEdges()) {
             if (!usedEdgesBitmap.get(edge.getIndex())) {
-                outputSlots.addAll(edge.getInputSlots());
+                requiredOutputSlots.addAll(edge.getInputSlots());
             }
         }
-        hyperGraph.getComplexProject()
-                .values()
-                .stream()
-                .flatMap(l -> l.stream())
-                .forEach(expr -> outputSlots.addAll(expr.getInputSlots()));
-        return outputSlots;
+
+        // 3. add input slots of all complex projects which should be done by all upper level (parents) nodes
+        // dphyper enumerate subsets before supersets, so all subsets' complex projects should be excluded here
+        // because it's been processed by subsets already
+        long fullKey = LongBitmap.newBitmapUnion(left, right);
+        hyperGraph.getComplexProject().entrySet().stream()
+                .filter(l -> !LongBitmap.isSubset(l.getKey(), fullKey))
+                .flatMap(l -> l.getValue().stream())
+                .forEach(expr -> requiredOutputSlots.addAll(expr.getInputSlots()));
+        return requiredOutputSlots;
     }
 
     // add any missed edge into edges to connect left and right
@@ -182,14 +191,6 @@ public class PlanReceiver implements AbstractReceiver {
                 edges.add(edge);
             }
         }
-    }
-
-    private long getAllReferenceNodes(BitSet edgesBitmap) {
-        long nodes = LongBitmap.newBitmap();
-        for (int i = edgesBitmap.nextSetBit(0); i >= 0; i = edgesBitmap.nextSetBit(i + 1)) {
-            nodes = LongBitmap.or(nodes, hyperGraph.getEdge(i).getReferenceNodes());
-        }
-        return nodes;
     }
 
     private void proposeAllDistributedPlans(GroupExpression groupExpression) {
@@ -275,12 +276,10 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public void reset() {
-        Preconditions.checkArgument(complexProjectMap.isEmpty(),
-                "complexProjectMap should be empty when call reset()");
-        planTable.clear();
-        projectsOnSubgraph.clear();
-        usdEdges.clear();
         emitCount = 0;
+        planTable.clear();
+        usdEdges.clear();
+        complexProjectMap.clear();
         complexProjectMap.putAll(hyperGraph.getComplexProject());
     }
 
@@ -339,54 +338,80 @@ public class PlanReceiver implements AbstractReceiver {
         long fullKey = LongBitmap.newBitmapUnion(left, right);
         List<Slot> outputs = allChild.get(0).getOutput();
         Set<Slot> outputSet = allChild.get(0).getOutputSet();
-        if (!projectsOnSubgraph.containsKey(fullKey)) {
-            List<NamedExpression> projects = new ArrayList<>();
-            // Calculate complex expression
-            List<Long> bitmaps = complexProjectMap.keySet().stream()
-                    .filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey)).collect(Collectors.toList());
+        List<NamedExpression> allProjects = Lists.newArrayList();
 
-            for (long bitmap : bitmaps) {
-                projects.addAll(complexProjectMap.get(bitmap));
-                complexProjectMap.remove(bitmap);
+        List<NamedExpression> complexProjects = new ArrayList<>();
+        // Calculate complex expression should be done by current(fullKey) node
+        // the complex projects includes final output of current node(the complex project of fullKey)
+        // and any complex projects don't belong to subsets of fullKey except that fullKey is not a join node
+        List<Long> bitmaps = complexProjectMap.keySet().stream().filter(bitmap -> LongBitmap
+                        .isSubset(bitmap, fullKey)
+                        && ((!LongBitmap.isSubset(bitmap, left) && !LongBitmap.isSubset(bitmap, right))
+                        || left == right))
+                .collect(Collectors.toList());
+
+        // complexProjectMap is created by a bottom up traverse of join tree, so child node is put before parent node
+        // in the bitmaps
+        for (long bitmap : bitmaps) {
+            if (complexProjects.isEmpty()) {
+                complexProjects = complexProjectMap.get(bitmap);
+            } else {
+                // The top project of (T1, T2, T3) is different after reorder
+                // we need merge Project1 and Project2 as Project4 after reorder
+                // T1 join T2 join T3:
+                //    Project1(a, e + f)
+                //        join(a = e)
+                //            Project2(a, b + d as e)
+                //                join(a = c)
+                //                    T1(a, b)
+                //                    T2(c, d)
+                //        T3(e, f)
+                //
+                // after reorder:
+                // T1 join T3 join T2:
+                //    Project4(a, b + d + f)
+                //        join(a = c)
+                //            Project3(a, b, f)
+                //                join(a = e)
+                //                    T1(a, b)
+                //                    T3(e, f)
+                //        T2(c, d)
+                //
+                complexProjects =
+                        PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap));
             }
-
-            // calculate required columns
-            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
-            outputs.stream()
-                    .filter(e -> requireSlots.contains(e))
-                    .forEach(e -> projects.add(e));
-
-            // propose physical project
-            if (projects.isEmpty()) {
-                projects.add(ExpressionUtils.selectMinimumColumn(outputs));
-            }
-            projectsOnSubgraph.put(fullKey, projects);
         }
-        List<NamedExpression> allProjects = projectsOnSubgraph.get(fullKey);
+        allProjects.addAll(complexProjects);
+
+        // calculate required columns by all parents
+        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+
+        // add output slots belong to required slots to project list
+        allProjects.addAll(outputs.stream().filter(e -> requireSlots.contains(e))
+                .collect(Collectors.toList()));
+
+        // propose physical project
+        if (allProjects.isEmpty()) {
+            allProjects.add(ExpressionUtils.selectMinimumColumn(outputs));
+        }
         if (outputSet.equals(new HashSet<>(allProjects))) {
             return allChild;
         }
-        while (true) {
-            Set<Slot> childOutputSet = allChild.get(0).getOutputSet();
-            List<NamedExpression> projects = allProjects.stream()
-                    .filter(expr ->
-                            childOutputSet.containsAll(expr.getInputSlots()) || childOutputSet.contains(expr.toSlot()))
+
+        Set<Slot> childOutputSet = allChild.get(0).getOutputSet();
+        List<NamedExpression> projects = allProjects.stream()
+                .filter(expr ->
+                        childOutputSet.containsAll(expr.getInputSlots()))
+                .collect(Collectors.toList());
+        if (!outputSet.equals(new HashSet<>(projects))) {
+            LogicalProperties projectProperties = new LogicalProperties(
+                    () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
+            allChild = allChild.stream()
+                    .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());
-            if (!outputSet.equals(new HashSet<>(projects))) {
-                LogicalProperties projectProperties = new LogicalProperties(
-                        () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
-                allChild = allChild.stream()
-                        .map(c -> new PhysicalProject<>(projects, projectProperties, c))
-                        .collect(Collectors.toList());
-            }
-            if (projects.size() == 0) {
-                throw new RuntimeException("dphyer fail process project");
-            }
-            if (projects.size() == allProjects.size()) {
-                break;
-            }
         }
+        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size());
+
         return allChild;
     }
 }
-

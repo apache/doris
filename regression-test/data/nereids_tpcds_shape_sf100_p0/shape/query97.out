@@ -7,27 +7,29 @@ PhysicalLimit
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------hashJoin[FULL_OUTER_JOIN](ssci.customer_sk = csci.customer_sk)(ssci.item_sk = csci.item_sk)
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_month_seq <= 1225)(date_dim.d_month_seq >= 1214))
-------------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
+--------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales]
+----------------------------PhysicalOlapScan[store_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((date_dim.d_month_seq <= 1225)(date_dim.d_month_seq >= 1214))
+------------------------------filter((date_dim.d_month_seq >= 1214)(date_dim.d_month_seq <= 1225))
 --------------------------------PhysicalOlapScan[date_dim]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_month_seq >= 1214)(date_dim.d_month_seq <= 1225))
+----------------------------------PhysicalOlapScan[date_dim]
 

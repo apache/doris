@@ -63,6 +63,7 @@ private:
 
 class BufferReadable {
 public:
+    virtual ~BufferReadable() = default;
     virtual void read(char* data, int len) = 0;
     virtual StringRef read(int len) = 0;
 };

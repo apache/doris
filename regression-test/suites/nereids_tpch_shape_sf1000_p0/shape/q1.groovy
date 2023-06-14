@@ -23,12 +23,9 @@ suite("q1") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
+    sql 'SET enable_pipeline_engine = true'
 
-    def result = sql "show backends;"
-    if (result.size() != 1) {
-        print("backends num: ${result.size()}");
-        return;
-    }
+sql 'set be_number_for_test=3'
     
 
     qt_select """

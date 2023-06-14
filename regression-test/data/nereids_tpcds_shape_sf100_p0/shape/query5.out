@@ -65,7 +65,7 @@ PhysicalTopN
 ----------------------------------------PhysicalOlapScan[web_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_date <= 2000-09-02)(date_dim.d_date >= 2000-08-19))
+------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
 --------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject

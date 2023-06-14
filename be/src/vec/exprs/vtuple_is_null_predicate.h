@@ -47,9 +47,7 @@ public:
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                           VExprContext* context) override;
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VTupleIsNullPredicate::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VTupleIsNullPredicate::create_shared(*this); }
 
     [[nodiscard]] bool is_constant() const override { return false; }
 

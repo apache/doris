@@ -28,6 +28,7 @@
 #include "util/jsonb_document.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 
@@ -98,6 +99,32 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const UInt8*
                     column.get_name(), array_builder->type()->name());
         }
     }
+}
+
+template <bool is_binary_format>
+Status DataTypeHLLSerDe::_write_column_to_mysql(
+        const IColumn& column, bool return_object_data_as_binary,
+        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
+        bool col_const) const {
+    auto& data_column = assert_cast<const ColumnHLL&>(column);
+    int buf_ret = 0;
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        if (return_object_data_as_binary) {
+            const auto col_index = index_check_const(i, col_const);
+            HyperLogLog hyperLogLog = data_column.get_element(col_index);
+            size_t size = hyperLogLog.max_serialized_size();
+            std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+            hyperLogLog.serialize((uint8*)buf.get());
+            buf_ret = result[row_idx].push_string(buf.get(), size);
+        } else {
+            buf_ret = result[row_idx].push_null();
+        }
+        ++row_idx;
+    }
+    return Status::OK();
 }
 
 } // namespace vectorized

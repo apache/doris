@@ -18,17 +18,18 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
+import org.apache.doris.statistics.StatisticsRepository;
+import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -46,7 +47,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -67,6 +70,16 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+    }
+
+    private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
+
+    static {
+        SUPPORTED_HUDI_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
+        SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
@@ -128,16 +141,22 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * Now we only support `Snapshot Queries` on both cow and mor table and `Read Optimized Queries` on cow table.
-     * And they both use the `HoodieParquetInputFormat` for the input format in hive metastore.
+     * `HoodieParquetInputFormat`: `Snapshot Queries` on cow and mor table and `Read Optimized Queries` on cow table
      */
     private boolean supportedHoodieTable() {
         if (remoteTable.getSd() == null) {
             return false;
         }
         String inputFormatName = remoteTable.getSd().getInputFormat();
-        return inputFormatName != null
-                && inputFormatName.equalsIgnoreCase("org.apache.hudi.hadoop.HoodieParquetInputFormat");
+        return inputFormatName != null && SUPPORTED_HUDI_FILE_FORMATS.contains(inputFormatName);
+    }
+
+    public boolean isHoodieCowTable() {
+        if (remoteTable.getSd() == null) {
+            return false;
+        }
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return "org.apache.hudi.hadoop.HoodieParquetInputFormat".equals(inputFormatName);
     }
 
     /**
@@ -145,27 +164,6 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
-        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
-        if (isTxnTbl) {
-            // Only support "insert_only" transactional table
-            // There are 2 types of parameter:
-            //  "transactional_properties" = "insert_only",
-            //  or,
-            //  "insert_only" = "true"
-            // And must check "insert_only" first, because "transactional_properties" may be "default"
-            Map<String, String> parameters = remoteTable.getParameters();
-            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
-                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
-                    return false;
-                }
-            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
-                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
@@ -194,6 +192,10 @@ public class HMSExternalTable extends ExternalTable {
 
     public boolean isHiveTransactionalTable() {
         return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+    }
+
+    public boolean isFullAcidTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
     }
 
     @Override
@@ -274,7 +276,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         switch (dlaType) {
             case HIVE:
@@ -335,12 +337,22 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public Set<String> getPartitionNames() {
+        makeSureInitialized();
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        List<String> names = client.listPartitionNames(dbName, name);
+        return new HashSet<>(names);
+    }
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
         List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
         if (dlaType.equals(DLAType.ICEBERG)) {
             columns = getIcebergSchema(schema);
+        } else if (dlaType.equals(DLAType.HUDI)) {
+            columns = getHudiSchema(schema);
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
@@ -354,15 +366,24 @@ public class HMSExternalTable extends ExternalTable {
         return columns;
     }
 
+    public List<Column> getHudiSchema(List<FieldSchema> hmsSchema) {
+        org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
+        for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
+            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
+            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
+                    true, null, true, null, "", true, null, -1, null));
+        }
+        return tmpSchema;
+    }
+
     @Override
     public long estimatedRowCount() {
-        ColumnStatistic cache = Config.enable_stats
-                ? Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(id, "")
-                : ColumnStatistic.UNKNOWN;
-        if (cache == ColumnStatistic.UNKNOWN) {
+        try {
+            TableStatistic tableStatistic = StatisticsRepository.fetchTableLevelStats(id);
+            return tableStatistic.rowCount;
+        } catch (DdlException e) {
             return 1;
-        } else {
-            return (long) cache.count;
         }
     }
 
@@ -375,7 +396,7 @@ public class HMSExternalTable extends ExternalTable {
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
                     true, null,
-                    true, null, field.getComment(), true, null,
+                    true, false, null, field.getComment(), true, null,
                     schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
         }
         return tmpSchema;

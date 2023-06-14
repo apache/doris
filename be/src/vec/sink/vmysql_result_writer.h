@@ -27,6 +27,7 @@
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/vresult_writer.h"
 
 namespace doris {
@@ -34,7 +35,6 @@ class BufferControlBlock;
 class RuntimeState;
 
 namespace vectorized {
-class VExprContext;
 class Block;
 
 template <bool is_binary_format = false>
@@ -42,8 +42,7 @@ class VMysqlResultWriter final : public VResultWriter {
 public:
     using ResultList = std::vector<std::unique_ptr<TFetchDataResult>>;
 
-    VMysqlResultWriter(BufferControlBlock* sinker,
-                       const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+    VMysqlResultWriter(BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
                        RuntimeProfile* parent_profile);
 
     Status init(RuntimeState* state) override;
@@ -69,7 +68,8 @@ private:
 
     BufferControlBlock* _sinker;
 
-    const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
+    std::vector<MysqlRowBuffer<is_binary_format>> _rows_buffer;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
     // total time cost on append batch operation
@@ -78,6 +78,8 @@ private:
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _result_send_timer = nullptr;
+    // timer of copying buffer to thrift
+    RuntimeProfile::Counter* _copy_buffer_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
     // size of sent data

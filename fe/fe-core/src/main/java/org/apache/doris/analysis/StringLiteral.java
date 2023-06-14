@@ -136,15 +136,12 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRING_LITERAL;
-        msg.string_literal = new TStringLiteral(getUnescapedValue());
-    }
-
-    // FIXME: modify by zhaochun
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
+        if (value == null) {
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+        } else {
+            msg.string_literal = new TStringLiteral(value);
+            msg.node_type = TExprNodeType.STRING_LITERAL;
+        }
     }
 
     @Override
@@ -227,14 +224,7 @@ public class StringLiteral extends LiteralExpr {
                             throw new AnalysisException(e.getMessage());
                         }
                     }
-                    // MySQL will try to parse string as bigint, if failed, will cast string as 0.
-                    long longValue;
-                    try {
-                        longValue = Long.parseLong(value);
-                    } catch (NumberFormatException e) {
-                        longValue = 0L;
-                    }
-                    return new IntLiteral(longValue, targetType);
+                    return new IntLiteral(value, targetType);
                 case LARGEINT:
                     if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
@@ -257,9 +247,14 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                    res.setType(targetType);
-                    return res;
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(
+                                String.format("input value can't parse to decimal, value=%s", value));
+                    }
                 default:
                     break;
             }

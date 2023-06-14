@@ -57,7 +57,9 @@ public class OptimizeGroupExpressionJob extends Job {
 
     private List<Rule> getExplorationRules() {
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
-                .isDisableJoinReorder();
+                .isDisableJoinReorder()
+                || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
+                .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();

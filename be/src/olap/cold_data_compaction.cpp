@@ -35,6 +35,7 @@
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
+#include "util/trace.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -83,6 +84,7 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     {
         std::lock_guard wlock(_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
         _tablet->delete_rowsets(_input_rowsets, false);
         _tablet->add_rowsets({_output_rowset});

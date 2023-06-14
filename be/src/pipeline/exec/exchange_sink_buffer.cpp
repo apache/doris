@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -40,57 +41,10 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/proto_util.h"
+#include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
-template <typename T>
-class SelfDeleteClosure : public google::protobuf::Closure {
-public:
-    SelfDeleteClosure(InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data = nullptr)
-            : _id(id), _eos(eos), _data(data) {}
-    ~SelfDeleteClosure() override = default;
-    SelfDeleteClosure(const SelfDeleteClosure& other) = delete;
-    SelfDeleteClosure& operator=(const SelfDeleteClosure& other) = delete;
-    void addFailedHandler(std::function<void(const InstanceLoId&, const std::string&)> fail_fn) {
-        _fail_fn = std::move(fail_fn);
-    }
-    void addSuccessHandler(std::function<void(const InstanceLoId&, const bool&, const T&)> suc_fn) {
-        _suc_fn = suc_fn;
-    }
-
-    void Run() noexcept override {
-        std::unique_ptr<SelfDeleteClosure> self_guard(this);
-        try {
-            if (_data) {
-                _data->unref();
-            }
-            if (cntl.Failed()) {
-                std::string err = fmt::format(
-                        "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
-                        "latency = {}",
-                        berror(cntl.ErrorCode()), cntl.ErrorText(), BackendOptions::get_localhost(),
-                        cntl.latency_us());
-                _fail_fn(_id, err);
-            } else {
-                _suc_fn(_id, _eos, result);
-            }
-        } catch (const std::exception& exp) {
-            LOG(FATAL) << "brpc callback error: " << exp.what();
-        } catch (...) {
-            LOG(FATAL) << "brpc callback error.";
-        }
-    }
-
-    brpc::Controller cntl;
-    T result;
-
-private:
-    std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const T&)> _suc_fn;
-    InstanceLoId _id;
-    bool _eos;
-    vectorized::BroadcastPBlockHolder* _data;
-};
 
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
                                        int be_number, PipelineFragmentContext* context)
@@ -152,6 +106,8 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_lo(fragment_instance_id.lo);
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
+    _instance_to_receiver_eof[low_id] = false;
+    _instance_to_rpc_time[low_id] = 0;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -181,6 +137,9 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     request.block_holder->ref();
     {
@@ -223,14 +182,19 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
-        auto* _closure = new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, nullptr);
-        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
-        _closure->addFailedHandler(
+        auto* closure = request.channel->get_closure(id, request.eos, nullptr);
+        closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
-        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                        const PTransmitDataResult& result) {
+        closure->start_rpc_time = GetCurrentTimeNanos();
+        closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -242,11 +206,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
-                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+                transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
             }
         }
         if (request.block) {
@@ -265,15 +229,19 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
-        auto* _closure =
-                new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, request.block_holder);
-        _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
-        _closure->addFailedHandler(
+        auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
+        closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
-        _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                        const PTransmitDataResult& result) {
+        closure->start_rpc_time = GetCurrentTimeNanos();
+        closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
-            if (!s.ok()) {
+            if (s.is<ErrorCode::END_OF_FILE>()) {
+                _set_receiver_eof(id);
+            } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
@@ -285,11 +253,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), _closure,
+                RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,
                                                     request.channel->_brpc_dest_addr));
             } else {
-                transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
+                transmit_block(*request.channel->_brpc_stub, closure, *brpc_request);
             }
         }
         if (request.block_holder->get_block()) {
@@ -323,6 +291,65 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_finishing = true;
     _context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, err);
     _ended(id);
-};
+}
 
+void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    _instance_to_receiver_eof[id] = true;
+    _instance_to_sending_by_pipeline[id] = true;
+}
+
+bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    return _instance_to_receiver_eof[id];
+}
+
+void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
+    int64_t local_max_time = 0;
+    int64_t local_min_time = INT64_MAX;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        if (time != 0) {
+            local_max_time = std::max(local_max_time, time);
+            local_min_time = std::min(local_min_time, time);
+        }
+    }
+    *max_time = local_max_time;
+    *min_time = local_min_time;
+}
+
+int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
+    int64_t sum_time = 0;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        sum_time += time;
+    }
+    return sum_time;
+}
+
+void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
+                                      int64_t receive_rpc_time) {
+    _rpc_count++;
+    int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
+    DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
+    if (rpc_spend_time > 0) {
+        _instance_to_rpc_time[id] += rpc_spend_time;
+    }
+}
+
+void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
+    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
+    auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
+    auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
+    auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
+
+    int64_t max_rpc_time = 0, min_rpc_time = 0;
+    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    _max_rpc_timer->set(max_rpc_time);
+    _min_rpc_timer->set(min_rpc_time);
+
+    _count_rpc->set(_rpc_count);
+    int64_t sum_time = get_sum_rpc_time();
+    _sum_rpc_timer->set(sum_time);
+    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+}
 } // namespace doris::pipeline

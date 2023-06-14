@@ -180,6 +180,11 @@ public:
                                       PFetchColIdsResponse* response,
                                       google::protobuf::Closure* done) override;
 
+    void get_tablet_rowset_versions(google::protobuf::RpcController* controller,
+                                    const PGetTabletVersionsRequest* request,
+                                    PGetTabletVersionsResponse* response,
+                                    google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
                                bool compact);

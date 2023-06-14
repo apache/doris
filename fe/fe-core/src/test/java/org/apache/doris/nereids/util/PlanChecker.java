@@ -194,6 +194,7 @@ public class PlanChecker {
     }
 
     public PlanChecker optimize() {
+        cascadesContext.setJobContext(PhysicalProperties.GATHER);
         double now = System.currentTimeMillis();
         new CascadesOptimizer(cascadesContext).execute();
         System.out.println("cascades:" + (System.currentTimeMillis() - now));

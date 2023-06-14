@@ -79,7 +79,9 @@ public class DataTypeTest {
         // double
         Assertions.assertEquals(DoubleType.INSTANCE, DataType.convertFromString("double"));
         // decimalv2
-        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(13, 9),
+        Assertions.assertEquals(
+                Config.enable_decimal_conversion ? DecimalV3Type.createDecimalV3Type(13, 9)
+                        : DecimalV2Type.createDecimalV2Type(13, 9),
                 DataType.convertFromString("decimal(13, 9)"));
         // decimalv3
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(13, 9),

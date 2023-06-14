@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -86,7 +87,8 @@ public final class RuntimeFilter {
     private long ndvEstimate = -1;
     // Size of the filter (in Bytes). Should be greater than zero for bloom filters.
     private long filterSizeBytes = 0;
-    public long expectFilterSizeBytes = 0;
+
+    private long expectFilterSizeBytes = 0;
     // If true, the filter is produced by a broadcast join and there is at least one
     // destination scan node which is in the same fragment as the join; set in
     // DistributedPlanner.createHashJoinFragment().
@@ -102,6 +104,8 @@ public final class RuntimeFilter {
     private TRuntimeFilterType runtimeFilterType;
 
     private boolean bitmapFilterNotIn = false;
+
+    private boolean useRemoteRfOpt = true;
 
     /**
      * Internal representation of a runtime filter target.
@@ -180,6 +184,17 @@ public final class RuntimeFilter {
 
     public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
         this.bitmapFilterNotIn = bitmapFilterNotIn;
+    }
+
+    public void computeUseRemoteRfOpt() {
+        for (RuntimeFilterTarget target : targets) {
+            useRemoteRfOpt = useRemoteRfOpt && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
+        }
+    }
+
+    public boolean getUseRemoteRfOpt() {
+        return useRemoteRfOpt;
     }
 
     /**
@@ -546,17 +561,26 @@ public final class RuntimeFilter {
      * Considering that the `IN` filter may be converted to the `Bloom FIlter` when crossing fragments,
      * the bloom filter size is always calculated.
      */
-    private void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+    public void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         if (ndvEstimate == -1) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;
         }
-        double fpp = FeConstants.default_bloom_filter_fpp;
-        int logFilterSize = getMinLogSpaceForBloomFilter(ndvEstimate, fpp);
-        filterSizeBytes = 1L << logFilterSize;
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        if (sessionVariable.useRuntimeFilterDefaultSize) {
+            filterSizeBytes = filterSizeLimits.defaultVal;
+            return;
+        }
+        filterSizeBytes = expectRuntimeFilterSize(ndvEstimate);
         expectFilterSizeBytes = filterSizeBytes;
         filterSizeBytes = Math.max(filterSizeBytes, filterSizeLimits.minVal);
         filterSizeBytes = Math.min(filterSizeBytes, filterSizeLimits.maxVal);
+    }
+
+    public static long expectRuntimeFilterSize(long ndv) {
+        double fpp = FeConstants.default_bloom_filter_fpp;
+        int logFilterSize = getMinLogSpaceForBloomFilter(ndv, fpp);
+        return 1L << logFilterSize;
     }
 
     /**
@@ -619,5 +643,10 @@ public final class RuntimeFilter {
                 +      "Target(s): "
                 +      Joiner.on(", ").join(targets) + " "
                 + "Selectivity: " + getSelectivity();
+    }
+
+
+    public long getExpectFilterSizeBytes() {
+        return expectFilterSizeBytes;
     }
 }

@@ -130,6 +130,13 @@ public class SimpleDemo  {
         /* here could do some destroy work if needed */
     }
 
+    /*Not Required*/
+    public void reset(State state) {
+        /*if you want this udaf function can work with window function.*/
+        /*Must impl this, it will be reset to init state after calculate every window frame*/
+        state.sum = 0;
+    }
+
     /*required*/
     //first argument is State, then other types your input
     public void add(State state, Integer val) throws Exception {

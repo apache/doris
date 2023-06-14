@@ -102,9 +102,6 @@ public class TabletScheduler extends MasterDaemon {
 
     private static final long SCHEDULE_INTERVAL_MS = 1000; // 1s
 
-    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
-    public static final int BALANCE_SLOT_NUM_FOR_PATH = 1;
-
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -968,11 +965,22 @@ public class TabletScheduler extends MasterDaemon {
             return false;
         }
         Replica chosenReplica = tabletCtx.getTablet().getReplicaById(id);
-        if (chosenReplica != null) {
-            deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
-            return true;
+        if (chosenReplica == null) {
+            return false;
         }
-        return false;
+        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
+        int eqOrNewVersionCount = 0;
+        for (Replica replica : replicas) {
+            if (replica.getVersion() >= chosenReplica.getVersion()) {
+                eqOrNewVersionCount++;
+            }
+        }
+        if (eqOrNewVersionCount == 1) {
+            return false;
+        }
+        deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
+
+        return true;
     }
 
     private boolean deleteReplicaOnHighLoadBackend(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
@@ -1089,8 +1097,8 @@ public class TabletScheduler extends MasterDaemon {
             replica.setState(ReplicaState.DECOMMISSION);
             // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
             tabletCtx.setOrigPriority(Priority.NORMAL);
-            LOG.debug("set replica {} on backend {} of tablet {} state to DECOMMISSION",
-                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId());
+            LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
+                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
@@ -1851,7 +1859,7 @@ public class TabletScheduler extends MasterDaemon {
         public Slot(int total) {
             this.total = total;
             this.available = total;
-            this.balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            this.balanceSlot = Config.balance_slot_num_per_path;
         }
 
         public void rectify() {
@@ -1862,8 +1870,8 @@ public class TabletScheduler extends MasterDaemon {
                 available = total;
             }
 
-            if (balanceSlot > BALANCE_SLOT_NUM_FOR_PATH) {
-                balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            if (balanceSlot > Config.balance_slot_num_per_path) {
+                balanceSlot = Config.balance_slot_num_per_path;
             }
         }
 

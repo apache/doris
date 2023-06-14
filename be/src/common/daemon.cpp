@@ -22,6 +22,7 @@
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <butil/iobuf.h>
 #include <math.h>
 #include <signal.h>
 #include <stdint.h>
@@ -63,8 +64,6 @@
 #include "util/time.h"
 
 namespace doris {
-
-bool k_doris_exit = false;
 
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
@@ -212,6 +211,9 @@ void Daemon::memory_maintenance_thread() {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
+
+            ExecEnv::GetInstance()->brpc_iobuf_block_memory_tracker()->set_consumption(
+                    butil::IOBuf::block_memory());
             LOG(INFO) << MemTrackerLimiter::
                             process_mem_log_str(); // print mem log when memory state by 256M
         }

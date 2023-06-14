@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -55,7 +55,6 @@ _is_sourced() {
 }
 
 docker_setup_env() {
-  sysctl -w vm.max_map_count=2000000
   declare -g DATABASE_ALREADY_EXISTS
   if [ -d "${DORIS_HOME}/be/storage/data" ]; then
     DATABASE_ALREADY_EXISTS='true'
@@ -149,23 +148,31 @@ check_be_status() {
     fi
 }
 
+cleanup() {
+    doris_note "Container stopped, running stop_be script"
+    ${DORIS_HOME}/be/bin/stop_be.sh
+}
 
 _main() {
-  if [[ $RUN_TYPE == "K8S" ]]; then
-      start_be.sh
-  else
-      docker_setup_env
-      if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-        add_priority_networks $PRIORITY_NETWORKS
-        node_role_conf
-      fi
-      show_be_args
-      register_be_to_fe
-      check_be_status
-      doris_note "Ready to start BE！"
-      start_be.sh
-      exec "$@"
-  fi
+    trap 'cleanup' SIGTERM SIGINT
+    if [[ $RUN_TYPE == "K8S" ]]; then
+        start_be.sh &
+        child_pid=$!
+    else
+        docker_setup_env
+        if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
+          add_priority_networks $PRIORITY_NETWORKS
+          node_role_conf
+        fi
+        show_be_args
+        register_be_to_fe
+        check_be_status
+        doris_note "Ready to start BE！"
+        start_be.sh &
+        child_pid=$!
+    fi
+    wait $child_pid
+    exec "$@"
 }
 
 if ! _is_sourced; then

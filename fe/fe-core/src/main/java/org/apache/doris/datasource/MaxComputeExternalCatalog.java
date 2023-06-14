@@ -24,7 +24,10 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.tunnel.TableTunnel;
+import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,13 +35,20 @@ import java.util.Map;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
-    private String tunnelUrl;
+    @SerializedName(value = "region")
+    private String region;
+    @SerializedName(value = "accessKey")
+    private String accessKey;
+    @SerializedName(value = "secretKey")
+    private String secretKey;
+    @SerializedName(value = "publicAccess")
+    private boolean enablePublicAccess;
     private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
-    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun.com";
+    private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
 
-    public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE);
-        this.type = "max_compute";
+    public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, InitCatalogLog.Type.MAX_COMPUTE, comment);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -57,12 +67,30 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             // may use oss-cn-beijing, ensure compatible
             region = region.replace("oss-", "");
         }
-        this.tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+        this.region = region;
         CloudCredential credential = MCProperties.getCredential(props);
-        Account account = new AliyunAccount(credential.getAccessKey(), credential.getSecretKey());
+        if (!credential.isWhole()) {
+            throw new IllegalArgumentException("Max-Compute credential properties '"
+                    + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
+        }
+        accessKey = credential.getAccessKey();
+        secretKey = credential.getSecretKey();
+        Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
         odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(defaultProject);
+        enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS, "false"));
+    }
+
+    public long getTotalRows(String project, String table) throws TunnelException {
+        makeSureInitialized();
+        TableTunnel tunnel = new TableTunnel(odps);
+        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+        if (enablePublicAccess) {
+            tunnelUrl = tunnelUrlTemplate.replace("-inc", "");
+        }
+        tunnel.setEndpoint(tunnelUrl);
+        return tunnel.createDownloadSession(project, table).getRecordCount();
     }
 
     public Odps getClient() {
@@ -73,6 +101,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     protected List<String> listDatabaseNames() {
         List<String> result = new ArrayList<>();
         try {
+            // TODO: How to get all privileged project from max compute as databases?
+            // Now only have permission to show default project.
             result.add(odps.projects().get(odps.getDefaultProject()).getName());
         } catch (OdpsException e) {
             throw new RuntimeException(e);
@@ -99,11 +129,26 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * data tunnel url
-     * @return tunnelUrl, required by jni scanner.
+     * use region to create data tunnel url
+     * @return region, required by jni scanner.
      */
-    public String getTunnelUrl() {
+    public String getRegion() {
         makeSureInitialized();
-        return tunnelUrl;
+        return region;
+    }
+
+    public String getAccessKey() {
+        makeSureInitialized();
+        return accessKey;
+    }
+
+    public String getSecretKey() {
+        makeSureInitialized();
+        return secretKey;
+    }
+
+    public boolean enablePublicAccess() {
+        makeSureInitialized();
+        return enablePublicAccess;
     }
 }

@@ -266,3 +266,6 @@ true	0.1
 -- !group31 --
 1
 
+-- !sql_test_DecimalV3_mode --
+1.0
+

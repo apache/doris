@@ -66,6 +66,7 @@
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
@@ -78,10 +79,6 @@ class ThreadPoolToken;
 class TupleDescriptor;
 template <typename T>
 class RefCountClosure;
-
-namespace vectorized {
-class VExprContext;
-}
 
 namespace stream_load {
 
@@ -198,6 +195,20 @@ class VOlapTableSink;
 // pair<row_id,tablet_id>
 using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
+class VNodeChannelStat {
+public:
+    VNodeChannelStat& operator+=(const VNodeChannelStat& stat) {
+        mem_exceeded_block_ns += stat.mem_exceeded_block_ns;
+        where_clause_ns += stat.where_clause_ns;
+        append_node_channel_ns += stat.append_node_channel_ns;
+        return *this;
+    };
+
+    int64_t mem_exceeded_block_ns = 0;
+    int64_t where_clause_ns = 0;
+    int64_t append_node_channel_ns = 0;
+};
+
 class VNodeChannel {
 public:
     VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
@@ -218,6 +229,8 @@ public:
     Status init(RuntimeState* state);
 
     Status open_wait();
+
+    void open_partition_wait();
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
@@ -241,18 +254,21 @@ public:
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
-                     int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
+                     int64_t* serialize_batch_ns, VNodeChannelStat* stat,
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
                      int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
+                     int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
                      int64_t* total_add_batch_num) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
         *serialize_batch_ns += _serialize_batch_ns;
-        *mem_exceeded_block_ns += _mem_exceeded_block_ns;
+        *stat += _stat;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
         *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
         *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
+        *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
+        *total_wait_exec_time_ns += *wait_exec_time_ns;
         *total_add_batch_num += _add_batch_counter.add_batch_num;
     }
 
@@ -325,10 +341,10 @@ protected:
 
     AddBatchCounter _add_batch_counter;
     std::atomic<int64_t> _serialize_batch_ns {0};
-    std::atomic<int64_t> _mem_exceeded_block_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
 
+    VNodeChannelStat _stat;
     // lock to protect _is_closed.
     // The methods in the IndexChannel are called back in the RpcClosure in the NodeChannel.
     // However, this rpc callback may occur after the whole task is finished (e.g. due to network latency),
@@ -355,7 +371,8 @@ protected:
 
 class IndexChannel {
 public:
-    IndexChannel(VOlapTableSink* parent, int64_t index_id, vectorized::VExprContext* where_clause)
+    IndexChannel(VOlapTableSink* parent, int64_t index_id,
+                 const vectorized::VExprContextSPtr& where_clause)
             : _parent(parent), _index_id(index_id), _where_clause(where_clause) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
@@ -394,7 +411,7 @@ public:
     // check whether the rows num written by different replicas is consistent
     Status check_tablet_received_rows_consistency();
 
-    vectorized::VExprContext* get_where_clause() { return _where_clause; }
+    vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
     friend class VNodeChannel;
@@ -402,7 +419,7 @@ private:
 
     VOlapTableSink* _parent;
     int64_t _index_id;
-    vectorized::VExprContext* _where_clause;
+    vectorized::VExprContextSPtr _where_clause;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -562,11 +579,18 @@ private:
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
     int64_t _number_immutable_partition_filtered_rows = 0;
+    int64_t _filter_ns = 0;
+
+    MonotonicStopWatch _row_distribution_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
+    RuntimeProfile::Counter* _row_distribution_timer = nullptr;
+    RuntimeProfile::Counter* _append_node_channel_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+    RuntimeProfile::Counter* _where_clause_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -576,6 +600,8 @@ private:
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _total_add_batch_exec_timer = nullptr;
     RuntimeProfile::Counter* _max_add_batch_exec_timer = nullptr;
+    RuntimeProfile::Counter* _total_wait_exec_timer = nullptr;
+    RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_number = nullptr;
     RuntimeProfile::Counter* _num_node_channels = nullptr;
 
@@ -602,7 +628,7 @@ private:
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
-    std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
 

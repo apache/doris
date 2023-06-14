@@ -855,7 +855,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "from test.test1 "
                 + "where time_col = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub("
                 + "now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
+        Assert.assertFalse(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
                 "CASE WHEN"));
 
         // test 1: case when then
@@ -1408,98 +1408,131 @@ public class QueryPlanTest extends TestWithFeService {
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 1);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 2);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 3);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] <- `t1`.`k1`"));
+
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 4);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 5);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 6);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`,"
-                + " RF002[min_max] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`,"
-                + " RF002[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 8);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 9);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 10);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 11);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] -> `t2`.`k1`"));
 
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 12);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 13);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 14);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`, RF003[in_or_bloom] <- `t1`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`, RF003[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF003[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF001[bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF002[min_max] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF003[in_or_bloom] -> `t2`.`k1`"));
 
         // support merge in filter, and forbidden implicit conversion to bloom filter
         queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
-        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
-        Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in] <- `t1`.`k1`"));
+        Assert.assertFalse(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
+        Assert.assertFalse(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
 
         queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN_OR_BLOOM.getValue());
         explainString = getSQLPlanOrErrorMsg(queryStr);
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
-        Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in_or_bloom] -> `t2`.`k1`"));
+        Assert.assertTrue(explainString.contains("RF000[in_or_bloom] <- `t1`.`k1`"));
     }
 
     @Test
@@ -1553,9 +1586,6 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
-        sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
 

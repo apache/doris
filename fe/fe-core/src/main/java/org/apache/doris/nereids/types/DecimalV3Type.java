@@ -60,6 +60,7 @@ public class DecimalV3Type extends FractionalType {
             .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
+            .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();
 
     protected final int precision;
@@ -146,7 +147,7 @@ public class DecimalV3Type extends FractionalType {
 
     @Override
     public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
+        return this;
     }
 
     @Override

@@ -57,7 +57,7 @@ VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const Descrip
 
 Status VRepeatNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, tnode.repeat_node.exprs, &_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
     return Status::OK();
 }
 
@@ -224,7 +224,7 @@ Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bo
     if (input_block->rows() > 0) {
         _intermediate_block = Block::create_unique();
 
-        for (auto expr : _expr_ctxs) {
+        for (auto& expr : _expr_ctxs) {
             int result_column_id = -1;
             RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
             DCHECK(result_column_id != -1);

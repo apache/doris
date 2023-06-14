@@ -128,7 +128,7 @@ int64_t TaskGroup::memory_used() {
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (const auto& tracker : mem_tracker_group.trackers) {
-            used_memory += tracker->consumption();
+            used_memory += tracker->is_query_cancelled() ? 0 : tracker->consumption();
         }
     }
     return used_memory;
@@ -156,7 +156,7 @@ void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
     tg_info->version = _version;
 }
 
-Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_group,
+Status TaskGroupInfo::parse_group_info(const TPipelineWorkloadGroup& resource_group,
                                        TaskGroupInfo* task_group_info) {
     if (UNLIKELY(!check_group_info(resource_group))) {
         std::stringstream ss;
@@ -181,7 +181,7 @@ Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_gr
             ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
     if (UNLIKELY(mem_limit <= 0)) {
         std::stringstream ss;
-        ss << "parse memory limit from TPipelineResourceGroup error, " << MEMORY_LIMIT << ": "
+        ss << "parse memory limit from TPipelineWorkloadGroup error, " << MEMORY_LIMIT << ": "
            << mem_limit_str;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -196,7 +196,7 @@ Status TaskGroupInfo::parse_group_info(const TPipelineResourceGroup& resource_gr
     return Status::OK();
 }
 
-bool TaskGroupInfo::check_group_info(const TPipelineResourceGroup& resource_group) {
+bool TaskGroupInfo::check_group_info(const TPipelineWorkloadGroup& resource_group) {
     return resource_group.__isset.id && resource_group.__isset.version &&
            resource_group.__isset.name && resource_group.__isset.properties &&
            resource_group.properties.count(CPU_SHARE) > 0 &&

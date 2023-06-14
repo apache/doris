@@ -69,6 +69,8 @@ public:
 
     bool can_read() override;
 
+    Status close(doris::RuntimeState* state) override;
+
 private:
     const int _consumer_id;
     std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;

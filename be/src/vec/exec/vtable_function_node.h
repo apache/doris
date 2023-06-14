@@ -56,6 +56,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(alloc_resource(state));
+        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
@@ -145,7 +146,7 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<VExprContext*> _vfn_ctxs;
+    VExprContextSPtrs _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;
     int _fn_num = 0;

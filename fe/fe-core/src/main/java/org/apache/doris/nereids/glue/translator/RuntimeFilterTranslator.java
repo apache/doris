@@ -84,6 +84,8 @@ public class RuntimeFilterTranslator {
 
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            slotReference = context.getRuntimeTranslator().get()
+                    .context.getCorrespondingOlapSlotReference(slotReference);
             SlotRef slot = nereidsExprIdToSlotRef.get(slotReference.getExprId());
             if (slot == null) {
                 throw new AnalysisException("cannot find SlotRef for " + slotReference);

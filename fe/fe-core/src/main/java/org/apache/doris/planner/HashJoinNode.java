@@ -53,7 +53,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,9 +72,7 @@ public class HashJoinNode extends JoinNodeBase {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private List<Expr> otherJoinConjuncts;
-    // join conjunct from the JOIN clause that aren't equi-join predicates, only use in
-    // vec exec engine
-    private Expr votherJoinConjunct = null;
+
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
@@ -258,11 +255,6 @@ public class HashJoinNode extends JoinNodeBase {
     @Override
     protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
-        if (votherJoinConjunct != null) {
-            votherJoinConjunct =
-                    Expr.substituteList(Arrays.asList(votherJoinConjunct), originToIntermediateSmap, analyzer, false)
-                            .get(0);
-        }
     }
 
     @Override
@@ -717,10 +709,6 @@ public class HashJoinNode extends JoinNodeBase {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
 
-        // use in vec exec engine to replace otherJoinConjuncts
-        if (votherJoinConjunct != null) {
-            msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
-        }
         if (hashOutputSlotIds != null) {
             for (SlotId slotId : hashOutputSlotIds) {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
@@ -827,15 +815,6 @@ public class HashJoinNode extends JoinNodeBase {
         public String toString() {
             return description;
         }
-    }
-
-    @Override
-    public void convertToVectorized() {
-        if (!otherJoinConjuncts.isEmpty()) {
-            votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
-            initCompoundPredicate(votherJoinConjunct);
-        }
-        super.convertToVectorized();
     }
 
     /**

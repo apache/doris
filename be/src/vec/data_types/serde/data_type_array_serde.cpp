@@ -23,6 +23,7 @@
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 
@@ -83,5 +84,48 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
             arrow_nested_end_offset, ctz);
 }
 
+template <bool is_binary_format>
+Status DataTypeArraySerDe::_write_column_to_mysql(
+        const IColumn& column, bool return_object_data_as_binary,
+        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
+        bool col_const) const {
+    int buf_ret = 0;
+    auto& column_array = assert_cast<const ColumnArray&>(column);
+    auto& offsets = column_array.get_offsets();
+    auto& data = column_array.get_data();
+    bool is_nested_string = data.is_column_string();
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        result[row_idx].open_dynamic_mode();
+        buf_ret = result[row_idx].push_string("[", 1);
+        for (int j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
+            if (j != offsets[col_index - 1]) {
+                buf_ret = result[row_idx].push_string(", ", 2);
+            }
+            if (data.is_null_at(j)) {
+                buf_ret = result[row_idx].push_string("NULL", strlen("NULL"));
+            } else {
+                if (is_nested_string) {
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                    RETURN_IF_ERROR(nested_serde->write_column_to_mysql(
+                            data, return_object_data_as_binary, result, row_idx, j, j + 1,
+                            col_const));
+                    buf_ret = result[row_idx].push_string("\"", 1);
+                } else {
+                    RETURN_IF_ERROR(nested_serde->write_column_to_mysql(
+                            data, return_object_data_as_binary, result, row_idx, j, j + 1,
+                            col_const));
+                }
+            }
+        }
+        buf_ret = result[row_idx].push_string("]", 1);
+        result[row_idx].close_dynamic_mode();
+        ++row_idx;
+    }
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

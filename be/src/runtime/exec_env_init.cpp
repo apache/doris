@@ -40,6 +40,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
@@ -279,6 +280,8 @@ Status ExecEnv::_init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
+    SchemaCache::create_global_instance(config::schema_cache_capacity);
+
     // use memory limit
     int64_t inverted_index_cache_limit =
             ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
@@ -335,6 +338,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
     _page_no_cache_mem_tracker =
             std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+    _brpc_iobuf_block_memory_tracker =
+            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -406,6 +411,7 @@ void ExecEnv::_destroy() {
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
 
+    _new_load_stream_mgr.reset();
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);

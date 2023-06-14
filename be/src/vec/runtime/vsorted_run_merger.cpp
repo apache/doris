@@ -35,7 +35,7 @@ using std::vector;
 
 namespace doris::vectorized {
 
-VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
+VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
                                    const std::vector<bool>& nulls_first, const size_t batch_size,
                                    int64_t limit, size_t offset, RuntimeProfile* profile)

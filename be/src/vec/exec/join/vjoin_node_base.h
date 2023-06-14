@@ -31,14 +31,12 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -58,6 +56,8 @@ using JoinOpVariants =
 class VJoinNodeBase : public ExecNode {
 public:
     VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+
+    virtual Status prepare(RuntimeState* state) override;
 
     virtual Status close(RuntimeState* state) override;
 
@@ -95,6 +95,8 @@ protected:
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
+    virtual void _init_short_circuit_for_probe() { _short_circuit_for_probe = false; }
+
     TJoinOp::type _join_op;
     JoinOpVariants _join_op_variants;
 
@@ -115,23 +117,33 @@ protected:
     const bool _short_circuit_for_null_in_build_side = false;
     bool _short_circuit_for_null_in_probe_side = false;
 
+    // For some join case, we can apply a short circuit strategy
+    // 1. _short_circuit_for_null_in_probe_side = true
+    // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
+    bool _short_circuit_for_probe = false;
+
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
-    std::vector<VExprContext*> _output_expr_ctxs;
+    VExprContextSPtrs _output_expr_ctxs;
 
     Block _join_block;
 
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
+    RuntimeProfile* _build_phase_profile;
     RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _probe_timer;
+    RuntimeProfile::Counter* _build_get_next_timer;
     RuntimeProfile::Counter* _build_rows_counter;
+
+    RuntimeProfile* _probe_phase_profile;
+    RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _join_filter_timer;
+    RuntimeProfile::Counter* _build_output_block_timer;
 };
 
 } // namespace doris::vectorized

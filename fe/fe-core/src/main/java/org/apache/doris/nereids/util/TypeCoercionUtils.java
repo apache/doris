@@ -451,8 +451,8 @@ public class TypeCoercionUtils {
         }
 
         DataType commonType = DoubleType.INSTANCE;
-        if (t1.isDoubleType() || t1.isFloatType() || t1.isLargeIntType()
-                || t2.isDoubleType() || t2.isFloatType() || t2.isLargeIntType()) {
+        if (t1.isDoubleType() || t1.isFloatType()
+                || t2.isDoubleType() || t2.isFloatType()) {
             // double type
         } else if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             // divide should cast to precision and target scale
@@ -466,7 +466,7 @@ public class TypeCoercionUtils {
                 return castChildren(divide, left, right, DoubleType.INSTANCE);
             }
             return divide.withChildren(castIfNotSameType(left,
-                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), dt1.getScale() + dt2.getScale())),
+                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), retType.getScale())),
                     castIfNotSameType(right, dt2));
         } else if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             commonType = DecimalV2Type.SYSTEM_DEFAULT;
@@ -534,6 +534,9 @@ public class TypeCoercionUtils {
                 commonType = dataType;
                 break;
             }
+        }
+        if (commonType.isFloatType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
+            commonType = DoubleType.INSTANCE;
         }
 
         boolean isBitArithmetic = binaryArithmetic instanceof BitAnd
@@ -959,8 +962,16 @@ public class TypeCoercionUtils {
                         DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), true));
             }
             if (leftType instanceof DecimalV2Type || rightType instanceof DecimalV2Type) {
-                return Optional.of(DecimalV2Type.widerDecimalV2Type(
+                if (leftType instanceof BigIntType || rightType instanceof BigIntType
+                        || leftType instanceof LargeIntType || rightType instanceof LargeIntType) {
+                    // only decimalv3 can hold big or large int
+                    return Optional
+                            .of(DecimalV3Type.widerDecimalV3Type(DecimalV3Type.forType(leftType),
+                                    DecimalV3Type.forType(rightType), true));
+                } else {
+                    return Optional.of(DecimalV2Type.widerDecimalV2Type(
                             DecimalV2Type.forType(leftType), DecimalV2Type.forType(rightType)));
+                }
             }
             return Optional.of(commonType);
         }
@@ -1066,10 +1077,24 @@ public class TypeCoercionUtils {
             return Optional.empty();
         }
 
+        // decimalv3 and floating type
+        if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
+            if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
+                return Optional.of(DoubleType.INSTANCE);
+            }
+        }
+
         // decimal precision derive
         if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             return Optional.of(DecimalV3Type.widerDecimalV3Type(
                     DecimalV3Type.forType(t1), DecimalV3Type.forType(t2), true));
+        }
+
+        // decimalv2 and floating type
+        if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
+            if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
+                return Optional.of(DoubleType.INSTANCE);
+            }
         }
 
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {

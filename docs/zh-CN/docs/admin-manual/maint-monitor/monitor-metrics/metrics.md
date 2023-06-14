@@ -290,9 +290,9 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_stream_load_txn_request `| {type="commit"}| Num|  stream load 执行成功的事务数的累计值| 同上|
 |`doris_be_stream_load_txn_request `| {type="rollback"}| | stream load 执行失败的事务数的累计值 |同上 |
 |`doris_be_unused_rowsets_count`| | Num | 当前已废弃的rowset的个数| 这些rowset正常情况下会被定期删除 |
-|`doris_be_upload_fail_count`| | Num | 冷热分离功能，上传到远端存储失败的rowset的次数累计值| |
-|`doris_be_upload_rowset_count`| | Num | 冷热分离功能，上传到远端存储成功的rowset的次数累计值| |
-|`doris_be_upload_total_byte`| | | 字节 | 冷热分离功能，上传到远端存储成功的rowset数据量累计值| |
+|`doris_be_upload_fail_count`| | Num | 冷热分层功能，上传到远端存储失败的rowset的次数累计值| |
+|`doris_be_upload_rowset_count`| | Num | 冷热分层功能，上传到远端存储成功的rowset的次数累计值| |
+|`doris_be_upload_total_byte`| | | 字节 | 冷热分层功能，上传到远端存储成功的rowset数据量累计值| |
 |`doris_be_load_bytes`| | 字节|通过 tablet sink 发送的数量累计 | 可观测导入数据量 | P0 |
 |`doris_be_load_rows`| | Num | 通过 tablet sink 发送的行数累计| 可观测导入数据量 | P0 |
 |`fragment_thread_pool_queue_size`| | Num | 当前查询执行线程池等待队列的长度 | 如果大于零，则说明查询线程已耗尽，查询会出现堆积 | P0 |

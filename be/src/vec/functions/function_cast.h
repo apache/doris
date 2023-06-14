@@ -41,6 +41,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
@@ -69,6 +70,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -82,6 +84,7 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/template_helpers.hpp"
 
 class DateLUTImpl;
 
@@ -121,11 +124,20 @@ struct TimeCast {
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         /// TODO: Maybe we can move Timecast to the io_helper.
-        if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
-            // can be parse as a datetime
-            x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+        if (try_as_time(s, len, x)) {
             return true;
+        } else {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
+                // can be parse as a datetime
+                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                return true;
+            }
+            return false;
         }
+    }
+
+    template <typename T>
+    static bool try_as_time(char* s, size_t len, T& x) {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
@@ -185,7 +197,6 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
-
     // Cast from number
     template <typename T, typename S>
     static bool try_parse_time(T from, S& x) {
@@ -212,8 +223,9 @@ struct ConvertImpl {
     using ToFieldType = typename ToDataType::FieldType;
 
     template <typename Additions = void*>
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -406,8 +418,8 @@ struct ConvertImpl {
   */
 template <typename T, typename Name>
 struct ConvertImpl<std::enable_if_t<!T::is_parametric, T>, T, Name> {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
         return Status::OK();
     }
@@ -743,8 +755,9 @@ template <typename ToDataType, typename Name>
 struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -1065,18 +1078,18 @@ public:
                     UInt32 scale = extract_to_decimal_scale(scale_column);
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count,
+                            context, block, arguments, result, input_rows_count,
                             context->check_overflow_for_decimal(), scale);
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     auto type =
                             check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count,
+                            context, block, arguments, result, input_rows_count,
                             context->check_overflow_for_decimal(), type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count);
+                            context, block, arguments, result, input_rows_count);
                 }
                 return true;
             };
@@ -1260,8 +1273,9 @@ struct ConvertThroughParsing {
     static bool is_all_read(ReadBuffer& in) { return in.eof(); }
 
     template <typename Additions = void*>
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t input_rows_count, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1303,34 +1317,54 @@ struct ConvertThroughParsing {
             offsets = &col_from_string->get_offsets();
         }
 
+        bool is_load = (context && context->state()->query_type() == TQueryType::type::LOAD);
+        bool is_strict_insert = (context && context->state()->enable_insert_strict());
         size_t current_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
-                                         ? (*offsets)[i]
-                                         : (current_offset + fixed_string_size);
-            size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset
-                                         : fixed_string_size;
+        auto status = std::visit(
+                [&](auto is_load_, auto is_strict_insert_) {
+                    for (size_t i = 0; i < size; ++i) {
+                        size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
+                                                     ? (*offsets)[i]
+                                                     : (current_offset + fixed_string_size);
+                        size_t string_size = std::is_same_v<FromDataType, DataTypeString>
+                                                     ? next_offset - current_offset
+                                                     : fixed_string_size;
 
-            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            bool parsed;
-            if constexpr (IsDataTypeDecimal<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
-                                                    vec_to.get_scale());
-            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
-                        block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
-                                                    type->get_scale());
-            } else {
-                parsed = try_parse_impl<ToDataType, void*, FromDataType>(vec_to[i], read_buffer,
-                                                                         local_time_zone);
-            }
-            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        bool parsed;
+                        if constexpr (IsDataTypeDecimal<ToDataType>) {
+                            parsed = try_parse_impl<ToDataType>(
+                                    vec_to[i], read_buffer, local_time_zone, vec_to.get_scale());
+                        } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                            auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                                    block.get_by_position(result).type.get());
+                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
+                                                                local_time_zone, type->get_scale());
+                        } else {
+                            parsed = try_parse_impl<ToDataType, void*, FromDataType>(
+                                    vec_to[i], read_buffer, local_time_zone);
+                        }
+                        (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        if constexpr (is_load_ && is_strict_insert_) {
+                            if (string_size != 0 && (*vec_null_map_to)[i]) {
+                                return Status::InternalError(
+                                        "Invalid value in strict mode for function {}, source "
+                                        "column {}, from "
+                                        "type "
+                                        "{} to type {}",
+                                        Name::name, col_from->get_name(), FromDataType().get_name(),
+                                        ToDataType().get_name());
+                            }
+                        }
 
-            current_offset = next_offset;
-        }
+                        current_offset = next_offset;
+                    }
+                    return Status::OK();
+                },
+                make_bool_variant(is_load), make_bool_variant(is_strict_insert));
+
+        RETURN_IF_ERROR(status);
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -1382,7 +1416,7 @@ public:
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
             return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                    block, arguments, result, input_rows_count);
+                    context, block, arguments, result, input_rows_count);
         }
 
         return Status::RuntimeError(
@@ -1555,7 +1589,7 @@ private:
                         using RightDataType = typename Types::RightType;
 
                         ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                block, arguments, result, input_rows_count,
+                                context, block, arguments, result, input_rows_count,
                                 context->check_overflow_for_decimal(), scale);
                         return true;
                     });
@@ -1603,6 +1637,25 @@ private:
         const String error_msg = fmt::format("Conversion from {} to {} is not supported",
                                              from_type_name, to_type_name);
         return create_unsupport_wrapper(error_msg);
+    }
+
+    WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+                                   const DataTypeHLL& to_type) const {
+        /// Conversion from String through parsing.
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        }
+
+        //TODO if from is not string, it must be HLL?
+        const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
+
+        if (!from_type) {
+            return create_unsupport_wrapper(
+                    "CAST AS HLL can only be performed between HLL, String "
+                    "types");
+        }
+
+        return nullptr;
     }
 
     WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
@@ -1988,6 +2041,9 @@ private:
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
             return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+        case TypeIndex::HLL:
+            return create_hll_wrapper(context, from_type,
+                                      static_cast<const DataTypeHLL&>(*to_type));
         default:
             break;
         }

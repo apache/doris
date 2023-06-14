@@ -189,6 +189,7 @@ message ColumnPB {
     optional bool visible = 16 [default=true];
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
+    optional bool result_is_nullable = 19;
 }
 
 enum IndexType {
@@ -233,6 +234,8 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false];
     optional bool is_partial_update = 20 [default=false];
     repeated string partial_update_input_columns = 21;
+    optional bool enable_single_replica_compaction = 22 [default=false];
+    optional bool skip_write_index_on_load = 23 [default=false];
 }
 
 enum TabletStatePB {
@@ -264,6 +267,13 @@ message S3StorageParamPB {
     optional int32 s3_request_timeout_ms = 6 [default = 3000];
     optional int32 s3_conn_timeout_ms = 7 [default = 1000];
     optional string root_path = 8;
+}
+
+message BinlogConfigPB {
+    optional bool enable = 1;
+    optional int64 ttl_seconds = 2;
+    optional int64 max_bytes = 3;
+    optional int64 max_history_nums = 4;
 }
 
 message TabletMetaPB {
@@ -300,6 +310,7 @@ message TabletMetaPB {
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
+    optional BinlogConfigPB binlog_config = 27;
 }
 
 message OLAPRawDeltaHeaderMessage {
@@ -312,4 +323,12 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
+}
+
+message BinlogMetaEntryPB {
+    optional int64 version = 1;
+    optional int64 tablet_id = 2;
+    optional int64 rowset_id = 3;
+    optional int64 num_segments = 4;
+    optional int64 creation_time = 5;
 }

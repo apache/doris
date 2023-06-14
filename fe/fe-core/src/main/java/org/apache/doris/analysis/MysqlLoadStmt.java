@@ -31,10 +31,16 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class MysqlLoadStmt extends InsertStmt {
 
-    private DataDescription dataDescription;
+    private final DataDescription dataDescription;
+
+    public MysqlLoadStmt(DataDescription dataDescription, Map<String, String> properties, String comments) {
+        super(new LabelName(), properties, comments);
+        this.dataDescription = dataDescription;
+    }
 
     @Override
     public List<? extends DataDesc> getDataDescList() {

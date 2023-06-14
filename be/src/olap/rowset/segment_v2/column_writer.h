@@ -161,6 +161,7 @@ private:
 
 class FlushPageCallback {
 public:
+    virtual ~FlushPageCallback() = default;
     virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
 };
 

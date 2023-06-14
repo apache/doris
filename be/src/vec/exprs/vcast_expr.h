@@ -51,9 +51,7 @@ public:
                                FunctionContext::FunctionStateScope scope) override;
     virtual void close(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VCastExpr::create_unique(*this).release());
-    }
+    virtual VExprSPtr clone() const override { return VCastExpr::create_shared(*this); }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;
 

@@ -25,8 +25,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.FileSplit.FileSplitCreator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -57,7 +57,7 @@ import java.util.Map;
 /**
  * Base class for External File Scan, including external query and load.
  */
-public class FileScanNode extends ExternalScanNode {
+public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
     public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
@@ -67,8 +67,6 @@ public class FileScanNode extends ExternalScanNode {
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
-
-    protected final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
                             boolean needCheckColumnPriv) {
@@ -159,13 +157,6 @@ public class FileScanNode extends ExternalScanNode {
         return output.toString();
     }
 
-    // TODO: This api is for load job only. Will remove it later.
-    protected void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
-                                            LoadScanProvider scanProvider)
-            throws UserException {
-        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
-    }
-
     protected void setDefaultValueExprs(TableIf tbl,
                                         Map<String, SlotDescriptor> slotDescByName,
                                         TFileScanRangeParams params,
@@ -213,6 +204,13 @@ public class FileScanNode extends ExternalScanNode {
 
     protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues) throws IOException {
+        return splitFile(path, blockSize, blockLocations, length, modificationTime, splittable, partitionValues,
+                FileSplitCreator.DEFAULT);
+    }
+
+    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+            long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
+            throws IOException {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
@@ -226,7 +224,7 @@ public class FileScanNode extends ExternalScanNode {
         if (!splittable) {
             LOG.debug("Path {} is not splittable.", path);
             String[] hosts = blockLocations.length == 0 ? null : blockLocations[0].getHosts();
-            result.add(new FileSplit(path, 0, length, length, modificationTime, hosts, partitionValues));
+            result.add(splitCreator.create(path, 0, length, length, modificationTime, hosts, partitionValues));
             return result;
         }
         long bytesRemaining;
@@ -234,13 +232,13 @@ public class FileScanNode extends ExternalScanNode {
                 bytesRemaining -= splitSize) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(new FileSplit(path, length - bytesRemaining, splitSize,
+            result.add(splitCreator.create(path, length - bytesRemaining, splitSize,
                     length, modificationTime, hosts, partitionValues));
         }
         if (bytesRemaining != 0L) {
             int location = getBlockIndex(blockLocations, length - bytesRemaining);
             String[] hosts = location == -1 ? null : blockLocations[location].getHosts();
-            result.add(new FileSplit(path, length - bytesRemaining, bytesRemaining,
+            result.add(splitCreator.create(path, length - bytesRemaining, bytesRemaining,
                     length, modificationTime, hosts, partitionValues));
         }
 
@@ -248,7 +246,7 @@ public class FileScanNode extends ExternalScanNode {
         return result;
     }
 
-    private int getBlockIndex(BlockLocation[] blkLocations, long offset) {
+    protected int getBlockIndex(BlockLocation[] blkLocations, long offset) {
         if (blkLocations == null || blkLocations.length == 0) {
             return -1;
         }

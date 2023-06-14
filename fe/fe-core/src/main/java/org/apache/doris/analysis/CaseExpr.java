@@ -311,6 +311,11 @@ public class CaseExpr extends Expr {
     //      but for current LiteralExpr.compareLiteral, `123`' won't be regard as true
     //  the case which two values has different type left to be
     public static Expr computeCaseExpr(CaseExpr expr) {
+        if (expr.getType() == Type.NULL) {
+            // if expr's type is NULL_TYPE, means all possible return values are nulls
+            // it's safe to return null literal here
+            return new NullLiteral();
+        }
         LiteralExpr caseExpr;
         int startIndex = 0;
         int endIndex = expr.getChildren().size();

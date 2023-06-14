@@ -72,12 +72,10 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10",
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
         );
-        testSql.forEach(sql -> {
-            new NereidsPlanner(createStatementCtx(sql)).plan(
-                    new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
-        });
+        testSql.forEach(sql -> new NereidsPlanner(createStatementCtx(sql)).plan(
+                new NereidsParser().parseSingle(sql),
+                PhysicalProperties.ANY
+        ));
     }
 
     @Test

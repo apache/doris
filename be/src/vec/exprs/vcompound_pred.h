@@ -38,19 +38,17 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
     }
 }
 
-class VcompoundPred : public VectorizedFnCall {
-    ENABLE_FACTORY_CREATOR(VcompoundPred);
+class VCompoundPred : public VectorizedFnCall {
+    ENABLE_FACTORY_CREATOR(VCompoundPred);
 
 public:
-    VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
+    VCompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
         _fn.name.function_name = compound_operator_to_string(_op);
         _expr_name = "VCompoundPredicate (" + _fn.name.function_name + ")";
     }
 
-    VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(VcompoundPred::create_unique(*this).release());
-    }
+    VExprSPtr clone() const override { return VCompoundPred::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 
@@ -67,7 +65,8 @@ public:
         int lhs_id = -1;
         int rhs_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
+        ColumnPtr lhs_column =
+                block->get_by_position(lhs_id).column->convert_to_full_column_if_const();
 
         size_t size = lhs_column->size();
         uint8* __restrict data = _get_raw_data(lhs_column);
@@ -83,7 +82,8 @@ public:
         auto get_rhs_colum = [&]() {
             if (rhs_id == -1) {
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
-                rhs_column = block->get_by_position(rhs_id).column;
+                rhs_column =
+                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
                 data_rhs = _get_raw_data(rhs_column);
                 int filted = simd::count_zero_num((int8_t*)data_rhs, size);
                 full_rhs = filted == 0;

@@ -62,6 +62,7 @@ import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RewriteIsNullIsNotNullRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -69,7 +70,6 @@ import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
 import org.apache.doris.rewrite.mvrewrite.ToBitmapToSlotRefRule;
-import org.apache.doris.thrift.TPipelineResourceGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Joiner;
@@ -408,8 +408,6 @@ public class Analyzer {
 
         private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
 
-        public List<TPipelineResourceGroup> tResourceGroups;
-
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -433,6 +431,7 @@ public class Analyzer {
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
+            rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
@@ -595,14 +594,6 @@ public class Analyzer {
 
     public String getExplicitViewAlias() {
         return explicitViewAlias;
-    }
-
-    public void setResourceGroups(List<TPipelineResourceGroup> tResourceGroups) {
-        globalState.tResourceGroups = tResourceGroups;
-    }
-
-    public List<TPipelineResourceGroup> getResourceGroups() {
-        return globalState.tResourceGroups;
     }
 
     /**

@@ -83,7 +83,7 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
-    Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
+    void init_mem_trackers(const TUniqueId& id = TUniqueId(), const std::string& name = "unknown");
 
     const TQueryOptions& query_options() const { return _query_options; }
     int64_t scan_queue_mem_limit() const {
@@ -116,7 +116,7 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() { return &_profile; }
@@ -157,7 +157,12 @@ public:
 
     bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
+    void set_is_cancelled(bool v) {
+        _is_cancelled.store(v);
+        // Create a error status, so that we could print error stack, and
+        // we could know which path call cancel.
+        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>();
+    }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
@@ -368,6 +373,11 @@ public:
 
     bool enable_profile() const { return _query_options.is_report_success; }
 
+    bool enable_scan_node_run_serial() const {
+        return _query_options.__isset.enable_scan_node_run_serial &&
+               _query_options.enable_scan_node_run_serial;
+    }
+
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
@@ -399,12 +409,16 @@ public:
                        : 0;
     }
 
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    }
+
 private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
