@@ -49,7 +49,11 @@ public:
 
     int code() const { return _code; }
 
-    std::string to_string() const;
+    const std::string& to_string() const;
+
+    const char* what() const noexcept override { return to_string().c_str(); }
+
+    Status to_status() const { return Status::Error(code(), to_string()); }
 
 private:
     int _code;
@@ -59,9 +63,13 @@ private:
     };
     std::unique_ptr<ErrMsg> _err_msg;
     std::unique_ptr<Exception> _nested_excption;
+    mutable std::string _cache_string;
 };
 
-inline std::string Exception::to_string() const {
+inline const std::string& Exception::to_string() const {
+    if (!_cache_string.empty()) {
+        return _cache_string;
+    }
     std::stringstream ostr;
     ostr << "[E" << _code << "] ";
     ostr << (_err_msg ? _err_msg->_msg : "");
@@ -71,7 +79,8 @@ inline std::string Exception::to_string() const {
     if (_nested_excption != nullptr) {
         ostr << '\n' << "Caused by:" << _nested_excption->to_string();
     }
-    return ostr.str();
+    _cache_string = ostr.str();
+    return _cache_string;
 }
 
 } // namespace doris
