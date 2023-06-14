@@ -84,12 +84,6 @@ Status VSortExecExprs::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void VSortExecExprs::close(RuntimeState* state) {
-    if (_materialize_tuple) {
-        VExpr::close(_sort_tuple_slot_expr_ctxs, state);
-    }
-    VExpr::close(_lhs_ordering_expr_ctxs, state);
-    VExpr::close(_rhs_ordering_expr_ctxs, state);
-}
+void VSortExecExprs::close(RuntimeState* state) {}
 
 } // namespace doris::vectorized

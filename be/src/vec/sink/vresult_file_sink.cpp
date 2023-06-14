@@ -186,8 +186,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         _output_block->clear();
     }
 
-    VExpr::close(_output_vexpr_ctxs, state);
-
     _closed = true;
     return Status::OK();
 }

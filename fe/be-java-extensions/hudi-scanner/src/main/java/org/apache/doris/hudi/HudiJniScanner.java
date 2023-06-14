@@ -155,6 +155,11 @@ public class HudiJniScanner extends JniScanner {
 
         InputFormat<?, ?> inputFormatClass = HudiScanUtils.createInputFormat(jobConf, hudiScanParam.getInputFormat());
 
+        // org.apache.hudi.common.util.SerializationUtils$KryoInstantiator.newKryo
+        // throws error like `java.lang.IllegalArgumentException: classLoader cannot be null`.
+        // Set the default class loader
+        Thread.currentThread().setContextClassLoader(classLoader);
+
         // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
         // so use another process to kill this stuck process.
         // TODO(gaoxin): better way to solve the stuck process?

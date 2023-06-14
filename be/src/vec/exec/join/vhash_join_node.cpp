@@ -763,12 +763,6 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 void HashJoinNode::release_resource(RuntimeState* state) {
-    VExpr::close(_build_expr_ctxs, state);
-    VExpr::close(_probe_expr_ctxs, state);
-
-    for (auto& conjunct : _other_join_conjuncts) {
-        conjunct->close(state);
-    }
     _release_mem();
     VJoinNodeBase::release_resource(state);
 }

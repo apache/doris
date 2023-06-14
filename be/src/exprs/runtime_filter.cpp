@@ -280,7 +280,7 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
     try {
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        return e.to_status();
     }
 
     return Status::OK();

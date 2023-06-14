@@ -710,10 +710,6 @@ bool VNestedLoopJoinNode::need_more_input_data() const {
 
 void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
     VJoinNodeBase::release_resource(state);
-    VExpr::close(_filter_src_expr_ctxs, state);
-    for (auto& conjunct : _join_conjuncts) {
-        conjunct->close(state);
-    }
 }
 
 } // namespace doris::vectorized

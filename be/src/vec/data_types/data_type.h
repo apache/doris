@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
@@ -235,6 +236,13 @@ public:
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
+
+    [[nodiscard]] virtual UInt32 get_precision() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_precision", get_name());
+    }
+    [[nodiscard]] virtual UInt32 get_scale() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_scale", get_name());
+    }
 
 private:
     friend class DataTypeFactory;

@@ -105,6 +105,7 @@ public:
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
+    size_t get_inverted_index_file_size();
 
     uint32_t num_rows_written() const { return _num_rows_written; }
     uint32_t row_count() const { return _row_count; }

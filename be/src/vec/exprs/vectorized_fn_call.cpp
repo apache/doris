@@ -130,10 +130,9 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VectorizedFnCall::close(RuntimeState* state, VExprContext* context,
-                             FunctionContext::FunctionStateScope scope) {
+void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,

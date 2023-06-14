@@ -121,10 +121,9 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::close(RuntimeState* state, VExprContext* context,
-                  FunctionContext::FunctionStateScope scope) {
+void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(state, context, scope);
+        _children[i]->close(context, scope);
     }
 }
 
@@ -217,7 +216,7 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        return e.to_status();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);
@@ -307,12 +306,6 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
     }
     return Status::OK();
-}
-
-void VExpr::close(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (auto ctx : ctxs) {
-        ctx->close(state);
-    }
 }
 
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {

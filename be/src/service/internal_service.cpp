@@ -285,7 +285,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     try {
         st = _exec_plan_fragment(request->request(), version, compact);
     } catch (const Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
+        st = e.to_status();
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
