@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -31,28 +33,29 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Logical scan for external jdbc catalog.
+ * Logical scan for external jdbc catalog and jdbc table.
  */
 public class LogicalJdbcScan extends LogicalRelation {
 
     /**
      * Constructor for LogicalJdbcScan.
      */
-    public LogicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
+    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
     }
 
-    public LogicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier) {
+    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty());
     }
 
     @Override
-    public ExternalTable getTable() {
-        Preconditions.checkArgument(table instanceof ExternalTable);
-        return (ExternalTable) table;
+    public TableIf getTable() {
+        Preconditions.checkArgument(table instanceof ExternalTable || table instanceof JdbcTable,
+                String.format("Table %s is neither ExternalTable nor JdbcTable", table.getName()));
+        return table;
     }
 
     @Override
@@ -65,13 +68,13 @@ public class LogicalJdbcScan extends LogicalRelation {
 
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJdbcScan(id, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
             Optional.of(getLogicalProperties()));
     }
 
     @Override
     public LogicalJdbcScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJdbcScan(id, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
             logicalProperties);
     }
 
