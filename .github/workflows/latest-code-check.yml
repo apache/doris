@@ -27,21 +27,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Add remote and fetch main branch
         run: |
-          git remote add main https://github.com/apache/doris.git
-          git fetch main master
+          git remote add upstream https://github.com/apache/doris.git
+          git fetch upstream master
 
       - name: Check if code includes latest code of master branch
         run: |
-          if git merge-base --is-ancestor main/master HEAD; then
-          echo "Code includes latest code of master branch"
+          if git merge-base --is-ancestor upstream/master HEAD; then
+             echo "Your branch is up-to-date with master"
           else
-          echo "Code does not include latest code of master branch"
-          exit 1
+             echo "Your branch is behind master, please rebase your branch with master"
+             exit 1
           fi
