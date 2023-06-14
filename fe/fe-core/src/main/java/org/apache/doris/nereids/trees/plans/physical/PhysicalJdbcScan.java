@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -37,13 +37,13 @@ import java.util.Optional;
  */
 public class PhysicalJdbcScan extends PhysicalRelation {
 
-    private final ExternalTable table;
+    private final TableIf table;
     private final DistributionSpec distributionSpec;
 
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
+    public PhysicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, qualifier, groupExpression, logicalProperties);
@@ -54,7 +54,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(ObjectId id, ExternalTable table, List<String> qualifier,
+    public PhysicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
                             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
                             Statistics statistics) {
@@ -106,7 +106,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     }
 
     @Override
-    public ExternalTable getTable() {
+    public TableIf getTable() {
         return table;
     }
 
