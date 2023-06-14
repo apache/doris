@@ -601,7 +601,6 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 
 void AggregationNode::release_resource(RuntimeState* state) {
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
-    VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
 
     /// _hash_table_size_counter may be null if prepare failed.

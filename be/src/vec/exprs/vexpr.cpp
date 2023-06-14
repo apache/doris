@@ -309,12 +309,6 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
     return Status::OK();
 }
 
-void VExpr::close(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (auto ctx : ctxs) {
-        ctx->close(state);
-    }
-}
-
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {
     for (int i = 0; i < ctxs.size(); ++i) {
         RETURN_IF_ERROR(ctxs[i]->open(state));

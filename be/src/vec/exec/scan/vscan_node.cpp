@@ -418,14 +418,6 @@ void VScanNode::release_resource(RuntimeState* state) {
         }
     }
 
-    for (auto& ctx : _stale_expr_ctxs) {
-        ctx->close(state);
-    }
-
-    for (auto& ctx : _common_expr_ctxs_push_down) {
-        ctx->close(state);
-    }
-
     ExecNode::release_resource(state);
 }
 

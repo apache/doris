@@ -207,7 +207,6 @@ Status AggFnEvaluator::open(RuntimeState* state) {
 }
 
 void AggFnEvaluator::close(RuntimeState* state) {
-    VExpr::close(_input_exprs_ctxs, state);
 }
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);

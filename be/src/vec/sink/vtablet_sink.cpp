@@ -1402,7 +1402,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         return _close_status;
     }
     SCOPED_TIMER(_close_timer);
-    vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
