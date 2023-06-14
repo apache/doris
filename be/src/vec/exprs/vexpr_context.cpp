@@ -85,7 +85,7 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     return _root->open(state, this, scope);
 }
 
-void VExprContext::close(doris::RuntimeState* state) {
+void VExprContext::close() {
     // Sometimes expr context may not have a root, then it need not call close
     if (_root == nullptr) {
         return;
