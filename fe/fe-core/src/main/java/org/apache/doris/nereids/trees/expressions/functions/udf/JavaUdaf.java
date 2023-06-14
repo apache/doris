@@ -60,6 +60,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     private final String finalizeFn;
     private final String getValueFn;
     private final String removeFn;
+    private final String checkSum
 
     /**
      * Constructor of UDAF
@@ -68,7 +69,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
             AbstractDataType intermediateType, NullableMode nullableMode,
             String objectFile, String initFn, String updateFn, String mergeFn,
             String serializeFn, String finalizeFn, String getValueFn, String removeFn,
-            boolean isDistinct, Expression... args) {
+            boolean isDistinct, String checkSum, Expression... args) {
         super(name, isDistinct, args);
         this.dbName = dbName;
         this.binaryType = binaryType;
@@ -83,6 +84,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         this.finalizeFn = finalizeFn;
         this.getValueFn = getValueFn;
         this.removeFn = removeFn;
+        this.checkSum = checkSum;
     }
 
     @Override
@@ -113,7 +115,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdaf(getName(), dbName, binaryType, signature, intermediateType, nullableMode,
                 objectFile, initFn, updateFn, mergeFn, serializeFn, finalizeFn, getValueFn, removeFn,
-                isDistinct, children.toArray(new Expression[0]));
+                isDistinct, checkSum, children.toArray(new Expression[0]));
     }
 
     /**
@@ -153,6 +155,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 aggregate.getGetValueFnSymbol(),
                 aggregate.getRemoveFnSymbol(),
                 !aggregate.ignoresDistinct(),
+                aggregate.getChecksum(),
                 virtualSlots);
 
         JavaUdafBuilder builder = new JavaUdafBuilder(udaf);
@@ -167,7 +170,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     @Override
     public Function getCatalogFunction() {
         try {
-            return new org.apache.doris.catalog.AggregateFunction(
+            org.apache.doris.catalog.AggregateFunction expr = new org.apache.doris.catalog.AggregateFunction(
                     new FunctionName(dbName, getName()),
                     signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
@@ -182,6 +185,9 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                     getValueFn,
                     removeFn
             );
+            expr.setNullableMode(nullableMode);
+            expr.setChecksum(checkSum);
+            return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
