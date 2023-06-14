@@ -57,7 +57,6 @@ Status CompactionDupnokeyOpt::handle_duplicate_nokey_compaction() {
                 << " merge file size: " << compact_segment_file_size
                 << " merge_rows:" << stats.merged_rows << " filtered_rows:" << stats.filtered_rows;
 
-        TRACE("merge rowsets finished");
         TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
         TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
     } else {
@@ -86,9 +85,8 @@ Status CompactionDupnokeyOpt::handle_duplicate_nokey_compaction() {
 
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _parent._output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _parent._output_rowset->num_rows());
-    TRACE_COUNTER_INCREMENT("output_segments_num", _parent._output_rowset->num_segments());
-    TRACE("output rowset built");
     return Status::OK();
+    TRACE_COUNTER_INCREMENT("output_segments_num", _parent._output_rowset->num_segments());
 }
 
 Status CompactionDupnokeyOpt::_do_compact_segments(
@@ -99,7 +97,7 @@ Status CompactionDupnokeyOpt::_do_compact_segments(
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(_ctx.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 READER_SEGMENT_COMPACTION);
+                                                 ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     Merger::Statistics key_merger_stats;
@@ -121,9 +119,10 @@ Status CompactionDupnokeyOpt::_do_compact_segments(
             return Status::Error<SEGCOMPACTION_INIT_READER>();
         }
 
-        RETURN_IF_ERROR(vertical_compact_one_group(
-                tablet, READER_SEGMENT_COMPACTION, _ctx.tablet_schema, is_key, column_ids, *reader,
-                _parent._output_rs_writer.get(), max_rows_per_segments, &key_merger_stats));
+        RETURN_IF_ERROR(vertical_compact_one_group(tablet, ReaderType::READER_SEGMENT_COMPACTION,
+                                                   _ctx.tablet_schema, is_key, column_ids, *reader,
+                                                   _parent._output_rs_writer.get(),
+                                                   max_rows_per_segments, &key_merger_stats));
         if (is_key) {
             row_sources_buf.flush();
         }
@@ -158,7 +157,7 @@ Status CompactionDupnokeyOpt::_get_segcompaction_reader(
                              << seg_ptr->id() << "]: " << s.to_string();
                 return Status::Error<INIT_FAILED>();
             }
-            s = seg_ptr->new_iterator(*schema, read_options, &iter);
+            s = seg_ptr->new_iterator(schema, read_options, &iter);
             if (!s.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << s.to_string();
