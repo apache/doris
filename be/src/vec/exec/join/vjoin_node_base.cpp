@@ -130,7 +130,6 @@ Status VJoinNodeBase::close(RuntimeState* state) {
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
 }
