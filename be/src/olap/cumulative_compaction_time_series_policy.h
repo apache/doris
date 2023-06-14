@@ -21,7 +21,7 @@
 
 namespace doris {
 
-inline std::string CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
+inline std::string_view CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
 
 /// TimeSeries cumulative compaction policy implementation.
 /// The following three conditions will be considered when calculating compaction scores and selecting input rowsets in this policy:
@@ -58,7 +58,7 @@ public:
     void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
                                  RowsetSharedPtr _output_rowset,
                                  Version& last_delete_version) override;
-    std::string name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
+    std::string_view name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
 };
 
 } // namespace doris

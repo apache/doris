@@ -992,6 +992,9 @@ DEFINE_Bool(enable_parse_multi_dimession_array, "true");
 // In the case of time series compaction, the execution of compaction is adjusted
 // using parameters that have the prefix time_series_compaction.
 DEFINE_mString(compaction_policy, "size_based");
+DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
+    return config == "size_based" || config == "time_series";
+});
 // the size of input files for each compaction
 DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
 // the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets

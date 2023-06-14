@@ -115,43 +115,41 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
 
-    if (tablet->tablet_state() == TABLET_RUNNING) {
-        // check base rowset first version must be zero
-        // for tablet which state is not TABLET_RUNNING, there may not have base version.
-        CHECK((*base_rowset_meta)->start_version() == 0);
+    if (tablet->tablet_state() != TABLET_RUNNING) return;
+    // check base rowset first version must be zero
+    // for tablet which state is not TABLET_RUNNING, there may not have base version.
+    CHECK((*base_rowset_meta)->start_version() == 0);
 
-        int64_t prev_version = -1;
-        for (const RowsetMetaSharedPtr& rs : existing_rss) {
-            if (rs->version().first > prev_version + 1) {
-                // There is a hole, do not continue
-                break;
-            }
-
-            bool is_delete = rs->has_delete_predicate();
-
-            // break the loop if segments in this rowset is overlapping.
-            if (!is_delete && rs->is_segments_overlapping()) {
-                *ret_cumulative_point = rs->version().first;
-                break;
-            }
-
-            // check the rowset is whether less than _compaction_goal_size
-            // The result of compaction may be slightly smaller than the _compaction_goal_size.
-            if (!is_delete && rs->version().first != 0 &&
-                rs->total_disk_size() <
-                        (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 0.8)) {
-                *ret_cumulative_point = rs->version().first;
-                break;
-            }
-
-            // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
-            prev_version = rs->version().second;
-            *ret_cumulative_point = prev_version + 1;
+    int64_t prev_version = -1;
+    for (const RowsetMetaSharedPtr& rs : existing_rss) {
+        if (rs->version().first > prev_version + 1) {
+            // There is a hole, do not continue
+            break;
         }
-        VLOG_NOTICE
-                << "cumulative compaction time serires policy, calculate cumulative point value = "
-                << *ret_cumulative_point << " tablet = " << tablet->full_name();
+
+        bool is_delete = rs->has_delete_predicate();
+
+        // break the loop if segments in this rowset is overlapping.
+        if (!is_delete && rs->is_segments_overlapping()) {
+            *ret_cumulative_point = rs->version().first;
+            break;
+        }
+
+        // check the rowset is whether less than _compaction_goal_size
+        // The result of compaction may be slightly smaller than the _compaction_goal_size.
+        if (!is_delete && rs->version().first != 0 &&
+            rs->total_disk_size() <
+                    (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 0.8)) {
+            *ret_cumulative_point = rs->version().first;
+            break;
+        }
+
+        // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
+        prev_version = rs->version().second;
+        *ret_cumulative_point = prev_version + 1;
     }
+    VLOG_NOTICE << "cumulative compaction time serires policy, calculate cumulative point value = "
+                << *ret_cumulative_point << " tablet = " << tablet->full_name();
 }
 
 int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
@@ -193,20 +191,25 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
 
         // Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
         if (total_size >= (config::time_series_compaction_goal_size_mbytes * 1024 * 1024)) {
+            if (input_rowsets->size() == 1 &&
+                !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+                // Only 1 non-overlapping rowset, skip it
+                input_rowsets->clear();
+                *compaction_score = 0;
+                continue;
+            }
             return transient_size;
         }
     }
 
     // if there is delete version, do compaction directly
     if (last_delete_version->first != -1) {
-        if (input_rowsets->size() == 1) {
-            auto rs_meta = input_rowsets->front()->rowset_meta();
-            // if there is only one rowset and not overlapping,
-            // we do not need to do cumulative compaction
-            if (!rs_meta->is_segments_overlapping()) {
-                input_rowsets->clear();
-                *compaction_score = 0;
-            }
+        // if there is only one rowset and not overlapping,
+        // we do not need to do cumulative compaction
+        if (input_rowsets->size() == 1 &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            input_rowsets->clear();
+            *compaction_score = 0;
         }
         return transient_size;
     }
