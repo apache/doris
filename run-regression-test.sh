@@ -160,11 +160,7 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
     echo "Build generated code"
-    cd "${DORIS_HOME}/gensrc"
-    if [[ "$#" == 0 ]]; then
-        echo "rm -rf ${DORIS_HOME}/gensrc/build"
-        rm -rf "${DORIS_HOME}/gensrc/build"
-    fi
+    cd "${DORIS_HOME}/gensrc/thrift"
     make
 
     cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
