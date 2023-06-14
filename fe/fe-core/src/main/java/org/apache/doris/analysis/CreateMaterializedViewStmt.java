@@ -224,20 +224,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
-                String functionName = functionCallExpr.getFnName().getFunction();
-                // current version not support count(distinct) function in creating materialized
-                // view
-                if (!isReplay) {
-                    MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
-                    if (mvColumnPattern == null) {
-                        throw new AnalysisException(
-                                "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-                    }
-                    if (!mvColumnPattern.match(functionCallExpr)) {
-                        throw new AnalysisException(
-                                "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
-                    }
-                }
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -500,19 +486,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
-                switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
-                    case "sum":
-                    case "min":
-                    case "max":
-                    case FunctionSet.BITMAP_UNION:
-                    case FunctionSet.HLL_UNION:
-                    case FunctionSet.COUNT:
-                        MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
-                        expr = item.getDefineExpr();
-                        name = item.getName();
-                        break;
-                    default:
-                        break;
+                functionCallExpr.analyze(analyzer);
+                if (functionCallExpr.isAggregateFunction()) {
+                    MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
+                    expr = item.getDefineExpr();
+                    name = item.getName();
                 }
             }
             result.put(name, expr);
