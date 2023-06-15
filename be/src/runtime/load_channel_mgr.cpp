@@ -360,12 +360,12 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
                 // do not select high priority channel to reduce memory
-                // to avoid blocking them.
+                // to avoid blocking the.
                 continue;
             }
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>
                     writers_mem_snap;
-            kv.second->get_writers_mem_consumption_snapshot(&writers_mem_snap);
+            kv.second->get_active_memtable_mem_consumption(&writers_mem_snap);
             for (auto item : writers_mem_snap) {
                 // multimap is empty
                 if (item.second.empty()) {
