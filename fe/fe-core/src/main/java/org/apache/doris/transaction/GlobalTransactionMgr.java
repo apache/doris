@@ -343,9 +343,12 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.abortTransaction(label, reason);
     }
 
-    public void abortTransaction2PC(Long dbId, long transactionId, List<Table> tableList) throws UserException {
+    public void abortTransaction2PC(Long dbId, long transactionId,
+                                    List<Table> tableList, long timeoutMillis) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, 5000, TimeUnit.MILLISECONDS)) {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=("
                     + StringUtils.join(tableList, ",") + ")");
         }
@@ -354,6 +357,10 @@ public class GlobalTransactionMgr implements Writable {
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+
+        stopWatch.stop();
+        LOG.info("stream load tasks are aborted successfully. txns: {}. time cost: {} ms."
+            + " data will be visible later.", transactionId, stopWatch.getTime());
     }
 
     /*

@@ -1319,7 +1319,10 @@ public class DatabaseTransactionMgr {
     }
 
     public void abortTransaction2PC(long transactionId) throws UserException {
-        LOG.info("begin to abort txn {}", transactionId);
+        // disable this logging, as this logging is in table write lock
+        // some-times this logging will take much time, which will cause the
+        // flink job get "get table write lock timeout" more.
+        // LOG.info("begin to abort txn {}", transactionId);
         if (transactionId < 0) {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job,"
                     + " ignore abort operation", transactionId);
@@ -1356,7 +1359,11 @@ public class DatabaseTransactionMgr {
         if (txnOperated && transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             clearBackendTransactions(transactionState);
         }
-        LOG.info("abort transaction: {} successfully", transactionState);
+
+        // disable this logging, as this logging is in table write lock
+        // some-times this logging will take much time, which will cause the
+        // flink job get "get table write lock timeout" more.
+        // LOG.info("abort transaction: {} successfully", transactionState);
     }
 
     private boolean unprotectAbortTransaction(long transactionId, String reason)
