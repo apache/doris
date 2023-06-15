@@ -78,7 +78,7 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
 fi
 
 # add java libs
-for f in "${DORIS_HOME}/lib"/*.jar; do
+for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
         export DORIS_CLASSPATH="${f}"
     else
@@ -133,10 +133,8 @@ jdk_version() {
 
 # export env variables from be.conf
 #
-# UDF_RUNTIME_DIR
 # LOG_DIR
 # PID_DIR
-export UDF_RUNTIME_DIR="${DORIS_HOME}/lib/udf-runtime"
 export LOG_DIR="${DORIS_HOME}/log"
 PID_DIR="$(
     cd "${curdir}"
@@ -182,12 +180,6 @@ fi
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"
 fi
-
-if [[ ! -d "${UDF_RUNTIME_DIR}" ]]; then
-    mkdir -p "${UDF_RUNTIME_DIR}"
-fi
-
-rm -f "${UDF_RUNTIME_DIR}"/*
 
 pidfile="${PID_DIR}/be.pid"
 
@@ -275,15 +267,15 @@ COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000"
 
 if [[ "${java_version}" -gt 8 ]]; then
-    if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
-    fi
-    final_java_opt="${JAVA_OPTS}"
-else
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
         JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
+else
+    if [[ -z ${JAVA_OPTS} ]]; then
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS}"
 fi
 
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then

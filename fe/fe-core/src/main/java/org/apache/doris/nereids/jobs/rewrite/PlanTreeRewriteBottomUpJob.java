@@ -33,12 +33,14 @@ import java.util.Optional;
  * we should use the 'Bottom-Up' job to handle it.
  */
 public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
+
     // REWRITE_STATE_KEY represents the key to store the 'RewriteState'. Each plan node has their own 'RewriteState'.
     // Different 'RewriteState' has different actions,
     // so we will do specified action for each node based on their 'RewriteState'.
     private static final String REWRITE_STATE_KEY = "rewrite_state";
-    private RewriteJobContext rewriteJobContext;
-    private List<Rule> rules;
+
+    private final RewriteJobContext rewriteJobContext;
+    private final List<Rule> rules;
 
     enum RewriteState {
         // 'REWRITE_THIS' means the current plan node can be handled immediately. If the plan state is 'REWRITE_THIS',

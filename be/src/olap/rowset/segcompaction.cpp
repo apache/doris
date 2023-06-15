@@ -56,8 +56,8 @@
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/mem_info.h"
 #include "util/time.h"
 #include "vec/olap/vertical_block_reader.h"
 #include "vec/olap/vertical_merge_iterator.h"
@@ -191,7 +191,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
     SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
-    if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
+    if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";
         return Status::Error<FETCH_MEMORY_EXCEEDED>();
     }

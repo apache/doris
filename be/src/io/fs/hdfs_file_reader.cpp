@@ -28,19 +28,18 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/hdfs_file_system.h"
+// #include "io/fs/hdfs_file_system.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
-HdfsFileReader::HdfsFileReader(Path path, size_t file_size, const std::string& name_node,
-                               hdfsFile hdfs_file, std::shared_ptr<HdfsFileSystem> fs)
-        : _path(std::move(path)),
-          _file_size(file_size),
-          _name_node(name_node),
-          _hdfs_file(hdfs_file),
-          _fs(std::move(fs)) {
+
+HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
+                               FileHandleCache::Accessor accessor)
+        : _path(std::move(path)), _name_node(name_node), _accessor(std::move(accessor)) {
+    _handle = _accessor.get();
+
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
 }
@@ -52,15 +51,6 @@ HdfsFileReader::~HdfsFileReader() {
 Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        auto handle = _fs->get_handle();
-        auto hdfs_fs = handle->hdfs_fs;
-        if (_hdfs_file != nullptr && hdfs_fs != nullptr) {
-            VLOG_NOTICE << "close hdfs file: " << _name_node << _path;
-            // If the hdfs file was valid, the memory associated with it will
-            // be freed at the end of this call, even if there was an I/O error
-            hdfsCloseFile(hdfs_fs, _hdfs_file);
-        }
-
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
     }
     return Status::OK();
@@ -69,13 +59,12 @@ Status HdfsFileReader::close() {
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
-    if (offset > _file_size) {
+    if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
-                               offset, _file_size, _path.native());
+                               offset, _handle->file_size(), _path.native());
     }
 
-    auto handle = _fs->get_handle();
-    int res = hdfsSeek(handle->hdfs_fs, _hdfs_file, offset);
+    int res = hdfsSeek(_handle->fs(), _handle->file(), offset);
     if (res != 0) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
                                      BackendOptions::get_localhost(), offset, hdfs_error());
@@ -83,7 +72,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t bytes_req = result.size;
     char* to = result.data;
-    bytes_req = std::min(bytes_req, _file_size - offset);
+    bytes_req = std::min(bytes_req, (size_t)(_handle->file_size() - offset));
     *bytes_read = 0;
     if (UNLIKELY(bytes_req == 0)) {
         return Status::OK();
@@ -92,7 +81,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =
-                hdfsRead(handle->hdfs_fs, _hdfs_file, to + has_read, bytes_req - has_read);
+                hdfsRead(_handle->fs(), _handle->file(), to + has_read, bytes_req - has_read);
         if (loop_read < 0) {
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",

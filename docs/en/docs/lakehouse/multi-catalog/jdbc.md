@@ -571,3 +571,29 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
     ```
 
     When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.
+
+9.  If the results are inconsistent with those in the MYSQL database when you query the MYSQL database using JDBC
+
+    First check whether the string in the query field is case-sensitive. For example, there is a field c_1 in the Table with two 
+    
+    data "aaa" and "AAA". If the MYSQL database is not case-sensitive when initializing the MYSQL database, mysql is 
+    
+    case-insensitive by default, but Doris is strictly case-sensitive, so the following situations will occur：
+
+    ```
+    Mysql behavior：
+    select count(c_1) from table where c_1 = "aaa"; The string size is not distinguished, so the result is : 2
+
+    Doris behavior：
+    select count(c_1) from table where c_1 = "aaa"; Strictly delimit the string size, so the result is : 1
+    ```
+
+    If the above phenomenon occurs, it needs to be adjusted according to demand, as follows：
+
+    Add the "BINARY" keyword when querying in MYSQL to force case sensitivity : select count(c_1) from table where BINARY c_1 = 
+    
+    "aaa"; Or specify it when creating a table in MYSQL : CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 
+    
+    Or specify collation rules to be case sensitive when initializing the MYSQL database : character-set-server=UTF-8 and 
+    
+    collation-server=utf8_bin.

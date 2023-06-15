@@ -31,6 +31,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -158,6 +160,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 lessThanEqual.child(0).accept(this, context),
                 lessThanEqual.child(1).accept(this, context),
                 lessThanEqual.getDataType().toCatalogDataType(),
+                NullableMode.DEPEND_ON_ARGUMENT);
+    }
+
+    @Override
+    public Expr visitMatch(Match match, PlanTranslatorContext context) {
+        MatchPredicate.Operator op = match.op();
+        return new MatchPredicate(op,
+                match.child(0).accept(this, context),
+                match.child(1).accept(this, context),
+                match.getDataType().toCatalogDataType(),
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
 

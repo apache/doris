@@ -27,6 +27,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -36,6 +37,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/file_meta_cache.h"
+#include "io/fs/stream_load_pipe.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -76,6 +79,8 @@
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "util/time.h"
+#include "util/uid_util.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -84,7 +89,15 @@
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
 
+namespace doris::io {
+extern std::map<UniqueId, StreamLoadPipe*> g_streamloadpipes;
+extern std::mutex g_streamloadpipes_lock;
+} // namespace doris::io
+
 namespace doris {
+
+using namespace io;
+
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -93,6 +106,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
+
+bvar::Adder<uint64_t> g_byte_buffer_allocate_kb;
+bvar::Adder<uint64_t> g_byte_buffer_cnt;
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -162,6 +178,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -177,6 +194,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _scanner_scheduler->init(this);
 
     _init_mem_env();
+
+    RETURN_IF_ERROR(Thread::create(
+            "ExecEnv", "check_streamloadpipe",
+            [this]() {
+                uint32_t interval = 300;
+                while (!_check_streamloadpipe_latch.wait_for(std::chrono::seconds(interval))) {
+                    _check_streamloadpipe();
+                }
+            },
+            &_check_streamloadpipe_thread));
 
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
@@ -203,6 +230,19 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
 
     return Status::OK();
+}
+
+void ExecEnv::_check_streamloadpipe() {
+    uint64_t now = GetCurrentTimeMicros();
+    std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+    for (auto& pipe : g_streamloadpipes) {
+        if (pipe.second == nullptr || pipe.second->is_cancelled()) {
+            continue;
+        }
+        uint64_t diff_s = abs((int64_t)now - (int64_t)pipe.second->last_active()) / 1000000;
+        LOG(INFO) << "active StreamLoadPipe=" << pipe.second
+                  << " diff_time_from_last_append=" << diff_s;
+    }
 }
 
 Status ExecEnv::_init_mem_env() {
@@ -405,6 +445,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    SAFE_DELETE(_file_meta_cache);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master

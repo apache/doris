@@ -29,10 +29,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
-import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
-import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.executor.Optimizer;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -187,7 +185,6 @@ public class NereidsPlanner extends Planner {
             try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                 // analyze this query
                 analyze();
-                NereidsTracer.logImportantTime("EndAnalyzePlan");
             } catch (Exception e) {
                 queryAnalysisSpan.recordException(e);
                 throw e;
@@ -225,7 +222,6 @@ public class NereidsPlanner extends Planner {
 
             // rule-based optimize
             rewrite();
-            NereidsTracer.logImportantTime("EndRewritePlan");
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 rewrittenPlan = cascadesContext.getRewritePlan();
                 if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -233,14 +229,7 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
-            initMemo();
-
-            deriveStats();
-            serializeStatUsed(statementContext.getConnectContext());
-
             optimize();
-            NereidsTracer.logImportantTime("EndOptimizePlan");
-
             // print memo before choose plan.
             // if chooseNthPlan failed, we could get memo to debug
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -252,7 +241,6 @@ public class NereidsPlanner extends Planner {
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
-
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
                 String tree = physicalPlan.treeString();
                 LOG.info(tree);
@@ -288,47 +276,21 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
+        NereidsTracer.logImportantTime("EndAnalyzePlan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new NereidsRewriter(cascadesContext).execute();
-    }
-
-    private void initMemo() {
-        cascadesContext.toMemo();
-    }
-
-    private void deriveStats() {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(getRoot().getLogicalExpression(), cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        new Rewriter(cascadesContext).execute();
+        NereidsTracer.logImportantTime("EndRewritePlan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
-    private void dpHypOptimize() {
-        Group root = getRoot();
-        // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
-        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-    }
-
-    /**
-     * Cascades style optimize:
-     * Perform equivalent logical plan exploration and physical implementation enumeration,
-     * try to find best plan under the guidance of statistic information and cost model.
-     */
     private void optimize() {
-        boolean isDpHyp = statementContext.getConnectContext().getSessionVariable().enableDPHypOptimizer
-                || statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
-                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
-        cascadesContext.getStatementContext().setDpHyp(isDpHyp);
-        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder() && isDpHyp) {
-            dpHypOptimize();
-        }
-        new CascadesOptimizer(cascadesContext).execute();
+        new Optimizer(cascadesContext).execute();
+        NereidsTracer.logImportantTime("EndOptimizePlan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -369,21 +331,6 @@ public class NereidsPlanner extends Planner {
             return;
         }
         connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
-    }
-
-    private void serializeStatUsed(ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
-            return;
-        }
-        JSONObject jsonObj = connectContext.getMinidump();
-        // add column statistics
-        JSONArray columnStatistics = MinidumpUtils.serializeColumnStatistic(
-                cascadesContext.getConnectContext().getTotalColumnStatisticMap());
-        jsonObj.put("ColumnStatistics", columnStatistics);
-        JSONArray histogramArray = MinidumpUtils.serializeHistogram(
-                cascadesContext.getConnectContext().getTotalHistogramMap());
-        jsonObj.put("Histogram", histogramArray);
     }
 
     @Override

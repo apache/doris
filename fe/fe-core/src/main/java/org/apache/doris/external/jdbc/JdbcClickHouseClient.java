@@ -33,6 +33,11 @@ public class JdbcClickHouseClient extends JdbcClient {
     }
 
     @Override
+    protected String[] getTableTypes() {
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+    }
+
+    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
 
         String ckType = fieldSchema.getDataTypeName();

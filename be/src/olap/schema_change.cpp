@@ -272,7 +272,6 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        Defer defer {[&]() { ctx->close(state); }};
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
         RETURN_IF_ERROR(ctx->open(state));
 
@@ -304,7 +303,6 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         } else if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
-            Defer defer {[&]() { ctx->close(state); }};
             RETURN_IF_ERROR(ctx->prepare(state, row_desc));
             RETURN_IF_ERROR(ctx->open(state));
 

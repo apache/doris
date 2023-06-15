@@ -109,6 +109,7 @@ Status VFileScanner::prepare(
     _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
+    _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
     _fill_path_columns_timer =
@@ -618,8 +619,12 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _kv_cache, _state->query_options().enable_parquet_lazy_mat);
-            RETURN_IF_ERROR(parquet_reader->open());
+                    ExecEnv::GetInstance()->file_meta_cache(),
+                    _state->query_options().enable_parquet_lazy_mat);
+            {
+                SCOPED_TIMER(_open_reader_timer);
+                RETURN_IF_ERROR(parquet_reader->open());
+            }
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
@@ -903,40 +908,6 @@ Status VFileScanner::_init_expr_ctxes() {
 Status VFileScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
-    }
-
-    for (auto ctx : _dest_vexpr_ctx) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
-    }
-
-    for (auto& it : _col_default_value_ctx) {
-        if (it.second != nullptr) {
-            it.second->close(state);
-        }
-    }
-
-    for (auto& conjunct : _pre_conjunct_ctxs) {
-        conjunct->close(state);
-    }
-
-    for (auto& conjunct : _push_down_conjuncts) {
-        conjunct->close(state);
-    }
-
-    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
-        for (auto& ctx : v) {
-            if (ctx != nullptr) {
-                ctx->close(state);
-            }
-        }
-    }
-
-    for (auto ctx : _not_single_slot_filter_conjuncts) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
     }
 
     if (config::enable_file_cache && _state->query_options().enable_file_cache) {

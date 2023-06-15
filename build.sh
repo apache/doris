@@ -343,8 +343,12 @@ if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
     OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
-if [[ -z "${BUILD_BE_JAVA_EXTENSIONS}" ]]; then
-    BUILD_BE_JAVA_EXTENSIONS='OFF'
+if [[ -n "${DISABLE_BE_JAVA_EXTENSIONS}" ]]; then
+    if [[ "${DISABLE_BE_JAVA_EXTENSIONS}" == "ON" ]]; then
+        BUILD_BE_JAVA_EXTENSIONS=0
+    else
+        BUILD_BE_JAVA_EXTENSIONS=1
+    fi
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
@@ -368,41 +372,37 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     fi
 
     if [[ -n "${CAUSE}" ]]; then
-        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with Java UDF due to ${CAUSE}.\033[0m"
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
         BUILD_BE_JAVA_EXTENSIONS=0
         BUILD_BE_JAVA_EXTENSIONS_IN_CONF=1
     fi
 fi
 
-if [[ "${BUILD_BE_JAVA_EXTENSIONS}" == "ON" ]]; then
-    BUILD_BE_JAVA_EXTENSIONS=0
-fi
-
 echo "Get params:
-    BUILD_FE            -- ${BUILD_FE}
-    BUILD_BE            -- ${BUILD_BE}
-    BUILD_BROKER        -- ${BUILD_BROKER}
-    BUILD_AUDIT         -- ${BUILD_AUDIT}
-    BUILD_META_TOOL     -- ${BUILD_META_TOOL}
-    BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
-    BUILD_BE_JAVA_EXTENSIONS      -- ${BUILD_BE_JAVA_EXTENSIONS}
-    BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
-    PARALLEL            -- ${PARALLEL}
-    CLEAN               -- ${CLEAN}
-    WITH_MYSQL          -- ${WITH_MYSQL}
-    WITH_LZO            -- ${WITH_LZO}
-    GLIBC_COMPATIBILITY -- ${GLIBC_COMPATIBILITY}
-    USE_AVX2            -- ${USE_AVX2}
-    USE_LIBCPP          -- ${USE_LIBCPP}
-    USE_DWARF           -- ${USE_DWARF}
-    STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
-    USE_JEMALLOC        -- ${USE_JEMALLOC}
-    USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
-    DENABLE_CLANG_COVERAGE -- ${DENABLE_CLANG_COVERAGE}
-    DISPLAY_BUILD_TIME  -- ${DISPLAY_BUILD_TIME}
-    ENABLE_PCH          -- ${ENABLE_PCH}
+    BUILD_FE                    -- ${BUILD_FE}
+    BUILD_BE                    -- ${BUILD_BE}
+    BUILD_BROKER                -- ${BUILD_BROKER}
+    BUILD_AUDIT                 -- ${BUILD_AUDIT}
+    BUILD_META_TOOL             -- ${BUILD_META_TOOL}
+    BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
+    BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
+    PARALLEL                    -- ${PARALLEL}
+    CLEAN                       -- ${CLEAN}
+    WITH_MYSQL                  -- ${WITH_MYSQL}
+    WITH_LZO                    -- ${WITH_LZO}
+    GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
+    USE_AVX2                    -- ${USE_AVX2}
+    USE_LIBCPP                  -- ${USE_LIBCPP}
+    USE_DWARF                   -- ${USE_DWARF}
+    STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
+    USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
+    USE_JEMALLOC                -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
+    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
+    DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
+    ENABLE_PCH                  -- ${ENABLE_PCH}
 "
 
 # Clean and build generated code
@@ -454,9 +454,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         clean_be
     fi
     MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
+
+    if [[ -z "${BUILD_FS_BENCHMARK}" ]]; then
+        BUILD_FS_BENCHMARK=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+    echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -465,6 +471,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DMAKE_TEST=OFF \
+        -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DWITH_LZO="${WITH_LZO}" \
@@ -566,7 +573,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
-    rm -f "${DORIS_OUTPUT}/fe/lib/palo-fe.jar"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -588,9 +594,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
-        "${DORIS_OUTPUT}/be/www" \
-        "${DORIS_OUTPUT}/udf/lib" \
-        "${DORIS_OUTPUT}/udf/include"
+        "${DORIS_OUTPUT}/be/www"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
@@ -614,6 +618,9 @@ EOF
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
     rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
 
     # make a soft link palo_be point to doris_be, for forward compatibility
     cd "${DORIS_OUTPUT}/be/lib"
@@ -625,8 +632,6 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
-    cp -r -p "${DORIS_HOME}/be/output/udf"/*.a "${DORIS_OUTPUT}/udf/lib"/
-    cp -r -p "${DORIS_HOME}/be/output/udf/include"/* "${DORIS_OUTPUT}/udf/include"/
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
@@ -639,10 +644,13 @@ EOF
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
 
+    BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
+    rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
+    mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
         module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
         if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${DORIS_OUTPUT}/be/lib"/
+            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/
         fi
     done
 
@@ -670,19 +678,6 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
-    cd "${DORIS_HOME}"
-fi
-
-if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 ]]; then
-    install -d "${DORIS_OUTPUT}/be/lib"
-
-    rm -rf "${DORIS_OUTPUT}/be/lib/java-udf-jar-with-dependencies.jar"
-
-    java_udf_path="${DORIS_HOME}/fe/be-java-extensions/java-udf/target/java-udf-jar-with-dependencies.jar"
-    if [[ -f "${java_udf_path}" ]]; then
-        cp "${java_udf_path}" "${DORIS_OUTPUT}/be/lib"/
-    fi
-
     cd "${DORIS_HOME}"
 fi
 

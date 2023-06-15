@@ -988,6 +988,20 @@ DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 DEFINE_Bool(enable_parse_multi_dimession_array, "true");
 
+// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
+// In the case of time series compaction, the execution of compaction is adjusted
+// using parameters that have the prefix time_series_compaction.
+DEFINE_mString(compaction_policy, "size_based");
+DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
+    return config == "size_based" || config == "time_series";
+});
+// the size of input files for each compaction
+DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
+// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
+DEFINE_mInt64(time_series_compaction_file_count_threshold, "10000");
+// if compaction has not been performed within 3600 seconds, a compaction will be triggered
+DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
+
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
 
@@ -1017,6 +1031,9 @@ DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
+
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 
 #ifdef BE_TEST
 // test s3
