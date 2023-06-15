@@ -81,6 +81,32 @@ suite("load") {
         i++
     }
 
+    // verify whether timeout is effective 
+    // by setting a minimum timeout time and a large amount of data to verify whether timout is effective.
+    for (String tableName in tables) {
+        streamLoad {
+            table tableName
+
+            set 'column_separator', '|'
+            set 'compress_type', 'GZ'
+            set 'timeout','1'
+            set 'columns', columns[i]
+            
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
+
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+            }
+        }
+    }
+
     def table = "lineorder_flat"
     def table_rows = 600572
     sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text

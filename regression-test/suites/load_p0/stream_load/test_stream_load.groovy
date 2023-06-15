@@ -856,7 +856,7 @@ suite("test_stream_load", "p0") {
         AGGREGATE KEY(`k1`, `k2`)
         COMMENT 'OLAP'
         PARTITION BY RANGE(`k1`)
-        (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
+        (PARTITION partition_a VALUES [("0"), ("100000")),
         PARTITION partition_b VALUES [("100000"), ("1000000000")),
         PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
         PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
@@ -868,7 +868,7 @@ suite("test_stream_load", "p0") {
         table "${tableName11}"
 
         set 'column_separator', '|'
-        set 'columns', 'k1, k2, v2, v10, v11'
+        set 'columns', 'k1, k2, v2, v10, v11, v12=unix_timestamp("2007-11-30 10:30:19")'
         set 'where', 'k1<1000'
         set 'line_delimiter', '\n'
         set 'strict_mode', 'true'
@@ -882,8 +882,8 @@ suite("test_stream_load", "p0") {
         set 'max_filter_ratio', '0.5'
         set 'hidden_columns', ''
         set 'load_to_single_tablet', 'false'
-        set 'trim_double_quotes', 'false'
-        set 'skip_lines', '0'
+        set 'trim_double_quotes', 'true'
+        set 'skip_lines', '1'
         set 'enable_profile', 'false'
         set 'partial_columns', 'false'
 
@@ -897,13 +897,60 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(4, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(6, json.NumberTotalRows)
+            assertEquals(2, json.NumberFilteredRows)
             assertEquals(2, json.NumberUnselectedRows)
         }
     }
 
     sql "sync"
+    order_qt_sql2 "select * from ${tableName11}"
 
+    def tableName12 = "test_stream_load_properties_hidden_colunmns"
+
+    sql """ DROP TABLE IF EXISTS ${tableName12} """ 
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName12} (
+            user_id bigint,
+            date date,
+            group_id bigint,
+            modify_date date,
+            keyword VARCHAR(128)
+        )
+        UNIQUE KEY(user_id, date, group_id)
+        DISTRIBUTED BY HASH (user_id) BUCKETS 32
+        PROPERTIES(
+            "function_column.sequence_col" = 'modify_date',
+            "replication_num" = "1"
+        );
+    """
+
+    streamLoad {
+        table "${tableName12}"
+
+        set 'column_separator', '|'
+        set 'line_delimiter', '\n'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.5'
+        set 'hidden_columns', '__DORIS_SEQUENCE_COL__'
+
+        file 'test_hidden_columns.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+
+    sql "sync"
+    order_qt_sql3 "select * from ${tableName12}"
 }
 
