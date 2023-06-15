@@ -329,7 +329,7 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
-        fmt::format_to(debug_string_buffer, "\n{}{}\n", std::string(i * 2, ' '),
+        fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
         std::stringstream profile_ss;
         _operators[i]->get_runtime_profile()->pretty_print(&profile_ss, std::string(i * 2, ' '));
