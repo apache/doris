@@ -88,8 +88,10 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
-            if (column.getName().equals(Column.DELETE_SIGN)) {
+            if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 selectLists.add(new Alias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
