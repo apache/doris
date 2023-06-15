@@ -185,6 +185,9 @@ public:
     void set_stream_load_executor(std::shared_ptr<StreamLoadExecutor> stream_load_executor) {
         this->_stream_load_executor = stream_load_executor;
     }
+    void set_buffered_reader_prefetch_thread_pool(ThreadPool* thread_pool) {
+        this->_buffered_reader_prefetch_thread_pool.reset(thread_pool);
+    }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
