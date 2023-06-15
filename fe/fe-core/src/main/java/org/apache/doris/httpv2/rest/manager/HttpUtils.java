@@ -113,7 +113,8 @@ public class HttpUtils {
     }
 
     static String parseResponse(String response) {
-        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {}.getType());
+        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {
+        }.getType());
         if (responseEntity.getCode() != REQUEST_SUCCESS_CODE) {
             throw new RuntimeException(responseEntity.getMsg());
         }
