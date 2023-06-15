@@ -293,12 +293,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-
-    VExpr::close(_partition_by_eq_expr_ctxs, state);
-    VExpr::close(_order_by_eq_expr_ctxs, state);
-    for (size_t i = 0; i < _agg_functions_size; ++i) {
-        VExpr::close(_agg_expr_ctxs[i], state);
-    }
     for (auto* agg_function : _agg_functions) {
         agg_function->close(state);
     }

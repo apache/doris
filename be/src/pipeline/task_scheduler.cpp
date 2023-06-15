@@ -273,7 +273,7 @@ void TaskScheduler::_do_work(size_t index) {
         try {
             status = task->execute(&eos);
         } catch (const Exception& e) {
-            status = Status::Error(e.code(), e.to_string());
+            status = e.to_status();
         }
 
         task->set_previous_core_id(index);

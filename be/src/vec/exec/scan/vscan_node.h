@@ -98,7 +98,7 @@ public:
             }
         }
     }
-    virtual ~VScanNode() = default;
+    ~VScanNode() override = default;
 
     friend class VScanner;
     friend class NewOlapScanner;
@@ -242,7 +242,6 @@ protected:
 
     Status _prepare_scanners();
 
-protected:
     RuntimeState* _state;
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
@@ -329,7 +328,6 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
-protected:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     bool _should_create_scanner = false;
     int _context_queue_id = -1;

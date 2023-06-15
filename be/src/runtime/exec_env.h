@@ -28,6 +28,8 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -191,6 +193,8 @@ private:
     void _register_metrics();
     void _deregister_metrics();
 
+    void _check_streamloadpipe();
+
     bool _is_init;
     std::vector<StorePath> _store_paths;
     // path => store index
@@ -256,6 +260,8 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    CountDownLatch _check_streamloadpipe_latch;
+    scoped_refptr<Thread> _check_streamloadpipe_thread;
 };
 
 template <>

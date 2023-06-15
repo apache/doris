@@ -299,8 +299,6 @@ private:
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
     RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;

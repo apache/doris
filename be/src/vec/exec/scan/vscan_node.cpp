@@ -418,14 +418,6 @@ void VScanNode::release_resource(RuntimeState* state) {
         }
     }
 
-    for (auto& ctx : _stale_expr_ctxs) {
-        ctx->close(state);
-    }
-
-    for (auto& ctx : _common_expr_ctxs_push_down) {
-        ctx->close(state);
-    }
-
     ExecNode::release_resource(state);
 }
 
@@ -638,16 +630,16 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 return Status::OK();
             } else {
                 if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(_state, context,
+                    conjunct_expr_root->children()[0]->close(context,
                                                              context->get_function_state_scope());
                 }
                 if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(_state, context,
+                    conjunct_expr_root->children()[1]->close(context,
                                                              context->get_function_state_scope());
                 }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(_state, context, context->get_function_state_scope());
+                conjunct_expr_root->close(context, context->get_function_state_scope());
             }
 
             // here do not close VExpr* now

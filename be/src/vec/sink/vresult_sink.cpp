@@ -161,8 +161,6 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
-
-    VExpr::close(_output_vexpr_ctxs, state);
     return DataSink::close(state, exec_status);
 }
 

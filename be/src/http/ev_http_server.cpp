@@ -22,6 +22,7 @@
 #include <butil/fd_utility.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <event.h>
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
@@ -35,12 +36,14 @@
 #include <memory>
 #include <sstream>
 
+#include "bvar/bvar.h"
 #include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "mutex"
 #include "service/backend_options.h"
 #include "util/threadpool.h"
 
@@ -48,15 +51,50 @@ struct event_base;
 struct evhttp;
 
 namespace doris {
+static std::map<evhttp_connection*, HttpRequest*> g_conn_req_map;
+static std::mutex g_conn_req_map_lock;
 
 static void on_chunked(struct evhttp_request* ev_req, void* param) {
     HttpRequest* request = (HttpRequest*)ev_req->on_free_cb_arg;
     request->handler()->on_chunk_data(request);
 }
 
+static void on_close(evhttp_connection* con, void* arg) {
+    HttpRequest* request = (HttpRequest*)arg;
+    {
+        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
+        auto itr = g_conn_req_map.find(con);
+        if (itr != g_conn_req_map.end()) {
+            if (itr->second) {
+                if (itr->second != request) {
+                    LOG(WARNING) << "close connection. connection=" << con
+                                 << " current HttpRequest=" << request
+                                 << " but orginal HttpRequest=" << itr->second;
+                }
+                delete itr->second;
+            }
+            g_conn_req_map.erase(con);
+        }
+    }
+}
+
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
-    delete request;
+    {
+        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
+        auto itr = g_conn_req_map.find(ev_req->evcon);
+        if (itr != g_conn_req_map.end()) {
+            if (itr->second) {
+                if (itr->second != request) {
+                    LOG(WARNING) << "free request. connection=" << ev_req->evcon
+                                 << " current HttpRequest=" << request
+                                 << " but orginal HttpRequest=" << itr->second;
+                }
+                delete itr->second;
+            }
+            g_conn_req_map.erase(ev_req->evcon);
+        }
+    }
 }
 
 static void on_request(struct evhttp_request* ev_req, void* arg) {
@@ -125,6 +163,7 @@ void EvHttpServer::start() {
                           std::shared_ptr<evhttp> http(evhttp_new(base.get()),
                                                        [](evhttp* http) { evhttp_free(http); });
                           CHECK(http != nullptr) << "Couldn't create an evhttp.";
+                          evhttp_set_timeout(http.get(), 60 /* timeout in seconds */);
 
                           auto res = evhttp_accept_socket(http.get(), _server_fd);
                           CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
@@ -261,7 +300,18 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
         evhttp_request_set_chunked_cb(ev_req, on_chunked);
     }
 
+    {
+        std::lock_guard<std::mutex> l(g_conn_req_map_lock);
+        g_conn_req_map.erase(ev_req->evcon);
+        g_conn_req_map[ev_req->evcon] = request.get();
+    }
+
+    struct evhttp_connection* httpcon = evhttp_request_get_connection(ev_req);
+    evhttp_connection_set_closecb(httpcon, on_close, request.get());
     evhttp_request_set_on_free_cb(ev_req, on_free, request.release());
+    struct bufferevent* bufev = evhttp_connection_get_bufferevent(httpcon);
+    if (bufev) bufferevent_enable(bufev, EV_READ);
+
     return 0;
 }
 

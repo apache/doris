@@ -61,6 +61,7 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -1302,17 +1303,29 @@ public class JdbcExecutor {
         }
     }
 
-    public void copyBatchHllResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long offsetsAddr, long charsAddr) {
-        Object[] column = (Object[]) columnObj;
-        int firstNotNullIndex = 0;
+    private void offsetDateTimePutToLongV2(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                           long columnAddr, int startRowForNullable) {
         if (isNullable) {
-            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((OffsetDateTime) column[i]).toLocalDateTime();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                            date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                            date.getSecond(), date.getNano() / 1000));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((OffsetDateTime) column[i]).toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                        date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                        date.getSecond(), date.getNano() / 1000));
+            }
         }
-        if (firstNotNullIndex == numRows) {
-            return;
-        }
-        hllPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
     }
 
     public void copyBatchDateTimeV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -1331,6 +1344,8 @@ public class JdbcExecutor {
             timestampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof oracle.sql.TIMESTAMP) {
             oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof OffsetDateTime) {
+            offsetDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -1378,6 +1393,101 @@ public class JdbcExecutor {
         } else {
             for (int i = 0; i < numRows; i++) {
                 byteRes[i] = (byte[]) column[i];
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    public void copyBatchHllResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+                                   long offsetsAddr, long charsAddr) {
+        Object[] column = (Object[]) columnObj;
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        hllPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+    }
+
+    private static String simplifyIPv6Address(String address) {
+        // Replace longest sequence of zeros with "::"
+        String[] parts = address.split(":");
+        int longestSeqStart = -1;
+        int longestSeqLen = 0;
+        int curSeqStart = -1;
+        int curSeqLen = 0;
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i].equals("0")) {
+                if (curSeqStart == -1) {
+                    curSeqStart = i;
+                }
+                curSeqLen++;
+                if (curSeqLen > longestSeqLen) {
+                    longestSeqStart = curSeqStart;
+                    longestSeqLen = curSeqLen;
+                }
+            } else {
+                curSeqStart = -1;
+                curSeqLen = 0;
+            }
+        }
+        if (longestSeqLen <= 1) {
+            return address;  // No sequences of zeros to replace
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < longestSeqStart; i++) {
+            sb.append(parts[i]).append(':');
+        }
+        sb.append(':');
+        for (int i = longestSeqStart + longestSeqLen; i < parts.length; i++) {
+            sb.append(parts[i]);
+            if (i < parts.length - 1) {
+                sb.append(':');
+            }
+        }
+        return sb.toString();
+    }
+
+    private void ipPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                               long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    String ip = ((java.net.InetAddress) column[i]).getHostAddress();
+                    if (column[i] instanceof java.net.Inet6Address) {
+                        ip = simplifyIPv6Address(ip);
+                    }
+                    byteRes[i] = ip.getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                String ip = ((java.net.InetAddress) column[i]).getHostAddress();
+                if (column[i] instanceof java.net.Inet6Address) {
+                    ip = simplifyIPv6Address(ip);
+                }
+                byteRes[i] = ip.getBytes(StandardCharsets.UTF_8);
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
@@ -1543,9 +1653,14 @@ public class JdbcExecutor {
         }
         if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
-        } else if (column[firstNotNullIndex] instanceof byte[]) {
+        } else if (column[firstNotNullIndex] instanceof byte[] && tableType == TOdbcTableType.POSTGRESQL) {
             // for postgresql bytea type
             byteaPutToHexString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if ((column[firstNotNullIndex] instanceof java.net.Inet4Address
+                || column[firstNotNullIndex] instanceof java.net.Inet6Address)
+                && tableType == TOdbcTableType.CLICKHOUSE) {
+            // for clickhouse ipv4 and ipv6 type
+            ipPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....

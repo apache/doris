@@ -57,8 +57,8 @@ suite("sql_drop_partition_from_index") {
      sql""" ALTER TABLE ${testTable} DROP PARTITION p1 FROM INDEX ${testTable} """
      qt_select """ SELECT k1, k2+k3 FROM ${testTable} PARTITION(p1) """
     } finally {
-     sql """ DROP MATERIALIZED VIEW ${testMv} ON ${testTable} """
-     sql """ DROP TABLE ${testTable} """
+     sql """ DROP MATERIALIZED VIEW IF EXISTS ${testMv} ON ${testTable} """
+     sql """ DROP TABLE IF EXISTS ${testTable} """
      sql """ DROP DATABASE ${testDb} """
     }
 }
