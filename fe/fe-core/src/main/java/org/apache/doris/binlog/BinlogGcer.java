@@ -20,22 +20,21 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.BinlogGcTask;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -71,7 +70,7 @@ public class BinlogGcer extends MasterDaemon {
                 LOG.warn("Failed to send gc info to be", e);
             }
 
-            for (BinlogTombstone tombstone: tombstones) {
+            for (BinlogTombstone tombstone : tombstones) {
                 tombstone.clearTableVersionMap();
             }
             BinlogGcInfo info = new BinlogGcInfo(tombstones);
@@ -136,12 +135,13 @@ public class BinlogGcer extends MasterDaemon {
         }
     }
 
-    private void sendTableGcInfoToBe(Map<Long, BinlogGcTask> beBinlogGcTaskMap, OlapTable table, UpsertRecord.TableRecord tableRecord) {
+    private void sendTableGcInfoToBe(Map<Long, BinlogGcTask> beBinlogGcTaskMap, OlapTable table,
+            UpsertRecord.TableRecord tableRecord) {
         OlapTable olapTable = (OlapTable) table;
 
         olapTable.readLock();
         try {
-            for (UpsertRecord.TableRecord.PartitionRecord partitionRecord: tableRecord.getPartitionRecords()) {
+            for (UpsertRecord.TableRecord.PartitionRecord partitionRecord : tableRecord.getPartitionRecords()) {
                 long partitionId = partitionRecord.partitionId;
                 Partition partition = olapTable.getPartition(partitionId);
                 if (partition == null) {
@@ -156,9 +156,9 @@ public class BinlogGcer extends MasterDaemon {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
                         List<Replica> replicas = tablet.getReplicas();
-                        for (Replica replica: replicas) {
+                        for (Replica replica : replicas) {
                             long beId = replica.getBackendId();
-                            long signature = -1; // FIXME(Drogon)
+                            long signature = -1;
                             BinlogGcTask binlogGcTask = null;
                             if (beBinlogGcTaskMap.containsKey(beId)) {
                                 binlogGcTask = beBinlogGcTaskMap.get(beId);

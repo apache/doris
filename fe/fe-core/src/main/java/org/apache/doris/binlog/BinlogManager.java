@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -151,7 +150,7 @@ public class BinlogManager {
         LOG.info("begin gc binlog");
 
         lock.writeLock().lock();
-        Map<Long, DBBinlog> gcDbBinlogMap = null; 
+        Map<Long, DBBinlog> gcDbBinlogMap = null;
         try {
             gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
         } finally {
@@ -175,7 +174,7 @@ public class BinlogManager {
 
     public void replayGc(BinlogGcInfo binlogGcInfo) {
         lock.writeLock().lock();
-        Map<Long, DBBinlog> gcDbBinlogMap = null; 
+        Map<Long, DBBinlog> gcDbBinlogMap = null;
         try {
             gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
         } finally {

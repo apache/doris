@@ -20,7 +20,6 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
-import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -291,7 +290,7 @@ public class DBBinlog {
             }
         }
     }
-    
+
     // not thread safety, do this without lock
     public void getAllBinlogs(List<TBinlog> binlogs) {
         binlogs.addAll(allBinlogs);

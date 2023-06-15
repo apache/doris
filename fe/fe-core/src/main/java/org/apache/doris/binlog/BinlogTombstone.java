@@ -30,13 +30,13 @@ public class BinlogTombstone {
     private boolean dbBinlogTombstone;
 
     @SerializedName(value = "dbId")
-	private long dbId;
+    private long dbId;
 
     @SerializedName(value = "commitSeq")
     private long commitSeq;
 
     @SerializedName(value = "tableIds")
-	private List<Long> tableIds;
+    private List<Long> tableIds;
 
     @SerializedName(value = "tableVersionMap")
     // this map keep last upsert record <tableId, UpsertRecord>

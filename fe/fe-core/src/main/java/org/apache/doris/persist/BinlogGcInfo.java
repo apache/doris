@@ -29,7 +29,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 public class BinlogGcInfo implements Writable {
     @SerializedName(value = "tombstones")

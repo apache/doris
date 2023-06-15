@@ -17,9 +17,9 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TGcBinlogReq;
 import org.apache.doris.thrift.TTabletGcBinlogInfo;
+import org.apache.doris.thrift.TTaskType;
 
 import java.util.ArrayList;
 import java.util.List;
