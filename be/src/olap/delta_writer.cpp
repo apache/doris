@@ -551,7 +551,7 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
     return mem_usage;
 }
 
-int64_t DeltaWriter::active_memtable_mem_consumption(MemType mem) {
+int64_t DeltaWriter::active_memtable_mem_consumption() {
     if (_flush_token == nullptr) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
@@ -560,10 +560,8 @@ int64_t DeltaWriter::active_memtable_mem_consumption(MemType mem) {
     int64_t mem_usage = 0;
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
+        if (_mem_table_insert_trackers.size() > 0) {
             mem_usage += (*_mem_table_insert_trackers.end())->consumption();
-        }
-        if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
             mem_usage += (*_mem_table_flush_trackers.end())->consumption();
         }
     }
