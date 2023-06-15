@@ -151,10 +151,13 @@ public class FunctionRegistry {
      * for test
      */
     public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
-        dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
-                dbName == null ? ConnectContext.get().getDatabase() : dbName);
+        List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
+        if (ConnectContext.get() != null) {
+            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
+                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
+            scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
+        }
 
-        List<String> scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
         synchronized (name2UdfBuilders) {
             for (String scope : scopes) {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of()).get(name);
