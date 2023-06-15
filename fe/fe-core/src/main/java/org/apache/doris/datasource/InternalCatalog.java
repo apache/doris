@@ -1818,40 +1818,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                SystemInfoService infoService = Env.getCurrentSystemInfo();
-                List<String> allBEHost =countDownLatch.getLeftMarks().stream().map(item->{return infoService.getBackend(item.getKey()).getHost();}).distinct().collect(Collectors.toList());
-                List<String> downBEList = countDownLatch.getLeftMarks().stream()
-                    .map(item->{return infoService.getBackend(item.getKey());})
-                    .distinct()
-                    .filter(new Predicate<Backend>() {
-                        @Override
-                        public boolean test(Backend backend) {
-                            String ip = "http://" + backend.getHost() + ":"+backend.getBePort()+"/api/health";
-                            try {
-                              HttpUtils.doGet(ip, null);
-                            } catch (Exception e) {
-                                return true;
-                            }
-                            return false;
-                        }
-                    })
-                    .map(Backend::getHost)
-                    .collect(Collectors.toList());
-                if (null != downBEList || downBEList.size() !=0 ){
-                    String downBE= StringUtils.join(downBEList, ",");
-                    errMsg = "The BE "+downBE+" is down,please check BE status!";
-                    allBEHost.removeAll(downBEList);
-                }
-                if (null != allBEHost || allBEHost.size() !=0 ) {
-                    String timeoutBE = StringUtils.join(allBEHost, ",");
-                    errMsg += "Failed to create partition[" + partitionName + "] in " + timeoutBE + ". Timeout:" + (timeout / 1000) + " seconds.";
-                }
-                    // clear tasks
+                errMsg = "Failed to create partition[" + partitionName + "].";
+                // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                    if (countDownLatch.getStatus() == TStatusCode.TIMEOUT) {
+                        SystemInfoService infoService = Env.getCurrentSystemInfo();
+                        Set<String> downBeSet = countDownLatch.getLeftMarks().stream()
+                                .map(item -> infoService.getBackend(item.getKey()))
+                                .filter(backend -> !backend.isAlive())
+                                .map(Backend::getHost)
+                                .collect(Collectors.toSet());
+                        if (null != downBeSet || downBeSet.size() != 0) {
+                            String downBE = StringUtils.join(downBeSet, ",");
+                            errMsg = "The BE " + downBE + " is down,please check BE status!";
+                        }
+                    }
                 } else {
+                    errMsg += "Timeout:" + (timeout / 1000) + " seconds.";
                     List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
                     List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
