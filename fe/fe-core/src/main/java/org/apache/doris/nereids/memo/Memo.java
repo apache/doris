@@ -114,6 +114,23 @@ public class Memo {
         return groupExpressions.size();
     }
 
+    /** just keep LogicalExpression in Memo. */
+    public void removePhysicalExpression() {
+        groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
+
+        for (Group group : groups.values()) {
+            group.clearPhysicalExpressions();
+            group.clearLowestCostPlans();
+            group.removeParentPhysicalExpressions();
+            group.setExplored(false);
+        }
+
+        // logical groupExpression reset ruleMask
+        groupExpressions.values().stream()
+                .filter(groupExpression -> groupExpression.getPlan() instanceof LogicalPlan)
+                .forEach(GroupExpression::clearApplied);
+    }
+
     private Plan skipProject(Plan plan, Group targetGroup) {
         // Some top project can't be eliminated
         if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).canEliminate()) {

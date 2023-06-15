@@ -29,7 +29,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -326,11 +325,7 @@ public class PlanReceiver implements AbstractReceiver {
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }
-            // shadow all join order rule
-            CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
-            for (Rule rule : jobContext.getCascadesContext().getRuleSet().getImplementationRules()) {
-                copyInResult.correspondingExpression.setApplied(rule);
-            }
+            jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
         }
     }
 
