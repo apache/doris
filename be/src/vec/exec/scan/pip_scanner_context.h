@@ -34,12 +34,12 @@ public:
                       const TupleDescriptor* output_tuple_desc,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
-                      const int max_queue_size)
+                      const int num_parallel_instances)
             : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
-                                         scanners, limit, max_bytes_in_blocks_queue),
+                                         scanners, limit, max_bytes_in_blocks_queue,
+                                         num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
-              _need_colocate_distribute(!_col_distribute_ids.empty()),
-              _max_queue_size(max_queue_size) {}
+              _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -76,7 +76,7 @@ public:
             for (const auto& block : blocks) {
                 // vectorized calculate hash
                 int rows = block->rows();
-                const auto element_size = _max_queue_size;
+                const auto element_size = _num_parallel_instances;
                 hash_vals.resize(rows);
                 std::fill(hash_vals.begin(), hash_vals.end(), 0);
                 auto* __restrict hashes = hash_vals.data();
@@ -124,7 +124,7 @@ public:
     bool empty_in_queue(int id) override { return _blocks_queues[id].size_approx() == 0; }
 
     Status init() override {
-        for (int i = 0; i < _max_queue_size; ++i) {
+        for (int i = 0; i < _num_parallel_instances; ++i) {
             _blocks_queues.emplace_back(moodycamel::ConcurrentQueue<vectorized::BlockUPtr>());
         }
         RETURN_IF_ERROR(ScannerContext::init());
@@ -138,7 +138,7 @@ public:
         int real_block_size =
                 limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
         int64_t free_blocks_memory_usage = 0;
-        for (int i = 0; i < _max_queue_size; ++i) {
+        for (int i = 0; i < _num_parallel_instances; ++i) {
             auto block = vectorized::Block::create_unique(
                     _output_tuple_desc->slots(), real_block_size, true /*ignore invalid slots*/);
             free_blocks_memory_usage += block->allocated_bytes();
@@ -151,12 +151,12 @@ public:
     }
 
     bool has_enough_space_in_blocks_queue() const override {
-        return _current_used_bytes < _max_bytes_in_queue / 2 * _max_queue_size;
+        return _current_used_bytes < _max_bytes_in_queue / 2 * _num_parallel_instances;
     }
 
     void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
-            for (int i = 0; i < _max_queue_size; ++i) {
+            for (int i = 0; i < _num_parallel_instances; ++i) {
                 if (_colocate_blocks[i] && !_colocate_blocks[i]->empty()) {
                     _current_used_bytes += _colocate_blocks[i]->allocated_bytes();
                     _blocks_queues[i].enqueue(std::move(_colocate_blocks[i]));
@@ -226,7 +226,6 @@ private:
 
     const std::vector<int>& _col_distribute_ids;
     const bool _need_colocate_distribute;
-    const int _max_queue_size;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;

@@ -45,7 +45,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                                const doris::TupleDescriptor* input_tuple_desc,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                               int64_t max_bytes_in_blocks_queue_)
+                               int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances)
         : _state(state_),
           _parent(parent),
           _input_tuple_desc(input_tuple_desc),
@@ -55,7 +55,8 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           limit(limit_),
           _max_bytes_in_queue(max_bytes_in_blocks_queue_),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
-          _scanners(scanners_) {
+          _scanners(scanners_),
+          _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
@@ -68,8 +69,11 @@ Status ScannerContext::init() {
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
-    _max_thread_num = _parent->_shared_scan_opt ? config::doris_scanner_thread_pool_thread_num * 12
-                                                : config::doris_scanner_thread_pool_thread_num / 4;
+    _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
+    if (_parent->_shared_scan_opt) {
+        DCHECK(_num_parallel_instances > 0);
+        _max_thread_num *= _num_parallel_instances;
+    }
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     DCHECK(_max_thread_num > 0);
     _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
@@ -81,6 +85,7 @@ Status ScannerContext::init() {
     _scanner_profile = _parent->_scanner_profile;
     _scanner_sched_counter = _parent->_scanner_sched_counter;
     _scanner_ctx_sched_counter = _parent->_scanner_ctx_sched_counter;
+    _scanner_ctx_sched_time = _parent->_scanner_ctx_sched_time;
     _free_blocks_memory_usage = _parent->_free_blocks_memory_usage;
     _newly_create_free_blocks_num = _parent->_newly_create_free_blocks_num;
     _queued_blocks_memory_usage = _parent->_queued_blocks_memory_usage;

@@ -61,7 +61,7 @@ public:
     ScannerContext(RuntimeState* state_, VScanNode* parent, const TupleDescriptor* input_tuple_desc,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
@@ -122,6 +122,7 @@ public:
     RuntimeState* state() { return _state; }
 
     void incr_num_ctx_scheduling(int64_t num) { _scanner_ctx_sched_counter->update(num); }
+    void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
     VScanNode* parent() { return _parent; }
@@ -243,9 +244,12 @@ protected:
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
 
+    const int _num_parallel_instances;
+
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
