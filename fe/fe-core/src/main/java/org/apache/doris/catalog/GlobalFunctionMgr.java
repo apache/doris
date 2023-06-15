@@ -60,10 +60,10 @@ public class GlobalFunctionMgr extends MetaObject {
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.setGlobal(true);
         function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)
+                && FunctionUtil.translateToNereids(null, function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
         }
-        FunctionUtil.translateToNereids(null, function);
     }
 
 
@@ -78,7 +78,8 @@ public class GlobalFunctionMgr extends MetaObject {
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)
+                && FunctionUtil.dropFromNereids(null, function)) {
             Env.getCurrentEnv().getEditLog().logDropGlobalFunction(function);
         }
     }
@@ -86,6 +87,7 @@ public class GlobalFunctionMgr extends MetaObject {
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            FunctionUtil.dropFromNereids(null, functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

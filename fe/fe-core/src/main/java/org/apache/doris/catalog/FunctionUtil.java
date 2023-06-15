@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -38,10 +39,12 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 /**
  * function util.
@@ -221,7 +224,7 @@ public class FunctionUtil {
         return dbName;
     }
 
-    public static void translateToNereids(String dbName, Function function) {
+    public static boolean translateToNereids(String dbName, Function function) {
         if (function instanceof AliasFunction) {
             AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
         } else if (function instanceof ScalarFunction) {
@@ -229,5 +232,14 @@ public class FunctionUtil {
         } else if (function instanceof AggregateFunction) {
             JavaUdaf.translateToNereids(dbName, ((AggregateFunction) function));
         }
+        return true;
+    }
+
+    public static boolean dropFromNereids(String dbName, FunctionSearchDesc function) {
+        String fnName = function.getName().getFunction();
+        List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
+                .collect(Collectors.toList());
+        Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+        return true;
     }
 }

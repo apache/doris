@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.udf;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 /**
  * function builder for java udaf
  */
-public class JavaUdafBuilder extends FunctionBuilder {
+public class JavaUdafBuilder extends UdfBuilder {
     private final JavaUdaf udf;
     private final int arity;
     private final boolean isVarArgs;
@@ -38,6 +38,11 @@ public class JavaUdafBuilder extends FunctionBuilder {
         this.udf = udf;
         this.isVarArgs = udf.hasVarArguments();
         this.arity = udf.arity();
+    }
+
+    @Override
+    public List<DataType> getArgTypes() {
+        return udf.getArgumentsTypes();
     }
 
     @Override

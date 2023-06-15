@@ -22,8 +22,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
@@ -38,11 +38,16 @@ import java.util.stream.Collectors;
 /**
  * alias function builder
  */
-public class AliasUdfBuilder extends FunctionBuilder {
+public class AliasUdfBuilder extends UdfBuilder {
     private final AliasUdf aliasUdf;
 
     public AliasUdfBuilder(AliasUdf aliasUdf) {
         this.aliasUdf = aliasUdf;
+    }
+
+    @Override
+    public List<DataType> getArgTypes() {
+        return aliasUdf.getArgumentsTypes();
     }
 
     @Override
