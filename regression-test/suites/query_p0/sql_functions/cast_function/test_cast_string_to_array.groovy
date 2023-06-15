@@ -20,7 +20,8 @@ suite("test_cast_string_to_array") {
     qt_sql """ select cast ("[1,2,3]" as array<int>) """
 
     // cast string to array<string>
-    qt_sql """ select cast ("['a','b','c']" as array<string>) """
+    qt_sql """ select cast ("[\\"a\\",\\"b\\",\\"c\\"]" as array<string>) """
+    qt_sql """ select cast ("[a,b,c]" as array<string>) """
 
     // cast string to array<double>
     qt_sql """ select cast ("[1.34,2.001]" as array<double>) """
@@ -37,7 +38,7 @@ suite("test_cast_string_to_array") {
     // cast string to array<datetimev2>
     qt_sql """ select cast ("[2022-09-01]" as array<datetimev2>) """
 
-    // cast empty value
+    // cast non-valid value
     qt_sql """ select cast ("[1,2,3,,,]" as array<int>) """
     qt_sql """ select cast ("[a,b,c,,,]" as array<string>) """
     qt_sql """ select cast ("[1.34,2.01,,,]" as array<decimal(10, 3)>) """

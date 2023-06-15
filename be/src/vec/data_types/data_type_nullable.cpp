@@ -103,7 +103,8 @@ Status DataTypeNullable::from_nested_complex_json(simdjson::ondemand::value& jso
 
 Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* null_column = assert_cast<ColumnNullable*>(column);
-    if (rb.count() == 4 && strncasecmp(rb.position(), "null", 4) == 0) {
+    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
+        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
         null_column->insert_data(nullptr, 0);
         return Status::OK();
     }

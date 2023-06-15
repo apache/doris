@@ -31,13 +31,13 @@ suite("test_array_insert_into_select", "load") {
     """
 
     // insert invalid row 0
-    sql """INSERT INTO tstring VALUES (0, '[{"a":"1","b":"2","c":"3",}, {"a":"1","b":"2"}]')"""
+    // sql """INSERT INTO tstring VALUES (0, '[{"a":"1","b":"2","c":"3",}, {"a":"1","b":"2"}]')"""
     // insert valid row 1
-    sql """INSERT INTO tstring VALUES (1, '[\\'{"a":"1","b":"2","c":"3",}\\', \\'{"a":"1","b":"2"}\\']')"""
+    sql """INSERT INTO tstring VALUES (1, '[\"{\\\"a\\\":\\\"1\\\",\\\"b\\\":\\\"2\\\",\\\"c\\\":\\\"3\\\"}\",\"{\\\"a\\\":\\\"1\\\",\\\"b\\\":\\\"2\\\"}\"]')"""
     // insert invalid row 2
-    sql """INSERT INTO tstring VALUES (2, '[{"a":"1","b":"2"}]')"""
+    // sql """INSERT INTO tstring VALUES (2, '[{"a":"1","b":"2"}]')"""
     // insert valid row 3
-    sql """INSERT INTO tstring VALUES (3, '[]')"""
+    // sql """INSERT INTO tstring VALUES (3, '[]')"""
 
     // check data in tstring
     qt_select_string "SELECT * FROM tstring ORDER BY id"

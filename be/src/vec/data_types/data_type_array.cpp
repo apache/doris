@@ -201,7 +201,6 @@ Status DataTypeArray::from_nested_complex_json(simdjson::ondemand::value& json_v
     IColumn& nested_column = array_column->get_data();
     DCHECK(nested_column.is_nullable());
     auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-    bool is_string_nested = is_string(remove_nullable(nested));
     size_t element_num = 0;
     try {
         for (auto it = outer_array.begin(); it != outer_array.end(); ++it) {
@@ -219,12 +218,9 @@ Status DataTypeArray::from_nested_complex_json(simdjson::ondemand::value& json_v
                 }
             } else {
                 std::string_view sv = simdjson::trim((*it).raw_json_token().value());
-                // when nested type is string simdjson will add "" to string
-                if (is_string_nested) {
-                    StringRef sr(sv.data(), sv.size());
-                    StringRef del("\"");
-                    sv = simd::VStringFunctions::trim(sr, del);
-                }
+                StringRef sr(sv.data(), sv.size());
+                StringRef del("\"");
+                sv = simd::VStringFunctions::trim(sr, del);
                 ReadBuffer nested_rb(const_cast<char*>(sv.data()), sv.size());
                 st = nested->from_string(nested_rb, &nested_column);
             }
