@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.sqltest;
 
-import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;

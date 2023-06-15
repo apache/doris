@@ -1927,7 +1927,12 @@ public class ShowExecutor {
         List<RestoreJob> restoreJobs = jobs.stream().filter(job -> job instanceof RestoreJob)
                 .map(job -> (RestoreJob) job).collect(Collectors.toList());
 
-        List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
+        List<List<String>> infos;
+        if (showStmt.isNeedBriefResult()) {
+            infos = restoreJobs.stream().map(RestoreJob::getBriefInfo).collect(Collectors.toList());
+        } else {
+            infos = restoreJobs.stream().map(RestoreJob::getFullInfo).collect(Collectors.toList());
+        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }

@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.hive.metastore;
 
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -218,17 +217,17 @@ import org.apache.hadoop.hive.metastore.utils.SecurityUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
 import shade.doris.hive.org.apache.thrift.TException;
 import shade.doris.hive.org.apache.thrift.protocol.TBinaryProtocol;
 import shade.doris.hive.org.apache.thrift.protocol.TCompactProtocol;
 import shade.doris.hive.org.apache.thrift.protocol.TProtocol;
+import shade.doris.hive.org.apache.thrift.transport.TFramedTransport;
 import shade.doris.hive.org.apache.thrift.transport.TSocket;
 import shade.doris.hive.org.apache.thrift.transport.TTransport;
 import shade.doris.hive.org.apache.thrift.transport.TTransportException;
-import shade.doris.hive.org.apache.thrift.transport.TFramedTransport;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -317,7 +316,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
   private final HiveVersion hiveVersion;
 
-  static final protected Logger LOG = LoggerFactory.getLogger(HiveMetaStoreClient.class);
+  private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClient.class);
 
   //copied from ErrorMsg.java
   public static final String REPL_EVENTS_MISSING_IN_METASTORE = "Notification events are missing in the meta store.";
@@ -621,6 +620,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   private void open() throws MetaException {
     isConnected = false;
     TTransportException tte = null;
+    MetaException lastException = null;
     boolean useSSL = MetastoreConf.getBoolVar(conf, ConfVars.USE_SSL);
     boolean useSasl = MetastoreConf.getBoolVar(conf, ConfVars.USE_THRIFT_SASL);
     boolean useFramedTransport = MetastoreConf.getBoolVar(conf, ConfVars.USE_THRIFT_FRAMED_TRANSPORT);
@@ -737,7 +737,8 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
           }
         } catch (MetaException e) {
           LOG.error("Unable to connect to metastore with URI " + store
-                    + " in attempt " + attempt, e);
+                  + " in attempt " + attempt, e);
+          lastException = e;
         }
         if (isConnected) {
           break;
@@ -753,8 +754,18 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     }
 
     if (!isConnected) {
+      String msg = "";
+      if (tte == null) {
+        if (lastException != null) {
+          msg = StringUtils.stringifyException(lastException);
+        } else {
+          msg = "unknown reason";
+        }
+      } else {
+        msg = StringUtils.stringifyException(tte);
+      }
       throw new MetaException("Could not connect to meta store using any of the URIs provided." +
-        " Most recent failure: " + StringUtils.stringifyException(tte));
+              " Most recent failure: " + msg);
     }
 
     snapshotActiveConf();

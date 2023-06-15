@@ -365,7 +365,7 @@ distribution_desc
     
         `"light_schema_change"="true"`
 
-        This feature is enabled by default after v1.2.1.
+        This feature is enabled by default after v2.0.0.
     
     * `disable_auto_compaction`
 

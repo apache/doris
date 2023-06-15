@@ -60,6 +60,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/scan/hudi_jni_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -108,6 +109,7 @@ Status VFileScanner::prepare(
     _col_name_to_slot_id = colname_to_slot_id;
 
     _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
+    _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
     _fill_path_columns_timer =
@@ -617,8 +619,12 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, _params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _kv_cache, _state->query_options().enable_parquet_lazy_mat);
-            RETURN_IF_ERROR(parquet_reader->open());
+                    ExecEnv::GetInstance()->file_meta_cache(),
+                    _state->query_options().enable_parquet_lazy_mat);
+            {
+                SCOPED_TIMER(_open_reader_timer);
+                RETURN_IF_ERROR(parquet_reader->open());
+            }
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
@@ -651,6 +657,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
+            std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
+                    _profile, _state, _params, range, _state->query_options().batch_size,
+                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
             if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
@@ -658,12 +667,21 @@ Status VFileScanner::_get_next_reader() {
                 }
                 _discard_conjuncts();
             }
-            _cur_reader = OrcReader::create_unique(
-                    _profile, _state, _params, range, _file_col_names,
-                    _state->query_options().batch_size, _state->timezone(), _io_ctx.get(),
-                    _state->query_options().enable_orc_lazy_mat);
-            init_status = ((OrcReader*)(_cur_reader.get()))
-                                  ->init_reader(_colname_to_value_range, _push_down_conjuncts);
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "transactional_hive") {
+                std::unique_ptr<TransactionalHiveReader> tran_orc_reader =
+                        TransactionalHiveReader::create_unique(std::move(orc_reader), _profile,
+                                                               _state, _params, range,
+                                                               _io_ctx.get());
+                init_status = tran_orc_reader->init_reader(_file_col_names, _colname_to_value_range,
+                                                           _push_down_conjuncts);
+                RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
+                _cur_reader = std::move(tran_orc_reader);
+            } else {
+                init_status = orc_reader->init_reader(&_file_col_names, _colname_to_value_range,
+                                                      _push_down_conjuncts, false);
+                _cur_reader = std::move(orc_reader);
+            }
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -682,7 +700,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, _params, range,
                                                        _file_slot_descs, &_scanner_eof,
                                                        _io_ctx.get(), _is_dynamic_schema);
-            init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
+            init_status =
+                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
             break;
         }
         default:
@@ -889,40 +908,6 @@ Status VFileScanner::_init_expr_ctxes() {
 Status VFileScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
-    }
-
-    for (auto ctx : _dest_vexpr_ctx) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
-    }
-
-    for (auto& it : _col_default_value_ctx) {
-        if (it.second != nullptr) {
-            it.second->close(state);
-        }
-    }
-
-    for (auto& conjunct : _pre_conjunct_ctxs) {
-        conjunct->close(state);
-    }
-
-    for (auto& conjunct : _push_down_conjuncts) {
-        conjunct->close(state);
-    }
-
-    for (auto& [k, v] : _slot_id_to_filter_conjuncts) {
-        for (auto& ctx : v) {
-            if (ctx != nullptr) {
-                ctx->close(state);
-            }
-        }
-    }
-
-    for (auto ctx : _not_single_slot_filter_conjuncts) {
-        if (ctx != nullptr) {
-            ctx->close(state);
-        }
     }
 
     if (config::enable_file_cache && _state->query_options().enable_file_cache) {

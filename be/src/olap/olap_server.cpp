@@ -68,6 +68,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -567,7 +568,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
-        if (!config::disable_auto_compaction) {
+        if (!config::disable_auto_compaction &&
+            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             _adjust_compaction_thread_num();
 
             bool check_score = false;
@@ -1088,7 +1090,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
-        if (config::disable_auto_compaction) {
+        if (config::disable_auto_compaction ||
+            MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             continue;
         }
 

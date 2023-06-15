@@ -67,8 +67,9 @@ CteAnchor[cteId= ( CTEId#3=] )
 ------PhysicalTopN
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN](curr_yr.i_brand_id = prev_yr.i_brand_id)(curr_yr.i_class_id = prev_yr.i_class_id)(curr_yr.i_category_id = prev_yr.i_category_id)(curr_yr.i_manufact_id = prev_yr.i_manufact_id)((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)
-------------filter((curr_yr.d_year = 1999))
---------------CteConsumer[cteId= ( CTEId#3=] )
+------------PhysicalDistribute
+--------------filter((curr_yr.d_year = 1999))
+----------------CteConsumer[cteId= ( CTEId#3=] )
 ------------PhysicalDistribute
 --------------filter((prev_yr.d_year = 1998))
 ----------------CteConsumer[cteId= ( CTEId#3=] )

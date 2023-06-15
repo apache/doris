@@ -285,7 +285,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     try {
         st = _exec_plan_fragment(request->request(), version, compact);
     } catch (const Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
+        st = e.to_status();
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
@@ -576,8 +576,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<std::string> column_names;
-            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

@@ -31,8 +31,9 @@ import java.util.Objects;
  * it only processes the current node again. Otherwise, it just recursively handles its children.
  */
 public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
-    private RewriteJobContext rewriteJobContext;
-    private List<Rule> rules;
+
+    private final RewriteJobContext rewriteJobContext;
+    private final List<Rule> rules;
 
     public PlanTreeRewriteTopDownJob(RewriteJobContext rewriteJobContext, JobContext context, List<Rule> rules) {
         super(JobType.TOP_DOWN_REWRITE, context);

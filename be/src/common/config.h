@@ -768,10 +768,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DECLARE_mBool(runtime_filter_use_async_rpc);
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -1038,9 +1034,12 @@ DECLARE_Bool(enable_feature_binlog);
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
 
-// enable unify parse stream load properties in BE and FE
-// it will delete after version upgrade
 DECLARE_Bool(enable_unify_properties_parse);
+
+// max number of hdfs file handle in cache
+DECLARE_Int64(max_hdfs_file_handle_cache_num);
+// max number of meta info of external files, such as parquet footer
+DECLARE_Int64(max_external_file_meta_cache_num);
 
 #ifdef BE_TEST
 // test s3

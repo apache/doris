@@ -40,27 +40,27 @@ PhysicalTopN
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+--------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
+--------------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
-----------------------------------------PhysicalOlapScan[date_dim]
-------------------------------PhysicalDistribute
---------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
-----------------------------------------PhysicalOlapScan[item]
---------------------------PhysicalProject
-----------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute

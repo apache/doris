@@ -43,7 +43,7 @@
 namespace doris {
 
 template <class RPCRequest, class RPCResponse>
-struct async_rpc_context {
+struct AsyncRPCContext {
     RPCRequest request;
     RPCResponse response;
     brpc::Controller cntl;
@@ -55,7 +55,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx)
         : _query_ctx(query_ctx) {}
 
-RuntimeFilterMgr::~RuntimeFilterMgr() {}
+RuntimeFilterMgr::~RuntimeFilterMgr() = default;
 
 Status RuntimeFilterMgr::init() {
     _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr",
@@ -73,14 +73,16 @@ Status RuntimeFilterMgr::get_filter_by_role(const int filter_id, const RuntimeFi
     } else {
         filter_map = &_producer_map;
     }
-
+    auto state = Status::OK();
     auto iter = filter_map->find(key);
     if (iter == filter_map->end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role:" << (int)role;
-        return Status::InvalidArgument("unknown filter");
+        state = Status::InvalidArgument("unknown filter");
+        LOG_WARNING("get filter failed, key={}, role={}, reason={}", key, (int)role,
+                    state.to_string());
+    } else {
+        *target = iter->second.filter;
     }
-    *target = iter->second.filter;
-    return Status::OK();
+    return state;
 }
 
 Status RuntimeFilterMgr::get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter) {
@@ -315,7 +317,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             // 2. FE has been upgraded (e.g. cntVal->targetv2_info.size() > 0)
             // 3. This filter is bloom filter (only bloom filter should be used for merging)
             using PPublishFilterRpcContext =
-                    async_rpc_context<PPublishFilterRequestV2, PPublishFilterResponse>;
+                    AsyncRPCContext<PPublishFilterRequestV2, PPublishFilterResponse>;
             std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
             rpc_contexts.reserve(cntVal->targetv2_info.size());
 
@@ -380,7 +382,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         } else {
             // prepare rpc context
             using PPublishFilterRpcContext =
-                    async_rpc_context<PPublishFilterRequest, PPublishFilterResponse>;
+                    AsyncRPCContext<PPublishFilterRequest, PPublishFilterResponse>;
             std::vector<std::unique_ptr<PPublishFilterRpcContext>> rpc_contexts;
             rpc_contexts.reserve(cntVal->target_info.size());
 

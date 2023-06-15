@@ -294,9 +294,9 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
-    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression date(DateTimeV2Literal dateTime) throws AnalysisException {
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
     /**
@@ -562,5 +562,15 @@ public class DateTimeExtractAndTransform {
     public static Expression strToDate(VarcharLiteral str, VarcharLiteral format) {
         return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                         .toFormatter(), str.getValue()));
+    }
+
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static Expression timestamp(DateTimeLiteral datetime) {
+        return datetime;
+    }
+
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static Expression timestamp(DateTimeV2Literal datetime) {
+        return datetime;
     }
 }
