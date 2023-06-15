@@ -222,6 +222,7 @@ private:
     int _next_queue_to_feed = 0;
     std::vector<moodycamel::ConcurrentQueue<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
+    std::atomic_int32_t _total_free_block_num = 0;
 
     const std::vector<int>& _col_distribute_ids;
     const bool _need_colocate_distribute;

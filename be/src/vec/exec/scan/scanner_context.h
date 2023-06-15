@@ -209,9 +209,6 @@ protected:
     // NOTE: this is NOT the size of `_free_blocks`.
     int32_t _free_blocks_capacity = 0;
 
-    // used to calculate pip_scan_ctx's free block num
-    std::atomic_int32_t _total_free_block_num = 0;
-
     int _batch_size;
     // The limit from SQL's limit clause
     int64_t limit;
