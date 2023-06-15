@@ -425,7 +425,10 @@ public class DatabaseTransactionMgr {
 
         unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
                 totalInvolvedBackends, db);
-        LOG.info("transaction:[{}] successfully pre-committed", transactionState);
+
+        // disable this log, as this logging is in table write lock
+        // some-times, this logging will cost much time and impact the flink job with 2pc stream load
+        // LOG.info("transaction:[{}] successfully pre-committed", transactionState);
     }
 
     private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
