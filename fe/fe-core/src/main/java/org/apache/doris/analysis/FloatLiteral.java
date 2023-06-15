@@ -34,6 +34,7 @@ import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.text.NumberFormat;
+import java.util.Objects;
 
 public class FloatLiteral extends LiteralExpr {
     private double value;
@@ -55,13 +56,11 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     public FloatLiteral(String value) throws AnalysisException {
-        Double floatValue = null;
         try {
-            floatValue = new Double(value);
+            init(value);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
-        init(floatValue);
     }
 
     protected FloatLiteral(FloatLiteral other) {
@@ -99,13 +98,17 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     private void init(Double value) {
-        this.value = value.doubleValue();
-        // Figure out if this will fit in a FLOAT without loosing precision.
-        float fvalue;
-        fvalue = value.floatValue();
-        if (fvalue == this.value) {
+        init(Double.toString(value));
+    }
+
+    private void init(String literal) {
+        final BigDecimal bigDecimal = new BigDecimal(literal);
+        final float floatValue = bigDecimal.floatValue();
+        if (Objects.equals(Float.toString(floatValue), literal)) {
+            this.value = bigDecimal.floatValue();
             type = Type.FLOAT;
         } else {
+            this.value = bigDecimal.doubleValue();
             type = Type.DOUBLE;
         }
     }
