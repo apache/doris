@@ -37,15 +37,16 @@ struct_element
 #### Syntax
 
 ```
-struct_element(struct, n/s)
+Tn struct_element(STRUCT<T1, T2, ..., Tn, ...> struct, Integer-type field_n)
+Tn struct_element(STRUCT<T1, T2, ..., Tn, ...> struct, VARCHAR field_n_name)
 ```
 
 #### Arguments
 
 ```
 struct - 输入的struct列，如果是null，则返回null
-n - field的位置，起始位置从1开始，仅支持常量
-s - field的名字，仅支持常量
+field_n - field的位置，起始位置从1开始，仅支持常量
+field_n_name - field的名字，仅支持常量
 ```
 
 #### Returned value

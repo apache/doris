@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`coalesce(expr1, expr2, ...., expr_n))`
+`coalesce(expr1, expr2, ...., expr_n)`
 
 返回参数中的第一个非空表达式（从左向右）
 

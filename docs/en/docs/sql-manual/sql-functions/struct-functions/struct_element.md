@@ -37,15 +37,16 @@ Function allows getting a field from a struct.
 #### Syntax
 
 ```
-struct_element(struct, n/s)
+Tn struct_element(STRUCT<T1, T2, ..., Tn, ...> struct, Integer-type field_n)
+Tn struct_element(STRUCT<T1, T2, ..., Tn, ...> struct, VARCHAR field_n_name)
 ```
 
 #### Arguments
 
 ```
 struct - The input struct column. If null, null will be returned.
-n - The position of field，starting from 1，only supports constants.
-s - The name of field，only supports constants.
+field_n - The position of field，starting from 1，only supports constants.
+field_n_name - The name of field，only supports constants.
 ```
 
 #### Returned value

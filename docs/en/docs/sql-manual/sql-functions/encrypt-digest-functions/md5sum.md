@@ -28,7 +28,7 @@ under the License.
 Calculates an MD5 128-bit checksum for the strings
 #### Syntax
 
-`MD5SUM(str[,str])`
+`STRING MD5SUM(STRING str, ...)`
 
 ### example
 
@@ -53,4 +53,4 @@ MySQL > select md5sum("ab","cd");
 
 ### keywords
 
-    MD5SUM
+    MD5SUM,MD5

@@ -28,7 +28,7 @@ under the License.
 Calculates an SM3 128-bit checksum for the strings
 #### Syntax
 
-`SM3SUM(str[,str])`
+`STRING SM3SUM(STRING str, ...)`
 
 ### example
 
