@@ -85,12 +85,12 @@ bool DataQueue::has_data_or_finished(int child_idx) {
 bool DataQueue::remaining_has_data() {
     int count = _child_count;
     while (--count >= 0) {
-        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
-            return true;
-        }
         _flag_queue_idx++;
         if (_flag_queue_idx == _child_count) {
             _flag_queue_idx = 0;
+        }
+        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
+            return true;
         }
     }
     return false;
@@ -107,7 +107,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
 
     {
         std::lock_guard<std::mutex> l(*_queue_blocks_lock[_flag_queue_idx]);
-        if (remaining_has_data()) {
+        if (_cur_blocks_nums_in_queue[_flag_queue_idx] > 0) {
             *output_block = std::move(_queue_blocks[_flag_queue_idx].front());
             _queue_blocks[_flag_queue_idx].pop_front();
             if (child_idx) {
