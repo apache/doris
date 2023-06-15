@@ -27,6 +27,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -89,7 +90,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equals(Column.DELETE_SIGN)) {
-                selectLists.add(new Alias(BooleanLiteral.TRUE, BooleanLiteral.TRUE.toSql()));
+                selectLists.add(new Alias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
