@@ -593,6 +593,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 LOG(WARNING) << err_msg;
             }
         }
+
         // here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
         // of publish phase.
         // all rowsets which need to recalculate have been published so we don't need to acquire lock.
@@ -624,13 +625,14 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second,
                     segments, _rowset_writer.get()));
         }
+
+        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        location_map.clear();
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
-            location_map.clear();
-            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
