@@ -75,6 +75,11 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     @Override
+    protected String[] getTableTypes() {
+        return new String[] {"TABLE", "VIEW", "SYSTEM VIEW"};
+    }
+
+    @Override
     protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
                                    String tableName) throws SQLException {
         return databaseMetaData.getColumns(schemaName, null, tableName, null);
@@ -251,6 +256,12 @@ public class JdbcMySQLClient extends JdbcClient {
                 return charType;
             case "VARCHAR":
                 return ScalarType.createVarcharType(fieldSchema.columnSize);
+            case "BIT":
+                if (fieldSchema.getColumnSize() == 1) {
+                    return Type.BOOLEAN;
+                } else {
+                    return ScalarType.createStringType();
+                }
             case "TIME":
             case "TINYTEXT":
             case "TEXT":
@@ -266,7 +277,6 @@ public class JdbcMySQLClient extends JdbcClient {
             case "LONGSTRING":
             case "JSON":
             case "SET":
-            case "BIT":
             case "BINARY":
             case "VARBINARY":
             case "ENUM":
