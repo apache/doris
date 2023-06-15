@@ -89,6 +89,44 @@ suite("test_analyze") {
         SELECT COUNT(*) FROM ${tbl}; 
     """
 
+    sql """
+        DROP STATS ${tbl}(analyzetestlimitedk3)
+    """
+
+    exception = null
+
+    try {
+        sql """
+            SELECT COUNT(*) FROM ${tbl}; 
+        """
+    } catch (Exception e) {
+        exception = e
+    }
+
+    assert exception != null
+
+    exception = null
+
+    sql """
+        ANALYZE TABLE ${tbl} WITH SYNC
+    """
+
+    sql """
+        SELECT COUNT(*) FROM ${tbl}; 
+    """
+
+    sql """
+        DROP STATS ${tbl}
+    """
+
+    try {
+        sql """
+            SELECT COUNT(*) FROM ${tbl}; 
+        """
+    } catch (Exception e) {
+        exception = e
+    }
+
     a_result_1 = sql """
         ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
     """
