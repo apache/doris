@@ -163,11 +163,7 @@ public class PropertyAnalyzer {
     public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            // set storage_medium null to ensure the success of creating tablets
-            return new DataProperty(null,
-                oldDataProperty.getCooldownTimeMs(),
-                oldDataProperty.getStoragePolicy(),
-                oldDataProperty.isMutable());
+            return DataProperty.getPreferredDefaultDataProperty();
         }
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
@@ -207,6 +203,11 @@ public class PropertyAnalyzer {
 
         Preconditions.checkNotNull(storageMedium);
 
+        if (!isStorageMediumUpdated) {
+            DataProperty preferredDefaultDataProperty = DataProperty.getPreferredDefaultDataProperty();
+            storageMedium = preferredDefaultDataProperty.getStorageMedium();
+        }
+
         if (storageMedium == TStorageMedium.HDD) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
             LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
@@ -223,10 +224,6 @@ public class PropertyAnalyzer {
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
-        }
-
-        if (!isStorageMediumUpdated) {
-            storageMedium = null;
         }
 
         if (hasStoragePolicy) {
