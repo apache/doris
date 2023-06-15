@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -51,7 +50,6 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
     private final List<String> partitions;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
-    private ExplainLevel explainLevel = null;
 
     public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions, LogicalPlan logicalQuery) {
         super(PlanType.DELETE_COMMAND);
@@ -63,13 +61,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        completeQueryPlan(ctx, logicalQuery);
-
-        if (explainLevel != null) {
-            new ExplainCommand(explainLevel, logicalQuery).run(ctx, executor);
-        } else {
-            new InsertIntoTableCommand(logicalQuery, null).run(ctx, executor);
-        }
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), null).run(ctx, executor);
     }
 
     private void checkTable(ConnectContext ctx) {
@@ -112,6 +104,10 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     @Override
