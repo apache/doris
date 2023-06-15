@@ -368,8 +368,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         std::unique_ptr<RowsetWriter> rowset_writer;
         _create_transient_rowset_writer(tablet, rowset, &rowset_writer);
 
-        RETURN_IF_ERROR(
-                tablet->update_delete_bitmap(rowset, &tablet_txn_info, rowset_writer.get()));
+        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
+                                                     tablet_txn_info.delete_bitmap,
+                                                     rowset_writer.get()));
         if (rowset->tablet_schema()->is_partial_update()) {
             // build rowset writer and merge transient rowset
             RETURN_IF_ERROR(rowset_writer->flush());
