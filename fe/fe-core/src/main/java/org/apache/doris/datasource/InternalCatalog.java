@@ -1831,7 +1831,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 .collect(Collectors.toSet());
                         if (null != downBeSet || downBeSet.size() != 0) {
                             String downBE = StringUtils.join(downBeSet, ",");
-                            errMsg = "The BE " + downBE + " is down,please check BE status!";
+                            errMsg += "The BE " + downBE + " is down,please check BE status!";
                         }
                     }
                 } else {
@@ -2069,7 +2069,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
-                            + " with storage policy(" + storagePolicy + ")");
+                     + " with storage policy(" + storagePolicy + ")");
         }
         olapTable.setStoragePolicy(storagePolicy);
 
