@@ -30,6 +30,7 @@ import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.type.TypeInfo;
 import com.aliyun.odps.type.TypeInfoFactory;
 import com.google.common.base.Strings;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.log4j.Logger;
@@ -66,6 +67,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private long remainBatchRows = 0;
     private long totalRows = 0;
     private TableTunnel.DownloadSession session;
+    private RootAllocator arrowAllocator;
     private ArrowRecordReader curReader;
     private List<Column> columns;
     private Map<String, Integer> readColumnsId;
@@ -146,7 +148,8 @@ public class MaxComputeJniScanner extends JniScanner {
                 totalRows = session.getRecordCount();
             }
             long start = startOffset == -1L ? 0 : startOffset;
-            curReader = session.openArrowRecordReader(start, totalRows, columns);
+            arrowAllocator = new RootAllocator(Long.MAX_VALUE);
+            curReader = session.openArrowRecordReader(start, totalRows, columns, arrowAllocator);
         } catch (Exception e) {
             throw new IOException(e);
         }
@@ -211,7 +214,9 @@ public class MaxComputeJniScanner extends JniScanner {
         startOffset = -1;
         splitSize = -1;
         if (curReader != null) {
+            arrowAllocator.close();
             curReader.close();
+            curReader = null;
         }
     }
 
@@ -234,17 +239,20 @@ public class MaxComputeJniScanner extends JniScanner {
         VectorSchemaRoot batch;
         int curReadRows = 0;
         while (curReadRows < expectedRows && (batch = curReader.read()) != null) {
-            List<FieldVector> fieldVectors = batch.getFieldVectors();
-            int batchRows = 0;
-            for (FieldVector column : fieldVectors) {
-                columnValue.reset(column);
-                // LOG.warn("MCJNI read getClass: " + column.getClass());
-                batchRows = column.getValueCount();
-                for (int j = 0; j < batchRows; j++) {
-                    appendData(readColumnsId.get(column.getName()), columnValue);
+            try {
+                List<FieldVector> fieldVectors = batch.getFieldVectors();
+                int batchRows = 0;
+                for (FieldVector column : fieldVectors) {
+                    columnValue.reset(column);
+                    batchRows = column.getValueCount();
+                    for (int j = 0; j < batchRows; j++) {
+                        appendData(readColumnsId.get(column.getName()), columnValue);
+                    }
                 }
+                curReadRows += batchRows;
+            } finally {
+                batch.close();
             }
-            curReadRows += batchRows;
         }
         return curReadRows;
     }
