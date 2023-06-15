@@ -171,7 +171,7 @@ public:
                                        TabletUid tablet_uid, bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
-
+    void get_all_tablet_txn_infos_by_tablet(const TabletSharedPtr tablet, std::vector<TabletTxnInfo>& delete_bitmaps);
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 

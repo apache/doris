@@ -47,6 +47,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
+#include "olap/txn_manager.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/task/engine_checksum_task.h"
@@ -598,6 +599,33 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+
+            // step1: collect this tablet's all committed rowsets' delete bitmaps
+            std::vector<TabletTxnInfo> tablet_txn_infos{};
+            StorageEngine::instance()->txn_manager()->get_all_tablet_txn_infos_by_tablet(_tablet, tablet_txn_infos);
+
+            // step2: calculate all rowsets' delete bitmaps which are not published committed and now published.
+            // e.g. before compaction:
+            //       5-5 6-6 published
+            //       7-7 8-8 committed not published
+            // then 5-5 delete bitmap versions are 6, 7(dummy), 8(dummy).
+            // 6-6 delete bitmap versions are 7(dummy), 8(dummy).
+            //       when compaction:
+            //       5-5 6-6 7-7 published
+            //       8-8 committed not published
+            // then 5-5 delete bitmap versions are 6, 7, 8(dummy).
+            // 6-6 delete bitmap versions are 7, 8(dummy).
+            // 7-7 doesn't have delete bitmap.
+            // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
+            // This part is to calculate 7-7's delete bitmap.
+
+            auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+            RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+                    _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second, segments,
+                    _rowset_writer.get()));
+
 
 
 
