@@ -65,8 +65,7 @@ void PipelineTask::_init_profile() {
     _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
     _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
-    _get_block_times_counter = ADD_COUNTER(_task_profile, "GetBlockTimes", TUnit::UNIT);
-    _get_empty_block_times_counter = ADD_COUNTER(_task_profile, "GetEmptyBlockTimes", TUnit::UNIT);
+    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
@@ -216,11 +215,8 @@ Status PipelineTask::execute(bool* eos) {
         // Pull block from operator chain
         {
             SCOPED_TIMER(_get_block_timer);
-            _get_block_times_counter->update(1);
+            _get_block_counter->update(1);
             RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
-            if (_block->rows() == 0) {
-                _get_empty_block_times_counter->update(1);
-            }
         }
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
