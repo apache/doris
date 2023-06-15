@@ -619,15 +619,14 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
             // This part is to calculate 7-7's delete bitmap.
 
-            auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
-            std::vector<segment_v2::SegmentSharedPtr> segments;
-            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-            RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                    _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second, segments,
-                    _rowset_writer.get()));
-
-
-
+            for(;;){
+                auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
+                std::vector<segment_v2::SegmentSharedPtr> segments;
+                RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+                RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+                        _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second, segments,
+                        _rowset_writer.get()));
+            }
 
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
             location_map.clear();
