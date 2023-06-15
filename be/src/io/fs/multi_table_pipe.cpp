@@ -99,7 +99,6 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
     auto iter = _planned_pipes.find(table);
     if (iter != _planned_pipes.end()) {
         pipe = iter->second;
-        LOG(INFO) << "dispatch for planned pipe: " << pipe.get();
         RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
                                        "append failed in planned kafka pipe");
     } else {
@@ -111,7 +110,6 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
         } else {
             pipe = iter->second;
         }
-        LOG(INFO) << "dispatch for unplanned pipe: " << pipe.get();
         RETURN_NOT_OK_STATUS_WITH_WARN((pipe.get()->*cb)(data, size),
                                        "append failed in unplanned kafka pipe");
 
@@ -187,9 +185,9 @@ Status MultiTablePipe::request_and_exec_plans() {
                              _ctx->multi_table_put_result.params.size());
     _unplanned_pipes.clear();
 
+    _inflight_plan_cnt += _ctx->multi_table_put_result.params.size();
     for (auto& plan : _ctx->multi_table_put_result.params) {
         // TODO: use pipeline in the future (currently is buggy for load)
-        ++_inflight_plan_cnt;
         DCHECK_EQ(plan.__isset.table_name, true);
         DCHECK(_planned_pipes.find(plan.table_name) != _planned_pipes.end());
         putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]);
@@ -197,10 +195,12 @@ Status MultiTablePipe::request_and_exec_plans() {
                   << " table=" << plan.table_name;
         exec_env->fragment_mgr()->exec_plan_fragment(plan, [this](RuntimeState* state,
                                                                   Status* status) {
-            --_inflight_plan_cnt;
-            _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                        state->tablet_commit_infos().begin(),
-                                        state->tablet_commit_infos().end());
+            {
+                std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                            state->tablet_commit_infos().begin(),
+                                            state->tablet_commit_infos().end());
+            }
             _number_total_rows += state->num_rows_load_total();
             _number_loaded_rows += state->num_rows_load_success();
             _number_filtered_rows += state->num_rows_load_filtered();
@@ -224,6 +224,7 @@ Status MultiTablePipe::request_and_exec_plans() {
                 _status = *status;
             }
 
+            --_inflight_plan_cnt;
             if (_inflight_plan_cnt == 0 && is_consume_finished()) {
                 _ctx->number_total_rows = _number_total_rows;
                 _ctx->number_loaded_rows = _number_loaded_rows;
