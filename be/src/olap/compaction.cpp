@@ -628,11 +628,11 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
