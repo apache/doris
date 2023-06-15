@@ -104,7 +104,7 @@ public class FloatLiteral extends LiteralExpr {
     private void init(String literal) {
         final BigDecimal bigDecimal = new BigDecimal(literal);
         final float floatValue = bigDecimal.floatValue();
-        if (Objects.equals(Float.toString(floatValue), literal)) {
+        if (Objects.equals(Float.toString(floatValue), literal) || !literal.contains(".")) {
             type = Type.FLOAT;
         } else {
             type = Type.DOUBLE;
