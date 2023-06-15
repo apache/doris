@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
+#include "runtime/sink_stream_mgr.h"
 
 namespace doris {
 namespace vectorized {
@@ -182,6 +183,8 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    SinkStreamMgr* get_sink_stream_mgr() { return _sink_stream_mgr; }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -256,6 +259,7 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    SinkStreamMgr* _sink_stream_mgr = nullptr;
 };
 
 template <>

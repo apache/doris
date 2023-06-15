@@ -484,10 +484,15 @@ DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
 // You may need to lower the speed when the sink receiver bes are too busy.
 DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
 
+
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
 DEFINE_Int32(fragment_pool_thread_num_max, "512");
 DEFINE_Int32(fragment_pool_queue_size, "2048");
+
+// thread pool config for handling streaming of sink
+DEFINE_Int32(sink_stream_pool_thread_num_min, "20");
+DEFINE_Int32(sink_stream_pool_thread_num_max, "20");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
