@@ -106,7 +106,7 @@ suite("test_ingest_binlog") {
     // assertTrue(syncer.ingestBinlog(1, -1) == false)
 
 
-    logger.info("=== Test 2.4: Right case")
+    logger.info("=== Test 2.4: Right case ===")
     assertTrue(syncer.ingestBinlog())
     assertTrue(syncer.commitTxn())
     assertTrue(syncer.checkTargetVersion())

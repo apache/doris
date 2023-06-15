@@ -282,7 +282,7 @@ suite("test_txn_case") {
     }
 
 
-    logger.info("=== Test 5.4: SHOW_PRIV user commitTxn case")
+    logger.info("=== Test 5.4: SHOW_PRIV user commitTxn case ===")
     syncer.context.user = "${showPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue(syncer.commitTxn())
