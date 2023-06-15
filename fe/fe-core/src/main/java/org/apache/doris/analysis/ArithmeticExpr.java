@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -555,119 +554,59 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (VectorizedUtil.isVectorized()) {
-            // bitnot is the only unary op, deal with it here
-            if (op == Operator.BITNOT) {
-                Type t = getChild(0).getType();
-                if (t.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
-                    type = Type.BIGINT;
-                    castChild(type, 0);
-                } else {
-                    type = t;
-                }
-                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-                if (fn == null) {
-                    Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
-                }
-                return;
-            }
-            analyzeSubqueryInChildren();
-            // if children has subquery, it will be rewritten and reanalyzed in the future.
-            if (contains(Subquery.class)) {
-                return;
-            }
-
-            Type t1 = getChild(0).getType();
-            Type t2 = getChild(1).getType();
-
-            // Support null operation
-            if (t1.isNull() || t2.isNull()) {
-                castBinaryOp(t1.isNull() ? t2 : t1);
-                t1 = getChild(0).getType();
-                t2 = getChild(1).getType();
-            }
-
-            // dispose the case t1 and t2 is not numeric type
-            if (!t1.isNumericType()) {
-                castChild(t1.getNumResultType(), 0);
-                t1 = t1.getNumResultType();
-            }
-            if (!t2.isNumericType()) {
-                castChild(t2.getNumResultType(), 1);
-                t2 = t2.getNumResultType();
-            }
-
-            if (t1.isDecimalV3() || t2.isDecimalV3()) {
-                analyzeDecimalV3Op(t1, t2);
-            } else {
-                analyzeNoneDecimalOp(t1, t2);
-            }
-            fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
-            if (fn == null) {
-                Preconditions.checkState(false, String.format(
-                        "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
-            }
-            if (!fn.getReturnType().isDecimalV3()) {
-                type = fn.getReturnType();
-            }
-        } else {
-            // bitnot is the only unary op, deal with it here
-            if (op == Operator.BITNOT) {
+        // bitnot is the only unary op, deal with it here
+        if (op == Operator.BITNOT) {
+            Type t = getChild(0).getType();
+            if (t.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
                 type = Type.BIGINT;
-                if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
-                    castChild(type, 0);
-                }
-                fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-                if (fn == null) {
-                    Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
-                }
-                return;
+                castChild(type, 0);
+            } else {
+                type = t;
             }
-            analyzeSubqueryInChildren();
-            // if children has subquery, it will be rewritten and reanalyzed in the future.
-            if (contains(Subquery.class)) {
-                return;
-            }
-            Type t1 = getChild(0).getType().getNumResultType();
-            Type t2 = getChild(1).getType().getNumResultType();
-            // Find result type of this operator
-            Type commonType = Type.INVALID;
-            String fnName = op.getName();
-            switch (op) {
-                case MULTIPLY:
-                case ADD:
-                case SUBTRACT:
-                case MOD:
-                    // numeric ops must be promoted to highest-resolution type
-                    // (otherwise we can't guarantee that a <op> b won't overflow/underflow)
-                    commonType = findCommonType(t1, t2);
-                    break;
-                case DIVIDE:
-                    commonType = findCommonType(t1, t2);
-                    if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
-                        commonType = Type.DOUBLE;
-                    }
-                    break;
-                case INT_DIVIDE:
-                case BITAND:
-                case BITOR:
-                case BITXOR:
-                    // Must be bigint
-                    commonType = Type.BIGINT;
-                    break;
-                default:
-                    // the programmer forgot to deal with a case
-                    Preconditions.checkState(false,
-                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
-                    break;
-            }
-            type = castBinaryOp(commonType);
-            fn = getBuiltinFunction(fnName, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
             if (fn == null) {
-                Preconditions.checkState(false, String.format(
-                        "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+                Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
             }
+            return;
+        }
+        analyzeSubqueryInChildren();
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
+        if (contains(Subquery.class)) {
+            return;
+        }
+
+        Type t1 = getChild(0).getType();
+        Type t2 = getChild(1).getType();
+
+        // Support null operation
+        if (t1.isNull() || t2.isNull()) {
+            castBinaryOp(t1.isNull() ? t2 : t1);
+            t1 = getChild(0).getType();
+            t2 = getChild(1).getType();
+        }
+
+        // dispose the case t1 and t2 is not numeric type
+        if (!t1.isNumericType()) {
+            castChild(t1.getNumResultType(), 0);
+            t1 = t1.getNumResultType();
+        }
+        if (!t2.isNumericType()) {
+            castChild(t2.getNumResultType(), 1);
+            t2 = t2.getNumResultType();
+        }
+
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            analyzeDecimalV3Op(t1, t2);
+        } else {
+            analyzeNoneDecimalOp(t1, t2);
+        }
+        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
+        if (fn == null) {
+            Preconditions.checkState(false,
+                    String.format("No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
+        }
+        if (!fn.getReturnType().isDecimalV3()) {
+            type = fn.getReturnType();
         }
     }
 

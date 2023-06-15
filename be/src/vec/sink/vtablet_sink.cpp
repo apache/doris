@@ -101,7 +101,7 @@ public:
               index_channel(index_channel),
               partition_id(partition_id) {};
 
-    ~OpenPartitionClosure() = default;
+    ~OpenPartitionClosure() override = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
@@ -1145,7 +1145,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
 
