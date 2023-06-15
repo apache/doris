@@ -272,7 +272,7 @@ int64_t TabletsChannel::mem_consumption() {
             if (write_mem + flush_mem > max_tablet_mem_usage)
                 max_tablet_mem_usage = write_mem + flush_mem;
             _mem_consumptions.emplace(write_mem + flush_mem, it.first);
-            int64_t active_memtable_mem = it.second->active_memtable_mem_consumption(MemType::ALL);
+            int64_t active_memtable_mem = it.second->active_memtable_mem_consumption();
             _active_memtable_mem_consumptions.emplace(active_memtable_mem, it.first);
         }
     }
