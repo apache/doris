@@ -35,7 +35,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
-### Parameter Description
+## Parameter Description
 
 | Parameter                 | Required or Not | Default Value | Description                                                                                                              |
 |---------------------------|-----------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
