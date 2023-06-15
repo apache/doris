@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -68,7 +69,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(Suppliers.memoize(() -> FunctionSignature
-                .of(IntegerType.INSTANCE, argTypes)).get());
+                .of(NullType.INSTANCE, argTypes)).get());
     }
 
     public List<String> getParameters() {
@@ -101,9 +102,9 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         }
 
         Expression slotBoundFunction = VirtualSlotReplacer.INSTANCE.replace(parsedFunction, replaceMap);
-        Expression boundExpression = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
+        // Expression boundExpression = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
 
-        Preconditions.checkArgument(boundExpression instanceof BoundFunction);
+        // Preconditions.checkArgument(boundExpression instanceof BoundFunction);
         // BoundFunction boundFunction = ((BoundFunction) boundExpression);
 
         AliasUdf aliasUdf = new AliasUdf(
