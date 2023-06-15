@@ -133,7 +133,6 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -188,7 +187,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 
@@ -2071,7 +2069,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
-                    + " with storage policy(" + storagePolicy + ")");
+                            + " with storage policy(" + storagePolicy + ")");
         }
         olapTable.setStoragePolicy(storagePolicy);
 
