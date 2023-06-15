@@ -409,13 +409,13 @@ Status VNodeChannel::open_wait() {
     // add block closure
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler([this](bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call `mark_as_failed`,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
                                        fmt::format("rpc failed, error coed:{}, error text:{}",
@@ -434,13 +434,13 @@ Status VNodeChannel::open_wait() {
 
     _add_block_closure->addSuccessHandler([this](const PTabletWriterAddBlockResult& result,
                                                  bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call the following logic,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first

@@ -94,7 +94,7 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           const std::string& cumulative_compaction_type = "");
+           const std::string_view& cumulative_compaction_type = "");
 
     Status init();
     bool init_succeeded();
@@ -616,7 +616,7 @@ private:
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
-    std::string _cumulative_compaction_type;
+    std::string_view _cumulative_compaction_type;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
