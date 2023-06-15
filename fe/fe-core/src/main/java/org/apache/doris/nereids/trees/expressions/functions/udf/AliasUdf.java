@@ -92,16 +92,17 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         String functionSql = function.getOriginFunction().toSql();
         Expression parsedFunction = new NereidsParser().parseExpression(functionSql);
 
-        Map<String, DataType> replaceMap = Maps.newHashMap();
+        Map<String, VirtualSlotReference> replaceMap = Maps.newHashMap();
         for (int i = 0; i < function.getNumArgs(); ++i) {
-            replaceMap.put(function.getParameters().get(i), DataType.fromCatalogType(function.getArgs()[i]));
+            replaceMap.put(function.getParameters().get(i),
+                    new VirtualSlotReference(
+                            function.getParameters().get(i),
+                            DataType.fromCatalogType(function.getArgs()[i]),
+                            Optional.empty(),
+                            (shapes) -> ImmutableList.of()));
         }
 
         Expression slotBoundFunction = VirtualSlotReplacer.INSTANCE.replace(parsedFunction, replaceMap);
-        // Expression boundExpression = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
-
-        // Preconditions.checkArgument(boundExpression instanceof BoundFunction);
-        // BoundFunction boundFunction = ((BoundFunction) boundExpression);
 
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
@@ -129,17 +130,16 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return visitor.visitAliasUdf(this, context);
     }
 
-    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, DataType>> {
+    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, VirtualSlotReference>> {
         public static final VirtualSlotReplacer INSTANCE = new VirtualSlotReplacer();
 
-        public Expression replace(Expression expression, Map<String, DataType> context) {
+        public Expression replace(Expression expression, Map<String, VirtualSlotReference> context) {
             return expression.accept(this, context);
         }
 
         @Override
-        public Expression visitUnboundSlot(UnboundSlot slot, Map<String, DataType> context) {
-            return new VirtualSlotReference(slot.getName(), context.get(slot.getName()), Optional.empty(),
-                    (shapes) -> ImmutableList.of());
+        public Expression visitUnboundSlot(UnboundSlot slot, Map<String, VirtualSlotReference> context) {
+            return context.get(slot.getName());
         }
     }
 }

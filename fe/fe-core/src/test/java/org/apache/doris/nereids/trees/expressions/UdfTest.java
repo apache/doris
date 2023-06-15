@@ -18,15 +18,24 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -110,6 +119,49 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 new IntegerLiteral(4))
                         ), IntegerType.INSTANCE)
                 )), IntegerType.INSTANCE)
+        );
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(relation -> relation.getProjects().size() == 1
+                                        && relation.getProjects().get(0).child(0).equals(expected))
+                );
+    }
+
+    @Test
+    public void testParameterUseMoreThanOneTime() throws Exception {
+        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as\n"
+                + "        DATE_FORMAT(HOURS_ADD(\n"
+                + "            date_trunc(datetime1, 'day'),\n"
+                + "            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
+
+        String sql = "select f7('2023-05-20 12:23:45', 3)";
+
+        Expression expected = new DateFormat(
+                new HoursAdd(
+                        new DateTrunc(
+                                new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.MAX),
+                                new VarcharLiteral("day")),
+                        new Cast(new Add(
+                                new Multiply(
+                                        new Floor(new Divide(
+                                                new Cast(
+                                                        new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.MAX)),
+                                                        DoubleType.INSTANCE
+                                                ),
+                                                new Divide(
+                                                        new Cast(new TinyIntLiteral(((byte) 24)), DoubleType.INSTANCE),
+                                                        new Cast(new IntegerLiteral(((byte) 3)), DoubleType.INSTANCE)
+                                                ))
+                                        ), 
+                                        new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
+                                ),
+                                new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
+                        ), IntegerType.INSTANCE)
+                ),
+                new VarcharLiteral("%Y%m%d:%H")
         );
 
         PlanChecker.from(connectContext)
