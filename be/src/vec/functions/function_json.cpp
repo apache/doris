@@ -17,8 +17,8 @@
 
 #include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/pointer.h>
 #include <rapidjson/encodings.h>
+#include <rapidjson/pointer.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -951,18 +951,19 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool json_contains_object(const rapidjson::Value& target, const rapidjson::Value& search_value) {
-    if (!target.IsObject() || !search_value.IsObject()) {
-        return false;
-    }
-
-    for (auto itr = search_value.MemberBegin(); itr != search_value.MemberEnd(); ++itr) {
-        if (!target.HasMember(itr->name) || !json_contains(target[itr->name], itr->value)) {
+    bool json_contains_object(const rapidjson::Value& target,
+                              const rapidjson::Value& search_value) {
+        if (!target.IsObject() || !search_value.IsObject()) {
             return false;
         }
-    }
 
-    return true;
+        for (auto itr = search_value.MemberBegin(); itr != search_value.MemberEnd(); ++itr) {
+            if (!target.HasMember(itr->name) || !json_contains(target[itr->name], itr->value)) {
+                 return false;
+            }
+        }
+
+        return true;
     }
 
     bool json_contains_array(const rapidjson::Value& target, const rapidjson::Value& search_value) {
