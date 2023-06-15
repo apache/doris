@@ -85,9 +85,7 @@ public:
 
     bool set_status_on_error(const Status& status);
 
-    Status status() {
-        return _process_status;
-    }
+    Status status() { return _process_status; }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
