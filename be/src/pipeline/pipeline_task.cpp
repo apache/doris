@@ -280,6 +280,8 @@ QueryContext* PipelineTask::query_context() {
 
 // The FSM see PipelineTaskState's comment
 void PipelineTask::set_state(PipelineTaskState state) {
+    DCHECK(_cur_state != PipelineTaskState::FINISHED);
+
     if (_cur_state == state) {
         return;
     }
@@ -301,6 +303,11 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         }
     }
+
+    if (state == PipelineTaskState::FINISHED) {
+        _finish_p_dependency();
+    }
+
     _cur_state = state;
 }
 
