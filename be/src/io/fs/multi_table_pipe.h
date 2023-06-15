@@ -77,11 +77,12 @@ private:
     std::shared_ptr<StreamLoadContext> _ctx;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
+    std::mutex _tablet_commit_infos_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos; // collect from each plan fragment
-    int64_t _number_total_rows = 0;
-    int64_t _number_loaded_rows = 0;
-    int64_t _number_filtered_rows = 0;
-    int64_t _number_unselected_rows = 0;
+    std::atomic<int64_t> _number_total_rows {0};
+    std::atomic<int64_t> _number_loaded_rows {0};
+    std::atomic<int64_t> _number_filtered_rows {0};
+    std::atomic<int64_t> _number_unselected_rows {0};
 #endif
     std::mutex _pipe_map_lock;
     std::unordered_map<TUniqueId /*instance id*/, std::shared_ptr<io::StreamLoadPipe>> _pipe_map;
