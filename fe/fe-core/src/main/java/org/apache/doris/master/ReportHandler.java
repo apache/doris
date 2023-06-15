@@ -1141,7 +1141,9 @@ public class ReportHandler extends Daemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus status =
                         tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
-                return status != TabletStatus.HEALTHY;
+                if (status == TabletStatus.HEALTHY) {
+                    return false;
+                }
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
