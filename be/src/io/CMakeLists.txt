@@ -26,3 +26,29 @@ file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(IO STATIC ${IO_FILES})
 
 pch_reuse(IO)
+
+if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
+    add_executable(fs_benchmark_tool
+        fs/benchmark/fs_benchmark_tool.cpp
+    )
+
+    pch_reuse(fs_benchmark_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(fs_benchmark_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(fs_benchmark_tool
+        ${DORIS_LINK_LIBS}
+        benchmark
+    )
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET fs_benchmark_tool POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:fs_benchmark_tool> $<TARGET_FILE:fs_benchmark_tool>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:fs_benchmark_tool>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:fs_benchmark_tool>.dbg $<TARGET_FILE:fs_benchmark_tool>
+        )
+
+endif()

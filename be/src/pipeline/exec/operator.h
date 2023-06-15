@@ -419,7 +419,8 @@ public:
                 return Status::OK();
             }
             node->prepare_for_next();
-            node->push(state, _child_block.get(), _child_source_state == SourceState::FINISHED);
+            RETURN_IF_ERROR(node->push(state, _child_block.get(),
+                                       _child_source_state == SourceState::FINISHED));
         }
 
         if (!node->need_more_input_data()) {

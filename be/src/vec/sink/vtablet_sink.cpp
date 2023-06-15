@@ -101,7 +101,7 @@ public:
               index_channel(index_channel),
               partition_id(partition_id) {};
 
-    ~OpenPartitionClosure() = default;
+    ~OpenPartitionClosure() override = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
@@ -127,11 +127,7 @@ public:
     int64_t partition_id;
 };
 
-IndexChannel::~IndexChannel() {
-    if (_where_clause != nullptr) {
-        _where_clause->close(_parent->_state);
-    }
-}
+IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -413,13 +409,13 @@ Status VNodeChannel::open_wait() {
     // add block closure
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler([this](bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call `mark_as_failed`,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
                                        fmt::format("rpc failed, error coed:{}, error text:{}",
@@ -438,13 +434,13 @@ Status VNodeChannel::open_wait() {
 
     _add_block_closure->addSuccessHandler([this](const PTabletWriterAddBlockResult& result,
                                                  bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call the following logic,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first
@@ -1149,7 +1145,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
 
@@ -1402,7 +1398,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         return _close_status;
     }
     SCOPED_TIMER(_close_timer);
-    vectorized::VExpr::close(_output_vexpr_ctxs, state);
     Status status = exec_status;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
@@ -1689,7 +1684,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                 assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                         real_column_ptr.get()));
-
+        const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+        const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
@@ -1710,8 +1706,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
-                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
                 if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
@@ -1735,6 +1729,8 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
     auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(   \
             assert_cast<const vectorized::ColumnDecimal<vectorized::ColumnDecimalType>*>(          \
                     real_column_ptr.get()));                                                       \
+    const auto& max_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);     \
+    const auto& min_decimal = _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);      \
     for (size_t j = 0; j < column->size(); ++j) {                                                  \
         auto row = rows ? (*rows)[j] : j;                                                          \
         if (row == last_invalid_row) {                                                             \
@@ -1743,10 +1739,6 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         if (need_to_validate(j, row)) {                                                            \
             auto dec_val = column_decimal->get_data()[j];                                          \
             bool invalid = false;                                                                  \
-            const auto& max_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, false>(type);               \
-            const auto& min_decimal =                                                              \
-                    _get_decimalv3_min_or_max<vectorized::DecimalType, true>(type);                \
             if (dec_val > max_decimal || dec_val < min_decimal) {                                  \
                 fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");      \
                 fmt::format_to(error_msg, ", value={}", dec_val);                                  \

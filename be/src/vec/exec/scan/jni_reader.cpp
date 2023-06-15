@@ -58,8 +58,8 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     std::map<String, String> params = {{"mock_rows", "10240"},
                                        {"required_fields", required_fields.str()},
                                        {"columns_types", columns_types.str()}};
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jni/MockJniScanner", params,
-                                                    column_names);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/common/jni/MockJniScanner",
+                                                    params, column_names);
 }
 
 Status MockJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

@@ -45,9 +45,10 @@ Github: https://github.com/apache/doris-flink-connector
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.1.1    | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1    | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
 
 ## Build and Install
 
@@ -313,7 +314,7 @@ refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/
 | sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.read_json_by_line' ='true' |
 | sink.enable-delete     | true               | N              | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 | sink.enable-2pc                  | true              | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.max-retries                 | 1                  | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
+| sink.max-retries                 | 3                 | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
 | sink.buffer-size                 | 1048576(1MB)       | N        | Write data cache buffer size, in bytes. It is not recommended to modify, the default configuration is sufficient.                                                                                                                                                                                                                                 |
 | sink.buffer-count                | 3                  | N        | The number of write data cache buffers, it is not recommended to modify, the default configuration is sufficient.                                                                                                                               
 
@@ -376,6 +377,56 @@ WITH (
 );
 
 insert into doris_sink select id,name from cdc_mysql_source;
+```
+
+## Use Flink CDC to access multi-table or database
+### grammar
+```
+<FLINK_HOME>/bin/flink run \
+     -c org.apache.doris.flink.tools.cdc.CdcTools\
+     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+     mysql-sync-database \
+     --database <doris-database-name> \
+     [--job-name <flink-job-name>] \
+     [--table-prefix <doris-table-prefix>] \
+     [--table-suffix <doris-table-suffix>] \
+     [--including-tables <mysql-table-name|name-regular-expr>] \
+     [--excluding-tables <mysql-table-name|name-regular-expr>] \
+     --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
+     --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
+     [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
+```
+
+- **--job-name** Flink job name, not required.
+- **--database** Synchronize to the database name of Doris.
+- **--table-prefix** Doris table prefix name, for example --table-prefix ods_.
+- **--table-suffix** Same as above, the suffix name of the Doris table.
+- **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
+- **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
+- **--mysql-conf** MySQL CDCSource configuration, for example --mysql-conf hostname=127.0.0.1 , you can find it in [here](https://ververica.github.io/flink-cdc-connectors/master /content/connectors/mysql-cdc.html) to view all configurations of MySQL-CDC, where hostname/username/password/database-name are required.
+- **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
+- **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
+
+### Example
+```
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s\
+     -Dparallelism.default=1\
+     -c org.apache.doris.flink.tools.cdc.CdcTools\
+     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+     mysql-sync-database\
+     --database test_db \
+     --mysql-conf hostname=127.0.0.1 \
+     --mysql-conf username=root \
+     --mysql-conf password=123456 \
+     --mysql-conf database-name=mysql_db \
+     --including-tables "tbl1|test.*" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=123456 \
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
 ```
 
 ## Use FlinkCDC to update Key column

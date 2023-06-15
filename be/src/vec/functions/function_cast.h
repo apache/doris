@@ -70,6 +70,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -247,6 +248,7 @@ struct ConvertImpl {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
+                ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
                 col_to = ColVecTo::create();
@@ -1073,19 +1075,15 @@ public:
                         return true;
                     }
 
-                    const ColumnWithTypeAndName& scale_column = block.get_by_position(arguments[1]);
-                    UInt32 scale = extract_to_decimal_scale(scale_column);
-
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale);
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
-                    auto type =
-                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), type->get_scale());
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count);
@@ -1295,6 +1293,7 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
+            ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
             col_to = ColVecTo::create(size);
@@ -1587,9 +1586,12 @@ private:
                         using LeftDataType = typename Types::LeftType;
                         using RightDataType = typename Types::RightType;
 
-                        ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
+                        auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 context, block, arguments, result, input_rows_count,
                                 context->check_overflow_for_decimal(), scale);
+                        if (!state) {
+                            throw Exception(state.code(), state.to_string());
+                        }
                         return true;
                     });
 
@@ -1636,6 +1638,25 @@ private:
         const String error_msg = fmt::format("Conversion from {} to {} is not supported",
                                              from_type_name, to_type_name);
         return create_unsupport_wrapper(error_msg);
+    }
+
+    WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+                                   const DataTypeHLL& to_type) const {
+        /// Conversion from String through parsing.
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        }
+
+        //TODO if from is not string, it must be HLL?
+        const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
+
+        if (!from_type) {
+            return create_unsupport_wrapper(
+                    "CAST AS HLL can only be performed between HLL, String "
+                    "types");
+        }
+
+        return nullptr;
     }
 
     WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
@@ -2021,6 +2042,9 @@ private:
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
             return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+        case TypeIndex::HLL:
+            return create_hll_wrapper(context, from_type,
+                                      static_cast<const DataTypeHLL&>(*to_type));
         default:
             break;
         }
@@ -2036,7 +2060,7 @@ public:
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
-    FunctionBuilderCast() {}
+    FunctionBuilderCast() = default;
 
     String get_name() const override { return name; }
 

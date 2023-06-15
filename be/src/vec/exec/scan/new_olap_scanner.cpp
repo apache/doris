@@ -135,7 +135,8 @@ Status NewOlapScanner::init() {
         RETURN_IF_ERROR(status);
         _tablet = std::move(tablet);
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
-        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+            !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
                                                      olap_scan_node.schema_version,
@@ -156,7 +157,9 @@ Status NewOlapScanner::init() {
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
                     _tablet_schema->append_column(TabletColumn(column_desc));
                 }
-                _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                if (olap_scan_node.__isset.schema_version) {
+                    _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                }
             }
             if (olap_scan_node.__isset.indexes_desc) {
                 _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
@@ -405,6 +408,18 @@ Status NewOlapScanner::_init_tablet_reader_params(
         // runtime predicate push down optimization for topn
         _tablet_reader_params.use_topn_opt =
                 ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+    }
+
+    // If this is a Two-Phase read query, and we need to delay the release of Rowset
+    // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
+    if (_tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+        constexpr static int delayed_s = 60;
+        for (auto rs_reader : _tablet_reader_params.rs_readers) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader->rowset()->update_delayed_expired_timestamp(delayed_expired_timestamp);
+        }
     }
 
     return Status::OK();

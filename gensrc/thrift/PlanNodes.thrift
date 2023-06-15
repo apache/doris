@@ -302,11 +302,26 @@ struct TPaimonFileDesc {
 
 
 struct THudiFileDesc {
-    1: optional string basePath;
-    2: optional string dataFilePath;
-    3: optional list<string> deltaFilePaths;
-    // Deprecated
-    4: optional Exprs.TExpr file_select_conjunct;
+    1: optional string instant_time;
+    2: optional string serde;
+    3: optional string input_format;
+    4: optional string base_path;
+    5: optional string data_file_path;
+    6: optional i64 data_file_length;
+    7: optional list<string> delta_logs;
+    8: optional list<string> column_names;
+    9: optional list<string> column_types;
+    10: optional list<string> nested_fields;
+}
+
+struct TTransactionalHiveDeleteDeltaDesc {
+    1: optional string directory_location
+    2: optional list<string> file_names
+}
+
+struct TTransactionalHiveDesc {
+    1: optional string partition
+    2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
 }
 
 struct TTableFormatFileDesc {
@@ -314,6 +329,7 @@ struct TTableFormatFileDesc {
     2: optional TIcebergFileDesc iceberg_params
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
+    5: optional TTransactionalHiveDesc transactional_hive_params
 }
 
 struct TFileScanRangeParams {

@@ -248,19 +248,9 @@ You can compile Doris directly in your own Linux environment.
 
 4. When using Clang to compile Doris, PCH files will be used by default to speed up the compilation process. The default configuration of ccache may cause PCH files to be unable to be cached, or the cache to be unable to be hit, resulting in PCH being repeatedly compiled, slowing down the compilation speed. The following configuration is required:  
 
-   To make ccache cache PCH files:
+   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=OFF`
    ```shell
-   export CCACHE_PCH_EXTSUM=true
-   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
-   ```
-   To stop ccache from caching PCH files:
-   ```shell
-   export CCACHE_NOPCH_EXTSUM=true
-   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
-   ```
-   To use Clang to compile, but do not want to use PCH files to speed up the compilation process, you need to add the parameter `ENABLE_PCH=0`
-   ```shell
-   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF sh build.sh
    ```
 
 ## Special Statement

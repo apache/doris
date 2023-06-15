@@ -47,6 +47,9 @@ public class Statistics {
      * @return the new ndv after filter
      */
     public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
+        if (newRowCount > oldRowCount) {
+            return ndv;
+        }
         double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
         double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
         return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);

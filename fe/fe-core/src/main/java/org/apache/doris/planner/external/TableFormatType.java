@@ -21,7 +21,8 @@ public enum TableFormatType {
     HIVE("hive"),
     ICEBERG("iceberg"),
     HUDI("hudi"),
-    PAIMON("paimon");
+    PAIMON("paimon"),
+    TRANSACTIONAL_HIVE("transactional_hive");
 
     private final String tableFormatType;
 

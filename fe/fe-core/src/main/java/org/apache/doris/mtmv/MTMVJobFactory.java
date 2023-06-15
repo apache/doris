@@ -85,7 +85,7 @@ public class MTMVJobFactory {
         return job;
     }
 
-    private static MTMVJob genOnceJob(MaterializedView materializedView, String dbName) {
+    public static MTMVJob genOnceJob(MaterializedView materializedView, String dbName) {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.ONCE);

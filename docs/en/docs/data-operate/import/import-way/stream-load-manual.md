@@ -382,6 +382,22 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
     curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
     ```
 
+### Coding with StreamLoad
+
+You can initiate HTTP requests for Stream Load using any language. Before initiating HTTP requests, you need to set several necessary headers:
+
+```http
+Content-Type: text/plain; charset=UTF-8
+Expect: 100-continue
+Authorization: Basic <Base64 encoded username and password>
+```
+
+`<Base64 encoded username and password>`: a string consist with Doris's `username`, `:` and `password` and then do a base64 encode.
+
+Additionally, it should be noted that if you directly initiate an HTTP request to FE, as Doris will redirect to BE, some frameworks will remove the `Authorization` HTTP header during this process, which requires manual processing.
+
+Doris provides StreamLoad examples in three languages: [Java](https://github.com/apache/doris/tree/master/samples/stream_load/java), [Go](https://github.com/apache/doris/tree/master/samples/stream_load/go), and [Python](https://github.com/apache/doris/tree/master/samples/stream_load/python) for reference.
+
 ## Common Questions
 
 * Label Already Exists

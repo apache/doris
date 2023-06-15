@@ -83,9 +83,6 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
-
-            // close context expr
-            Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 
@@ -148,11 +145,7 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
         return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
-    status = _runtime_state->init_mem_trackers(_query_id);
-    if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
-        return status;
-    }
+    _runtime_state->init_mem_trackers(_query_id, "FoldConstant");
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");

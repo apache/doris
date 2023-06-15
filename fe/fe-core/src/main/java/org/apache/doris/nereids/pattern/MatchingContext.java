@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.pattern;
 
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 

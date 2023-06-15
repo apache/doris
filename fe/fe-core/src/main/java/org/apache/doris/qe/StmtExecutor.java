@@ -1371,6 +1371,18 @@ public class StmtExecutor {
         }
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
+        if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+            try {
+                LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                        context.getQualifiedUser(), context.getDatabase(),
+                        parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
+                        coord.getInstanceTotalNum());
+            } catch (Exception e) {
+                LOG.warn("Fail to print fragment concurrency for Query.", e);
+            }
+        }
+
+
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
@@ -1449,6 +1461,16 @@ public class StmtExecutor {
             throw e;
         } finally {
             fetchResultSpan.end();
+            if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+                try {
+                    LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                            context.getQualifiedUser(), context.getDatabase(),
+                            parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
+                            coord.getInstanceTotalNum());
+                } catch (Exception e) {
+                    LOG.warn("Fail to print fragment concurrency for Query.", e);
+                }
+            }
         }
     }
 
@@ -2421,8 +2443,7 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
             planner.getFragments();
             RowBatch batch;
@@ -2432,7 +2453,7 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                LOG.warn(e.getMessage(), e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2441,7 +2462,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                LOG.warn("Unexpected exception when SQL running", e);
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2457,9 +2478,8 @@ public class StmtExecutor {
                     }
                 }
             } catch (Exception e) {
-                LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
-                return resultRows;
+                throw new RuntimeException("Failed to execute internal SQL", e);
             } finally {
                 fetchResultSpan.end();
             }

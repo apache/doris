@@ -94,7 +94,7 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           const std::string& cumulative_compaction_type = "");
+           const std::string_view& cumulative_compaction_type = "");
 
     Status init();
     bool init_succeeded();
@@ -447,7 +447,15 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
 
-    Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
+    Status commit_phase_update_delete_bitmap(
+            const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+            DeleteBitmapPtr delete_bitmap, const int64_t& cur_version,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            RowsetWriter* rowset_writer = nullptr);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                const RowsetIdUnorderedSet& pre_rowset_ids,
+                                DeleteBitmapPtr delete_bitmap,
                                 RowsetWriter* rowset_writer = nullptr);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -608,7 +616,7 @@ private:
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
-    std::string _cumulative_compaction_type;
+    std::string_view _cumulative_compaction_type;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;

@@ -28,6 +28,8 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "util/countdown_latch.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -66,6 +68,7 @@ template <class T>
 class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
+class FileMetaCache;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -170,6 +173,7 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
+    FileMetaCache* file_meta_cache() { return _file_meta_cache; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -188,6 +192,8 @@ private:
 
     void _register_metrics();
     void _deregister_metrics();
+
+    void _check_streamloadpipe();
 
     bool _is_init;
     std::vector<StorePath> _store_paths;
@@ -252,6 +258,10 @@ private:
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;
+    // To save meta info of external file, such as parquet footer.
+    FileMetaCache* _file_meta_cache = nullptr;
+    CountDownLatch _check_streamloadpipe_latch;
+    scoped_refptr<Thread> _check_streamloadpipe_thread;
 };
 
 template <>

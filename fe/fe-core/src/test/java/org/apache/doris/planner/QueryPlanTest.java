@@ -855,7 +855,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "from test.test1 "
                 + "where time_col = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub("
                 + "now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
+        Assert.assertFalse(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql),
                 "CASE WHEN"));
 
         // test 1: case when then
@@ -953,7 +953,7 @@ public class QueryPlanTest extends TestWithFeService {
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql31),
-                "constant exprs: \n         CASE 100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
+                "constant exprs: \n         CASE 100 WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
