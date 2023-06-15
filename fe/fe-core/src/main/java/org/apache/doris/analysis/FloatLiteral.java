@@ -105,7 +105,7 @@ public class FloatLiteral extends LiteralExpr {
         final BigDecimal bigDecimal = new BigDecimal(literal);
         final float floatValue = bigDecimal.floatValue();
         if (Objects.equals(Float.toString(floatValue), literal)) {
-            this.value = bigDecimal.floatValue();
+            this.value = floatValue;
             type = Type.FLOAT;
         } else {
             this.value = bigDecimal.doubleValue();
