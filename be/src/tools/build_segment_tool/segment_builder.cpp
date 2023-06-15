@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "tools/build_segment_tool/build_helper.h"
+#include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
 DEFINE_string(meta_file, "", "tablet header meta file");
@@ -63,6 +64,7 @@ int main(int argc, char** argv, char** envp) {
     std::string build_dir = FLAGS_data_path;
     //
     auto t0 = std::chrono::steady_clock::now();
+    doris::DorisMetrics::instance()->initialize(false, {}, {});
     doris::BuildHelper* instance = doris::BuildHelper::init_instance();
     instance->initial_build_env();
     instance->open(FLAGS_meta_file, build_dir, FLAGS_data_path, FLAGS_format);

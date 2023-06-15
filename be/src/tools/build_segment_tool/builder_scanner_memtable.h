@@ -42,7 +42,7 @@ class BuilderScannerMemtable {
 public:
     BuilderScannerMemtable(TabletSharedPtr tablet, const std::string& build_dir,
                            const std::string& file_type);
-    ~BuilderScannerMemtable() {}
+    ~BuilderScannerMemtable()= default;
     void init(std::shared_ptr<QueryContext> &query_ctx);
     void doSegmentBuild(const std::vector<std::filesystem::directory_entry>& files);
 
