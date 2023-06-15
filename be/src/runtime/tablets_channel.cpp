@@ -283,7 +283,7 @@ int64_t TabletsChannel::mem_consumption() {
 }
 
 void TabletsChannel::get_active_memtable_mem_consumption(
-        std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions); {
+        std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions) {
     mem_consumptions->clear();
     std::lock_guard<SpinLock> l(_tablet_writers_lock);
     for (auto& it : _tablet_writers) {
