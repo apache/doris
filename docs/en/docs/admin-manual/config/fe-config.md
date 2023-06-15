@@ -498,7 +498,7 @@ Used to set the initial flow window size of the GRPC client channel, and also us
 
 Default：4096
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
+The number of threads responsible for Task events.
 
 #### `mysql_service_io_threads_num`
 
