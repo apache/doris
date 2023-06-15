@@ -117,7 +117,7 @@ docker run -itd \
 apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
---name=be\
+--name=be \
 --env FE_SERVERS="fe1:${intranet IP of the current machine}:9010" \
 --env BE_ADDR="${Intranet IP of the current machine}:9050" \
 -p 8040:8040 \
