@@ -200,7 +200,7 @@ public class GlobalTransactionMgr implements Writable {
         }
         stopWatch.stop();
         LOG.info("stream load tasks are pre-committed successfully. txns: {}. time cost: {} ms."
-            + " data will be visible later.", transactionId, stopWatch.getTime());
+                + " data will be visible later.", transactionId, stopWatch.getTime());
     }
 
     public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
