@@ -561,8 +561,8 @@ int64_t DeltaWriter::active_memtable_mem_consumption() {
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         if (_mem_table_insert_trackers.size() > 0) {
-            mem_usage += (*_mem_table_insert_trackers.end())->consumption();
-            mem_usage += (*_mem_table_flush_trackers.end())->consumption();
+            mem_usage += (*_mem_table_insert_trackers.rbegin())->consumption();
+            mem_usage += (*_mem_table_flush_trackers.rbegin())->consumption();
         }
     }
     return mem_usage;
