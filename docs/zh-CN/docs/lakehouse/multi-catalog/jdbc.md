@@ -570,4 +570,23 @@ Oracle 模式请参考 [Oracle类型映射](#Oracle)
     ```
 
     出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+
+9. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
+
+    首先要先排查下查询字段中是字符串否存在有大小写情况。比如，Table中有一个字段c_1中有"aaa"和"AAA"两条数据，如果在初始化MYSQL数据库时未指定区分字符串
+    大小写，那么MYSQL默认是不区分字符串大小写的，但是在Doris中是严格区分大小写的，所以会出现以下情况：
+
+    ```
+    Mysql行为：
+    select count(c_1) from table where c_1 = "aaa"; 未区分字符串大小，所以结果为：2
+
+    Doris行为：
+    select count(c_1) from table where c_1 = "aaa"; 严格区分字符串大小，所以结果为：1
+    ```
+
+    如果出现上述现象，那么需要按照需求来调整，方式如下：
+    
+    在MYSQL中查询时添加“BINARY”关键字来强制区分大小写：select count(c_1) from table where BINARY c_1 = "aaa"; 或者在MYSQL中建表时候指定：
+    CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
+    character-set-server=UTF-8 和 collation-server=utf8_bin。
  
