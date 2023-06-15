@@ -56,6 +56,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -213,18 +214,18 @@ public class HashJoinNode extends JoinNodeBase {
      * @param slotIdList
      */
     private void initHashOutputSlotIds(List<SlotId> slotIdList, Analyzer analyzer) {
-        hashOutputSlotIds.clear();
+        Set<SlotId> hashOutputSlotIdSet = Sets.newHashSet();
         // step1: change output slot id to src slot id
         if (vSrcToOutputSMap != null) {
             for (SlotId slotId : slotIdList) {
                 SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
                 Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
                 if (srcExpr == null) {
-                    hashOutputSlotIds.add(slotId);
+                    hashOutputSlotIdSet.add(slotId);
                 } else {
                     List<SlotRef> srcSlotRefList = Lists.newArrayList();
                     srcExpr.collect(SlotRef.class, srcSlotRefList);
-                    hashOutputSlotIds
+                    hashOutputSlotIdSet
                             .addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
                 }
             }
@@ -234,8 +235,8 @@ public class HashJoinNode extends JoinNodeBase {
         List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
         Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
-        hashOutputSlotIds.addAll(otherAndConjunctSlotIds);
-        hashOutputExprSlotIdMap.clear();
+        hashOutputSlotIdSet.addAll(otherAndConjunctSlotIds);
+        hashOutputSlotIds = new HashSet<>(hashOutputSlotIdSet);
     }
 
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {

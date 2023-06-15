@@ -1134,8 +1134,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         if (hashJoin.getMarkJoinSlotReference().isPresent()) {
-            outputSlotReferences.add(hashJoin.getMarkJoinSlotReference().get());
-            context.createSlotDesc(intermediateDescriptor, hashJoin.getMarkJoinSlotReference().get());
+            SlotReference sf = hashJoin.getMarkJoinSlotReference().get();
+            outputSlotReferences.add(sf);
+            context.createSlotDesc(intermediateDescriptor, sf);
+            if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                SlotRef markJoinSlotId = context.findSlotRef(sf.getExprId());
+                Preconditions.checkState(markJoinSlotId != null);
+                hashJoinNode.addSlotIdToHashOutputSlotIds(markJoinSlotId.getSlotId());
+                hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), markJoinSlotId.getSlotId());
+            }
         }
 
         // set slots as nullable for outer join
