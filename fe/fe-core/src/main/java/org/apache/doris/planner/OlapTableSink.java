@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -234,7 +235,9 @@ public class OlapTableSink extends DataSink {
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             if (indexMeta.getWhereClause() != null) {
-                indexSchema.setWhereClause(indexMeta.getWhereClause().treeToThrift());
+                Expr expr = indexMeta.getWhereClause().clone();
+                expr.replaceSlot(tupleDescriptor);
+                indexSchema.setWhereClause(expr.treeToThrift());
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
