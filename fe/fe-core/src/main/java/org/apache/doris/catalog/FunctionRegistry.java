@@ -48,7 +48,7 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public class FunctionRegistry {
     private final Map<String, List<FunctionBuilder>> name2Builders;
-    private final Map<String, Map<String, List<UdfBuilder>>> name2UdfBuilders;
+    private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
     private static final String GLOBAL_FUNCTION = "__GLOBAL_FUNCTION__";
 
     public FunctionRegistry() {
@@ -130,7 +130,7 @@ public class FunctionRegistry {
             dbName = GLOBAL_FUNCTION;
         }
         synchronized (name2UdfBuilders) {
-            Map<String, List<UdfBuilder>> builders = name2UdfBuilders
+            Map<String, List<FunctionBuilder>> builders = name2UdfBuilders
                     .computeIfAbsent(dbName, k -> Maps.newHashMap());
             builders.computeIfAbsent(name, k -> Lists.newArrayList()).add(builder);
         }
@@ -141,8 +141,9 @@ public class FunctionRegistry {
             dbName = GLOBAL_FUNCTION;
         }
         synchronized (name2UdfBuilders) {
-            Map<String, List<UdfBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
-            builders.getOrDefault(name, ImmutableList.of()).removeIf(builder -> builder.getArgTypes().equals(argTypes));
+            Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
+            builders.getOrDefault(name, ImmutableList.of()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
+                    .equals(argTypes));
         }
     }
 
@@ -162,6 +163,6 @@ public class FunctionRegistry {
                 }
             }
         }
-        throw new AnalysisException(String.format("Can not find udf named %s in database %s", dbName, name));
+        throw new AnalysisException(String.format("Can not find udf named %s in database %s", name, dbName));
     }
 }

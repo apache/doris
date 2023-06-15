@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.FunctionArgsDef;
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
@@ -32,6 +38,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -119,10 +126,5 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 .when(relation -> relation.getProjects().size() == 1
                                         && relation.getProjects().get(0).child(0).equals(expected))
                 );
-    }
-
-    @Test
-    public void testSimpleJavaUdf() {
-
     }
 }
