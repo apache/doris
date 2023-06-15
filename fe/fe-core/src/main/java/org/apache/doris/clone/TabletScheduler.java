@@ -968,16 +968,6 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica == null) {
             return false;
         }
-        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
-        int eqOrNewVersionCount = 0;
-        for (Replica replica : replicas) {
-            if (replica.getVersion() >= chosenReplica.getVersion()) {
-                eqOrNewVersionCount++;
-            }
-        }
-        if (eqOrNewVersionCount == 1) {
-            return false;
-        }
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
 
         return true;
