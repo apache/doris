@@ -1456,7 +1456,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .commitTransaction2PC(database, tableList, request.getTxnId(), timeoutMs);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
             Env.getCurrentGlobalTransactionMgr()
-                .abortTransaction2PC(database.getId(), request.getTxnId(), tableList, timeoutMs);
+                    .abortTransaction2PC(database.getId(), request.getTxnId(), tableList, timeoutMs);
         } else {
             throw new UserException("transaction operation should be \'commit\' or \'abort\'");
         }

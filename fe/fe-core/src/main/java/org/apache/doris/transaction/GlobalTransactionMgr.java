@@ -360,7 +360,7 @@ public class GlobalTransactionMgr implements Writable {
 
         stopWatch.stop();
         LOG.info("stream load tasks are aborted successfully. txns: {}. time cost: {} ms."
-            + " data will be visible later.", transactionId, stopWatch.getTime());
+                + " data will be visible later.", transactionId, stopWatch.getTime());
     }
 
     /*
