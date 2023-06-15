@@ -164,6 +164,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _sink_stream_mgr = new SinkStreamMgr();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");

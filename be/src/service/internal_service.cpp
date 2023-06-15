@@ -116,6 +116,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "runtime/sink_stream_mgr.h"
 
 namespace google {
 namespace protobuf {
@@ -248,6 +249,36 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* controller,
+                                            const POpenStreamSinkRequest* request,
+                                            POpenStreamSinkResponse* response,
+                                            google::protobuf::Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    LOG(INFO) << "OOXXOO: open stream sink"; //TODO: remove log
+    std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
+    brpc::Controller* cntl =
+            static_cast<brpc::Controller*>(controller);
+    brpc::StreamOptions stream_options;
+    ExecEnv* env = ExecEnv::GetInstance();
+    SinkStreamMgr* sink_stream_mgr = env->get_sink_stream_mgr();
+
+    stream_options.handler = sink_stream_mgr->get_sink_stream_handler();
+    StreamIdPtr streamid = sink_stream_mgr->get_free_stream_id();
+    LOG(INFO) << "OOXXOO: get streamid =" << streamid;
+
+    if (brpc::StreamAccept(streamid.get(), *cntl, &stream_options) != 0) {
+        cntl->SetFailed("Fail to accept stream");
+        status->set_status_code(TStatusCode::CANCELLED);
+        response->set_allocated_status(status.get());
+        response->release_status();
+        return;
+    }
+
+    status->set_status_code(TStatusCode::OK);
+    response->set_allocated_status(status.get());
+    response->release_status();
 }
 
 void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,

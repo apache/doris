@@ -521,6 +521,10 @@ DECLARE_Int32(fragment_pool_thread_num_min);
 DECLARE_Int32(fragment_pool_thread_num_max);
 DECLARE_Int32(fragment_pool_queue_size);
 
+// thread pool config for handling streaming of sink
+DECLARE_Int32(sink_stream_pool_thread_num_min);
+DECLARE_Int32(sink_stream_pool_thread_num_max);
+
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
 // The maximum number of the threads per disk is also the max queue depth per disk.

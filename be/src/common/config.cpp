@@ -485,6 +485,10 @@ DEFINE_Int32(fragment_pool_thread_num_min, "64");
 DEFINE_Int32(fragment_pool_thread_num_max, "512");
 DEFINE_Int32(fragment_pool_queue_size, "2048");
 
+// thread pool config for handling streaming of sink
+DEFINE_Int32(sink_stream_pool_thread_num_min, "20");
+DEFINE_Int32(sink_stream_pool_thread_num_max, "20");
+
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
 // The maximum number of the threads per disk is also the max queue depth per disk.
