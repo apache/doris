@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
 import org.apache.doris.common.util.ReflectionUtils;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -75,10 +76,12 @@ public class AliasUdfBuilder extends UdfBuilder {
         Expression processedExpression = TypeCoercionUtils.processBoundFunction(boundAliasFunction);
         List<Expression> inputs = processedExpression.getArguments();
 
+        Expression boundFunction = FunctionBinder.INSTANCE.rewrite(aliasUdf.getUnboundFunction(), null);
+
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) aliasUdf
-                .getOriginalFunction().collect(VirtualSlotReference.class::isInstance))
+        Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) boundFunction
+                .collect(VirtualSlotReference.class::isInstance))
                 .stream().collect(Collectors.toMap(SlotReference::getName, k -> k));
 
         Map<VirtualSlotReference, Expression> replaceMap = Maps.newHashMap();
@@ -88,7 +91,7 @@ public class AliasUdfBuilder extends UdfBuilder {
             replaceMap.put(virtualSlots.get(parameter), inputs.get(i));
         }
 
-        return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(aliasUdf.getOriginalFunction(), replaceMap));
+        return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(boundFunction, replaceMap));
     }
 
     private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<VirtualSlotReference, Expression>> {

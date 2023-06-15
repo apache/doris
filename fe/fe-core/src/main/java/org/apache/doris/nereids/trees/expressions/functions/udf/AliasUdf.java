@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.udf;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -47,32 +49,34 @@ import java.util.stream.Collectors;
  * alias function
  */
 public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignature {
-    private final BoundFunction originalFunction;
+    private final UnboundFunction unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
-    private final DataType retType;
+    private DataType retType;
 
-    public AliasUdf(String name, List<DataType> argTypes, DataType retType, BoundFunction originalFunction,
+    /**
+     * constructor
+     */
+    public AliasUdf(String name, List<DataType> argTypes, UnboundFunction unboundFunction,
             List<String> parameters, Expression... arguments) {
         super(name, arguments);
-        this.originalFunction = originalFunction;
-        this.parameters = parameters;
         this.argTypes = argTypes;
-        this.retType = retType;
+        this.unboundFunction = unboundFunction;
+        this.parameters = parameters;
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(Suppliers.memoize(() -> FunctionSignature
-                .of(retType, argTypes)).get());
+                .of(IntegerType.INSTANCE, argTypes)).get());
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
-    public BoundFunction getOriginalFunction() {
-        return originalFunction;
+    public UnboundFunction getUnboundFunction() {
+        return unboundFunction;
     }
 
     public List<DataType> getArgTypes() {
@@ -100,13 +104,12 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         Expression boundExpression = FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null);
 
         Preconditions.checkArgument(boundExpression instanceof BoundFunction);
-        BoundFunction boundFunction = ((BoundFunction) boundExpression);
+        // BoundFunction boundFunction = ((BoundFunction) boundExpression);
 
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
-                ((DataType) boundFunction.getSignature().returnType),
-                boundFunction,
+                ((UnboundFunction) slotBoundFunction),
                 function.getParameters());
 
         AliasUdfBuilder builder = new AliasUdfBuilder(aliasUdf);
@@ -120,7 +123,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasUdf(getName(), argTypes, retType, originalFunction, parameters,
+        return new AliasUdf(getName(), argTypes, unboundFunction, parameters,
                 children.toArray(new Expression[0]));
     }
 
