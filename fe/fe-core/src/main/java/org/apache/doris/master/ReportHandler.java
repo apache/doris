@@ -862,7 +862,7 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
-                        LOG.debug("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                     } else {
                         LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
