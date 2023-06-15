@@ -281,8 +281,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         auto iter = _filter_map.find(std::to_string(request->filter_id()));
         VLOG_ROW << "recv filter id:" << request->filter_id() << " " << request->ShortDebugString();
         if (iter == _filter_map.end()) {
-            LOG(WARNING) << "unknown filter id:" << std::to_string(request->filter_id());
-            return Status::InvalidArgument("unknown filter id");
+            return Status::InvalidArgument("unknown filter id {}",
+                                           std::to_string(request->filter_id()));
         }
         cntVal = iter->second;
         if (auto bf = cntVal->filter->get_bloomfilter()) {

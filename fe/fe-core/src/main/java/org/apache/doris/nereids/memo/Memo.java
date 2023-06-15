@@ -366,7 +366,8 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
-        if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
+        if (groupExpr.isPresent()) {
+            Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();
