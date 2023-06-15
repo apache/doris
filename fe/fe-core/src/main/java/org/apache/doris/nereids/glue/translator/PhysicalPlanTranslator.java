@@ -330,12 +330,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
-        OlapTable table = olapTableSink.getTargetTable();
-        if (table.getEnableUniqueKeyMergeOnWrite() && olapTableSink.getCols().size() < table.getColumns().size()) {
-            sink.setPartialUpdateInputColumns(true, Sets.newHashSet(olapTableSink.getCols().stream()
-                    .map(Column::getName).collect(Collectors.toList())));
-        }
-
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
             PlanFragment currentFragment = new PlanFragment(
