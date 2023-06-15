@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FunctionSignature.TripleFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -123,7 +124,13 @@ public class ComputeSignatureHelper {
                 continue;
             }
             if (finalType == null) {
-                finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
+                if (arguments.get(i) instanceof VarcharLiteral) {
+                    // We need to determine the scale based on the string literal.
+                    VarcharLiteral varchar = (VarcharLiteral) arguments.get(i);
+                    finalType = DateTimeV2Type.forTypeFromVarcharLiteral(varchar.getStringValue());
+                } else {
+                    finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
+                }
             } else {
                 finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
                         DateTimeV2Type.forType(arguments.get(i).getDataType()));
