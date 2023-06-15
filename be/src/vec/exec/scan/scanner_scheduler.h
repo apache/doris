@@ -71,7 +71,9 @@ public:
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
-    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() { return _task_group_local_scan_queue.get(); }
+    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
+        return _task_group_local_scan_queue.get();
+    }
 
 private:
     // scheduling thread function

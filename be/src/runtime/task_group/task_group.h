@@ -82,8 +82,7 @@ private:
 };
 
 // TODO llj tg use PriorityTaskQueue to replace std::queue
-using TaskGroupPipelineTaskEntity =
-        TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
+using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
 using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
 
 using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue>;

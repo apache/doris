@@ -281,7 +281,8 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
         scanner_wait_worker_time << "]";
         node->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         node->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
-        node->_scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
+        node->_scanner_profile->add_info_string("PerScannerWaitTime",
+                                                scanner_wait_worker_time.str());
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {

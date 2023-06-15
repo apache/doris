@@ -87,8 +87,7 @@ uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
 }
 
 template <typename QueueType>
-void TaskGroupEntity<QueueType>::check_and_update_cpu_share(
-        const TaskGroupInfo& tg_info) {
+void TaskGroupEntity<QueueType>::check_and_update_cpu_share(const TaskGroupInfo& tg_info) {
     if (tg_info.version > _version) {
         _cpu_share = tg_info.cpu_share;
         _version = tg_info.version;
