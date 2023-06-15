@@ -423,33 +423,35 @@ TEST_F(TestTablet, rowset_tree_update) {
     id3.init(540081);
     rowset_ids.insert(id3);
 
+    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("99", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("99", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 3).is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("101", true, &rowset_ids, &loc, 3, segment_caches)
+                        .is<ErrorCode::NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    LOG(INFO) << tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).to_string();
-    ASSERT_TRUE(
-            tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
+    LOG(INFO) << tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7, segment_caches)
+                         .to_string();
+    ASSERT_TRUE(tablet->lookup_row_key("101", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::IO_ERROR>());
     // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("201", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
-    ASSERT_TRUE(
-            tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7).is<ErrorCode::IO_ERROR>());
+    ASSERT_TRUE(tablet->lookup_row_key("201", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("300", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::IO_ERROR>());
     // Key not in range.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("499", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("499", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 7).is<ErrorCode::NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("500", true, &rowset_ids, &loc, 7, segment_caches)
+                        .is<ErrorCode::NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
-    ASSERT_TRUE(
-            tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8).is<ErrorCode::IO_ERROR>());
+    ASSERT_TRUE(tablet->lookup_row_key("500", true, &rowset_ids, &loc, 8, segment_caches)
+                        .is<ErrorCode::IO_ERROR>());
 }
 
 } // namespace doris
