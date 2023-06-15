@@ -187,6 +187,7 @@ public class Coordinator {
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
+    private int instanceTotalNum;
 
     private Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
     private Map<Long, PipelineExecContexts> beToPipelineExecCtxs = Maps.newHashMap();
@@ -482,6 +483,10 @@ public class Coordinator {
         return result;
     }
 
+    public int getInstanceTotalNum() {
+        return instanceTotalNum;
+    }
+
     // Initialize
     private void prepare() {
         for (PlanFragment fragment : fragments) {
@@ -664,6 +669,7 @@ public class Coordinator {
                 // 1. set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
+                instanceTotalNum += instanceNum;
                 List<TExecPlanFragmentParams> tParams = params.toThrift(backendIdx);
 
                 // 2. update memory limit for colocate join
