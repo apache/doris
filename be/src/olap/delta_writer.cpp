@@ -258,6 +258,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
+        _mem_table->log_the_memory_status();
         auto s = _flush_memtable_async();
         _reset_mem_table();
         if (UNLIKELY(!s.ok())) {

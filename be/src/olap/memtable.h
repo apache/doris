@@ -185,6 +185,11 @@ public:
         return _insert_mem_tracker->consumption() + _arena->used_size() +
                _flush_mem_tracker->consumption();
     }
+
+    void log_the_memory_status() const {
+        LOG(INFO) << "happen: " << " tablet id:" << tablet_id() << " _insert_mem_tracker:" << _insert_mem_tracker->consumption()
+            << " _arena_mem:" << _arena->used_size() << " _flush_mem_tracker:" << _flush_mem_tracker->consumption() << " sum:" << memory_usage();
+    }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, const std::vector<int>& row_idxs,
                 bool is_append = false);
