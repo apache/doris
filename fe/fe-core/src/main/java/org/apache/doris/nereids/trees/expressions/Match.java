@@ -23,19 +23,16 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-
-import com.google.common.base.Preconditions;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 /**
  * like expression: a MATCH 'hello'.
  */
-public abstract class Match extends Expression {
-
-    protected final String symbol;
+public abstract class Match extends BinaryOperator {
 
     public Match(Expression left, Expression right, String symbol) {
-        super(left, right);
-        this.symbol = symbol;
+        super(left, right, symbol);
     }
 
     /**
@@ -61,21 +58,23 @@ public abstract class Match extends Expression {
     }
 
     @Override
+    public AbstractDataType inputType() {
+        return AnyDataType.INSTANCE;
+    }
+
+    @Override
     public boolean nullable() throws UnboundException {
-        Preconditions.checkArgument(children.size() == 2);
-        return (children.get(0).nullable() || children.get(1).nullable());
+        return left().nullable() || right().nullable();
     }
 
     @Override
     public String toSql() {
-        Preconditions.checkArgument(children.size() == 2);
-        return "(" + children.get(0).toSql() + " " + symbol + " " + children.get(1).toSql() + ")";
+        return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
     }
 
     @Override
     public String toString() {
-        Preconditions.checkArgument(children.size() == 2);
-        return "(" + children.get(0).toString() + " " + symbol + " " + children.get(1).toString() + ")";
+        return "(" + left().toString() + " " + symbol + " " + right().toString() + ")";
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

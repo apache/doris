@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.BuildCTEAnchorAndCTEProducer;
 import org.apache.doris.nereids.rules.rewrite.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
+import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -262,6 +263,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+            topic("Match expression check",
+                    topDown(
+                            new CheckMatchExpression()
+                    )
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",

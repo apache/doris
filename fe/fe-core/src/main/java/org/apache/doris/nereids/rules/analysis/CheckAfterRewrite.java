@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -52,6 +55,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         return any().then(plan -> {
             checkAllSlotReferenceFromChildren(plan);
             checkMetricTypeIsUsedCorrectly(plan);
+            checkMatchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
@@ -129,6 +133,19 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
+        }
+    }
+
+    private void checkMatchIsUsedCorrectly(Plan plan) {
+        if (plan.getExpressions().stream().anyMatch(
+                expression -> expression instanceof Match)) {
+            if (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan) {
+                return;
+            } else {
+                throw new AnalysisException(String.format(
+                    "Not support match in %s in plan: %s, only support in olapScan filter",
+                    plan.child(0), plan));
+            }
         }
     }
 }
