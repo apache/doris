@@ -178,7 +178,9 @@ public class AnalysisManager extends Daemon implements Writable {
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
                 analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
-            sendJobId(analysisInfos);
+            if (!analyzeDBStmt.isSync()) {
+                sendJobId(analysisInfos);
+            }
         } finally {
             db.readUnlock();
         }

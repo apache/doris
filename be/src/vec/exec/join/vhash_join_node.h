@@ -252,6 +252,13 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
+    bool ready_for_finish() {
+        if (_runtime_filter_slots == nullptr) {
+            return true;
+        }
+        return _runtime_filter_slots->ready_finish_publish();
+    }
+
 private:
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
@@ -292,8 +299,6 @@ private:
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
     RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
@@ -303,14 +308,13 @@ private:
 
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
 
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-
-    RuntimeProfile* _build_phase_profile;
 
     std::shared_ptr<Arena> _arena;
 
@@ -342,7 +346,7 @@ private:
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
     std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
-    VRuntimeFilterSlots* _runtime_filter_slots = nullptr;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;

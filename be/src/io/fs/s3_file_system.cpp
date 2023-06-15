@@ -320,13 +320,11 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         }
         for (const auto& obj : outcome.GetResult().GetContents()) {
             std::string key = obj.GetKey();
-            bool is_dir = (key.at(key.size() - 1) == '/');
+            bool is_dir = (key.back() == '/');
             if (only_file && is_dir) {
                 continue;
             }
             FileInfo file_info;
-            // note: if full path is s3://bucket/path/to/file.txt
-            // obj.GetKey() will be /path/to/file.txt
             file_info.file_name = obj.GetKey().substr(prefix.size());
             file_info.file_size = obj.GetSize();
             file_info.is_file = !is_dir;

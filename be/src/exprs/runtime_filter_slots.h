@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
@@ -60,8 +61,8 @@ public:
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
-            runtime_filter->publish();
-            runtime_filter->publish_finally();
+            RETURN_IF_ERROR(runtime_filter->publish());
+            return Status::OK();
         };
 
         // ordered vector: IN, IN_OR_BLOOM, others.
@@ -142,9 +143,9 @@ public:
                         "in_num({}) >= max_in_num({})",
                         print_id(state->fragment_instance_id()), filter_desc.filter_id,
                         hash_table_size, max_in_num);
-                ignore_remote_filter(runtime_filter, msg);
+                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, msg));
 #else
-                ignore_remote_filter(runtime_filter, "ignored");
+                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, "ignored"));
 #endif
                 continue;
             }
@@ -196,29 +197,37 @@ public:
         }
     }
 
-    // should call this method after insert
-    void ready_for_publish() {
+    bool ready_finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->ready_for_publish();
-            }
-        }
-    }
-    // publish runtime filter
-    void publish() {
-        for (int i = 0; i < _probe_expr_context.size(); ++i) {
-            auto iter = _runtime_filters.find(i);
-            if (iter != _runtime_filters.end()) {
-                for (auto filter : iter->second) {
-                    filter->publish();
+                if (!filter->is_finish_rpc()) {
+                    return false;
                 }
             }
         }
+        return true;
+    }
+
+    void finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->publish_finally();
+                filter->join_rpc();
             }
         }
+    }
+
+    // publish runtime filter
+    Status publish() {
+        for (auto& pair : _runtime_filters) {
+            for (auto filter : pair.second) {
+                auto state = filter->publish();
+                if (!state) {
+                    // TODO: solve publish failed when scan not schedured
+                    LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
+                }
+            }
+        }
+        return Status::OK();
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {

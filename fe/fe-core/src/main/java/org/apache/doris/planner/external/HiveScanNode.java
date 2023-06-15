@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.HiveSplit.HiveSplitCreator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -104,7 +105,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
-                    ConnectContext.get().getQualifiedUser(), hmsTable);
+                    ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
     }
@@ -192,7 +193,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                            isSplittable, fileCacheValue.getPartitionValues()));
+                            isSplittable, fileCacheValue.getPartitionValues(),
+                            new HiveSplitCreator(fileCacheValue.getAcidInfo())));
                 }
             }
         }
@@ -208,7 +210,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds);
+        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid());
     }
 
     @Override

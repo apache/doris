@@ -281,9 +281,6 @@ void serialize_and_deserialize_mysql_test() {
 
     Status st = mysql_writer.append_block(block);
     EXPECT_TRUE(st.ok());
-    for (auto expr : _output_vexpr_ctxs) {
-        expr->close(&runtime_stat);
-    }
 }
 
 TEST(DataTypeSerDeMysqlTest, ScalaSerDeTest) {

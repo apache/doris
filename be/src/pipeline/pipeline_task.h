@@ -165,7 +165,7 @@ public:
 
     void finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
-            p->finish_one_dependency(_previous_schedule_id);
+            p.lock()->finish_one_dependency(_previous_schedule_id);
         }
     }
 

@@ -157,6 +157,8 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    - 分区列通常为时间列，以方便的管理新旧数据。
 
+   - Range 分区支持的列类型：[DATE,DATETIME,TINYINT,SMALLINT,INT,BIGINT,LARGEINT]
+
    - Partition 支持通过 `VALUES LESS THAN (...)` 仅指定上界，系统会将前一个分区的上界作为该分区的下界，生成一个左闭右开的区间。也支持通过 `VALUES [...)` 指定上下界，生成一个左闭右开的区间。
    
 <version since="1.2.0">

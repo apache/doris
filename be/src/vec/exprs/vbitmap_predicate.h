@@ -58,8 +58,7 @@ public:
     doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
 
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
 
     VExprSPtr clone() const override { return VBitmapPredicate::create_shared(*this); }
 

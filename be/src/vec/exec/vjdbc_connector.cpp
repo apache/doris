@@ -61,7 +61,7 @@
 
 namespace doris {
 namespace vectorized {
-const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/udf/JdbcExecutor";
+const char* JDBC_EXECUTOR_CLASS = "org/apache/doris/jdbc/JdbcExecutor";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
@@ -312,7 +312,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DATETIMEV2: {
         if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
             type_str != "java.sql.Date" && type_str != "java.time.LocalDate" &&
-            type_str != "oracle.sql.TIMESTAMP") {
+            type_str != "oracle.sql.TIMESTAMP" && type_str != "java.time.OffsetDateTime") {
             return Status::InternalError(error_msg);
         }
         break;

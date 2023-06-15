@@ -164,27 +164,6 @@ public class HMSExternalTable extends ExternalTable {
      * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
-        boolean isTxnTbl = AcidUtils.isTransactionalTable(remoteTable);
-        if (isTxnTbl) {
-            // Only support "insert_only" transactional table
-            // There are 2 types of parameter:
-            //  "transactional_properties" = "insert_only",
-            //  or,
-            //  "insert_only" = "true"
-            // And must check "insert_only" first, because "transactional_properties" may be "default"
-            Map<String, String> parameters = remoteTable.getParameters();
-            if (parameters.containsKey(TBL_PROP_INSERT_ONLY)) {
-                if (!parameters.get(TBL_PROP_INSERT_ONLY).equalsIgnoreCase("true")) {
-                    return false;
-                }
-            } else if (parameters.containsKey(TBL_PROP_TXN_PROPERTIES)) {
-                if (!parameters.get(TBL_PROP_TXN_PROPERTIES).equalsIgnoreCase(TBL_PROP_INSERT_ONLY)) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
@@ -213,6 +192,10 @@ public class HMSExternalTable extends ExternalTable {
 
     public boolean isHiveTransactionalTable() {
         return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+    }
+
+    public boolean isFullAcidTable() {
+        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
     }
 
     @Override
