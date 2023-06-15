@@ -295,9 +295,7 @@ public:
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
-    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
-        return _sink->profile();
-    }
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
 
 protected:
     NodeType* _sink;
