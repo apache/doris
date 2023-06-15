@@ -74,9 +74,9 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof DeleteCommand);
         DeleteCommand command = ((DeleteCommand) parsed);
-        command.completeQueryPlan(connectContext);
-        PlanChecker.from(connectContext, command.getLogicalQuery())
-                .analyze(command.getLogicalQuery())
+        LogicalPlan plan = command.completeQueryPlan(connectContext, parsed);
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
                 .rewrite()
                 .matches(
                         logicalOlapTableSink(
@@ -95,9 +95,9 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(parsed instanceof DeleteCommand);
         DeleteCommand command = ((DeleteCommand) parsed);
-        command.completeQueryPlan(connectContext);
-        PlanChecker.from(connectContext, command.getLogicalQuery())
-                .analyze(command.getLogicalQuery())
+        LogicalPlan plan = command.completeQueryPlan(connectContext, parsed);
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
                 .rewrite()
                 .matches(
                         logicalOlapTableSink(

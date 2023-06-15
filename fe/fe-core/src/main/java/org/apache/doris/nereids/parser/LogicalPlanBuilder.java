@@ -330,7 +330,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());
         if (ctx.fromClause() != null) {
-            query = withRelations(query, ctx.fromClause());
+            query = withRelations(query, ctx.fromClause().relation());
         }
         query = withFilter(query, Optional.of(ctx.whereClause()));
         String tableAlias = null;
@@ -348,30 +348,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan query = withTableAlias(withCheckPolicy(
                 new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
-            for (RelationContext relation : ctx.relation()) {
-                // build left deep join tree
-                LogicalPlan right = visitRelation(relation);
-                query = new LogicalJoin<>(
-                                JoinType.CROSS_JOIN,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                ExpressionUtils.EMPTY_CONDITION,
-                                JoinHint.NONE,
-                                Optional.empty(),
-                                query,
-                                right);
-                query = withJoinRelations(query, relation);
-                // TODO: pivot and lateral view
-            }
+            query = withRelations(query, ctx.relation());
         }
         query = withFilter(query, Optional.of(ctx.whereClause()));
-        if (ctx.explain() != null) {
-            query = withExplain(query, ctx.explain());
-        }
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return new DeleteCommand(tableName, tableAlias, partitions, query);
+        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query), ctx.explain());
     }
 
     /**
@@ -1328,7 +1312,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitFromClause(FromClauseContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx));
+        return ParserUtils.withOrigin(ctx, () -> withRelations(null, ctx.relation()));
     }
 
     /* ********************************************************************************************
@@ -1681,9 +1665,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
-    private LogicalPlan withRelations(LogicalPlan inputPlan, FromClauseContext ctx) {
+    private LogicalPlan withRelations(LogicalPlan inputPlan, List<RelationContext> relations) {
         LogicalPlan left = inputPlan;
-        for (RelationContext relation : ctx.relation()) {
+        for (RelationContext relation : relations) {
             // build left deep join tree
             LogicalPlan right = visitRelation(relation);
             left = (left == null) ? right :

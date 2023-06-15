@@ -27,6 +27,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.plans.Explainable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -43,7 +45,7 @@ import java.util.List;
 /**
  * delete from unique key table.
  */
-public class DeleteCommand extends Command implements ForwardWithSync {
+public class DeleteCommand extends Command implements ForwardWithSync, Explainable {
     private final List<String> nameParts;
     private final String tableAlias;
     private final List<String> partitions;
@@ -61,7 +63,7 @@ public class DeleteCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        completeQueryPlan(ctx);
+        completeQueryPlan(ctx, logicalQuery);
 
         if (explainLevel != null) {
             new ExplainCommand(explainLevel, logicalQuery).run(ctx, executor);
@@ -85,13 +87,8 @@ public class DeleteCommand extends Command implements ForwardWithSync {
     /**
      * public for test
      */
-    public void completeQueryPlan(ConnectContext ctx) {
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         checkTable(ctx);
-
-        if (logicalQuery instanceof ExplainCommand) {
-            explainLevel = ((ExplainCommand) logicalQuery).getLevel();
-            logicalQuery = ((ExplainCommand) logicalQuery).getLogicalPlan();
-        }
 
         // add select and insert node.
         List<NamedExpression> selectLists = Lists.newArrayList();
@@ -114,11 +111,12 @@ public class DeleteCommand extends Command implements ForwardWithSync {
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        logicalQuery = new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
     }
 
-    public LogicalPlan getLogicalQuery() {
-        return logicalQuery;
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return completeQueryPlan(ctx, logicalQuery);
     }
 
     @Override
