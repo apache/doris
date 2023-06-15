@@ -602,7 +602,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         StorageEngine::instance()->txn_manager()->get_all_tablet_txn_infos_by_tablet(
                 _tablet, tablet_txn_infos);
 
-        // step2: calculate all rowsets' delete bitmaps which are not published committed and now published.
+        // step2: calculate all rowsets' delete bitmaps which are published during compaction.
         // e.g. before compaction:
         //       5-5 6-6 published
         //       7-7 8-8 committed not published
