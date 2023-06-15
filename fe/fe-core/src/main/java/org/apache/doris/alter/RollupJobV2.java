@@ -526,9 +526,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                     int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException(
-                                "rollup tasks failed on same tablet reach threshold "
-                                        + failedAgentTasks.get(task.getTabletId()));
+                        throw new AlterCancelException("rollup tasks failed on same tablet reach threshold "
+                                + failedAgentTasks.get(task.getTabletId()) + ", reason=" + task.getErrorMsg());
                     }
                 }
             }
