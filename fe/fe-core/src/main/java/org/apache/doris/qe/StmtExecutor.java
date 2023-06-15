@@ -1371,6 +1371,18 @@ public class StmtExecutor {
         }
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
+        if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+            try {
+                LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                        context.getQualifiedUser(), context.getDatabase(),
+                        parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
+                        coord.getInstanceTotalNum());
+            } catch (Exception e) {
+                LOG.warn("Fail to print fragment concurrency for Query.", e);
+            }
+        }
+
+
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
@@ -1449,6 +1461,16 @@ public class StmtExecutor {
             throw e;
         } finally {
             fetchResultSpan.end();
+            if (coord.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+                try {
+                    LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                            context.getQualifiedUser(), context.getDatabase(),
+                            parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
+                            coord.getInstanceTotalNum());
+                } catch (Exception e) {
+                    LOG.warn("Fail to print fragment concurrency for Query.", e);
+                }
+            }
         }
     }
 

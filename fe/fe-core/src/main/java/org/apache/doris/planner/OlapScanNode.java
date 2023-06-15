@@ -358,8 +358,9 @@ public class OlapScanNode extends ScanNode {
         if (whereExpr == null) {
             return;
         }
-        conjuncts = conjuncts.stream().map(expr -> expr.replaceSubPredicate(whereExpr))
-                .filter(Objects::nonNull).collect(Collectors.toList());
+        Expr vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts).replaceSubPredicate(whereExpr);
+        conjuncts = splitAndCompoundPredicateToConjuncts(vconjunct).stream().filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     /**

@@ -560,11 +560,16 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return false;
     }
 
+    public Expr getExprFromAliasSMapDirect(Expr expr) throws AnalysisException {
+        return expr.trySubstitute(aliasSMap, analyzer, false);
+    }
+
+
     public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
         if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
             return expr;
         }
-        return expr.trySubstitute(aliasSMap, analyzer, false);
+        return getExprFromAliasSMapDirect(expr);
     }
 
     // get tables used by this query.
