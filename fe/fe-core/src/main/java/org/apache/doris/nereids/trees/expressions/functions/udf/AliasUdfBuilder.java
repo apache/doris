@@ -82,7 +82,7 @@ public class AliasUdfBuilder extends UdfBuilder {
         // adjust input, parameter and replaceMap to be corresponding.
         Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) boundFunction
                 .collect(VirtualSlotReference.class::isInstance))
-                .stream().collect(Collectors.toMap(SlotReference::getName, k -> k));
+                .stream().collect(Collectors.toMap(SlotReference::getName, k -> k, (v1, v2) -> v2));
 
         Map<VirtualSlotReference, Expression> replaceMap = Maps.newHashMap();
         for (int i = 0; i < inputs.size(); ++i) {
