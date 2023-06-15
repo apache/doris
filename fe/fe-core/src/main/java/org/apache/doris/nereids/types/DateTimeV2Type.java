@@ -83,6 +83,9 @@ public class DateTimeV2Type extends DateLikeType {
      * may be we need to check for validity?
      */
     public static DateTimeV2Type forTypeFromVarcharLiteral(String s) {
+        if (!s.contains(String.valueOf("."))) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        }
         return DateTimeV2Type.of(s.length() - s.lastIndexOf(".") - 1);
     }
 
