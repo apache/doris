@@ -959,7 +959,7 @@ public:
 
         for (auto itr = search_value.MemberBegin(); itr != search_value.MemberEnd(); ++itr) {
             if (!target.HasMember(itr->name) || !json_contains(target[itr->name], itr->value)) {
-                 return false;
+                return false;
             }
         }
 
