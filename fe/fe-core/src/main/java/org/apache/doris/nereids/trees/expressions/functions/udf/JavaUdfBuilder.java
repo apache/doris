@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.base.Suppliers;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -42,7 +44,9 @@ public class JavaUdfBuilder extends UdfBuilder {
 
     @Override
     public List<DataType> getArgTypes() {
-        return udf.getArgumentsTypes();
+        return Suppliers.memoize(() -> udf.getSignatures().get(0).argumentsTypes.stream()
+                .map(DataType.class::cast)
+                .collect(Collectors.toList())).get();
     }
 
     @Override

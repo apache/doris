@@ -47,7 +47,7 @@ public class AliasUdfBuilder extends UdfBuilder {
 
     @Override
     public List<DataType> getArgTypes() {
-        return aliasUdf.getArgumentsTypes();
+        return aliasUdf.getArgTypes();
     }
 
     @Override

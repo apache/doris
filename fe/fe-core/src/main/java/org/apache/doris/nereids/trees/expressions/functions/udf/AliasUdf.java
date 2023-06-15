@@ -75,6 +75,10 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return originalFunction;
     }
 
+    public List<DataType> getArgTypes() {
+        return argTypes;
+    }
+
     @Override
     public boolean nullable() {
         return false;
