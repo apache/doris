@@ -57,7 +57,7 @@ public:
                    const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<RowsetReaderSharedPtr>& rs_readers,
                    const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                   bool need_agg_finalize, RuntimeProfile* profile, int id);
+                   bool need_agg_finalize, RuntimeProfile* profile);
 
     Status init() override;
 
@@ -72,8 +72,6 @@ public:
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
     doris::TabletStorageType get_storage_type() override;
-
-    int scanner_id() const override { return _scanner_id; }
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -104,8 +102,6 @@ private:
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
     std::vector<TCondition> _compound_filters;
-
-    const int _scanner_id;
 
     // ========= profiles ==========
     int64_t _compressed_bytes_read = 0;

@@ -67,9 +67,8 @@ public:
     virtual Status init();
 
     virtual vectorized::BlockUPtr get_free_block(bool* has_free_block,
-                                                 bool get_not_empty_block = false,
-                                                 int scanner_id = -1);
-    virtual void return_free_block(std::unique_ptr<vectorized::Block> block, int scanner_id = -1);
+                                                 bool get_not_empty_block = false);
+    virtual void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
     virtual void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);

@@ -251,10 +251,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     // get scanner's block memory
     block->swap(*scan_block);
-    // todo(wb) it should be use scanner_id instead of _context_queue_id to return block
-    // but in clickbench, it make no difference.
-    // For the sake of simple implementation, use _context_queue_id here
-    _scanner_ctx->return_free_block(std::move(scan_block), _context_queue_id);
+    _scanner_ctx->return_free_block(std::move(scan_block));
 
     reached_limit(block, eos);
     if (*eos) {
@@ -306,11 +303,9 @@ Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
                                   const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
-        int free_block_queue_size = _shared_scan_opt ? _scan_producer_group_num : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
                 _state, this, _input_tuple_desc, _output_tuple_desc, scanners, limit(),
-                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size,
-                free_block_queue_size);
+                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
     } else {
         _scanner_ctx =
                 ScannerContext::create_shared(_state, this, _input_tuple_desc, _output_tuple_desc,

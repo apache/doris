@@ -133,8 +133,8 @@ void ScannerContext::_init_free_block(int pre_alloc_block_count, int real_block_
     _free_blocks_memory_usage->add(free_blocks_memory_usage);
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block, bool get_block_not_empty,
-                                                     int id) {
+vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
+                                                     bool get_block_not_empty) {
     {
         std::lock_guard l(_free_blocks_lock);
         *has_free_block = _free_blocks_capacity > 0;
@@ -158,7 +158,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block, bool 
                                             true /*ignore invalid slots*/);
 }
 
-void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block, int id) {
+void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {
     block->clear_column_data();
     _free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard l(_free_blocks_lock);
