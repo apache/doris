@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -155,7 +154,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                                         new Cast(new TinyIntLiteral(((byte) 24)), DoubleType.INSTANCE),
                                                         new Cast(new IntegerLiteral(((byte) 3)), DoubleType.INSTANCE)
                                                 ))
-                                        ), 
+                                        ),
                                         new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
                                 ),
                                 new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
