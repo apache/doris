@@ -116,7 +116,7 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
-    int64_t active_memtable_mem_consumption(MemType mem);
+    int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
