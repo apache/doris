@@ -862,8 +862,9 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
-                    } else {
                         LOG.debug("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                    } else {
+                        LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
                     }
                 } else {
@@ -878,7 +879,7 @@ public class ReportHandler extends Daemon {
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
                         backendTabletInfo.getSchemaHash(), isDropTableOrPartition);
                 batchTask.addTask(task);
-                LOG.debug("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
+                LOG.info("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
                 ++deleteFromBackendCounter;
             }
         } // end for backendTabletIds

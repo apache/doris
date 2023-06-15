@@ -1113,6 +1113,21 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
 
+        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
+        int matchupReplicaCount = 0;
+        for (Replica tmpReplica : replicas) {
+            if (tmpReplica.getVersion() >= replica.getVersion()) {
+                matchupReplicaCount++;
+            }
+        }
+
+        if (matchupReplicaCount <= 1) {
+            LOG.info("can not delete only one replica, tabletId = {} replicaId = {}", tabletCtx.getTabletId(),
+                     replica.getId());
+            throw new SchedException(Status.FINISHED, "the only one latest replia can not be dropped, tabletId = "
+                                        + tabletCtx.getTabletId() + ", replicaId = " + replica.getId());
+        }
+
         // delete this replica from catalog.
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);
