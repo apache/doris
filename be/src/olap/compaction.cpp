@@ -619,7 +619,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         const ;
         // get pre_rowset_ids
         // get cur_rowset_ids
-        const uint64_t cur_version = _tablet->max_version().second;
+        const uint64_t cur_version = version.second;
         // get rowset_to_add and rowset_to_delete
 
         // delete all delete bitmaps in rowset_to_delete
