@@ -139,6 +139,9 @@ public class DeleteStmt extends DdlStmt {
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(),
                         ((OlapTable) targetTable).getSequenceMapCol());
+                selectListItems.add(new SelectListItem(expr, null));
+                cols.add(Column.SEQUENCE_COL);
+                continue;
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
