@@ -252,7 +252,7 @@ public class Utils {
                 ).collect(ImmutableList.toImmutableList());
     }
 
-    public static  <T> List<T> copyIfNotNull(List<T> list) {
+    public static <T> List<T> copyIfNotNull(List<T> list) {
         return list == null ? null : ImmutableList.copyOf(list);
     }
 }
