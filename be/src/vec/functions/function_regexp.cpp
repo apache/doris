@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/format.h>
 #include <glog/logging.h>
+#include <hs/hs.h>
 #include <re2/re2.h>
 #include <re2/stringpiece.h>
 #include <stddef.h>
@@ -51,7 +53,50 @@
 
 namespace doris::vectorized {
 
-struct RegexpReplaceImpl {
+struct MatchStrPos {
+    size_t from;
+    size_t to;
+};
+
+struct RegexpMatchStrPos {
+    std::vector<MatchStrPos> vector_pos;
+    unsigned long long last_to = 0;
+};
+
+struct RegexpReplaceState {
+    /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
+    std::unique_ptr<re2::RE2> regex;
+
+    template <typename Deleter, Deleter deleter>
+    struct HyperscanDeleter {
+        template <typename T>
+        void operator()(T* ptr) const {
+            deleter(ptr);
+        }
+    };
+
+    // hyperscan compiled pattern database and scratch space, reused for performance
+    std::unique_ptr<hs_database_t, HyperscanDeleter<decltype(&hs_free_database), &hs_free_database>>
+            hs_database;
+    std::unique_ptr<hs_scratch_t, HyperscanDeleter<decltype(&hs_free_scratch), &hs_free_scratch>>
+            hs_scratch;
+    // hyperscan match callback
+    static int hs_match_handler(unsigned int id, unsigned long long from, unsigned long long to,
+                                unsigned int flags, void* ctx) {
+        auto* value = (RegexpMatchStrPos*)ctx;
+        if (from >= value->last_to) {
+            MatchStrPos pos_info;
+            pos_info.from = from;
+            pos_info.to = to;
+            value->vector_pos.emplace_back(pos_info);
+            value->last_to = to;
+        }
+        return 0;
+    }
+};
+
+//TODO:now optimize the function regexp_replace by using hyperscan, and maybe other functions could do it also
+struct RegexpReplaceImplOpt {
     static constexpr auto name = "regexp_replace";
     // 3 args
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
@@ -60,60 +105,88 @@ struct RegexpReplaceImpl {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
-
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
             _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, result_data,
-                                       result_offset, null_map, i);
+                                       result_offset, null_map, i, nullptr);
         }
     }
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count, ColumnString::Chars& result_data,
-                                        ColumnString::Offsets& result_offset, NullMap& null_map) {
+    static Status execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
+                                          size_t input_rows_count, ColumnString::Chars& result_data,
+                                          ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
-
+        RegexpMatchStrPos regexp_match_str_pos;
+        regexp_match_str_pos.vector_pos.reserve(8);
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, result_data,
-                                      result_offset, null_map, i);
+            regexp_match_str_pos.vector_pos.clear();
+            regexp_match_str_pos.last_to = 0;
+            RETURN_IF_ERROR(_execute_inner_loop<true>(context, str_col, pattern_col, replace_col,
+                                                      result_data, result_offset, null_map, i,
+                                                      &regexp_match_str_pos));
         }
+        return Status::OK();
     }
     template <bool Const>
-    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                    const ColumnString* pattern_col,
-                                    const ColumnString* replace_col,
-                                    ColumnString::Chars& result_data,
-                                    ColumnString::Offsets& result_offset, NullMap& null_map,
-                                    const size_t index_now) {
-        re2::RE2* re = reinterpret_cast<re2::RE2*>(
+    static Status _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                      const ColumnString* pattern_col,
+                                      const ColumnString* replace_col,
+                                      ColumnString::Chars& result_data,
+                                      ColumnString::Offsets& result_offset, NullMap& null_map,
+                                      const size_t index_now,
+                                      RegexpMatchStrPos* regexp_match_str_pos) {
+        RegexpReplaceState* state = reinterpret_cast<RegexpReplaceState*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
+        const auto& replace_ref = replace_col->get_data_at(index_check_const(index_now, Const));
+        const auto& str_ref = str_col->get_data_at(index_now);
         std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
-        if (re == nullptr) {
+        if (state == nullptr) {
             std::string error_str;
             const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
             if (!st) {
                 context->add_warning(error_str.c_str());
                 StringOP::push_null_string(index_now, result_data, result_offset, null_map);
-                return;
+                return Status::OK();
             }
-            re = scoped_re.get();
         }
+        if (state && state->hs_database) { // use hyperscan
+            auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
+                               state->hs_scratch.get(),
+                               doris::vectorized::RegexpReplaceState::hs_match_handler,
+                               regexp_match_str_pos);
 
-        re2::StringPiece replace_str = re2::StringPiece(
-                replace_col->get_data_at(index_check_const(index_now, Const)).to_string_view());
-
-        std::string result_str(str_col->get_data_at(index_now).to_string());
-        re2::RE2::GlobalReplace(&result_str, *re, replace_str);
-        StringOP::push_value_string(result_str, index_now, result_data, result_offset);
+            if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
+                return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
+            }
+            std::string result_str;
+            result_str.reserve(str_ref.size +
+                               regexp_match_str_pos->vector_pos.size() * replace_ref.size);
+            const char* start = str_ref.data;
+            size_t last_to = 0;
+            for (const auto& info : regexp_match_str_pos->vector_pos) {
+                result_str.append(start + last_to, info.from - last_to);
+                result_str.append(replace_ref.data, replace_ref.size);
+                last_to = info.to;
+            }
+            result_str.append(start + last_to, str_ref.size - last_to);
+            StringOP::push_value_string(result_str, index_now, result_data, result_offset);
+        } else { // fallback to re2
+            re2::StringPiece replace_str = re2::StringPiece(replace_ref.to_string_view());
+            std::string result_str(str_ref.to_string());
+            re2::RE2* re = (state == nullptr) ? scoped_re.get() : state->regex.get();
+            re2::RE2::GlobalReplace(&result_str, *re, replace_str);
+            StringOP::push_value_string(result_str, index_now, result_data, result_offset);
+        }
+        return Status::OK();
     }
 };
 
@@ -137,9 +210,9 @@ struct RegexpReplaceOneImpl {
         }
     }
 
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count, ColumnString::Chars& result_data,
-                                        ColumnString::Offsets& result_offset, NullMap& null_map) {
+    static Status execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
+                                          size_t input_rows_count, ColumnString::Chars& result_data,
+                                          ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
@@ -152,6 +225,7 @@ struct RegexpReplaceOneImpl {
             _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, result_data,
                                       result_offset, null_map, i);
         }
+        return Status::OK();
     }
     template <bool Const>
     static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
@@ -209,9 +283,9 @@ struct RegexpExtractImpl {
         }
     }
 
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count, ColumnString::Chars& result_data,
-                                        ColumnString::Offsets& result_offset, NullMap& null_map) {
+    static Status execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
+                                          size_t input_rows_count, ColumnString::Chars& result_data,
+                                          ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* index_col =
@@ -222,7 +296,7 @@ struct RegexpExtractImpl {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 StringOP::push_empty_string(i, result_data, result_offset);
             }
-            return;
+            return Status::OK();
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -234,6 +308,7 @@ struct RegexpExtractImpl {
             _execute_inner_loop<true>(context, str_col, pattern_col, index_data, result_data,
                                       result_offset, null_map, i);
         }
+        return Status::OK();
     }
     template <bool Const>
     static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
@@ -394,6 +469,71 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if constexpr (std::is_same_v<Impl, RegexpReplaceImplOpt>) {
+            return open_hyperscan(context, scope);
+        } else {
+            if (scope == FunctionContext::THREAD_LOCAL) {
+                if (context->is_col_constant(1)) {
+                    DCHECK(!context->get_function_state(scope));
+                    const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                    const auto& pattern = pattern_col->get_data_at(0);
+                    if (pattern.size == 0) {
+                        return Status::OK();
+                    }
+
+                    std::string error_str;
+                    std::unique_ptr<re2::RE2> scoped_re;
+                    bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
+                                                             scoped_re);
+                    if (!st) {
+                        context->set_error(error_str.c_str());
+                        return Status::InvalidArgument(error_str);
+                    }
+                    std::shared_ptr<re2::RE2> re(scoped_re.release());
+                    context->set_function_state(scope, re);
+                }
+            }
+            return Status::OK();
+        }
+    }
+
+    // hyperscan compile expression to database and allocate scratch space
+    Status hs_prepare(FunctionContext* context, const char* expression, hs_database_t** database,
+                      hs_scratch_t** scratch) {
+        hs_compile_error_t* compile_err;
+        auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
+                              HS_MODE_BLOCK, nullptr, database, &compile_err);
+
+        if (res != HS_SUCCESS) {
+            *database = nullptr;
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg, "hs_compile regex pattern error, expression:{}, error:{}",
+                           expression, compile_err->message);
+            if (context) {
+                context->set_error(fmt::to_string(error_msg).c_str());
+            }
+            hs_free_compile_error(compile_err);
+            return Status::RuntimeError(fmt::to_string(error_msg));
+        }
+        hs_free_compile_error(compile_err);
+
+        if (hs_alloc_scratch(*database, scratch) != HS_SUCCESS) {
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg,
+                           "hs_alloc_scratch allocate scratch space error, expression:{}, error:{}",
+                           expression, compile_err->message);
+            hs_free_database(*database);
+            *database = nullptr;
+            *scratch = nullptr;
+            if (context) {
+                context->set_error(fmt::to_string(error_msg).c_str());
+            }
+            return Status::RuntimeError(fmt::to_string(error_msg));
+        }
+        return Status::OK();
+    }
+
+    Status open_hyperscan(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
@@ -402,17 +542,28 @@ public:
                 if (pattern.size == 0) {
                     return Status::OK();
                 }
-
-                std::string error_str;
-                std::unique_ptr<re2::RE2> scoped_re;
-                bool st =
-                        StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
-                if (!st) {
-                    context->set_error(error_str.c_str());
-                    return Status::InvalidArgument(error_str);
+                std::shared_ptr<RegexpReplaceState> state = std::make_shared<RegexpReplaceState>();
+                context->set_function_state(scope, state);
+                hs_database_t* database = nullptr;
+                hs_scratch_t* scratch = nullptr;
+                std::string re_pattern(pattern.data, pattern.size);
+                if (hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
+                    // use hyperscan
+                    state->hs_database.reset(database);
+                    state->hs_scratch.reset(scratch);
+                } else {
+                    // fallback to re2
+                    // reset hs_database to nullptr to indicate not use hyperscan
+                    state->hs_database.reset();
+                    state->hs_scratch.reset();
+                    RE2::Options opts;
+                    opts.set_never_nl(false);
+                    opts.set_dot_nl(true);
+                    state->regex = std::make_unique<RE2>(re_pattern, opts);
+                    if (!state->regex->ok()) {
+                        return Status::InternalError("Invalid regex expression: {}", re_pattern);
+                    }
                 }
-                std::shared_ptr<re2::RE2> re(scoped_re.release());
-                context->set_function_state(scope, re);
             }
         }
         return Status::OK();
@@ -459,9 +610,9 @@ public:
             }
         } else {
             if (col_const[1] && col_const[2]) {
-                Impl::execute_impl_const_args(context, argument_columns, input_rows_count,
-                                              result_data, result_offset,
-                                              result_null_map->get_data());
+                RETURN_IF_ERROR(Impl::execute_impl_const_args(
+                        context, argument_columns, input_rows_count, result_data, result_offset,
+                        result_null_map->get_data()));
             } else {
                 Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
                                    result_offset, result_null_map->get_data());
@@ -479,7 +630,7 @@ public:
 };
 
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRegexp<RegexpReplaceImpl>>();
+    factory.register_function<FunctionRegexp<RegexpReplaceImplOpt>>();
     factory.register_function<FunctionRegexp<RegexpExtractImpl>>();
     factory.register_function<FunctionRegexp<RegexpReplaceOneImpl>>();
     factory.register_function<FunctionRegexp<RegexpExtractAllImpl>>();
