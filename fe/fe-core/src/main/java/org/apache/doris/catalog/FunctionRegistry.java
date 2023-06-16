@@ -142,7 +142,7 @@ public class FunctionRegistry {
         }
         synchronized (name2UdfBuilders) {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
-            builders.getOrDefault(name, ImmutableList.of()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
+            builders.getOrDefault(name, Lists.newArrayList()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
                     .equals(argTypes));
         }
     }
