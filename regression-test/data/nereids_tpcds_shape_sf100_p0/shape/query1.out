@@ -18,8 +18,9 @@ CteAnchor[cteId= ( CTEId#2=] )
 ------PhysicalTopN
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN](ctr1.ctr_customer_sk = customer.c_customer_sk)
-------------PhysicalProject
---------------PhysicalOlapScan[customer]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[customer]
 ------------PhysicalDistribute
 --------------PhysicalProject
 ----------------hashJoin[LEFT_SEMI_JOIN](ctr1.ctr_store_sk = ctr2.ctr_store_sk)(cast(ctr_total_return as DOUBLE) > cast((avg(ctr_total_return) * 1.2) as DOUBLE))

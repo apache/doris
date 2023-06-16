@@ -202,7 +202,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.NON_INNER.build())
+            .add(JoinCommute.BUSHY.build())
             .addAll(OTHER_REORDER_RULES)
             .build();
 

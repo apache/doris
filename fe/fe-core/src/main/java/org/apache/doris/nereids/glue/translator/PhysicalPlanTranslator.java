@@ -455,7 +455,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode) {
+        if (leftMostNode instanceof OlapScanNode
+                && currentFragment.getDataPartition().getType() != TPartitionType.RANDOM) {
             currentFragment.setHasColocatePlanNode(true);
         }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
@@ -1440,7 +1441,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                List<RuntimeFilter> filters = runtimeFilterTranslator
+                Set<RuntimeFilter> filters = runtimeFilterTranslator
                         .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));

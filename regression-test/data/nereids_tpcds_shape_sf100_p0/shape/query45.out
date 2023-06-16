@@ -14,16 +14,16 @@ PhysicalTopN
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
-----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[web_sales]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_qoy = 2)(date_dim.d_year = 2000))
-------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item]
+------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((date_dim.d_qoy = 2)(date_dim.d_year = 2000))
+--------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = customer_address.ca_address_sk)

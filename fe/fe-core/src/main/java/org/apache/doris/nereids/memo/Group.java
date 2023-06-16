@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -180,6 +181,10 @@ public class Group {
         return move;
     }
 
+    public void clearLowestCostPlans() {
+        lowestCostPlans.clear();
+    }
+
     public double getCostLowerBound() {
         return -1D;
     }
@@ -289,6 +294,10 @@ public class Group {
     public int removeParentExpression(GroupExpression parent) {
         parentExpressions.remove(parent);
         return parentExpressions.size();
+    }
+
+    public void removeParentPhysicalExpressions() {
+        parentExpressions.entrySet().removeIf(entry -> entry.getKey().getPlan() instanceof PhysicalPlan);
     }
 
     /**

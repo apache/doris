@@ -22,6 +22,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
 /**
  * runtime filter
  */
@@ -32,8 +36,8 @@ public class RuntimeFilter {
     private final Expression srcSlot;
     //bitmap filter support target expression like  k1+1, abs(k1)
     //targetExpression is an expression on targetSlot, in which there is only one non-const slot
-    private final Expression targetExpression;
-    private final Slot targetSlot;
+    private final List<Expression> targetExpressions;
+    private final List<Slot> targetSlots;
     private final int exprOrder;
     private final AbstractPhysicalJoin builderNode;
 
@@ -44,21 +48,21 @@ public class RuntimeFilter {
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
             int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
-        this(id, src, target, target, type, exprOrder, builderNode, false, buildSideNdv);
+        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder, builderNode, false, buildSideNdv);
     }
 
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, Expression targetExpression,
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
             TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, boolean bitmapFilterNotIn,
             long buildSideNdv) {
         this.id = id;
         this.srcSlot = src;
-        this.targetSlot = target;
-        this.targetExpression = targetExpression;
+        this.targetSlots = ImmutableList.copyOf(targets);
+        this.targetExpressions = ImmutableList.copyOf(targetExpressions);
         this.type = type;
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
@@ -71,8 +75,8 @@ public class RuntimeFilter {
         return srcSlot;
     }
 
-    public Slot getTargetExpr() {
-        return targetSlot;
+    public List<Slot> getTargetExprs() {
+        return targetSlots;
     }
 
     public RuntimeFilterId getId() {
@@ -95,8 +99,8 @@ public class RuntimeFilter {
         return bitmapFilterNotIn;
     }
 
-    public Expression getTargetExpression() {
-        return targetExpression;
+    public List<Expression> getTargetExpressions() {
+        return targetExpressions;
     }
 
     public long getBuildSideNdv() {
@@ -107,7 +111,7 @@ public class RuntimeFilter {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
-                .append("[").append(getSrcExpr()).append("->").append(targetSlot)
+                .append("[").append(getSrcExpr()).append("->").append(targetSlots)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
