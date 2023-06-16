@@ -78,7 +78,7 @@ public class GlobalFunctionMgr extends MetaObject {
             try {
                 FunctionUtil.translateToNereids(null, function);
             } catch (Exception e) {
-                LOG.warn("cannot replay add function to Nereids:", e);
+                LOG.info("cannot replay add function to Nereids:", e);
             }
         } catch (UserException e) {
             throw new RuntimeException(e);
@@ -98,7 +98,7 @@ public class GlobalFunctionMgr extends MetaObject {
             try {
                 FunctionUtil.dropFromNereids(null, functionSearchDesc);
             } catch (Exception e) {
-                LOG.warn("cannot replay drop function to Nereids:", e);
+                LOG.info("cannot replay drop function to Nereids:", e);
             }
         } catch (UserException e) {
             throw new RuntimeException(e);

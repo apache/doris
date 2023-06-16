@@ -727,7 +727,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             try {
                 FunctionUtil.translateToNereids(this.getFullName(), function);
             } catch (Exception e) {
-                LOG.warn("cannot replay add function to Nereids:", e);
+                LOG.info("cannot replay add function to Nereids:", e);
             }
         } catch (UserException e) {
             throw new RuntimeException(e);
@@ -747,7 +747,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             try {
                 FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
             } catch (Exception e) {
-                LOG.warn("cannot replay drop function to Nereids:", e);
+                LOG.info("cannot replay drop function to Nereids:", e);
             }
         } catch (UserException e) {
             throw new RuntimeException(e);

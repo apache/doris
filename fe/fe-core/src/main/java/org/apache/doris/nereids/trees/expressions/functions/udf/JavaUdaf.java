@@ -124,7 +124,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
     /**
      * translate catalog java udf to nereids java udf
      */
-    public static void translateToNereids(String dbName, org.apache.doris.catalog.AggregateFunction aggregate) {
+    public static void translateToNereidsFunction(String dbName, org.apache.doris.catalog.AggregateFunction aggregate) {
         String fnName = aggregate.functionName();
         DataType retType = DataType.fromCatalogType(aggregate.getReturnType());
         List<DataType> argTypes = Arrays.stream(aggregate.getArgs())

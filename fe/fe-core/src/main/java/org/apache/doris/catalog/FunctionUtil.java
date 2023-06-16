@@ -228,9 +228,9 @@ public class FunctionUtil {
         if (function instanceof AliasFunction) {
             AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
         } else if (function instanceof ScalarFunction) {
-            JavaUdf.translateToNereids(dbName, ((ScalarFunction) function));
+            JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
         } else if (function instanceof AggregateFunction) {
-            JavaUdaf.translateToNereids(dbName, ((AggregateFunction) function));
+            JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
         }
         return true;
     }

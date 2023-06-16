@@ -108,7 +108,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     /**
      * translate catalog java udf to nereids java udf
      */
-    public static void translateToNereids(String dbName, org.apache.doris.catalog.ScalarFunction scalar) {
+    public static void translateToNereidsFunction(String dbName, org.apache.doris.catalog.ScalarFunction scalar) {
         String fnName = scalar.functionName();
         DataType retType = DataType.fromCatalogType(scalar.getReturnType());
         List<DataType> argTypes = Arrays.stream(scalar.getArgs())
