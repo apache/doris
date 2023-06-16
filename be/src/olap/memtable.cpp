@@ -468,6 +468,7 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
+    log_the_memory_status();
     // For merge_on_write table, it must get all segments in this flush.
     // The id of new segment is set by the _num_segment of beta_rowset_writer,
     // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),

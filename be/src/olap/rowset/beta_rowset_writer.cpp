@@ -789,9 +789,10 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
-    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
-               << " flushing filename: " << (*writer)->get_data_dir()->path()
-               << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment;
+    LOG(INFO) << "happenlee:"
+              << "tablet_id:" << _context.tablet_id
+              << " flushing filename: " << (*writer)->get_data_dir()->path()
+              << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment;
 
     KeyBoundsPB key_bounds;
     Slice min_key = (*writer)->min_encoded_key();

@@ -1673,7 +1673,7 @@ public class Coordinator {
                         // 3. This fragment has a colocated scan node
                         // 4. This fragment has a FileScanNode
                         // 5. Disable shared scan optimization by session variable
-                        if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
+                        if (!enablePipelineEngine || enablePipelineEngine
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
                                 || Config.disable_shared_scan) {
