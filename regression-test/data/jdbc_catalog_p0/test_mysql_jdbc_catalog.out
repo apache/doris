@@ -246,6 +246,9 @@ VIEWS
 VIEW_ROUTINE_USAGE
 VIEW_TABLE_USAGE
 
+-- !auto_default_t --
+0
+
 -- !test_insert1 --
 doris1	18
 
