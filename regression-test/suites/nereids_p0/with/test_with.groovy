@@ -18,7 +18,7 @@
 suite("test_with") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     //Basic WITH
     qt_select """
                 select 1 from (with w as (select 1 from baseall 

@@ -175,7 +175,6 @@ http_port = 8030
 rpc_port = 9020
 query_port = 9030
 edit_log_port = 9010
-mysql_service_nio_enabled = true
 
 # Choose one if there are more than one ip except loopback address. 
 # Note that there should at most one ip match this list.

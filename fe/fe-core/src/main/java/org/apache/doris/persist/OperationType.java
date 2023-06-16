@@ -306,6 +306,8 @@ public class OperationType {
 
     public static final short OP_ALTER_DATABASE_PROPERTY = 434;
 
+    public static final short OP_GC_BINLOG = 435;
+
 
     /**
      * Get opcode name by op code.

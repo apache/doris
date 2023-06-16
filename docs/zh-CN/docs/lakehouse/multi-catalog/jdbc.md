@@ -33,13 +33,96 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 使用限制
 
-1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino、OceanBase
+支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino/Presto、OceanBase
 
-## 创建 Catalog
+## 参数说明
 
-1. MySQL
+| 参数                      | 必须 | 默认值  | 说明                                                                                          |
+|---------------------------|-----|---------|---------------------------------------------------------------------------------------------|
+| `user`                    | 是   |         | 对应数据库的用户名                                                                            |
+| `password`                | 是   |         | 对应数据库的密码                                                                              |
+| `jdbc_url`                | 是   |         | JDBC 连接串                                                                                   |
+| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                                        |
+| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                                        |
+| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名                                                |
+| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                                 |
+| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。         |
+| `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
 
-<version since="1.2.0"></version>
+:::tip
+`driver_url` 可以通过以下三种方式指定：
+
+1. 文件名。如 `mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
+
+2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
+
+3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
+:::
+
+:::tip
+`only_specified_database`:
+在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
+
+`include_database_list`:
+仅在`only_specified_database=true`时生效，指定需要同步的 database，以','分割，db名称是大小写敏感的。
+
+`exclude_database_list`:
+仅在`only_specified_database=true`时生效，指定不需要同步的多个database，以','分割，db名称是大小写敏感的。
+
+当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
+
+如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
+:::
+
+## 数据查询
+
+### 示例
+
+```sql
+select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
+```
+:::tip
+由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在 SQL 语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
+:::
+
+### 谓词下推
+
+1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
+   
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false。
+
+### 行数限制
+
+如果在查询中带有 limit 关键字，Doris 会将其转译成适合不同数据源的语义。
+
+## 数据写入
+
+在 Doris 中建立 JDBC Catalog 后，可以通过 insert into 语句直接写入数据，也可以将 Doris 执行完查询之后的结果写入 JDBC Catalog，或者是从一个 JDBC Catalog 将数据导入另一个 JDBC Catalog。
+
+### 示例
+
+```sql
+insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
+insert into mysql_catalog.mysql_database.mysql_table select * from table;
+```
+
+### 事务
+
+Doris 的数据是由一组 batch 的方式写入 JDBC Catalog 的，如果中途导入中断，之前写入数据可能需要回滚。所以 JDBC Catalog 支持数据写入时的事务，事务的支持需要通过设置 session variable: `enable_odbc_transcation `。
+
+```sql
+set enable_odbc_transcation = true; 
+```
+
+事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
+
+## 使用指南
+
+### MySQL
+
+#### 创建示例
+
+* mysql 5.7
 
 ```sql
 CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -52,34 +135,118 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 )
 ```
 
-2. PostgreSQL
+* mysql 8
 
-<version since="1.2.2"></version>
+```sql
+CREATE CATALOG jdbc_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
+
+#### 层级映射
+
+|  Doris   |    MySQL     |
+|:--------:|:------------:|
+| Catalog  | MySQL Server |
+| Database |   Database   |
+|  Table   |    Table     |
+
+#### 类型映射
+
+| MYSQL Type                                | Doris Type     | Comment                                         |
+|-------------------------------------------|----------------|-------------------------------------------------|
+| BOOLEAN                                   | BOOLEAN        |                                                 |
+| TINYINT                                   | TINYINT        |                                                 |
+| SMALLINT                                  | SMALLINT       |                                                 |
+| MEDIUMINT                                 | INT            |                                                 |
+| INT                                       | INT            |                                                 |
+| BIGINT                                    | BIGINT         |                                                 |
+| UNSIGNED TINYINT                          | SMALLINT       | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
+| UNSIGNED MEDIUMINT                        | INT            | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
+| UNSIGNED INT                              | BIGINT         | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
+| UNSIGNED BIGINT                           | LARGEINT       |                                                 |
+| FLOAT                                     | FLOAT          |                                                 |
+| DOUBLE                                    | DOUBLE         |                                                 |
+| DECIMAL                                   | DECIMAL        |                                                 |
+| DATE                                      | DATE           |                                                 |
+| TIMESTAMP                                 | DATETIME       |                                                 |
+| DATETIME                                  | DATETIME       |                                                 |
+| YEAR                                      | SMALLINT       |                                                 |
+| TIME                                      | STRING         |                                                 |
+| CHAR                                      | CHAR           |                                                 |
+| VARCHAR                                   | VARCHAR        |                                                 |
+| JSON                                      | STRING         |                                                 |
+| SET                                       | STRING         |                                                 |
+| BIT                                       | BOOLEAN/STRING | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING  |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                 |
+| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING         |                                                 |
+| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING         |                                                 |
+| BINARY、VARBINARY                          | STRING         |                                                 |
+| Other                                     | UNSUPPORTED    |                                                 |
+
+### PostgreSQL
+
+#### 创建示例
 
 ```sql
 CREATE CATALOG jdbc_postgresql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
     "driver_url" = "postgresql-42.5.1.jar",
     "driver_class" = "org.postgresql.Driver"
 );
 ```
 
+#### 层级映射
+
 映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定Catalog下的一个 Schema（如示例中 `jdbc_url` 参数中 "demo"下的schemas）。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
 
-| Doris    | PostgreSQL |
-|----------|------------|
-| Catalog  | Database   | 
-| Database | Schema     |
-| Table    | Table      |
+|  Doris   | PostgreSQL |
+|:--------:|:----------:|
+| Catalog  |  Database  |
+| Database |   Schema   |
+|  Table   |   Table    |
 
-> Doris通过sql语句`select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得PG user能够访问的所有schema并将其映射为Doris的database
+:::tip
+Doris 通过sql 语句 `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` 来获得 PG user 能够访问的所有 schema 并将其映射为 Doris 的 database
+:::
 
-3. Oracle
+#### 类型映射
 
-<version since="1.2.2"></version>
+ | POSTGRESQL Type                         | Doris Type     | Comment                                       |
+ |-----------------------------------------|----------------|-----------------------------------------------|
+ | boolean                                 | BOOLEAN        |                                               |
+ | smallint/int2                           | SMALLINT       |                                               |
+ | integer/int4                            | INT            |                                               |
+ | bigint/int8                             | BIGINT         |                                               |
+ | decimal/numeric                         | DECIMAL        |                                               |
+ | real/float4                             | FLOAT          |                                               |
+ | double precision                        | DOUBLE         |                                               |
+ | smallserial                             | SMALLINT       |                                               |
+ | serial                                  | INT            |                                               |
+ | bigserial                               | BIGINT         |                                               |
+ | char                                    | CHAR           |                                               |
+ | varchar/text                            | STRING         |                                               |
+ | timestamp                               | DATETIME       |                                               |
+ | date                                    | DATE           |                                               |
+ | time                                    | STRING         |                                               |
+ | interval                                | STRING         |                                               |
+ | point/line/lseg/box/path/polygon/circle | STRING         |                                               |
+ | cidr/inet/macaddr                       | STRING         |                                               |
+ | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING |
+ | uuid/josnb                              | STRING         |                                               |
+ | Other                                   | UNSUPPORTED    |                                               |
+
+### Oracle
+
+#### 创建示例
 
 ```sql
 CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -92,35 +259,40 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 );
 ```
 
+#### 层级映射
+
 映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-| Doris    | Oracle   |
-|----------|----------|
-| Catalog  | Database | 
-| Database | User     |
-| Table    | Table    |
+|  Doris   |  Oracle  |
+|:--------:|:--------:|
+| Catalog  | Database |
+| Database |   User   |
+|  Table   |  Table   |
 
-4. Clickhouse
+#### 类型映射
 
-<version since="1.2.2"></version>
+| ORACLE Type                       | Doris Type                           | Comment                                                                                                                                         |
+|-----------------------------------|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| number(p) / number(p,0)           | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ]   | DECIMAL(p,s)                         |                                                                                                                                                 |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s)                         |                                                                                                                                                 |
+| number(p,s), [ if(s<0) ]          | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | s<0的情况下, Doris会将p设置为 p+\|s\|, 并进行和number(p) / number(p,0)一样的映射                                                                |
+| number                            |                                      | Doris目前不支持未指定p和s的oracle类型                                                                                                           |
+| decimal                           | DECIMAL                              |                                                                                                                                                 |
+| float/real                        | DOUBLE                               |                                                                                                                                                 |
+| DATE                              | DATETIME                             |                                                                                                                                                 |
+| TIMESTAMP                         | DATETIME                             |                                                                                                                                                 |
+| CHAR/NCHAR                        | STRING                               |                                                                                                                                                 |
+| VARCHAR2/NVARCHAR2                | STRING                               |                                                                                                                                                 |
+| LONG/ RAW/ LONG RAW/ INTERVAL     | STRING                               |                                                                                                                                                 |
+| Other                             | UNSUPPORTED                          |                                                                                                                                                 |
+
+### SQLServer
+
+#### 创建示例
 
 ```sql
-CREATE CATALOG jdbc_clickhouse PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
-    "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
-    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
-);
-```
-
-5. SQLServer
-
-<version since="1.2.2"></version>
-
-```sql
-CREATE CATALOG sqlserver_catalog PROPERTIES (
+CREATE CATALOG jdbc_sqlserve PROPERTIES (
     "type"="jdbc",
     "user"="SA",
     "password"="Doris123456",
@@ -130,22 +302,43 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 );
 ```
 
+#### 层级映射
+
 映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
 
-| Doris    | SQLServer |
-|----------|-----------|
-| Catalog  | Database  | 
-| Database | Schema    |
-| Table    | Table     |
+|  Doris   | SQLServer |
+|:--------:|:---------:|
+| Catalog  | Database  |
+| Database |  Schema   |
+|  Table   |   Table   |
 
-6. Doris
+#### 类型映射
 
-<version since="1.2.3"></version>
+| SQLServer Type                         | Doris Type    | Comment                                                      |
+|----------------------------------------|---------------|--------------------------------------------------------------|
+| bit                                    | BOOLEAN       |                                                              |
+| tinyint                                | SMALLINT      | SQLServer 的 tinyint 是无符号数，所以映射为 Doris 的 SMALLINT |
+| smallint                               | SMALLINT      |                                                              |
+| int                                    | INT           |                                                              |
+| bigint                                 | BIGINT        |                                                              |
+| real                                   | FLOAT         |                                                              |
+| float                                  | DOUBLE        |                                                              |
+| money                                  | DECIMAL(19,4) |                                                              |
+| smallmoney                             | DECIMAL(10,4) |                                                              |
+| decimal/numeric                        | DECIMAL       |                                                              |
+| date                                   | DATE          |                                                              |
+| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
+| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
+| binary/varbinary                       | STRING        |                                                              |
+| time/datetimeoffset                    | STRING        |                                                              |
+| Other                                  | UNSUPPORTED   |                                                              |
+
+### Doris
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
 ```sql
-CREATE CATALOG doris_catalog PROPERTIES (
+CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
@@ -155,14 +348,81 @@ CREATE CATALOG doris_catalog PROPERTIES (
 );
 ```
 
-目前Jdbc Catalog连接一个Doris数据库只支持用5.x版本的jdbc jar包。如果使用8.x jdbc jar包，可能会出现列类型无法匹配问题。
+**注意：** 目前 Jdbc Catalog 连接一个 Doris 数据库只支持用 5.x 版本的 jdbc jar 包。如果使用 8.x jdbc jar 包，可能会出现列类型无法匹配问题。
 
-7. SAP HANA
+#### 类型映射
 
-<version since="1.2.3"></version>
+| Doris Type | Jdbc Catlog Doris Type | Comment                                              |
+|------------|------------------------|------------------------------------------------------|
+| BOOLEAN    | BOOLEAN                |                                                      |
+| TINYINT    | TINYINT                |                                                      |
+| SMALLINT   | SMALLINT               |                                                      |
+| INT        | INT                    |                                                      |
+| BIGINT     | BIGINT                 |                                                      |
+| LARGEINT   | LARGEINT               |                                                      |
+| FLOAT      | FLOAT                  |                                                      |
+| DOUBLE     | DOUBLE                 |                                                      |
+| DECIMALV3  | DECIMALV3/STRING       | 将根据 DECIMAL 字段的（precision, scale）选择用何种类型 |
+| DATE       | DATE                   |                                                      |
+| DATETIME   | DATETIME               |                                                      |
+| CHAR       | CHAR                   |                                                      |
+| VARCHAR    | VARCHAR                |                                                      |
+| STRING     | STRING                 |                                                      |
+| TEXT       | STRING                 |                                                      |
+| HLL        | HLL                    | 查询HLL需要设置`return_object_data_as_binary=true`   |
+| Other      | UNSUPPORTED            |                                                      |
+
+### Clickhouse
+
+#### 创建示例
 
 ```sql
-CREATE CATALOG hana_catalog PROPERTIES (
+CREATE CATALOG jdbc_clickhouse PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "clickhouse-jdbc-0.4.2-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+);
+```
+
+#### 层级映射
+
+|  Doris   |    ClickHouse     |
+|:--------:|:-----------------:|
+| Catalog  | ClickHouse Server |
+| Database |     Database      |
+|  Table   |       Table       |
+
+#### 类型映射
+
+| ClickHouse Type        | Doris Type       | Comment                                                |
+|------------------------|------------------|--------------------------------------------------------|
+| Bool                   | BOOLEAN          |                                                        |
+| String                 | STRING           |                                                        |
+| Date/Date32            | DATE             |                                                        |
+| DateTime/DateTime64    | DATETIME         |                                                        |
+| Float32                | FLOAT            |                                                        |
+| Float64                | DOUBLE           |                                                        |
+| Int8                   | TINYINT          |                                                        |
+| Int16/UInt8            | SMALLINT         | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级        |
+| Int32/UInt16           | INT              | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级        |
+| Int64/Uint32           | BIGINT           | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级        |
+| Int128/UInt64          | LARGEINT         | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级        |
+| Int256/UInt128/UInt256 | STRING           | Doris 没有这个数量级的数据类型，采用 STRING 处理        |
+| DECIMAL                | DECIMALV3/STRING | 将根据 DECIMAL 字段的（precision, scale) 选择用何种类型 |
+| Enum/IPv4/IPv6/UUID    | STRING           |                                                        |
+| Array                  | ARRAY            | Array内部类型适配逻辑参考上述类型，不支持嵌套类型       |
+| Other                  | UNSUPPORTED      |                                                        |
+
+
+### SAP HANA
+
+#### 创建示例
+
+```sql
+CREATE CATALOG jdbc_hana PROPERTIES (
     "type"="jdbc",
     "user"="SYSTEM",
     "password"="SAPHANA",
@@ -172,18 +432,47 @@ CREATE CATALOG hana_catalog PROPERTIES (
 )
 ```
 
-| Doris    | SAP HANA |
-|----------|----------|
-| Catalog  | Database | 
-| Database | Schema   |
-| Table    | Table    |
+#### 层级映射
 
-8. Trino/Presto
+|  Doris   | SAP HANA |
+|:--------:|:--------:|
+| Catalog  | Database |
+| Database |  Schema  |
+|  Table   |  Table   |
 
-<version since="1.2.4"></version>
+#### 类型映射
+
+| SAP HANA Type | Doris Type       | Comment                                                   |
+|---------------|------------------|-----------------------------------------------------------|
+| BOOLEAN       | BOOLEAN          |                                                           |
+| TINYINT       | TINYINT          |                                                           |
+| SMALLINT      | SMALLINT         |                                                           |
+| INTERGER      | INT              |                                                           |
+| BIGINT        | BIGINT           |                                                           |
+| SMALLDECIMAL  | DECIMALV3        |                                                           |
+| DECIMAL       | DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）选择用何种类型 |
+| REAL          | FLOAT            |                                                           |
+| DOUBLE        | DOUBLE           |                                                           |
+| DATE          | DATE             |                                                           |
+| TIME          | STRING           |                                                           |
+| TIMESTAMP     | DATETIME         |                                                           |
+| SECONDDATE    | DATETIME         |                                                           |
+| VARCHAR       | STRING           |                                                           |
+| NVARCHAR      | STRING           |                                                           |
+| ALPHANUM      | STRING           |                                                           |
+| SHORTTEXT     | STRING           |                                                           |
+| CHAR          | CHAR             |                                                           |
+| NCHAR         | CHAR             |                                                           |
+
+
+### Trino/Presto
+
+#### 创建示例
+
+* Trino
 
 ```sql
-CREATE CATALOG trino_catalog PROPERTIES (
+CREATE CATALOG jdbc_trino PROPERTIES (
     "type"="jdbc",
     "user"="hadoop",
     "password"="",
@@ -193,23 +482,56 @@ CREATE CATALOG trino_catalog PROPERTIES (
 );
 ```
 
-映射 Trino 时，Doris 的 Database 对应于 Trino 中指定 Catalog（如示例中 `jdbc_url` 参数中的 "hive"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 Trino 中 Schema 下的 Tables。即映射关系如下：
-
-| Doris    | Trino   |
-|----------|---------|
-| Catalog  | Catalog | 
-| Database | Schema  |
-| Table    | Table   |
-
-**注意：**
-<version since="dev" type="inline"> 同样支持使用 Presto JDBC Driver 进行连接 </version>
-
-9. OceanBase
-
-<version since="dev"></version>
+* Presto
 
 ```sql
-CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
+CREATE CATALOG jdbc_presto PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:presto://localhost:9000/hive",
+    "driver_url" = "presto-jdbc-0.280.jar",
+    "driver_class" = "o.prestosql.jdbc.PrestoDriver"
+);
+```
+
+#### 层级映射
+
+映射 Trino 时，Doris 的 Database 对应于 Trino 中指定 Catalog（如示例中 `jdbc_url` 参数中的 "hive"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 Trino 中 Schema 下的 Tables。即映射关系如下：
+
+|  Doris   | Trino/Presto |
+|:--------:|:------------:|
+| Catalog  |   Catalog    |
+| Database |    Schema    |
+|  Table   |    Table     |
+
+
+#### 类型映射
+
+| Trino/Presto Type | Doris Type               | Comment                                               |
+|-------------------|--------------------------|-------------------------------------------------------|
+| boolean           | BOOLEAN                  |                                                       |
+| tinyint           | TINYINT                  |                                                       |
+| smallint          | SMALLINT                 |                                                       |
+| integer           | INT                      |                                                       |
+| bigint            | BIGINT                   |                                                       |
+| decimal           | DECIMAL/DECIMALV3/STRING | 将根据 DECIMAL 字段的（precision, scale）选择用何种类型 |
+| real              | FLOAT                    |                                                       |
+| double            | DOUBLE                   |                                                       |
+| date              | DATE                     |                                                       |
+| timestamp         | DATETIME                 |                                                       |
+| varchar           | TEXT                     |                                                       |
+| char              | CHAR                     |                                                       |
+| array             | ARRAY                    | Array 内部类型适配逻辑参考上述类型，不支持嵌套类型     |
+| others            | UNSUPPORTED              |                                                       |
+
+
+### OceanBase
+
+#### 创建示例
+
+```sql
+CREATE CATALOG jdbc_oceanbase PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
@@ -219,266 +541,15 @@ CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
 )
 ```
 
-### 参数说明
-
-| 参数                        | 是否必须 | 默认值     | 说明                                                               |
-|---------------------------|------|---------|------------------------------------------------------------------- |
-| `user`                    | 是    |         | 对应数据库的用户名                                                         |
-| `password`                | 是    |         | 对应数据库的密码                                                          |
-| `jdbc_url`                | 是    |         | JDBC 连接串                                                          |
-| `driver_url`              | 是    |         | JDBC Driver Jar 包名称*                                              |
-| `driver_class`            | 是    |         | JDBC Driver Class 名称                                              |
-| `only_specified_database` | 否    | "false" | 指定是否只同步指定的 database                                               |
-| `lower_case_table_names`  | 否    | "false" | 是否以小写的形式同步jdbc外部数据源的表名                                            |
-| `include_database_list`   | 否    | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。 |
-| `exclude_database_list`   | 否    | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。|
-
-> `driver_url` 可以通过以下三种方式指定：
-> 
-> 1. 文件名。如 `mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在 FE 和 BE 部署目录的 `jdbc_drivers/` 目录下。系统会自动在这个目录下寻找。该目录的位置，也可以由 fe.conf 和 be.conf 中的 `jdbc_drivers_dir` 配置修改。
-> 
-> 2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
-> 
-> 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
-
-> `only_specified_database`:
-> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。
->
-> `include_database_list`:
-> 仅在`only_specified_database=true`时生效，指定需要同步的 database，以','分割，db名称是大小写敏感的。
->
-> `exclude_database_list`:
-> 仅在`only_specified_database=true`时生效，指定不需要同步的多个database，以','分割，db名称是大小写敏感的。
->
-> 当 `include_database_list` 和 `exclude_database_list` 有重合的database配置时，`exclude_database_list`会优先生效。
->
-> 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
-
-## 数据查询
-
-```sql
-select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
-```
-由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
-
-## 数据写入
-
-<version since="1.2.2">
-在Doris中建立JDBC Catalog后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入JDBC Catalog，或者是从一个JDBC外表将数据导入另一个JDBC外表。
-</version>
-
-示例：
-
-```sql
-insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
-insert into mysql_catalog.mysql_database.mysql_table select * from table;
-```
-### 事务
-
-Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `。
-
-```sql
-set enable_odbc_transcation = true; 
-```
-
-事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
-
-## 列类型映射
-
-### MySQL
-
-| MYSQL Type | Doris Type | Comment |
-|---|---|---|
-| BOOLEAN | BOOLEAN | |
-| TINYINT | TINYINT | |
-| SMALLINT | SMALLINT | |
-| MEDIUMINT | INT | |
-| INT | INT | |
-| BIGINT | BIGINT | |
-| UNSIGNED TINYINT | SMALLINT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| UNSIGNED MEDIUMINT | INT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
-| UNSIGNED INT | BIGINT |Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED BIGINT | LARGEINT | |
-| FLOAT | FLOAT | |
-| DOUBLE | DOUBLE | |
-| DECIMAL | DECIMAL | |
-| DATE | DATE | |
-| TIMESTAMP | DATETIME | |
-| DATETIME | DATETIME | |
-| YEAR | SMALLINT | |
-| TIME | STRING | |
-| CHAR | CHAR | |
-| VARCHAR | VARCHAR | |
-| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
-|Other| UNSUPPORTED |
-
-### PostgreSQL
-
- POSTGRESQL Type | Doris Type | Comment |
-|---|---|---|
-| boolean | BOOLEAN | |
-| smallint/int2 | SMALLINT | |
-| integer/int4 | INT | |
-| bigint/int8 | BIGINT | |
-| decimal/numeric | DECIMAL | |
-| real/float4 | FLOAT | |
-| double precision | DOUBLE | |
-| smallserial | SMALLINT | |
-| serial | INT | |
-| bigserial | BIGINT | |
-| char | CHAR | |
-| varchar/text | STRING | |
-| timestamp | DATETIME | |
-| date | DATE | |
-| time | STRING | |
-| interval | STRING | |
-| point/line/lseg/box/path/polygon/circle | STRING | |
-| cidr/inet/macaddr | STRING | |
-| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
-| uuid/josnb | STRING | |
-|Other| UNSUPPORTED |
-
-### Oracle
-
-| ORACLE Type | Doris Type | Comment |
-|---|---|---|
-| number(p) / number(p,0) | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
-| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
-| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | s<0的情况下, Doris会将p设置为 p+\|s\|, 并进行和number(p) / number(p,0)一样的映射 |
-| number |  | Doris目前不支持未指定p和s的oracle类型 |
-| decimal | DECIMAL | |
-| float/real | DOUBLE | |
-| DATE | DATETIME | |
-| TIMESTAMP | DATETIME | |
-| CHAR/NCHAR | STRING | |
-| VARCHAR2/NVARCHAR2 | STRING | |
-| LONG/ RAW/ LONG RAW/ INTERVAL | STRING | |
-|Other| UNSUPPORTED |
-
-### SQLServer
-
-| SQLServer Type | Doris Type | Comment |
-|---|---|---|
-| bit | BOOLEAN | |
-| tinyint | SMALLINT | SQLServer的tinyint是无符号数，所以映射为Doris的SMALLINT |
-| smallint | SMALLINT | |
-| int | INT | |
-| bigint | BIGINT | |
-| real | FLOAT | |
-| float | DOUBLE | |
-| money | DECIMAL(19,4) | |
-| smallmoney | DECIMAL(10,4) | |
-| decimal/numeric | DECIMAL | |
-| date | DATE | |
-| datetime/datetime2/smalldatetime | DATETIMEV2 | |
-| char/varchar/text/nchar/nvarchar/ntext | STRING | |
-| binary/varbinary | STRING | |
-| time/datetimeoffset | STRING | |
-|Other| UNSUPPORTED | |
-
-
-### Clickhouse
-
-| ClickHouse Type                                      | Doris Type               | Comment                                                                    |
-|------------------------------------------------------|--------------------------|----------------------------------------------------------------------------|
-| Bool                                                 | BOOLEAN                  |                                                                            |
-| String                                               | STRING                   |                                                                            |
-| Date/Date32                                          | DATEV2                   | Jdbc Catlog连接ClickHouse时默认使用DATEV2类型                                       |
-| DateTime/DateTime64                                  | DATETIMEV2               | Jdbc Catlog连接ClickHouse时默认使用DATETIMEV2类型                                        |
-| Float32                                              | FLOAT                    |                                                                            |
-| Float64                                              | DOUBLE                   |                                                                            |
-| Int8                                                 | TINYINT                  |                                                                            |
-| Int16/UInt8                                          | SMALLINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
-| Int32/UInt16                                         | INT                      | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
-| Int64/Uint32                                         | BIGINT                   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
-| Int128/UInt64                                        | LARGEINT                 | Doris没有UNSIGNED数据类型，所以扩大一个数量级                                              |
-| Int256/UInt128/UInt256                               | STRING                   | Doris没有这个数量级的数据类型，采用STRING处理                                               |
-| DECIMAL                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
-| Enum/IPv4/IPv6/UUID                                  | STRING                   | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理                        |
-| <version since="dev" type="inline"> Array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                                |
-| Other                                                | UNSUPPORTED              |                                                                            |
-
-### Doris
-
-| Doris Type | Jdbc Catlog Doris Type | Comment |
-|---|---|---|
-| BOOLEAN | BOOLEAN | |
-| TINYINT | TINYINT | |
-| SMALLINT | SMALLINT | |
-| INT | INT | |
-| BIGINT | BIGINT | |
-| LARGEINT | LARGEINT | |
-| FLOAT | FLOAT | |
-| DOUBLE | DOUBLE | |
-| DECIMAL / DECIMALV3 | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
-| DATE | DATEV2 | Jdbc Catlog连接Doris时默认使用DATEV2类型 |
-| DATEV2 | DATEV2 |  |
-| DATETIME | DATETIMEV2 | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型 |
-| DATETIMEV2 | DATETIMEV2 | |
-| CHAR | CHAR | |
-| VARCHAR | VARCHAR | |
-| STRING | STRING | |
-| TEXT | STRING | |
-| HLL | HLL | 查询HLL需要设置`return_object_data_as_binary=true` |
-|Other| UNSUPPORTED |
-
-### SAP HANA
-
-| SAP HANA Type  | Doris Type               | Comment                                                                               |
-|----------------|--------------------------|---------------------------------------------------------------------------------------|
-| BOOLEAN        | BOOLEAN                  |                                                                                       |
-| TINYINT        | TINYINT                  |                                                                                       |
-| SMALLINT       | SMALLINT                 |                                                                                       |
-| INTERGER       | INT                      |                                                                                       |
-| BIGINT         | BIGINT                   |                                                                                       |
-| SMALLDECIMAL   | DECIMALV3                |                                                                                       |
-| DECIMAL        | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
-| REAL           | FLOAT                    |                                                                                       |
-| DOUBLE         | DOUBLE                   |                                                                                       |
-| DATE           | DATEV2                   | Jdbc Catlog连接HANA时默认使用DATEV2类型                                                  |
-| TIME           | TEXT                     |                                                                                       |
-| TIMESTAMP      | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
-| SECONDDATE     | DATETIMEV2               | Jdbc Catlog连接HANA时默认使用DATETIMEV2类型                                              |
-| VARCHAR        | TEXT                     |                                                                                       |
-| NVARCHAR       | TEXT                     |                                                                                       |
-| ALPHANUM       | TEXT                     |                                                                                       |
-| SHORTTEXT      | TEXT                     |                                                                                       |
-| CHAR           | CHAR                     |                                                                                       |
-| NCHAR          | CHAR                     |                                                                                       |
-
-### Trino/Presto
-
-| Trino Type                                           | Doris Type               | Comment                                                                    |
-|------------------------------------------------------|--------------------------|----------------------------------------------------------------------------|
-| boolean                                              | BOOLEAN                  |                                                                            |
-| tinyint                                              | TINYINT                  |                                                                            |
-| smallint                                             | SMALLINT                 |                                                                            |
-| integer                                              | INT                      |                                                                            |
-| bigint                                               | BIGINT                   |                                                                            |
-| decimal                                              | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
-| real                                                 | FLOAT                    |                                                                            |
-| double                                               | DOUBLE                   |                                                                            |
-| date                                                 | DATE/DATEV2              | Jdbc Catalog连接Trino时默认使用DATEV2类型                                           |
-| timestamp                                            | DATETIME/DATETIMEV2      | Jdbc Catalog连接Trino时默认使用DATETIMEV2类型                                       |
-| varchar                                              | TEXT                     |                                                                            |
-| char                                                 | CHAR                     |                                                                            |
-| <version since="dev" type="inline"> array </version> | ARRAY                    | Array内部类型适配逻辑参考上述类型，不支持嵌套类型                                                |
-| others                                               | UNSUPPORTED              |                                                                            |
-
-**注意：**
-目前仅针对Trino连接的Hive做了测试，其他的Trino连接的数据源暂时未测试。
-
-### OceanBase
-
-MySQL 模式请参考 [MySQL类型映射](#MySQL)
-Oracle 模式请参考 [Oracle类型映射](#Oracle)
+:::tip
+ Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
+:::
 
 ## 常见问题
 
-1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase 是否能够支持更多的数据库
+1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
 
-    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase. 关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写 MySQL外表的emoji表情出现乱码
 
@@ -570,4 +641,23 @@ Oracle 模式请参考 [Oracle类型映射](#Oracle)
     ```
 
     出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
+ 
+9. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
+
+    首先要先排查下查询字段中是字符串否存在有大小写情况。比如，Table中有一个字段c_1中有"aaa"和"AAA"两条数据，如果在初始化MYSQL数据库时未指定区分字符串
+    大小写，那么MYSQL默认是不区分字符串大小写的，但是在Doris中是严格区分大小写的，所以会出现以下情况：
+
+    ```
+    Mysql行为：
+    select count(c_1) from table where c_1 = "aaa"; 未区分字符串大小，所以结果为：2
+
+    Doris行为：
+    select count(c_1) from table where c_1 = "aaa"; 严格区分字符串大小，所以结果为：1
+    ```
+
+    如果出现上述现象，那么需要按照需求来调整，方式如下：
+    
+    在MYSQL中查询时添加“BINARY”关键字来强制区分大小写：select count(c_1) from table where BINARY c_1 = "aaa"; 或者在MYSQL中建表时候指定：
+    CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
+    character-set-server=UTF-8 和 collation-server=utf8_bin。
  
