@@ -48,7 +48,7 @@ import java.util.Map.Entry
 class Syncer {
     final SyncerContext context
     final Suite suite
-    final Logger logger = LoggerFactory.getLogger(this.class)
+    final Logger logger = LoggerFactory.getLogger(Syncer.class)
 
     Syncer(Suite suite, Config config) {
         this.suite = suite

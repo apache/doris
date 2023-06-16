@@ -224,9 +224,18 @@ class SuiteContext implements Closeable {
             }
         }
 
-        SyncerContext context = syncer.get().context
-        if (context != null) {
-            context.closeAllClients()
+        Syncer syncerImpl = syncer.get()
+        if (syncerImpl != null) {
+            syncer.remove()
+            SyncerContext context = syncerImpl.getContext()
+            if (context != null) {
+                try {
+                    syncerImpl.context.closeAllClients()
+                    syncerImpl.context.closeConn()
+                } catch (Throwable t) {
+                    log.warn("Close syncer failed", t)
+                }
+            }
         }
 
         Connection conn = threadLocalConn.get()

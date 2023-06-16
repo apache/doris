@@ -205,4 +205,8 @@ class SyncerContext {
             targetFrontendClient.close()
         }
     }
+
+    void closeConn() {
+        targetConnection.close()
+    }
 }
