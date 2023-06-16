@@ -33,7 +33,7 @@ namespace doris {
 class Tablet;
 struct Version;
 
-inline std::string_view CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
+inline std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";
 
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements
