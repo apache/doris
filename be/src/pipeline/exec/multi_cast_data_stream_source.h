@@ -71,6 +71,8 @@ public:
 
     Status close(doris::RuntimeState* state) override;
 
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override;
+
 private:
     const int _consumer_id;
     std::shared_ptr<MultiCastDataStreamer> _multi_cast_data_streamer;

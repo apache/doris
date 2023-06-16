@@ -242,6 +242,8 @@ public:
     virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
+    [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
+
 protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
@@ -292,6 +294,8 @@ public:
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
 
 protected:
     NodeType* _sink;
@@ -355,6 +359,10 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     bool can_read() override { return _node->can_read(); }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _node->runtime_profile();
+    }
 
 protected:
     NodeType* _node;

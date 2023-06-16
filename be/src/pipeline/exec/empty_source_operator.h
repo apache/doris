@@ -78,6 +78,10 @@ public:
         return Status::OK();
     }
 
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _exec_node->runtime_profile();
+    }
+
 private:
     ExecNode* _exec_node = nullptr;
 };
