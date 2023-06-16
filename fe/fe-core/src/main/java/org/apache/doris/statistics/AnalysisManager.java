@@ -710,7 +710,7 @@ public class AnalysisManager extends Daemon implements Writable {
         checkPriv(anyTask);
         logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.markAsKilled();
+            taskInfo.cancel();
             logKilled(taskInfo.info);
         }
     }
@@ -779,7 +779,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
         public void cancel() {
             cancelled = true;
-            tasks.forEach(BaseAnalysisTask::markAsKilled);
+            tasks.forEach(BaseAnalysisTask::cancel);
         }
 
         public void execute() {
