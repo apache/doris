@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <memory>
+#include <queue>
 #include <shared_mutex>
 #include <string>
 #include <unordered_set>
