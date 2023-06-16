@@ -129,7 +129,7 @@ class SuiteContext implements Closeable {
     Connection getTargetConnection(Suite suite) {
         def context = getSyncer(suite).context
         if (context.targetConnection == null) {
-            context.targetConnection = config.getTargetConnectionByDbName("TEST_" + dbName)
+            context.targetConnection = config.getConnectionByDbName("TEST_" + dbName)
         }
         return context.targetConnection
     }
