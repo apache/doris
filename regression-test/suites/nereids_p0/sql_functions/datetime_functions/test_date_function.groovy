@@ -620,4 +620,9 @@ suite("test_date_function") {
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    test {
+        sql "select cast('20230631' as date), cast('20230632' as date)"
+        result([[null, null]])
+    }
 }
