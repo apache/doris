@@ -28,13 +28,25 @@
 
 namespace doris::vectorized {
 
+inline std::string compound_operator_to_string(TExprOpcode::type op) {
+    if (op == TExprOpcode::COMPOUND_AND) {
+        return "and";
+    } else if (op == TExprOpcode::COMPOUND_OR) {
+        return "or";
+    } else {
+        return "not";
+    }
+}
+
 class VCompoundPred : public VectorizedFnCall {
     ENABLE_FACTORY_CREATOR(VCompoundPred);
 
 public:
     VCompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
-        _expr_name = "VCompoundPredicate (" + _function_name + ")";
+        _fn.name.function_name = compound_operator_to_string(_op);
+        _expr_name = fmt::format("VCompoundPredicate[{}](arguments={},return={})",
+                                 _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
     VExprSPtr clone() const override { return VCompoundPred::create_shared(*this); }
