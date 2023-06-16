@@ -101,7 +101,7 @@ suite("test_refresh_mtmv") {
     """
     waitingMTMVTaskFinished(mvName)
 
-    def show_task_result = sql "SHOW MTMV TASK ON ${mvNameDemand}"
+    show_task_result = sql "SHOW MTMV TASK ON ${mvNameDemand}"
     assertEquals 1, show_task_result.size(), show_task_result.toString()
 
     sql """

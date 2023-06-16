@@ -83,9 +83,6 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
-
-            // close context expr
-            Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx.get()));
 

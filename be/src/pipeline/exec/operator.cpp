@@ -49,7 +49,7 @@ const RowDescriptor& OperatorBase::row_desc() {
 
 std::string OperatorBase::debug_string() const {
     std::stringstream ss;
-    ss << _operator_builder->get_name() << ", is_source: " << is_source();
+    ss << _operator_builder->get_name() << ": is_source: " << is_source();
     ss << ", is_sink: " << is_sink() << ", is_closed: " << _is_closed;
     ss << ", is_pending_finish: " << is_pending_finish();
     return ss.str();

@@ -427,6 +427,12 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         rollupColumns.add(column);
                     }
 
+                    Expr whereClause = null;
+                    if (whereColumn != null) {
+                        whereClause = whereColumn.getDefineExpr();
+                        rollupColumns.add(whereColumn);
+                    }
+
                     for (Column column : rollupColumns) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
@@ -438,15 +444,15 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     for (Column column : rollupColumns) {
                         if (column.getDefineExpr() != null) {
-                            defineExprs.put(column.getName(), column.getDefineExpr());
+                            if (whereColumn != column) {
+                                defineExprs.put(column.getName(), column.getDefineExpr());
+                            }
+
                             List<SlotRef> slots = new ArrayList<>();
                             column.getDefineExpr().collect(SlotRef.class, slots);
 
                             for (SlotRef slot : slots) {
                                 SlotDescriptor slotDesc = descMap.get(slot.getColumnName());
-                                if (slotDesc == null) {
-                                    slotDesc = descMap.get(column.getName());
-                                }
                                 if (slotDesc == null) {
                                     throw new AlterCancelException("slotDesc is null, slot=" + slot.getColumnName()
                                             + ", column=" + column.getName());
@@ -457,10 +463,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
-                    Expr whereClause = null;
-                    if (whereColumn != null) {
-                        whereClause = whereColumn.getDefineExpr();
-                    }
+
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
@@ -510,7 +513,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             LOG.info("rollup tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() >= 3) {
+                if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
                     LOG.warn("rollup task failed after try three times: " + task.getErrorMsg());

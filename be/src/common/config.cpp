@@ -145,6 +145,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the count of thread to calc delete bitmap
+DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -987,6 +989,20 @@ DEFINE_Bool(inverted_index_compaction_enable, "false");
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 DEFINE_Bool(enable_parse_multi_dimession_array, "true");
+
+// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
+// In the case of time series compaction, the execution of compaction is adjusted
+// using parameters that have the prefix time_series_compaction.
+DEFINE_mString(compaction_policy, "size_based");
+DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
+    return config == "size_based" || config == "time_series";
+});
+// the size of input files for each compaction
+DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
+// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
+DEFINE_mInt64(time_series_compaction_file_count_threshold, "10000");
+// if compaction has not been performed within 3600 seconds, a compaction will be triggered
+DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
 
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");

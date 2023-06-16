@@ -33,244 +33,75 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Usage
 
-1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
+Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
-## Create Catalog
+## Parameter Description
 
-1. MySQL
+| Parameter                 | Required or Not | Default Value | Description                                                                                                              |
+|---------------------------|-----------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
+| `user`                    | Yes             |               | Username in relation to the corresponding database                                                                       |
+| `password`                | Yes             |               | Password for the corresponding database                                                                                  |
+| `jdbc_url `               | Yes             |               | JDBC connection string                                                                                                   |
+| `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
+| `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
+| `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
+| `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case.                                              |
+| `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
+| `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
-<version since="1.2.0"></version>
+:::tip
+`driver_url` can be specified in three ways:
 
-   ```sql
-   CREATE CATALOG jdbc_mysql PROPERTIES (
-       "type"="jdbc",
-       "user"="root",
-       "password"="123456",
-       "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-       "driver_url" = "mysql-connector-java-5.1.47.jar",
-       "driver_class" = "com.mysql.jdbc.Driver"
-   )
-   ```
+1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
 
-2. PostgreSQL
+2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
-<version since="1.2.2"></version>
+3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+:::
 
-   ```sql
-   CREATE CATALOG jdbc_postgresql PROPERTIES (
-       "type"="jdbc",
-       "user"="root",
-       "password"="123456",
-       "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-       "driver_url" = "postgresql-42.5.1.jar",
-       "driver_class" = "org.postgresql.Driver"
-   );
-   ```
-> Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
+:::tip
+ `only_specified_database`:
+ When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
 
-   As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
+ `include_database_list`:
+ It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
 
-| Doris    | PostgreSQL |
-| -------- | ---------- |
-| Catalog  | Database   |
-| Database | Schema     |
-| Table    | Table      |
+`exclude_database_list`:
+It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
 
-3. Oracle
+When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 
-<version since="1.2.2"></version>
-
-   ```sql
-   CREATE CATALOG jdbc_oracle PROPERTIES (
-       "type"="jdbc",
-       "user"="root",
-       "password"="123456",
-       "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-       "driver_url" = "ojdbc6.jar",
-       "driver_class" = "oracle.jdbc.driver.OracleDriver"
-   );
-   ```
-
-   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
-
-| Doris    | Oracle |
-| -------- | ---------- |
-| Catalog  | Database   |
-| Database | User       |
-| Table    | Table      |
-
-4. Clickhouse
-
-<version since="1.2.2"></version>
-
-   ```sql
-   CREATE CATALOG jdbc_clickhouse PROPERTIES (
-       "type"="jdbc",
-       "user"="root",
-       "password"="123456",
-       "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
-       "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
-       "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
-   );
-   ```
-
-5. SQLServer
-
-<version since="1.2.2"></version>
-
-   ```sql
-   CREATE CATALOG sqlserver_catalog PROPERTIES (
-   	"type"="jdbc",
-   	"user"="SA",
-   	"password"="Doris123456",
-   	"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
-   	"driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
-   	"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
-   );
-   ```
-
-   As for data mapping from SQLServer to Doris, one Database in Doris corresponds to one schema in the specified database in SQLServer (for example, "doris_test" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. The mapping relations are as follows:
-
-| Doris    | SQLServer |
-| -------- | --------- |
-| Catalog  | Database  |
-| Database | Schema    |
-| Table    | Table     |
-    
-6. Doris
-
-<version since="1.2.3"></version>
-
-Jdbc Catalog also support to connect another Doris database:
-
-```sql
-CREATE CATALOG doris_catalog PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
-    "driver_url" = "mysql-connector-java-5.1.47.jar",
-    "driver_class" = "com.mysql.jdbc.Driver"
-);
-```
-
-Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
-
-7. SAP_HANA
-
-<version since="1.2.3"></version>
-
-```sql
-CREATE CATALOG hana_catalog PROPERTIES (
-    "type"="jdbc",
-    "user"="SYSTEM",
-    "password"="SAPHANA",
-    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
-    "driver_url" = "ngdbc.jar",
-    "driver_class" = "com.sap.db.jdbc.Driver"
-)
-```
-
-| Doris    | SAP_HANA |
-|----------|----------|
-| Catalog  | Database | 
-| Database | Schema   |
-| Table    | Table    |
-
-8. Trino/Presto
-
-<version since="1.2.4"></version>
-
-```sql
-CREATE CATALOG trino_catalog PROPERTIES (
-    "type"="jdbc",
-    "user"="hadoop",
-    "password"="",
-    "jdbc_url" = "jdbc:trino://localhost:9000/hive",
-    "driver_url" = "trino-jdbc-389.jar",
-    "driver_class" = "io.trino.jdbc.TrinoDriver"
-);
-```
-
-**Note:**
-<version since="dev" type="inline"> Connections using the Presto JDBC Driver are also supported </version>
-
-When Trino is mapped, Doris's Database corresponds to a Schema in Trino that specifies Catalog (such as "hive" in the 'jdbc_url' parameter in the example). The Table in Doris's Database corresponds to the Tables in Trino's Schema. That is, the mapping relationship is as follows:
-
-| Doris    | Trino   |
-|----------|---------|
-| Catalog  | Catalog | 
-| Database | Schema  |
-| Table    | Table   |
-
-9. OceanBase
-
-<version since="dev"></version>
-
-```sql
-CREATE CATALOG jdbc_oceanbase_mysql PROPERTIES (
-    "type"="jdbc",
-    "user"="root",
-    "password"="123456",
-    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
-    "driver_url" = "oceanbase-client-2.4.2.jar",
-    "driver_class" = "com.oceanbase.jdbc.Driver"
-)
-```
-
-### Parameter Description
-
-| Parameter                 | Required or Not | Default Value | Description                                        |
-|---------------------------|-----------------|---------------| -------------------------------------------------- |
-| `user`                    | Yes             |               | Username in relation to the corresponding database |
-| `password`                | Yes             |               | Password for the corresponding database            |
-| `jdbc_url `               | Yes             |               | JDBC connection string                             |
-| `driver_url `             | Yes             |               | JDBC Driver Jar                                    |
-| `driver_class `           | Yes             |               | JDBC Driver Class                                  |
-| `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize jdbc external data source table names in lower case. |
-| `include_database_list` | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive. |
-| `exclude_database_list` | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
-
-> `driver_url` can be specified in three ways:
->
-> 1. File name. For example,  `mysql-connector-java-5.1.47.jar`. Please place the Jar file package in  `jdbc_drivers/`  under the FE/BE deployment directory in advance so the system can locate the file. You can change the location of the file by modifying  `jdbc_drivers_dir`  in fe.conf and be.conf.
->
-> 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
->
-> 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
-
-> `only_specified_database`:
-> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`.
->
-> `include_database_list`:
-> It only takes effect when `only_specified_database=true`, specify the database that needs to be synchronized, separated by ',', and the db name is case-sensitive.
->
-> `exclude_database_list`:
-> It only takes effect when `only specified database=true`, specifies multiple databases that do not need to be synchronized, separated by ',', and the db name is case-sensitive.
->
-> When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
->
-> If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
-
+If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
+:::
 
 ## Query
 
-```
+### Example
+
+```sql
 select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='term';
 ```
-
+:::tip
 In some cases, the keywords in the database might be used as the field names. For queries to function normally in these cases, Doris will add escape characters to the field names and tables names in SQL statements based on the rules of different databases, such as (``) for MySQL, ([]) for SQLServer, and ("") for PostgreSQL and Oracle. This might require extra attention on case sensitivity. You can view the query statements sent to these various databases via ```explain sql```.
+:::
+
+### Predicate Pushdown
+
+1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
+   
+2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false.
+
+### Line Limit
+
+If there is a limit keyword in the query, Doris will translate it into semantics suitable for different data sources.
 
 ## Write Data
 
-<version since="1.2.2">
-After creating a JDBC Catalog in Doris, you can write data or query results to it using the `insert into` statement. You can also ingest data from one JDBC Catalog Table to another JDBC Catalog Table.
-</version>
+After the JDBC Catalog is established in Doris, you can write data directly through the insert into statement, or write the results of the query executed by Doris into the JDBC Catalog, or import data from one JDBC Catalog to another JDBC Catalog.
 
-Example:
+### Example
 
-```
+```sql
 insert into mysql_catalog.mysql_database.mysql_table values(1, "doris");
 insert into mysql_catalog.mysql_database.mysql_table select * from table;
 ```
@@ -285,196 +116,433 @@ set enable_odbc_transcation = true;
 
 The transaction mechanism ensures the atomicity of data writing to JDBC External Tables, but it reduces performance to a certain extent. You may decide whether to enable transactions based on your own tradeoff.
 
-## Column Type Mapping
+## Guide
 
 ### MySQL
 
-| MYSQL Type                                                   | Doris Type  | Comment                                                      |
-| ------------------------------------------------------------ | ----------- | ------------------------------------------------------------ |
-| BOOLEAN                                                      | BOOLEAN     |                                                              |
-| TINYINT                                                      | TINYINT     |                                                              |
-| SMALLINT                                                     | SMALLINT    |                                                              |
-| MEDIUMINT                                                    | INT         |                                                              |
-| INT                                                          | INT         |                                                              |
-| BIGINT                                                       | BIGINT      |                                                              |
-| UNSIGNED TINYINT                                             | SMALLINT    | Doris does not support UNSIGNED data types so UNSIGNED TINYINT will be mapped to SMALLINT. |
-| UNSIGNED MEDIUMINT                                           | INT         | Doris does not support UNSIGNED data types so UNSIGNED MEDIUMINT will be mapped to INT. |
-| UNSIGNED INT                                                 | BIGINT      | Doris does not support UNSIGNED data types so UNSIGNED INT will be mapped to BIGINT. |
-| UNSIGNED BIGINT                                              | LARGEINT      |                                                              |
-| FLOAT                                                        | FLOAT       |                                                              |
-| DOUBLE                                                       | DOUBLE      |                                                              |
-| DECIMAL                                                      | DECIMAL     |                                                              |
-| DATE                                                         | DATE        |                                                              |
-| TIMESTAMP                                                    | DATETIME    |                                                              |
-| DATETIME                                                     | DATETIME    |                                                              |
-| YEAR                                                         | SMALLINT    |                                                              |
-| TIME                                                         | STRING      |                                                              |
-| CHAR                                                         | CHAR        |                                                              |
-| VARCHAR                                                      | VARCHAR      |                                                              |
-| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING      |                                                              |
-| Other                                                        | UNSUPPORTED |                                                              |
+#### Example
+
+* mysql 5.7
+
+```sql
+CREATE CATALOG jdbc_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+)
+```
+
+* mysql 8
+
+```sql
+CREATE CATALOG jdbc_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
+
+#### Hierarchy Mapping
+
+|  Doris   |    MySQL     |
+|:--------:|:------------:|
+| Catalog  | MySQL Server |
+| Database |   Database   |
+|  Table   |    Table     |
+
+#### Type Mapping
+
+| MYSQL Type                                | Doris Type     | Comment                                                                       |
+|-------------------------------------------|----------------|-------------------------------------------------------------------------------|
+| BOOLEAN                                   | BOOLEAN        |                                                                               |
+| TINYINT                                   | TINYINT        |                                                                               |
+| SMALLINT                                  | SMALLINT       |                                                                               |
+| MEDIUMINT                                 | INT            |                                                                               |
+| INT                                       | INT            |                                                                               |
+| BIGINT                                    | BIGINT         |                                                                               |
+| UNSIGNED TINYINT                          | SMALLINT       | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED MEDIUMINT                        | INT            | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED INT                              | BIGINT         | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED BIGINT                           | LARGEINT       |                                                                               |
+| FLOAT                                     | FLOAT          |                                                                               |
+| DOUBLE                                    | DOUBLE         |                                                                               |
+| DECIMAL                                   | DECIMAL        |                                                                               |
+| DATE                                      | DATE           |                                                                               |
+| TIMESTAMP                                 | DATETIME       |                                                                               |
+| DATETIME                                  | DATETIME       |                                                                               |
+| YEAR                                      | SMALLINT       |                                                                               |
+| TIME                                      | STRING         |                                                                               |
+| CHAR                                      | CHAR           |                                                                               |
+| VARCHAR                                   | VARCHAR        |                                                                               |
+| JSON                                      | STRING         |                                                                               |
+| SET                                       | STRING         |                                                                               |
+| BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
+| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING         |                                                                               |
+| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING         |                                                                               |
+| BINARY、VARBINARY                          | STRING         |                                                                               |
+| Other                                     | UNSUPPORTED    |                                                                               |
 
 ### PostgreSQL
 
- POSTGRESQL Type | Doris Type | Comment |
-|---|---|---|
-| boolean | BOOLEAN | |
-| smallint/int2 | SMALLINT | |
-| integer/int4 | INT | |
-| bigint/int8 | BIGINT | |
-| decimal/numeric | DECIMAL | |
-| real/float4 | FLOAT | |
-| double precision | DOUBLE | |
-| smallserial | SMALLINT | |
-| serial | INT | |
-| bigserial | BIGINT | |
-| char | CHAR | |
-| varchar/text | STRING | |
-| timestamp | DATETIME | |
-| date | DATE | |
-| time | STRING | |
-| interval | STRING | |
-| point/line/lseg/box/path/polygon/circle | STRING | |
-| cidr/inet/macaddr | STRING | |
-| bit/bit(n)/bit varying(n) | STRING | `bit ` will be mapped to `STRING` in Doris. It will be read as `true/false` instead of `1/0` |
-| uuid/josnb | STRING | |
-|Other| UNSUPPORTED |
+#### Example
+
+```sql
+CREATE CATALOG jdbc_postgresql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5432/demo",
+    "driver_url" = "postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+```
+
+#### Hierarchy Mapping
+
+As for data mapping from PostgreSQL to Doris, one Database in Doris corresponds to one schema in the specified database in PostgreSQL (for example, "demo" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. To make it more intuitive, the mapping relations are as follows:
+
+|  Doris   | PostgreSQL |
+|:--------:|:----------:|
+| Catalog  |  Database  |
+| Database |   Schema   |
+|  Table   |   Table    |
+
+:::tip
+Doris obtains all schemas that PG user can access through the SQL statement: `select nspname from pg_namespace where has_schema_privilege('<UserName>', nspname, 'USAGE');` and map these schemas to doris database.   
+:::
+
+#### Type Mapping
+
+ | POSTGRESQL Type                         | Doris Type     | Comment                                   |
+ |-----------------------------------------|----------------|-------------------------------------------|
+ | boolean                                 | BOOLEAN        |                                           |
+ | smallint/int2                           | SMALLINT       |                                           |
+ | integer/int4                            | INT            |                                           |
+ | bigint/int8                             | BIGINT         |                                           |
+ | decimal/numeric                         | DECIMAL        |                                           |
+ | real/float4                             | FLOAT          |                                           |
+ | double precision                        | DOUBLE         |                                           |
+ | smallserial                             | SMALLINT       |                                           |
+ | serial                                  | INT            |                                           |
+ | bigserial                               | BIGINT         |                                           |
+ | char                                    | CHAR           |                                           |
+ | varchar/text                            | STRING         |                                           |
+ | timestamp                               | DATETIME       |                                           |
+ | date                                    | DATE           |                                           |
+ | time                                    | STRING         |                                           |
+ | interval                                | STRING         |                                           |
+ | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
+ | cidr/inet/macaddr                       | STRING         |                                           |
+ | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
+ | uuid/josnb                              | STRING         |                                           |
+ | Other                                   | UNSUPPORTED    |                                           |
 
 ### Oracle
 
-| ORACLE Type                   | Doris Type  | Comment                                                      |
-| ----------------------------- | ----------- | ------------------------------------------------------------ |
-| number(p) / number(p,0)       | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
-| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
-| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+|s|`, and perform the same mapping as `number(p) / number(p,0)`. |
-| number |  | Doris does not support Oracle `NUMBER` type that does not specified p and s |
-| float/real                    | DOUBLE      |                                                              |
-| DATE                          | DATETIME    |                                                              |
-| TIMESTAMP                     | DATETIME    |                                                              |
-| CHAR/NCHAR                    | STRING      |                                                              |
-| VARCHAR2/NVARCHAR2            | STRING      |                                                              |
-| LONG/ RAW/ LONG RAW/ INTERVAL | STRING      |                                                              |
-| Other                         | UNSUPPORTED |                                                              |
+#### Example
+
+```sql
+CREATE CATALOG jdbc_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "driver_url" = "ojdbc6.jar",
+    "driver_class" = "oracle.jdbc.driver.OracleDriver"
+);
+```
+
+#### Hierarchy Mapping
+
+As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
+
+|  Doris   |  Oracle  |
+|:--------:|:--------:|
+| Catalog  | Database |
+| Database |   User   |
+|  Table   |  Table   |
+
+#### Type Mapping
+
+| ORACLE Type                       | Doris Type                           | Comment                                                                                                                                                                       |
+|-----------------------------------|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| number(p) / number(p,0)           | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ]   | DECIMAL(p,s)                         |                                                                                                                                                                               |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s)                         |                                                                                                                                                                               |
+| number(p,s), [ if(s<0) ]          | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+|s|`, and perform the same mapping as `number(p) / number(p,0)`.                                                                             |
+| number                            |                                      | Doris does not support Oracle `NUMBER` type that does not specified p and s                                                                                                   |
+| float/real                        | DOUBLE                               |                                                                                                                                                                               |
+| DATE                              | DATETIME                             |                                                                                                                                                                               |
+| TIMESTAMP                         | DATETIME                             |                                                                                                                                                                               |
+| CHAR/NCHAR                        | STRING                               |                                                                                                                                                                               |
+| VARCHAR2/NVARCHAR2                | STRING                               |                                                                                                                                                                               |
+| LONG/ RAW/ LONG RAW/ INTERVAL     | STRING                               |                                                                                                                                                                               |
+| Other                             | UNSUPPORTED                          |                                                                                                                                                                               |
 
 ### SQLServer
 
-| SQLServer Type                         | Doris Type  | Comment                                                      |
-| -------------------------------------- | ----------- | ------------------------------------------------------------ |
-| bit                                    | BOOLEAN     |                                                              |
-| tinyint                                | SMALLINT    | The tinyint type in SQLServer is an unsigned number so it will be mapped to SMALLINT in Doris. |
-| smallint                               | SMALLINT    |                                                              |
-| int                                    | INT         |                                                              |
-| bigint                                 | BIGINT      |                                                              |
-| real                                   | FLOAT       |                                                              |
-| float                 | DOUBLE      |                                                              |
-| money | DECIMAL(19,4) | |
-| smallmoney | DECIMAL(10,4) | |
-| decimal/numeric                        | DECIMAL     |                                                              |
-| date                                   | DATE        |                                                              |
-| datetime/datetime2/smalldatetime       | DATETIMEV2  |                                                              |
-| char/varchar/text/nchar/nvarchar/ntext | STRING      |                                                              |
-| binary/varbinary                       | STRING      |                                                              |
-| time/datetimeoffset                    | STRING      |                                                              |
-| Other                                  | UNSUPPORTED |                                                              |
+#### Example
 
+```sql
+CREATE CATALOG jdbc_sqlserve PROPERTIES (
+    "type"="jdbc",
+    "user"="SA",
+    "password"="Doris123456",
+    "jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+    "driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
+    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+);
+```
 
-### Clickhouse
+#### Hierarchy Mapping
 
-| ClickHouse Type                                      | Doris Type               | Comment                                                                                                                              |
-|------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Bool                                                 | BOOLEAN                  |                                                                                                                                      |
-| String                                               | STRING                   |                                                                                                                                      |
-| Date/Date32                                          | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting ClickHouse                                                                      |
-| DateTime/DateTime64                                  | DATETIMEV2               | JDBC CATLOG uses DateTimev2 type default when connecting ClickHouse                                                                  |
-| Float32                                              | FLOAT                    |                                                                                                                                      |
-| Float64                                              | DOUBLE                   |                                                                                                                                      |
-| Int8                                                 | TINYINT                  |                                                                                                                                      |
-| Int16/UInt8                                          | SMALLINT                 | Doris does not support UNSIGNED data types so UInt8 will be mapped to SMALLINT.                                                      |
-| Int32/UInt16                                         | INT                      | Doris does not support UNSIGNED data types so UInt16 will be mapped to INT.                                                          |
-| Int64/Uint32                                         | BIGINT                   | Doris does not support UNSIGNED data types so UInt32 will be mapped to BIGINT.                                                       |
-| Int128/UInt64                                        | LARGEINT                 | Doris does not support UNSIGNED data types so UInt64 will be mapped to LARGEINT.                                                     |
-| Int256/UInt128/UInt256                               | STRING                   | Doris does not support data types of such orders of magnitude so these will be mapped to STRING.                                     |
-| DECIMAL                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration.                  |
-| Enum/IPv4/IPv6/UUID                                  | STRING                   | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
-| <version since="dev" type="inline"> Array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported                             |
-| Other                                                | UNSUPPORTED              |                                                                                                                                      |
+As for data mapping from SQLServer to Doris, one Database in Doris corresponds to one schema in the specified database in SQLServer (for example, "doris_test" in `jdbc_url`  above), and one Table in that Database corresponds to one table in that schema. The mapping relations are as follows:
+
+|  Doris   | SQLServer |
+|:--------:|:---------:|
+| Catalog  | Database  |
+| Database |  Schema   |
+|  Table   |   Table   |
+
+#### Type Mapping
+
+| SQLServer Type                         | Doris Type    | Comment                                                                  |
+|----------------------------------------|---------------|--------------------------------------------------------------------------|
+| bit                                    | BOOLEAN       |                                                                          |
+| tinyint                                | SMALLINT      | SQLServer's tinyint is an unsigned number, so it maps to Doris' SMALLINT |
+| smallint                               | SMALLINT      |                                                                          |
+| int                                    | INT           |                                                                          |
+| bigint                                 | BIGINT        |                                                                          |
+| real                                   | FLOAT         |                                                                          |
+| float                                  | DOUBLE        |                                                                          |
+| money                                  | DECIMAL(19,4) |                                                                          |
+| smallmoney                             | DECIMAL(10,4) |                                                                          |
+| decimal/numeric                        | DECIMAL       |                                                                          |
+| date                                   | DATE          |                                                                          |
+| datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                                          |
+| char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                                          |
+| binary/varbinary                       | STRING        |                                                                          |
+| time/datetimeoffset                    | STRING        |                                                                          |
+| Other                                  | UNSUPPORTED   |                                                                          |
 
 ### Doris
 
-| Doris Type | Jdbc Catlog Doris Type | Comment |
-|---|---|---|
-| BOOLEAN | BOOLEAN | |
-| TINYINT | TINYINT | |
-| SMALLINT | SMALLINT | |
-| INT | INT | |
-| BIGINT | BIGINT | |
-| LARGEINT | LARGEINT | |
-| FLOAT | FLOAT | |
-| DOUBLE | DOUBLE | |
-| DECIMAL / DECIMALV3 | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
-| DATE | DATEV2 | JDBC CATLOG uses Datev2 type default when connecting DORIS |
-| DATEV2 | DATEV2 |  |
-| DATETIME | DATETIMEV2 | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS |
-| DATETIMEV2 | DATETIMEV2 | |
-| CHAR | CHAR | |
-| VARCHAR | VARCHAR | |
-| STRING | STRING | |
-| TEXT | STRING | |
-| HLL | HLL | `return_object_data_as_binary=true` is required when query HLL column |
-|Other| UNSUPPORTED |
+Jdbc Catalog also support to connect another Doris database:
+
+```sql
+CREATE CATALOG jdbc_doris PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+);
+```
+
+**Note:** Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+
+#### Type Mapping
+
+| Doris Type | Jdbc Catlog Doris Type | Comment                                                                              |
+|------------|------------------------|--------------------------------------------------------------------------------------|
+| BOOLEAN    | BOOLEAN                |                                                                                      |
+| TINYINT    | TINYINT                |                                                                                      |
+| SMALLINT   | SMALLINT               |                                                                                      |
+| INT        | INT                    |                                                                                      |
+| BIGINT     | BIGINT                 |                                                                                      |
+| LARGEINT   | LARGEINT               |                                                                                      |
+| FLOAT      | FLOAT                  |                                                                                      |
+| DOUBLE     | DOUBLE                 |                                                                                      |
+| DECIMALV3  | DECIMALV3/STRING       | Which type will be selected according to the (precision, scale) of the DECIMAL field |
+| DATE       | DATE                   |                                                                                      |
+| DATETIME   | DATETIME               |                                                                                      |
+| CHAR       | CHAR                   |                                                                                      |
+| VARCHAR    | VARCHAR                |                                                                                      |
+| STRING     | STRING                 |                                                                                      |
+| TEXT       | STRING                 |                                                                                      |
+| HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
+| Other      | UNSUPPORTED            |                                                                                      |
+
+### Clickhouse
+
+#### Example
+
+```sql
+CREATE CATALOG jdbc_clickhouse PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "clickhouse-jdbc-0.4.2-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+);
+```
+
+#### Hierarchy Mapping
+
+|  Doris   |    ClickHouse     |
+|:--------:|:-----------------:|
+| Catalog  | ClickHouse Server |
+| Database |     Database      |
+|  Table   |       Table       |
+
+#### Type Mapping
+
+| ClickHouse Type        | Doris Type       | Comment                                                                                                  |
+|------------------------|------------------|----------------------------------------------------------------------------------------------------------|
+| Bool                   | BOOLEAN          |                                                                                                          |
+| String                 | STRING           |                                                                                                          |
+| Date/Date32            | DATE             |                                                                                                          |
+| DateTime/DateTime64    | DATETIME         |                                                                                                          |
+| Float32                | FLOAT            |                                                                                                          |
+| Float64                | DOUBLE           |                                                                                                          |
+| Int8                   | TINYINT          |                                                                                                          |
+| Int16/UInt8            | SMALLINT         | Doris does not have an UNSIGNED data type, so expand by an order of magnitude                            |
+| Int32/UInt16           | INT              | Doris does not have an UNSIGNED data type, so expand by an order of magnitude                            |
+| Int64/Uint32           | BIGINT           | Doris does not have an UNSIGNED data type, so expand by an order of magnitude                            |
+| Int128/UInt64          | LARGEINT         | Doris does not have an UNSIGNED data type, so expand by an order of magnitude                            |
+| Int256/UInt128/UInt256 | STRING           | Doris does not have a data type of this magnitude, and uses STRING for processing                        |
+| DECIMAL                | DECIMALV3/STRING | Which type will be selected according to the (precision, scale) of the DECIMAL field                     |
+| Enum/IPv4/IPv6/UUID    | STRING           |                                                                                                          |
+| Array                  | ARRAY            | The internal type adaptation logic of Array refers to the above types, and does not support nested types |
+| Other                  | UNSUPPORTED      |                                                                                                          |
+
 
 ### SAP HANA
 
-| SAP HANA Type | Doris Type               | Comment                                                                                                            |
-|---------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
-| BOOLEAN       | BOOLEAN                  |                                                                                                                    |
-| TINYINT       | TINYINT                  |                                                                                                                    |
-| SMALLINT      | SMALLINT                 |                                                                                                                    |
-| INTERGER      | INT                      |                                                                                                                    |
-| BIGINT        | BIGINT                   |                                                                                                                    |
-| SMALLDECIMAL  | DECIMALV3                |                                                                                                                    |
-| DECIMAL       | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
-| REAL          | FLOAT                    |                                                                                                                    |
-| DOUBLE        | DOUBLE                   |                                                                                                                    |
-| DATE          | DATEV2                   | JDBC CATLOG uses Datev2 type default when connecting HANA                                                          |
-| TIME          | TEXT                     |                                                                                                                    |
-| TIMESTAMP     | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting HANA                                                      |
-| SECONDDATE    | DATETIMEV2               | JDBC CATLOG uses DATETIMEV2 type default when connecting HANA                                                      |
-| VARCHAR       | TEXT                     |                                                                                                                    |
-| NVARCHAR      | TEXT                     |                                                                                                                    |
-| ALPHANUM      | TEXT                     |                                                                                                                    |
-| SHORTTEXT     | TEXT                     |                                                                                                                    |
-| CHAR          | CHAR                     |                                                                                                                    |
-| NCHAR         | CHAR                     |                                                                                                                    |
-| Other         | UNSUPPORTED              |                                                                                                                    |
+#### Example
 
-### Trino/presto
+```sql
+CREATE CATALOG jdbc_hana PROPERTIES (
+    "type"="jdbc",
+    "user"="SYSTEM",
+    "password"="SAPHANA",
+    "jdbc_url" = "jdbc:sap://localhost:31515/TEST",
+    "driver_url" = "ngdbc.jar",
+    "driver_class" = "com.sap.db.jdbc.Driver"
+)
+```
 
-| Trino Type                                           | Doris Type               | Comment                                                                                                            |
-|------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------|
-| boolean                                              | BOOLEAN                  |                                                                                                                    |
-| tinyint                                              | TINYINT                  |                                                                                                                    |
-| smallint                                             | SMALLINT                 |                                                                                                                    |
-| integer                                              | INT                      |                                                                                                                    |
-| bigint                                               | BIGINT                   |                                                                                                                    |
-| decimal                                              | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
-| real                                                 | FLOAT                    |                                                                                                                    |
-| double                                               | DOUBLE                   |                                                                                                                    |
-| date                                                 | DATE/DATEV2              | JDBC CATALOG uses Datev2 type default when connecting Trino                                                        |
-| timestamp                                            | DATETIME/DATETIMEV2      | JDBC CATALOG uses DATETIMEV2 type default when connecting Trino                                                    |
-| varchar                                              | TEXT                     |                                                                                                                    |
-| char                                                 | CHAR                     |                                                                                                                    |
-| <version since="dev" type="inline"> array </version> | ARRAY                    | Array internal basic type adaptation logic refers to the preceding types. Nested types are not supported           |
-| others                                               | UNSUPPORTED              |                                                                                                                    |
+#### Hierarchy Mapping
 
-**Note:**
-Currently, only Hive connected to Trino has been tested. Other data sources connected to Trino have not been tested.
+|  Doris   | SAP HANA |
+|:--------:|:--------:|
+| Catalog  | Database |
+| Database |  Schema  |
+|  Table   |  Table   |
+
+#### Type Mapping
+
+| SAP HANA Type | Doris Type       | Comment                                                                              |
+|---------------|------------------|--------------------------------------------------------------------------------------|
+| BOOLEAN       | BOOLEAN          |                                                                                      |
+| TINYINT       | TINYINT          |                                                                                      |
+| SMALLINT      | SMALLINT         |                                                                                      |
+| INTERGER      | INT              |                                                                                      |
+| BIGINT        | BIGINT           |                                                                                      |
+| SMALLDECIMAL  | DECIMALV3        |                                                                                      |
+| DECIMAL       | DECIMALV3/STRING | Which type will be selected according to the (precision, scale) of the DECIMAL field |
+| REAL          | FLOAT            |                                                                                      |
+| DOUBLE        | DOUBLE           |                                                                                      |
+| DATE          | DATE             |                                                                                      |
+| TIME          | STRING           |                                                                                      |
+| TIMESTAMP     | DATETIME         |                                                                                      |
+| SECONDDATE    | DATETIME         |                                                                                      |
+| VARCHAR       | STRING           |                                                                                      |
+| NVARCHAR      | STRING           |                                                                                      |
+| ALPHANUM      | STRING           |                                                                                      |
+| SHORTTEXT     | STRING           |                                                                                      |
+| CHAR          | CHAR             |                                                                                      |
+| NCHAR         | CHAR             |                                                                                      |
+
+
+### Trino/Presto
+
+#### Example
+
+* Trino
+
+```sql
+CREATE CATALOG jdbc_trino PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:trino://localhost:9000/hive",
+    "driver_url" = "trino-jdbc-389.jar",
+    "driver_class" = "io.trino.jdbc.TrinoDriver"
+);
+```
+
+* Presto
+
+```sql
+CREATE CATALOG jdbc_presto PROPERTIES (
+    "type"="jdbc",
+    "user"="hadoop",
+    "password"="",
+    "jdbc_url" = "jdbc:presto://localhost:9000/hive",
+    "driver_url" = "presto-jdbc-0.280.jar",
+    "driver_class" = "o.prestosql.jdbc.PrestoDriver"
+);
+```
+
+#### Hierarchy Mapping
+
+When mapping Trino, Doris's Database corresponds to a Schema under the specified Catalog in Trino (such as "hive" in the `jdbc_url` parameter in the example). The Table under the Database of Doris corresponds to the Tables under the Schema in Trino. That is, the mapping relationship is as follows:
+
+|  Doris   | Trino/Presto |
+|:--------:|:------------:|
+| Catalog  |   Catalog    |
+| Database |    Schema    |
+|  Table   |    Table     |
+
+
+#### Type Mapping
+
+| Trino/Presto Type | Doris Type               | Comment                                                                                                  |
+|-------------------|--------------------------|----------------------------------------------------------------------------------------------------------|
+| boolean           | BOOLEAN                  |                                                                                                          |
+| tinyint           | TINYINT                  |                                                                                                          |
+| smallint          | SMALLINT                 |                                                                                                          |
+| integer           | INT                      |                                                                                                          |
+| bigint            | BIGINT                   |                                                                                                          |
+| decimal           | DECIMAL/DECIMALV3/STRING | Which type will be selected according to the (precision, scale) of the DECIMAL field                     |
+| real              | FLOAT                    |                                                                                                          |
+| double            | DOUBLE                   |                                                                                                          |
+| date              | DATE                     |                                                                                                          |
+| timestamp         | DATETIME                 |                                                                                                          |
+| varchar           | TEXT                     |                                                                                                          |
+| char              | CHAR                     |                                                                                                          |
+| array             | ARRAY                    | The internal type adaptation logic of Array refers to the above types, and does not support nested types |
+| others            | UNSUPPORTED              |                                                                                                          |
+
 
 ### OceanBase
 
-For MySQL mode, please refer to [MySQL type mapping](#MySQL)
-For Oracle mode, please refer to [Oracle type mapping](#Oracle)
+#### Example
+
+```sql
+CREATE CATALOG jdbc_oceanbase PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oceanbase://127.0.0.1:2881/demo",
+    "driver_url" = "oceanbase-client-2.4.2.jar",
+    "driver_class" = "com.oceanbase.jdbc.Driver"
+)
+```
+
+:::tip
+When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
+:::
 
 ## FAQ
 
@@ -571,3 +639,29 @@ For Oracle mode, please refer to [Oracle type mapping](#Oracle)
     ```
 
     When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.
+
+9.  If the results are inconsistent with those in the MYSQL database when you query the MYSQL database using JDBC
+
+    First check whether the string in the query field is case-sensitive. For example, there is a field c_1 in the Table with two 
+    
+    data "aaa" and "AAA". If the MYSQL database is not case-sensitive when initializing the MYSQL database, mysql is 
+    
+    case-insensitive by default, but Doris is strictly case-sensitive, so the following situations will occur：
+
+    ```
+    Mysql behavior：
+    select count(c_1) from table where c_1 = "aaa"; The string size is not distinguished, so the result is : 2
+
+    Doris behavior：
+    select count(c_1) from table where c_1 = "aaa"; Strictly delimit the string size, so the result is : 1
+    ```
+
+    If the above phenomenon occurs, it needs to be adjusted according to demand, as follows：
+
+    Add the "BINARY" keyword when querying in MYSQL to force case sensitivity : select count(c_1) from table where BINARY c_1 = 
+    
+    "aaa"; Or specify it when creating a table in MYSQL : CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 
+    
+    Or specify collation rules to be case sensitive when initializing the MYSQL database : character-set-server=UTF-8 and 
+    
+    collation-server=utf8_bin.

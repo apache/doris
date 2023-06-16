@@ -19,9 +19,9 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
@@ -366,7 +366,8 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
-        if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
+        if (groupExpr.isPresent()) {
+            Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();

@@ -33,19 +33,30 @@ namespace doris {
 namespace io {
 class IOContext;
 
+std::map<UniqueId, io::StreamLoadPipe*> g_streamloadpipes;
+std::mutex g_streamloadpipes_lock;
+
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
-                               int64_t total_length, bool use_proto)
+                               int64_t total_length, bool use_proto, UniqueId id)
         : _buffered_bytes(0),
           _proto_buffered_bytes(0),
           _max_buffered_bytes(max_buffered_bytes),
           _min_chunk_size(min_chunk_size),
           _total_length(total_length),
-          _use_proto(use_proto) {}
+          _use_proto(use_proto),
+          _id(id) {
+    std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+    g_streamloadpipes[_id] = this;
+}
 
 StreamLoadPipe::~StreamLoadPipe() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
+    }
+    {
+        std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+        g_streamloadpipes.erase(_id);
     }
 }
 
@@ -113,6 +124,7 @@ Status StreamLoadPipe::read_one_message(std::unique_ptr<uint8_t[]>* data, size_t
 }
 
 Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t proto_byte_size) {
+    _last_active = GetCurrentTimeMicros();
     ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1));
     buf->put_bytes(data, size);
     buf->flip();
@@ -120,6 +132,7 @@ Status StreamLoadPipe::append_and_flush(const char* data, size_t size, size_t pr
 }
 
 Status StreamLoadPipe::append(std::unique_ptr<PDataRow>&& row) {
+    _last_active = GetCurrentTimeMicros();
     PDataRow* row_ptr = row.get();
     {
         std::unique_lock<std::mutex> l(_lock);
@@ -130,6 +143,7 @@ Status StreamLoadPipe::append(std::unique_ptr<PDataRow>&& row) {
 }
 
 Status StreamLoadPipe::append(const char* data, size_t size) {
+    _last_active = GetCurrentTimeMicros();
     size_t pos = 0;
     if (_write_buf != nullptr) {
         if (size < _write_buf->remaining()) {
@@ -153,6 +167,7 @@ Status StreamLoadPipe::append(const char* data, size_t size) {
 }
 
 Status StreamLoadPipe::append(const ByteBufferPtr& buf) {
+    _last_active = GetCurrentTimeMicros();
     if (_write_buf != nullptr) {
         _write_buf->flip();
         RETURN_IF_ERROR(_append(_write_buf));
@@ -226,6 +241,7 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
 
 // called when producer finished
 Status StreamLoadPipe::finish() {
+    LOG(INFO) << "finish pipe=" << this;
     if (_write_buf != nullptr) {
         _write_buf->flip();
         _append(_write_buf);
@@ -241,10 +257,15 @@ Status StreamLoadPipe::finish() {
 
 // called when producer/consumer failed
 void StreamLoadPipe::cancel(const std::string& reason) {
+    LOG(INFO) << "cancel pipe=" << this;
     {
         std::lock_guard<std::mutex> l(_lock);
         _cancelled = true;
         _cancelled_reason = reason;
+    }
+    {
+        std::lock_guard<std::mutex> l(g_streamloadpipes_lock);
+        g_streamloadpipes.erase(_id);
     }
     _get_cond.notify_all();
     _put_cond.notify_all();
