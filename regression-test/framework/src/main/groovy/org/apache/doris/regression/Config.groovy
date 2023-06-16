@@ -243,6 +243,7 @@ class Config {
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
+            configToBoolean(obj.enableCacheData),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
