@@ -529,7 +529,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitJavaUdaf(JavaUdaf udaf, PlanTranslatorContext context) {
-        FunctionParams exprs = new FunctionParams(udaf.children().stream()
+        FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
                 .map(expression -> expression.accept(this, context))
                 .collect(Collectors.toList()));
         return new FunctionCallExpr(udaf.getCatalogFunction(), exprs);
