@@ -63,6 +63,9 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     private long formatMicroSecond(long microSecond) {
+        if (microSecond == 0) {
+            return microSecond;
+        }
         while (10 * microSecond <= 999999) {
             microSecond = 10 * microSecond;
         }
