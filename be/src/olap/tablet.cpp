@@ -3153,7 +3153,6 @@ Status Tablet::commit_phase_update_delete_bitmap(
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
 
-    std::shared_lock meta_rlock(_meta_lock);
     cur_rowset_ids = all_rs_id(cur_version);
     _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
     if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
