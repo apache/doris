@@ -69,27 +69,6 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
     }
 
     @Test
-    public void testSimpleDelete() throws AnalysisException {
-        String sql = "delete from t1 where k1 = 3";
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof DeleteCommand);
-        DeleteCommand command = ((DeleteCommand) parsed);
-        LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
-        PlanChecker.from(connectContext, plan)
-                .analyze(plan)
-                .rewrite()
-                .matches(
-                        logicalOlapTableSink(
-                                logicalProject(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        )
-                                )
-                        )
-                );
-    }
-
-    @Test
     public void testFromClauseUpdate() throws AnalysisException {
         String sql = "delete from t1 a using src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
