@@ -459,7 +459,7 @@ DECLARE_String(ssl_certificate_path);
 // Path of private key
 DECLARE_String(ssl_private_key_path);
 // Whether to check authorization
-DECLARE_Bool(enable_http_auth);
+DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 // Period to update rate counters and sampling counters in ms.
