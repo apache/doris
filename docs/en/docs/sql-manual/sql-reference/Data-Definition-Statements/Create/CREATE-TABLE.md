@@ -399,6 +399,35 @@ Set table properties. The following attributes are currently supported:
 
    `"skip_write_index_on_load" = "false"`
 
+* `compaction_policy`
+
+    Configure the compaction strategy in the compression phase. Only support configuring the compaction policy as "time_series".
+
+    time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
+    In the case of time series compaction, the execution of compaction is adjusted using parameters that have the prefix time_series_compaction.
+
+    `"compaction_policy" = ""`
+
+* `time_series_compaction_goal_size_mbytes`
+
+    Time series compaction policy will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
+
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
+
+* `time_series_compaction_file_count_threshold`
+
+    Time series compaction policy will utilize this parameter to adjust the minimum number of input files for each compaction.
+
+    If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
+
+    `"time_series_compaction_file_count_threshold" = "10000"`
+
+* `time_series_compaction_time_threshold_seconds`
+
+     When time series compaction policy is applied, a significant duration passes without a compaction being executed, a compaction will be triggered.
+
+    `"time_series_compaction_time_threshold_seconds" = "3600"`
+
 * Dynamic partition related
 
    The relevant parameters of dynamic partition are as follows:
