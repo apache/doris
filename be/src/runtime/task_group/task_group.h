@@ -35,8 +35,6 @@ class MemTrackerLimiter;
 
 namespace pipeline {
 class PipelineTask;
-class TaskQueue;
-class PriorityTaskQueue;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -44,7 +42,6 @@ namespace taskgroup {
 class TaskGroup;
 struct TaskGroupInfo;
 class ScanTaskQueue;
-class ScanTaskTaskGroupQueue;
 
 template <typename QueueType>
 class TaskGroupEntity {
@@ -77,6 +74,10 @@ private:
     taskgroup::TaskGroup* _tg;
 
     std::string _type;
+
+    // Because updating cpu share of entity requires locking the task queue(pipeline task queue or
+    // scan task queue) contains that entity, we kept version and cpu share in entity for
+    // independent updates.
     int64_t _version;
     uint64_t _cpu_share;
 };
