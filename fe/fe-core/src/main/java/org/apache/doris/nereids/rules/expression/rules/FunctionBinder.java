@@ -248,16 +248,14 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
         // check child type
-        if (!left.getDataType().isCharType() && !left.getDataType().isVarcharType()
-                && !left.getDataType().isStringType()) {
+        if (!left.getDataType().isStringLikeType()) {
             throw new AnalysisException(String.format(
                     "left operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
                             + "returns type '%s'.",
                     left.toSql(), match.toSql(), left.getDataType()));
         }
 
-        if (!right.getDataType().isCharType() && !right.getDataType().isVarcharType()
-                && !right.getDataType().isStringType() && !right.getDataType().isNullType()) {
+        if (!right.getDataType().isStringLikeType() && !right.getDataType().isNullType()) {
             throw new AnalysisException(String.format(
                     "right operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
                             + "returns type '%s'.",

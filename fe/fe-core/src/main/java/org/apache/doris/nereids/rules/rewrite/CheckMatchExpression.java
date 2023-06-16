@@ -37,7 +37,8 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalOlapScan())
                 .when(filter -> containsMatchExpression(filter.getExpressions()))
-                .then(filter -> checkChildren(filter)).toRule(RuleType.CHECK_MATCH_EXPRESSION);
+                .then(this::checkChildren)
+                .toRule(RuleType.CHECK_MATCH_EXPRESSION);
     }
 
     private LogicalFilter checkChildren(LogicalFilter filter) {
