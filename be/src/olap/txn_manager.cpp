@@ -633,12 +633,14 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
 }
 
 void TxnManager::get_all_tablet_txn_infos_by_tablet(const TabletSharedPtr tablet,
-                                                    std::vector<TabletTxnInfo>& tablet_txn_infos) {
+                                                    std::map<TabletInfo,TabletTxnInfo>& tablet_info_map) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (auto& it : _txn_tablet_maps[i]) {
             auto tablet_load_it = it.second.find(tablet->get_tablet_info());
-            tablet_txn_infos.push_back(tablet_load_it->second);
+            if(tablet_load_it!=it.second.end()){
+                tablet_info_map[tablet_load_it->first] = tablet_load_it->second;
+            }
         }
     }
 }
