@@ -248,7 +248,7 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL64:
                 case DECIMAL128:
                     try {
-                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
                         res.setType(targetType);
                         return res;
                     } catch (Exception e) {
