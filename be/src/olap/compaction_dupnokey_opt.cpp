@@ -85,8 +85,8 @@ Status CompactionDupnokeyOpt::handle_duplicate_nokey_compaction() {
 
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _parent._output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _parent._output_rowset->num_rows());
-    return Status::OK();
     TRACE_COUNTER_INCREMENT("output_segments_num", _parent._output_rowset->num_segments());
+    return Status::OK();
 }
 
 Status CompactionDupnokeyOpt::_do_compact_segments(
