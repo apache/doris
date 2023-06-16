@@ -736,6 +736,7 @@ DeltaWriter* TxnManager::get_txn_tablet_delta_writer(int64_t transaction_id, int
             return it->second;
         }
     }
+    return nullptr;
 }
 
 void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
