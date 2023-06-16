@@ -34,6 +34,11 @@ class MockRowset : public Rowset {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
+    Status link_segment_to(size_t seg_id, const std::string& dir, RowsetId new_rowset_id,
+                           size_t new_rowset_seg_id) override {
+        return Status::NotSupported("MockRowset not support this method.");
+    }
+
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
