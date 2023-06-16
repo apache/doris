@@ -32,7 +32,7 @@ PhysicalTopN
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter(((store.s_city = 'Pleasant Hill') OR (store.s_city = 'Five Points')))
+--------------------------------------filter(s_city IN ('Pleasant Hill', 'Five Points'))
 ----------------------------------------PhysicalOlapScan[store]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
