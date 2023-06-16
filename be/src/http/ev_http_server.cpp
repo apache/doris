@@ -62,7 +62,7 @@ static void on_chunked(struct evhttp_request* ev_req, void* param) {
 static void on_close(evhttp_connection* con, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
     {
-        LOG(INFO) << "close connection "<< (void*)con;
+        LOG(INFO) << "close connection " << (void*)con;
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(con);
         if (itr != g_conn_req_map.end()) {
@@ -72,7 +72,8 @@ static void on_close(evhttp_connection* con, void* arg) {
                                  << " current HttpRequest=" << request
                                  << " but orginal HttpRequest=" << itr->second;
                 }
-                LOG(INFO) << "close connection "<< (void*)con << " req " << itr->second->debug_string();
+                LOG(INFO) << "close connection "<< (void*)con << " req "
+                          << itr->second->debug_string();
                 delete itr->second;
             }
             g_conn_req_map.erase(con);
@@ -83,8 +84,8 @@ static void on_close(evhttp_connection* con, void* arg) {
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
     {
-        LOG(INFO) << "free request "<< (void*)arg << " conn " << ev_req->evcon
-                  << " req " << request->debug_string();
+        LOG(INFO) << "free request "<< (void*)arg << " conn " << ev_req->evcon << " req "
+                  << request->debug_string();
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(ev_req->evcon);
         if (itr != g_conn_req_map.end()) {
