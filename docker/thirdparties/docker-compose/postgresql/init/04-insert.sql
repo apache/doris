@@ -2657,3 +2657,10 @@ insert into catalog_pg_test.test12 values
 (2, '980dd890-f7fe-4fff-999d-873516108b2e');
 
 INSERT INTO catalog_pg_test.wkb_test (location) SELECT ST_AsBinary(ST_GeomFromText('POLYGON((0 0,0 1,1 1,1 0,0 0))',4326));
+
+INSERT INTO catalog_pg_test.dt_test (ts_field, tzt_field)
+VALUES 
+(
+    '2023-06-16 12:34:56.123', 
+    '2023-06-16 12:34:56.123+08'
+);
