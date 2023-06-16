@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
@@ -27,10 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -51,9 +56,36 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     public Rule build() {
         return any().then(plan -> {
             checkAllSlotReferenceFromChildren(plan);
+            checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
+    }
+
+    private void checkUnexpectedExpression(Plan plan) {
+        if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(SubqueryExpr.class::isInstance))) {
+            throw new AnalysisException("Subquery is not allowed in " + plan.getType());
+        }
+        if (!(plan instanceof Generate)) {
+            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(TableGeneratingFunction.class::isInstance))) {
+                throw new AnalysisException("table generating function is not allowed in " + plan.getType());
+            }
+        }
+        if (!(plan instanceof LogicalAggregate || plan instanceof LogicalWindow)) {
+            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(AggregateFunction.class::isInstance))) {
+                throw new AnalysisException("aggregate function is not allowed in " + plan.getType());
+            }
+        }
+        if (!(plan instanceof LogicalAggregate)) {
+            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(GroupingScalarFunction.class::isInstance))) {
+                throw new AnalysisException("grouping scalar function is not allowed in " + plan.getType());
+            }
+        }
+        if (!(plan instanceof LogicalWindow)) {
+            if (plan.getExpressions().stream().anyMatch(e -> e.anyMatch(WindowExpression.class::isInstance))) {
+                throw new AnalysisException("analytic function is not allowed in " + plan.getType());
+            }
+        }
     }
 
     private void checkAllSlotReferenceFromChildren(Plan plan) {

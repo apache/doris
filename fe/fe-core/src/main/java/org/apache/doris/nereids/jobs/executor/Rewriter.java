@@ -212,7 +212,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new PushFilterInsideJoin())
             ),
 
-            custom(RuleType.CHECK_DATATYPES, CheckDataTypes::new),
+            custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
 
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
