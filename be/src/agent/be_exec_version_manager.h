@@ -54,8 +54,12 @@ private:
  *    b. runtime filter use new hash method.
  * 2: start from doris 2.0
  *    a. function month/day/hour/minute/second's return type is changed to smaller type.
+ *
+ * 3: now have release doris 2.0-beta, maybe in next version could remove those compatible code of agg sum,count
+ *    a. in order to solve agg of sum/count is not compatibility during the upgrade process
+ *
 */
-inline const int BeExecVersionManager::max_be_exec_version = 2;
+inline const int BeExecVersionManager::max_be_exec_version = 3;
 inline const int BeExecVersionManager::min_be_exec_version = 0;
 
 } // namespace doris
