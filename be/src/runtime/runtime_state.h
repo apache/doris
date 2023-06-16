@@ -122,11 +122,6 @@ public:
     RuntimeProfile* runtime_profile() { return &_profile; }
     RuntimeProfile* load_channel_profile() { return &_load_channel_profile; }
 
-    bool enable_function_pushdown() const {
-        return _query_options.__isset.enable_function_pushdown &&
-               _query_options.enable_function_pushdown;
-    }
-
     bool check_overflow_for_decimal() const {
         return _query_options.__isset.check_overflow_for_decimal &&
                _query_options.check_overflow_for_decimal;

@@ -496,10 +496,9 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt));
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bloom_filter(cur_expr, context, slot, &pdt));
-                                if (_state->enable_function_pushdown()) {
-                                    RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, context, slot, &pdt));
-                                }
+
+                                RETURN_IF_PUSH_DOWN(
+                                        _normalize_function_filters(cur_expr, context, slot, &pdt));
                             }
                         },
                         *range);

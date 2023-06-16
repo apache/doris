@@ -251,8 +251,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
-    public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
-
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
@@ -1609,10 +1607,6 @@ public class SessionVariable implements Serializable, Writable {
         return enablePushDownNoGroupAgg;
     }
 
-    public boolean getEnableFunctionPushdown() {
-        return this.enableFunctionPushdown;
-    }
-
     public boolean getForbidUnknownColStats() {
         return forbidUnknownColStats;
     }
@@ -1979,7 +1973,6 @@ public class SessionVariable implements Serializable, Writable {
             tResult.setResourceLimit(resourceLimit);
         }
 
-        tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);

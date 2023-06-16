@@ -161,6 +161,7 @@ struct TQueryOptions {
   // trim tailing spaces while querying external table and stream load
   44: optional bool trim_tailing_spaces_for_external_table_query = false
 
+  // This variable has been deprecated and will now only be true.
   45: optional bool enable_function_pushdown;
 
   46: optional string fragment_transmission_compression_codec;
