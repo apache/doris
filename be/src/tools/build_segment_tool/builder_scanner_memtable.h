@@ -1,4 +1,6 @@
 #pragma once
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -34,39 +36,36 @@
 #include "util/crc32c.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
-#include <gen_cpp/PlanNodes_types.h>
 
 namespace doris {
 
 class BuilderScannerMemtable {
 public:
-  BuilderScannerMemtable(TabletSharedPtr tablet, const std::string &build_dir,
-                         const std::string &file_type);
-  ~BuilderScannerMemtable() = default;
-  void init();
-  void
-  doSegmentBuild(const std::vector<std::filesystem::directory_entry> &files);
+    BuilderScannerMemtable(TabletSharedPtr tablet, const std::string& build_dir,
+                           const std::string& file_type);
+    ~BuilderScannerMemtable() = default;
+    void init();
+    void doSegmentBuild(const std::vector<std::filesystem::directory_entry>& files);
 
 private:
-  TDescriptorTable create_descriptor_tablet();
-  TPrimitiveType::type getPrimitiveType(FieldType t);
-  void create_expr_info();
-  void init_desc_table();
-  // void build_scan_ranges(std::vector<TBrokerRangeDesc>& ranges,
-  //                        const std::vector<std::string>& files);
-  void
-  build_scan_ranges(std::vector<TFileRangeDesc> &ranges,
-                    const std::vector<std::filesystem::directory_entry> &files);
-  RuntimeState _runtime_state;
-  std::shared_ptr<QueryContext> _query_ctx;
-  ObjectPool _obj_pool;
-  // TBrokerScanRangeParams _params;
-  TFileScanRangeParams _params;
-  DescriptorTbl *_desc_tbl;
-  TPlanNode _tnode;
-  TabletSharedPtr _tablet;
-  std::string _build_dir;
-  std::string _file_type;
+    TDescriptorTable create_descriptor_tablet();
+    TPrimitiveType::type getPrimitiveType(FieldType t);
+    void create_expr_info();
+    void init_desc_table();
+    // void build_scan_ranges(std::vector<TBrokerRangeDesc>& ranges,
+    //                        const std::vector<std::string>& files);
+    void build_scan_ranges(std::vector<TFileRangeDesc>& ranges,
+                           const std::vector<std::filesystem::directory_entry>& files);
+    RuntimeState _runtime_state;
+    std::shared_ptr<QueryContext> _query_ctx;
+    ObjectPool _obj_pool;
+    // TBrokerScanRangeParams _params;
+    TFileScanRangeParams _params;
+    DescriptorTbl* _desc_tbl;
+    TPlanNode _tnode;
+    TabletSharedPtr _tablet;
+    std::string _build_dir;
+    std::string _file_type;
 };
 
 } // namespace doris
