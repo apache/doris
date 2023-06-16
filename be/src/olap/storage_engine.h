@@ -218,6 +218,8 @@ public:
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
+    void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -313,7 +315,8 @@ private:
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
-    void _gc_binlogs();
+
+    void _gc_binlogs(int64_t tablet_id, int64_t version);
 
 private:
     struct CompactionCandidate {
