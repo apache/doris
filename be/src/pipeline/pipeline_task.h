@@ -257,6 +257,7 @@ private:
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _get_block_timer;
+    RuntimeProfile::Counter* _get_block_counter;
     RuntimeProfile::Counter* _sink_timer;
     RuntimeProfile::Counter* _finalize_timer;
     RuntimeProfile::Counter* _close_timer;
