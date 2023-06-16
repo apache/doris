@@ -136,9 +136,6 @@ public class DeleteStmt extends DdlStmt {
             // in mow, we can use partial update so we only need key column and delete sign
             if (!column.isVisible() && column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 expr = new BoolLiteral(true);
-            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
-                expr = new SlotRef(targetTableRef.getAliasAsName(),
-                        ((OlapTable) targetTable).getSequenceMapCol());
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
@@ -174,6 +171,10 @@ public class DeleteStmt extends DdlStmt {
                 LimitElement.NO_LIMIT
         );
         boolean isPartialUpdate = false;
+        if (((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite()
+                && cols.size() < targetTable.getColumns().size()) {
+            isPartialUpdate = true;
+        }
 
         insertStmt = new NativeInsertStmt(
                 new InsertTarget(tableName, null),
