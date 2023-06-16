@@ -67,7 +67,7 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    private final Map<AbstractPhysicalJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
+    private final Map<AbstractPhysicalJoin, Set<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
@@ -97,7 +97,7 @@ public class RuntimeFilterContext {
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
-        Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
+        Preconditions.checkArgument(filter.getTargetExprs().stream().anyMatch(expr -> expr.getExprId() == id));
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
     }
 
@@ -135,13 +135,13 @@ public class RuntimeFilterContext {
         return scanNodeOfLegacyRuntimeFilterTarget;
     }
 
-    public List<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
-        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptyList());
+    public Set<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
+        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptySet());
     }
 
     public void generatePhysicalHashJoinToRuntimeFilter() {
         targetExprIdToFilter.values().forEach(filters -> filters.forEach(filter -> runtimeFilterOnHashJoinNode
-                .computeIfAbsent(filter.getBuilderNode(), k -> Lists.newArrayList()).add(filter)));
+                .computeIfAbsent(filter.getBuilderNode(), k -> Sets.newHashSet()).add(filter)));
     }
 
     public Map<ExprId, List<RuntimeFilter>> getTargetExprIdToFilter() {
