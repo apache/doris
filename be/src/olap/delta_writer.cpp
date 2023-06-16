@@ -455,7 +455,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         }
         int64_t cur_max_version = _tablet->max_version().second;
         RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second, segments,
+                _cur_rowset, _rowset_ids, _delete_bitmap, cur_max_version, segments,
                 _rowset_writer.get()));
         _rowset_ids = _tablet->all_rs_id(cur_max_version);
     }
