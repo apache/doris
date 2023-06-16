@@ -256,8 +256,6 @@ public class FunctionCallExpr extends Expr {
     // check table function
     private boolean isTableFnCall = false;
 
-    private boolean isAggFnCall = false;
-
     // Indicates whether this is a merge aggregation function that should use the
     // merge
     // instead of the update symbol. This flag also affects the behavior of

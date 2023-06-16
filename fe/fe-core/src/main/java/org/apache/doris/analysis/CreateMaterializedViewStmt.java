@@ -489,11 +489,25 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
-                functionCallExpr.analyze(analyzer);
-                if (functionCallExpr.isAggregateFunction()) {
-                    MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
-                    expr = item.getDefineExpr();
-                    name = item.getName();
+                switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
+                    case "sum":
+                    case "min":
+                    case "max":
+                    case FunctionSet.BITMAP_UNION:
+                    case FunctionSet.HLL_UNION:
+                    case FunctionSet.COUNT:
+                        MVColumnItem item = buildMVColumnItem(analyzer, functionCallExpr);
+                        expr = item.getDefineExpr();
+                        name = item.getName();
+                        break;
+                    default:
+                        if (Env.getCurrentEnv()
+                                .isAggFunctionName(functionCallExpr.getFnName().getFunction().toLowerCase())) {
+                            MVColumnItem genericItem = buildMVColumnItem(analyzer, functionCallExpr);
+                            expr = genericItem.getDefineExpr();
+                            name = genericItem.getName();
+                        }
+                        break;
                 }
             }
             result.put(name, expr);
