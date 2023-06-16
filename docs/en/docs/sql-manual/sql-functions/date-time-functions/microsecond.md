@@ -28,16 +28,16 @@ under the License.
 ### description
 #### Syntax
 
-`INT MICROSECOND(DATETIME date)`
+`INT MICROSECOND(DATETIMEV2 date)`
 
 Returns microsecond information in the time type.
 
-The parameter is Date or Datetime type
+The parameter is Datetime type
 
 ### example
 
 ```
-mysql> select microsecond('1999-01-02 10:11:12.000123') as microsecond;
+mysql> select microsecond(cast('1999-01-02 10:11:12.000123' as datetimev2(6))) as microsecond;
 +-------------+
 | microsecond |
 +-------------+
