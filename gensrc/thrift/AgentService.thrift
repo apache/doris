@@ -198,6 +198,15 @@ struct TAlterInvertedIndexReq {
     10: optional i64 expiration
 }
 
+struct TTabletGcBinlogInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional i64 version
+}
+
+struct TGcBinlogReq {
+    1: optional list<TTabletGcBinlogInfo> tablet_gc_binlog_infos
+}
+
 struct TStorageMigrationReqV2 {
     1: optional Types.TTabletId base_tablet_id
     2: optional Types.TTabletId new_tablet_id
@@ -449,6 +458,7 @@ struct TAgentTaskRequest {
     30: optional TPushCooldownConfReq push_cooldown_conf
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
+    33: optional TGcBinlogReq gc_binlog_req
 }
 
 struct TAgentResult {
