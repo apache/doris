@@ -73,6 +73,7 @@ import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
+import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -820,6 +821,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_DATABASE_PROPERTY: {
                 data = AlterDatabasePropertyInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_GC_BINLOG: {
+                data = BinlogGcInfo.read(in);
                 isRead = true;
                 break;
             }
