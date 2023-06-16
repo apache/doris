@@ -289,17 +289,17 @@ using DateTimeV2 = UInt64;
 struct Int128I {};
 
 template <typename T>
-inline T decimal_scale_multiplier(UInt32 scale);
+inline constexpr T decimal_scale_multiplier(UInt32 scale);
 template <>
-inline Int32 decimal_scale_multiplier<Int32>(UInt32 scale) {
+inline constexpr Int32 decimal_scale_multiplier<Int32>(UInt32 scale) {
     return common::exp10_i32(scale);
 }
 template <>
-inline Int64 decimal_scale_multiplier<Int64>(UInt32 scale) {
+inline constexpr Int64 decimal_scale_multiplier<Int64>(UInt32 scale) {
     return common::exp10_i64(scale);
 }
 template <>
-inline Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
+inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
@@ -371,6 +371,17 @@ struct Decimal {
         return *this;
     }
 
+    static constexpr int max_string_length() {
+        constexpr auto precision =
+                std::is_same_v<T, Int32>
+                        ? BeConsts::MAX_DECIMAL32_PRECISION
+                        : (std::is_same_v<T, Int64> ? BeConsts::MAX_DECIMAL64_PRECISION
+                                                    : BeConsts::MAX_DECIMAL128_PRECISION);
+        return precision + 1 // Add a space for decimal place
+               + 1           // Add a space for leading 0
+               + 1;          // Add a space for negative sign
+    }
+
     std::string to_string(UInt32 scale) const {
         if (value == std::numeric_limits<T>::min()) {
             fmt::memory_buffer buffer;
@@ -420,11 +431,71 @@ struct Decimal {
         return str;
     }
 
+    /**
+     * Got the string representation of a decimal.
+     * @param dst Store the result, should be pre-allocated.
+     * @param scale Decimal's scale.
+     * @param scale_multiplier Decimal's scale multiplier.
+     * @return The length of string.
+     */
+    __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
+                                                    const T& scale_multiplier) const {
+        if (UNLIKELY(value == std::numeric_limits<T>::min())) {
+            auto end = fmt::format_to(dst, "{}", value);
+            return end - dst;
+        }
+
+        bool is_negative = value < 0;
+        T abs_value = value;
+        int pos = 0;
+
+        if (is_negative) {
+            abs_value = -value;
+            dst[pos++] = '-';
+        }
+
+        T whole_part = abs_value;
+        T frac_part;
+        if (LIKELY(scale)) {
+            whole_part = abs_value / scale_multiplier;
+            frac_part = abs_value % scale_multiplier;
+        }
+        auto end = fmt::format_to(dst + pos, "{}", whole_part);
+        pos = end - dst;
+
+        if (LIKELY(scale)) {
+            int low_scale = 0;
+            int high_scale = scale;
+            while (low_scale < high_scale) {
+                int mid_scale = (high_scale + low_scale) >> 1;
+                const auto mid_scale_factor = decimal_scale_multiplier<T>(mid_scale);
+                if (mid_scale_factor <= frac_part) {
+                    low_scale = mid_scale + 1;
+                } else {
+                    high_scale = mid_scale;
+                }
+            }
+            dst[pos++] = '.';
+            if (low_scale < scale) {
+                memset(&dst[pos], '0', scale - low_scale);
+                pos += scale - low_scale;
+            }
+            if (frac_part) {
+                end = fmt::format_to(&dst[pos], "{}", frac_part);
+                pos = end - dst;
+            }
+        }
+
+        return pos;
+    }
+
     T value;
 };
 
 template <>
 struct Decimal<Int128I> : public Decimal<Int128> {
+    using NativeType = Int128;
+
     Decimal() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
