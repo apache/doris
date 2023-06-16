@@ -51,7 +51,7 @@ statement
         whereClause                                                    #update
     | explain? DELETE FROM tableName=multipartIdentifier tableAlias
         (PARTITION partition=identifierList)?
-        (USING relation (COMMA relation)*)?
+        (USING relation (COMMA relation)*)
         whereClause                                                    #delete
     ;
 

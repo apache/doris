@@ -34,12 +34,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * delete from unique key table.
@@ -51,11 +54,15 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
 
+    /**
+     * constructor
+     */
     public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions, LogicalPlan logicalQuery) {
         super(PlanType.DELETE_COMMAND);
-        this.nameParts = nameParts;
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
+                "nameParts in DeleteCommand cannot be null"));
         this.tableAlias = tableAlias;
-        this.partitions = partitions;
+        this.partitions = Utils.copyIfNotNull(partitions);
         this.logicalQuery = logicalQuery;
     }
 
