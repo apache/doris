@@ -633,6 +633,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                         tablet_txn_info.rowset, tablet_txn_info.rowset_ids,
                         tablet_txn_info.delete_bitmap, cur_max_version, segments,
                         delta_writer->get_rowset_writer().get()));
+                // Step3: write back updated delete bitmap and tablet info.
                 StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                         it.first.first, it.first.second, _tablet->tablet_id(),
                         _tablet->schema_hash(), _tablet->tablet_uid(), true,
