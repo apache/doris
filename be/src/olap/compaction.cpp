@@ -594,15 +594,15 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             }
         }
 
-        // here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
+        // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
         // of publish phase.
-        // all rowsets which need to recalculate have been published so we don't need to acquire lock.
-        // step1: collect this tablet's all committed rowsets' delete bitmaps
+        // All rowsets which need to recalculate have been published so we don't need to acquire lock.
+        // Step1: collect this tablet's all committed rowsets' delete bitmaps
         std::vector<TabletTxnInfo> tablet_txn_infos {};
         StorageEngine::instance()->txn_manager()->get_all_tablet_txn_infos_by_tablet(
                 _tablet, tablet_txn_infos);
 
-        // step2: calculate all rowsets' delete bitmaps which are published during compaction.
+        // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
         // e.g. before compaction:
         //       5-5 6-6 published
         //       7-7 8-8 committed not published
@@ -616,6 +616,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // 7-7 doesn't have delete bitmap.
         // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
         // This part is to calculate 7-7's delete bitmap.
+
+        // get pre_rowset_ids
+        // get cur_rowset_ids
+        // get rowset_to_add and rowset_to_delete
+        // delete all delete bitmaps in rowset_to_delete
+        // every commited rowset should add new version delete bitmap to rowset_to_add
 
         for (;;) {
             auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
