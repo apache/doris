@@ -26,6 +26,8 @@ under the License.
 
 # Statistics
 
+<version since="2.0.0"></version>
+
 ## Introduction to statistics information
 
 In SQL databases, the quality of the query optimizer has a significant impact on system performance. The optimizer needs to estimate the query cost according to the statistics information, especially in the equal-value query scenario, it is very important to estimate the cardinality accurately, which can help the optimizer to select the optimal query plan, thereby improving the query performance.
