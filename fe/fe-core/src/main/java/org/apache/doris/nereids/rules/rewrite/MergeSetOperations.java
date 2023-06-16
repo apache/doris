@@ -48,7 +48,6 @@ public class MergeSetOperations implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.MERGE_SET_OPERATION.build(
                 logicalSetOperation(any(), any()).when(MergeSetOperations::canMerge).then(parentSetOperation -> {
                     List<Plan> newChildren = parentSetOperation.children()
                             .stream()
@@ -61,8 +60,7 @@ public class MergeSetOperations implements RewriteRuleFactory {
                             }).collect(ImmutableList.toImmutableList());
 
                     return parentSetOperation.withChildren(newChildren);
-                })
-            )
+                }).toRule(RuleType.MERGE_SET_OPERATION)
         );
     }
 
@@ -80,7 +78,7 @@ public class MergeSetOperations implements RewriteRuleFactory {
     }
 
     public static boolean isSameQualifierOrChildQualifierIsAll(LogicalSetOperation parentSetOperation,
-                                                         LogicalSetOperation childSetOperation) {
+            LogicalSetOperation childSetOperation) {
         return parentSetOperation.getQualifier() == childSetOperation.getQualifier()
                 || childSetOperation.getQualifier() == Qualifier.ALL;
     }
