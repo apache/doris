@@ -454,9 +454,9 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                                                                          _delete_bitmap));
         }
         int64_t cur_max_version = _tablet->max_version().second;
-        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                _cur_rowset, _rowset_ids, _delete_bitmap, cur_max_version, segments,
-                _rowset_writer.get()));
+        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(_cur_rowset, _rowset_ids,
+                                                                   _delete_bitmap, cur_max_version,
+                                                                   segments, _rowset_writer.get()));
         _rowset_ids = _tablet->all_rs_id(cur_max_version);
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
