@@ -199,7 +199,6 @@ public:
                                             txn_tablet_map_t& txn_tablet_map);
 
 private:
-
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);

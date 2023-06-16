@@ -638,7 +638,7 @@ void TxnManager::get_all_tablet_txn_infos_by_tablet(const TabletSharedPtr& table
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (auto& it : _txn_tablet_maps[i]) {
             auto tablet_load_it = it.second.find(tablet->get_tablet_info());
-            if(tablet_load_it!=it.second.end()){
+            if (tablet_load_it != it.second.end()) {
                 txn_tablet_map.insert(std::make_pair(it.first, it.second));
             }
         }
@@ -724,19 +724,19 @@ void TxnManager::add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tab
     txn_tablet_delta_writer_map[transaction_id][tablet_id] = delta_writer;
 }
 
-    DeltaWriter* TxnManager::get_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id) {
-        std::lock_guard<std::shared_mutex> txn_wrlock(
-                _get_txn_tablet_delta_writer_map_lock(transaction_id));
-        txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
-                _get_txn_tablet_delta_writer_map(transaction_id);
-        auto find = txn_tablet_delta_writer_map.find(transaction_id);
-        if (find != txn_tablet_delta_writer_map.end()) {
-            auto it = find->second.find(tablet_id);
-            if(it !=find->second.end()){
-                return it->second;
-            }
+DeltaWriter* TxnManager::get_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id) {
+    std::lock_guard<std::shared_mutex> txn_wrlock(
+            _get_txn_tablet_delta_writer_map_lock(transaction_id));
+    txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+            _get_txn_tablet_delta_writer_map(transaction_id);
+    auto find = txn_tablet_delta_writer_map.find(transaction_id);
+    if (find != txn_tablet_delta_writer_map.end()) {
+        auto it = find->second.find(tablet_id);
+        if (it != find->second.end()) {
+            return it->second;
         }
     }
+}
 
 void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
                                                  int64_t node_id, bool is_succeed) {

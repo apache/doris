@@ -128,7 +128,7 @@ public:
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
-    std::shared_ptr<RowsetWriter>& get_rowset_writer() {return _rowset_writer;}
+    std::shared_ptr<RowsetWriter>& get_rowset_writer() { return _rowset_writer; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
